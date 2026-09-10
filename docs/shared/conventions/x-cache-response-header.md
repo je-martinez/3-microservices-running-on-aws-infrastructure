@@ -2,13 +2,13 @@
 title: X-Cache Response Header
 type: convention
 area: shared
-status: draft
+status: active
 created: 2026-08-25
-updated: 2026-08-27
+updated: 2026-09-10
 tags:
   - type/convention
   - area/shared
-  - status/draft
+  - status/active
 related:
   - "[[2026-08-25-response-caching-layer-design]]"
   - "[[logging-context]]"

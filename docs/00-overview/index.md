@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-09-06
+updated: 2026-09-10
 tags:
   - type/spec
   - area/shared
@@ -97,6 +97,49 @@ related:
   - "[[2026-09-04-a-concurrency-test-can-fail-by-starvation]]"
   - "[[2026-09-04-a-build-time-env-var-absent-at-build-time-is-a-live-lookup]]"
   - "[[2026-09-06-address-geocoding-proxy-design]]"
+  - "[[web-app-foundation-milestone]]"
+  - "[[2026-07-31-contextvars-lost-across-task-boundaries]]"
+  - "[[2026-07-31-exit-code-should-reflect-this-steps-work]]"
+  - "[[2026-07-31-python-logging-extra-silently-dropped]]"
+  - "[[2026-08-12-server-error-middleware-outside-pure-asgi-middleware]]"
+  - "[[2026-08-14-counter-metrics-need-a-clock-and-a-window]]"
+  - "[[2026-08-16-cloudwatch-lambda-log-prefix-defeats-json-parse]]"
+  - "[[2026-08-21-asgi-instrumentation-double-spans-every-response]]"
+  - "[[2026-08-21-verify-in-the-viewer-not-the-api]]"
+  - "[[2026-08-25-cart-innodb-generated-column-fk-restriction]]"
+  - "[[2026-08-25-preview-must-mirror-charging-roundings-application-point]]"
+  - "[[2026-08-25-reads-are-not-exempt-from-observability]]"
+  - "[[2026-08-25-route-works-in-process-but-404s-at-gateway]]"
+  - "[[2026-08-26-cache-keys-built-from-a-raw-identity-header]]"
+  - "[[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]]"
+  - "[[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]]"
+  - "[[2026-08-27-a-librarys-defaults-encode-assumptions-about-a-generic-service]]"
+  - "[[2026-08-27-a-producer-side-test-proves-nothing-about-what-the-consumer-accepts]]"
+  - "[[2026-08-27-accumulated-local-state-degrades-the-stack-silently]]"
+  - "[[2026-08-29-the-emulator-was-the-ceiling-not-the-code]]"
+  - "[[2026-08-30-a-global-teardown-cannot-be-scoped]]"
+  - "[[2026-08-30-a-script-on-stdin-has-no-package-json]]"
+  - "[[2026-09-03-animation-clock-sampling-beats-style-and-class-probes]]"
+  - "[[2026-09-03-cart-drawer-first-open-flicker]]"
+  - "[[2026-09-03-cart-drawer-scrim-lead-flicker]]"
+  - "[[2026-09-03-unstyled-custom-element-host-is-inline]]"
+  - "[[2026-09-04-angular-http-testing-traps]]"
+  - "[[2026-09-04-instanceof-across-a-structured-clone-realm]]"
+  - "[[2026-09-07-a-dead-path-is-not-fail-closed-against-an-external-host]]"
+  - "[[2026-09-07-dev-form-autofill]]"
+  - "[[2026-09-08-put-cart-takes-five-seconds]]"
+  - "[[2026-09-09-a-rejected-message-is-not-a-retried-one]]"
+  - "[[2026-09-09-makefile-orchestration-invariants]]"
+  - "[[2026-09-09-migration-version-tables-lie-about-schema]]"
+  - "[[2026-09-10-formfield-owns-its-control-bindings-ng8022]]"
+  - "[[2026-09-10-formfield-reads-the-raw-dom-value]]"
+  - "[[2026-09-10-signal-forms-required-accepts-whitespace]]"
+  - "[[floci-recreate-destroys-backing-containers]]"
+  - "[[floci-storage-modes-and-tmp-corruption]]"
+  - "[[grpc-context-activate-at-dispatch]]"
+  - "[[mocks-hide-schema-bugs]]"
+  - "[[signoz-selfhost-migrator-blocker]]"
+  - "[[tightened-schemas-need-producer-first-deploys]]"
 ---
 
 # 3MRAI — Index
@@ -300,24 +343,83 @@ Specs produced through the planning phase, normalized to vault conventions.
 
 ## Lessons
 
-Durable empirical findings from spikes, incidents, and experiments.
+Durable empirical findings from spikes, incidents, and debugging sessions — one note per
+finding, all under `docs/lessons/`. Grouped below by the kind of trap each one records, since
+what makes a lesson reusable is the shape of the mistake, not the service it happened in.
 
-- [[ministack-auth-chain-spike-findings]] — Empirical findings from the JE-25 Ministack spike: proven local auth chain topology, DNS quirks, provider pins, and ECS workarounds.
-- [[floci-vs-ministack-spike-findings]] — A/B comparison of Floci vs Ministack on the same auth chain: gate results, comparison table, and key findings. No migration decision — ADR-0012 unchanged.
-- [[floci-rds-apigw-limits]] — Empirical limits of Floci discovered during JE-36 (RDS/Aurora + API Gateway chain): tag-update bugs on RDS/API GW resources, and API Gateway v2 HTTP_PROXY path-forwarding not working.
-- [[floci-storage-modes-and-tmp-corruption]] — Floci storage-mode durability testing (README's `hybrid` recommendation is wrong for 3MRAI; `persistent` is correct and already in use) and a truncated-`.tmp` state-file corruption pattern (rare, not mode-specific, root cause unproven).
-- [[signoz-selfhost-migrator-blocker]] — Task 3 of the SigNoz logs plan is blocked: the self-hosted SigNoz schema-migrator hangs and never creates the `signoz_*` ClickHouse database. Diagnosis and resume options recorded for the next session.
-- [[2026-07-12-prisma-lazy-promise-als]] — Prisma's lazy `PrismaPromise` silently broke `AsyncLocalStorage`-scoped audit actors: a non-awaited wrapper exited the ALS scope before the query (and its actor read) ran, stamping the wrong `createdBy`/`updatedBy`. Mocked tests could not catch it.
-- [[drawio-diagram-legibility]] — draw.io diagrams must use verified text/fill contrast and a canvas-fitting layout, checked by rendering to PNG — XML validity alone does not guarantee a legible diagram.
-- [[floci-sqs-lambda-docdb-support]] — Empirical probe of Floci's SQS, Lambda (SQS event source mapping), and DocumentDB support ahead of the events-pipeline milestone: all viable as designed, with three local-only findings (no multi-document DocumentDB transactions, a non-stable DocumentDB endpoint, and a silently-dropped `update-event-source-mapping` field).
-- [[floci-websocket-apigw-dynamodb-support]] — Empirical probe of Floci's WebSocket API Gateway + DynamoDB support for the realtime-events feature: the REQUEST authorizer's context genuinely propagates (unlike the HTTP API's claim-mapping gap), two undocumented local-only URL shapes, a Cognito JWT verifier issuer-from-configuration requirement, and an unresolved gateway E2E gap.
-- [[floci-elasticache-two-ports-and-provider-panic]] — Floci backs ElastiCache with a real Valkey container; the pinned AWS provider panics reading `NodeGroups[0]` on `CreateReplicationGroup`; no subnet-group API at all; and the container's own port (6379) disagrees with the host-side proxy port ElastiCache reports, requiring a moved proxy range (6479-6499) to coexist with a developer's local Redis.
-- [[2026-08-21-verify-in-the-viewer-not-the-api]] — Confirming data reached a backend (an API query) is not confirming a feature works; three claims in one session were verified against the wrong surface (span events invisible in Jaeger's waterfall, a re-verification that stayed API-first in OpenObserve, and 56/56 spans from `_search` while the UI's own `/dag` endpoint 400'd) before the pattern was named and corrected.
-- [[2026-08-26-cache-keys-built-from-a-raw-identity-header]] — A per-user cache key built from the raw `x-user-id` header (Cognito sub or `usr_` id, both valid) could not be invalidated by `DELETE /v1/users/me`'s canonical-identity cascade, leaving a deleted account's cached data live until TTL; fixed by invalidating both aliases, with normalizing keys at write time deliberately deferred as an accepted hit-rate cost. Per [[x-cache-response-header]], [[2026-08-25-response-caching-layer-design]].
-- [[2026-08-27-accumulated-local-state-degrades-the-stack-silently]] — A long-running local stack silently degraded to ~1700x normal latency on unchanged code, twice, and was misdiagnosed as a code defect both times until `/v1/health` on the same container proved it was the environment; invalidated three load-test A/B runs and two E2E specs before a `make clean` + `make bootstrap` restored it. Root mechanism unconfirmed, tracked as an open Deuda Técnica issue.
-- [[2026-09-04-a-retrying-url-assertion-passes-mid-redirect]] — Playwright's retrying `toHaveURL` can pass in the frame before a guard's redirect finishes; assert rendered content first, URL second, in guard/redirect E2E specs.
-- [[2026-09-04-a-concurrency-test-can-fail-by-starvation]] — A non-overlap assertion checked only after flushing every concurrent write can pass vacuously by starvation; move it inside the loop to name the real race instead of accusing the test harness.
-- [[2026-09-04-a-build-time-env-var-absent-at-build-time-is-a-live-lookup]] — An `NG_APP_*` variable `@ngx-env/builder` cannot see at build time is left as a live `import.meta.env` lookup that throws in the browser before Angular boots; every such variable needs both an `ARG` and an `ENV` in the Dockerfile.
+### Verification that proves less than it looks like it does
+
+- [[2026-08-21-verify-in-the-viewer-not-the-api]] — confirming data reached a backend is not confirming a feature works; three claims in one session were verified against the wrong surface.
+- [[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]] — a specified concurrent-PUT retry shipped as an unhandled 500 and passed review, because review asked "is this correct?" instead of "does this do what was specified?".
+- [[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]] — full unit coverage, review, and merge do not establish that a component is wired into any running path.
+- [[2026-08-27-a-producer-side-test-proves-nothing-about-what-the-consumer-accepts]] — asserting what you emit says nothing about what the other side validates.
+- [[2026-09-04-a-concurrency-test-can-fail-by-starvation]] — a non-overlap assertion made after flushing every concurrent write passes vacuously.
+- [[2026-09-04-a-retrying-url-assertion-passes-mid-redirect]] — Playwright's retrying `toHaveURL` can pass in the frame before a guard's redirect finishes.
+- [[mocks-hide-schema-bugs]] — a green mocked-Prisma suite cannot catch a wrong assumption about the real schema.
+- [[2026-08-14-counter-metrics-need-a-clock-and-a-window]] — a counter without a clock and a window is not a rate, and reads as one.
+- [[2026-08-25-reads-are-not-exempt-from-observability]] — read endpoints need the same instrumentation as writes, and an unchecked precedent carried a false claim through implementation.
+
+### Frameworks and libraries behaving unlike their documentation
+
+- [[2026-07-12-prisma-lazy-promise-als]] — Prisma's lazy `PrismaPromise` exits an `AsyncLocalStorage` scope before the query runs, stamping the wrong audit actor.
+- [[grpc-context-activate-at-dispatch]] — a grpc-js interceptor must activate the propagated context around the continuation that dispatches the handler, not the one that returns first.
+- [[2026-07-31-contextvars-lost-across-task-boundaries]] — Python `contextvars` silently drop request identity across two task boundaries.
+- [[2026-07-31-python-logging-extra-silently-dropped]] — Python's `logging` discards `extra=` unless a formatter emits it.
+- [[2026-08-12-server-error-middleware-outside-pure-asgi-middleware]] — Starlette's `ServerErrorMiddleware` sits outside every `add_middleware` layer, so pure-ASGI middleware never sees a 5xx.
+- [[2026-08-21-asgi-instrumentation-double-spans-every-response]] — the ASGI instrumentation spans every ASGI message, drawing two identically-named spans per response.
+- [[2026-08-27-a-librarys-defaults-encode-assumptions-about-a-generic-service]] — instrumentation defaults encode assumptions about a generic service; verify them against what yours carries.
+- [[2026-09-04-angular-http-testing-traps]] — three Angular testing traps that read as wiring bugs.
+- [[2026-09-04-instanceof-across-a-structured-clone-realm]] — `instanceof` stops holding once a value crosses a structured-clone realm.
+- [[2026-09-10-formfield-owns-its-control-bindings-ng8022]] — `[formField]` owns a fixed set of control bindings; binding one by hand is a compile error.
+- [[2026-09-10-formfield-reads-the-raw-dom-value]] — `[formField]` on a native input reads the raw DOM value, racing a sanitising `(input)` handler.
+- [[2026-09-10-signal-forms-required-accepts-whitespace]] — Signal Forms' `required()` accepts whitespace, so it is weaker than the `.trim()` guard it replaces.
+
+### Browser and UI defects invisible to the obvious probe
+
+- [[2026-09-03-unstyled-custom-element-host-is-inline]] — unstyled Angular custom elements default to `display:inline`, collapsing `w-full` template roots.
+- [[2026-09-03-animation-clock-sampling-beats-style-and-class-probes]] — only `requestAnimationFrame`-sampled `animation.currentTime` exposes a dropped frame.
+- [[2026-09-03-cart-drawer-first-open-flicker]] — a freshly mounted element's first animation frame can miss its deadline, and the fix must resume from a zone-tracked signal.
+- [[2026-09-03-cart-drawer-scrim-lead-flicker]] — the `animation` shorthand resets `animation-play-state`, so a pause rule's effect depends on declaration order.
+- [[2026-09-07-dev-form-autofill]] — three constraints on dev-only form autofill that only surfaced by building it.
+
+### Data, schema, and identity
+
+- [[2026-08-25-cart-innodb-generated-column-fk-restriction]] — InnoDB rejects a `CASCADE` foreign key on a column a stored generated column depends on.
+- [[2026-08-25-preview-must-mirror-charging-roundings-application-point]] — a preview must mirror the charging code's rounding *application point*, not just its rounding mode.
+- [[2026-08-26-cache-keys-built-from-a-raw-identity-header]] — a cache key built from a raw identity header cannot be invalidated by a canonical-identity cascade.
+- [[2026-09-09-migration-version-tables-lie-about-schema]] — a migration tool reports "up to date" from its version table, not from the schema.
+- [[tightened-schemas-need-producer-first-deploys]] — tightening a schema across a producer/consumer boundary requires deploying the producer first.
+- [[2026-09-09-a-rejected-message-is-not-a-retried-one]] — rejecting a message and retrying it are different outcomes, and the queue treats them differently.
+
+### Gateway, routing, and performance
+
+- [[2026-08-25-route-works-in-process-but-404s-at-gateway]] — a route that works on the service port can still 404 at the gateway; the 404's body shape names which layer dropped it.
+- [[2026-09-04-a-build-time-env-var-absent-at-build-time-is-a-live-lookup]] — an `NG_APP_*` variable absent at build time becomes a live browser lookup that throws before Angular boots.
+- [[2026-09-07-a-dead-path-is-not-fail-closed-against-an-external-host]] — a path that looks dead still reaches an external host, so it is not fail-closed.
+- [[2026-09-08-put-cart-takes-five-seconds]] — where the five seconds in `PUT /v1/cart` actually went.
+
+### Local environment, tooling, and the Floci emulator
+
+- [[ministack-auth-chain-spike-findings]] — proven local auth-chain topology, DNS quirks, provider pins, and ECS workarounds from the JE-25 spike.
+- [[floci-vs-ministack-spike-findings]] — A/B comparison of Floci vs Ministack on the same auth chain.
+- [[floci-rds-apigw-limits]] — Floci's RDS/API Gateway limits found during JE-36.
+- [[floci-sqs-lambda-docdb-support]] — probe of Floci's SQS, Lambda, and DocumentDB support ahead of the events-pipeline milestone.
+- [[floci-websocket-apigw-dynamodb-support]] — probe of Floci's WebSocket API Gateway + DynamoDB support for realtime events.
+- [[floci-elasticache-two-ports-and-provider-panic]] — a real Valkey container, a provider panic on `NodeGroups[0]`, and two disagreeing ports.
+- [[floci-storage-modes-and-tmp-corruption]] — `persistent` (not the README's `hybrid`) is the correct storage mode, plus a truncated-`.tmp` corruption pattern.
+- [[floci-recreate-destroys-backing-containers]] — Floci's persisted state must be destroyed together with its backing containers, or phantom clusters report "available".
+- [[2026-08-27-accumulated-local-state-degrades-the-stack-silently]] — a long-running local stack degraded ~1700x on unchanged code and was misdiagnosed as a code defect twice.
+- [[2026-08-29-the-emulator-was-the-ceiling-not-the-code]] — the throughput limit under measurement belonged to the emulator, not to the service.
+- [[2026-09-09-makefile-orchestration-invariants]] — why the bootstrap chain is ordered the way it is.
+- [[2026-07-31-exit-code-should-reflect-this-steps-work]] — a chained script's exit code must reflect its own step, not a downstream readiness check.
+- [[2026-08-30-a-script-on-stdin-has-no-package-json]] — a script piped on stdin resolves nothing from the project it appears to run in.
+- [[2026-08-30-a-global-teardown-cannot-be-scoped]] — a global teardown runs for the whole run, so it cannot be limited to one project's fixtures.
+- [[signoz-selfhost-migrator-blocker]] — the self-hosted SigNoz schema-migrator hangs and never creates the `signoz_*` database.
+
+### Observability and documentation output
+
+- [[2026-08-16-cloudwatch-lambda-log-prefix-defeats-json-parse]] — CloudWatch's Lambda log prefix defeats a JSON-anchored parse.
+- [[drawio-diagram-legibility]] — XML validity does not make a diagram legible; verify contrast and fit by rendering to PNG.
 
 ---
 
@@ -412,3 +514,46 @@ Origin materials the project grew from — kept for reference only, not the sour
 - [[2026-09-04-a-concurrency-test-can-fail-by-starvation]]
 - [[2026-09-04-a-build-time-env-var-absent-at-build-time-is-a-live-lookup]]
 - [[2026-09-06-address-geocoding-proxy-design]]
+- [[web-app-foundation-milestone]]
+- [[2026-07-31-contextvars-lost-across-task-boundaries]]
+- [[2026-07-31-exit-code-should-reflect-this-steps-work]]
+- [[2026-07-31-python-logging-extra-silently-dropped]]
+- [[2026-08-12-server-error-middleware-outside-pure-asgi-middleware]]
+- [[2026-08-14-counter-metrics-need-a-clock-and-a-window]]
+- [[2026-08-16-cloudwatch-lambda-log-prefix-defeats-json-parse]]
+- [[2026-08-21-asgi-instrumentation-double-spans-every-response]]
+- [[2026-08-21-verify-in-the-viewer-not-the-api]]
+- [[2026-08-25-cart-innodb-generated-column-fk-restriction]]
+- [[2026-08-25-preview-must-mirror-charging-roundings-application-point]]
+- [[2026-08-25-reads-are-not-exempt-from-observability]]
+- [[2026-08-25-route-works-in-process-but-404s-at-gateway]]
+- [[2026-08-26-cache-keys-built-from-a-raw-identity-header]]
+- [[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]]
+- [[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]]
+- [[2026-08-27-a-librarys-defaults-encode-assumptions-about-a-generic-service]]
+- [[2026-08-27-a-producer-side-test-proves-nothing-about-what-the-consumer-accepts]]
+- [[2026-08-27-accumulated-local-state-degrades-the-stack-silently]]
+- [[2026-08-29-the-emulator-was-the-ceiling-not-the-code]]
+- [[2026-08-30-a-global-teardown-cannot-be-scoped]]
+- [[2026-08-30-a-script-on-stdin-has-no-package-json]]
+- [[2026-09-03-animation-clock-sampling-beats-style-and-class-probes]]
+- [[2026-09-03-cart-drawer-first-open-flicker]]
+- [[2026-09-03-cart-drawer-scrim-lead-flicker]]
+- [[2026-09-03-unstyled-custom-element-host-is-inline]]
+- [[2026-09-04-angular-http-testing-traps]]
+- [[2026-09-04-instanceof-across-a-structured-clone-realm]]
+- [[2026-09-07-a-dead-path-is-not-fail-closed-against-an-external-host]]
+- [[2026-09-07-dev-form-autofill]]
+- [[2026-09-08-put-cart-takes-five-seconds]]
+- [[2026-09-09-a-rejected-message-is-not-a-retried-one]]
+- [[2026-09-09-makefile-orchestration-invariants]]
+- [[2026-09-09-migration-version-tables-lie-about-schema]]
+- [[2026-09-10-formfield-owns-its-control-bindings-ng8022]]
+- [[2026-09-10-formfield-reads-the-raw-dom-value]]
+- [[2026-09-10-signal-forms-required-accepts-whitespace]]
+- [[floci-recreate-destroys-backing-containers]]
+- [[floci-storage-modes-and-tmp-corruption]]
+- [[grpc-context-activate-at-dispatch]]
+- [[mocks-hide-schema-bugs]]
+- [[signoz-selfhost-migrator-blocker]]
+- [[tightened-schemas-need-producer-first-deploys]]

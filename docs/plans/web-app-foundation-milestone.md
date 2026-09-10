@@ -2,13 +2,13 @@
 title: "Web App Foundation Milestone"
 type: plan
 area: shared
-status: draft
+status: active
 created: 2026-08-18
-updated: 2026-09-04
+updated: 2026-09-10
 tags:
   - type/plan
   - area/shared
-  - status/draft
+  - status/active
   - milestone/web-app-foundation
   - issue/JE-162
   - issue/JE-163
@@ -30,16 +30,18 @@ related:
   - "[[2026-08-18-web-app-foundation]]"
   - "[[2026-08-17-web-app-foundation-design]]"
   - "[[2026-09-04-web-gateway-integration-design]]"
+  - "[[web-gateway-integration-milestone]]"
+  - "[[pencil-design-extraction]]"
 ---
 
 # Web App Foundation Milestone
 
 Logical execution plan for the [Web App Foundation](https://linear.app/je-martinez/project/3mrai-company-da39253a1d6f) milestone: task sequence, phases, and the blocking dependency graph. The detailed step-by-step plan lives in [[2026-08-18-web-app-foundation]] (superpowers plan); the design in [[2026-08-17-web-app-foundation-design]]. This note is the milestone-level map.
 
-> [!warning] Milestone in progress — PR open, not yet merged
-> All 13 issues (JE-162–JE-172, plus JE-174 and JE-175, added after the original plan) are implemented on `feature/web-app-foundation`, which is pushed with [PR #76](https://github.com/je-martinez/3-microservices-running-on-aws-infrastructure/pull/76) open against `main`. Nothing on this branch is merged yet — the PR is awaiting review. See [[linear-references]] — the vault references Linear via tags and links, it never mirrors issue status.
+> [!success] Milestone complete — merged into `main`
+> All 13 issues (JE-162–JE-172, plus JE-174 and JE-175, added after the original plan) are delivered. The work reached `main` through [PR #76](https://github.com/je-martinez/3-microservices-running-on-aws-infrastructure/pull/76) (`feature/web-app-foundation` → `main`), squash commit [`18781e9`](https://github.com/je-martinez/3-microservices-running-on-aws-infrastructure/commit/18781e9de05c7e2d7fa472308ecadc93a1b7f076), merged 2026-09-05. The branch no longer exists. See [[linear-references]] — the vault references Linear via tags and links, it never mirrors issue status.
 >
-> Along the way, testing the running app surfaced work the original plan did not anticipate: two sibling route layouts sharing the header and auth brand panel across screens, route transitions and enter/leave animations (cart drawer, notifications panel, account menu) via the View Transitions API, a branded boot loader replacing the first white paint, and the favicon/page title. It also produced four lessons under `docs/lessons/` (dated 2026-09-03) on defects invisible to the obvious probe — an inline-by-default custom-element host, animation-frame-gated sampling vs. class/computed-style probes, a first-open animation-clock gap, and the `animation` shorthand resetting `animation-play-state`.
+> The delivered scope is wider than the plan: testing the running app surfaced work the original plan did not anticipate — two sibling route layouts sharing the header and auth brand panel across screens, route transitions and enter/leave animations (cart drawer, notifications panel, account menu) via the View Transitions API, a branded boot loader replacing the first white paint, and the favicon/page title. Four lessons under `docs/lessons/` (dated 2026-09-03) come out of it, all on defects invisible to the obvious probe — an inline-by-default custom-element host, animation-frame-gated sampling vs. class/computed-style probes, a first-open animation-clock gap, and the `animation` shorthand resetting `animation-play-state`.
 
 **Goal:** build `apps/web/` — an Angular + NgRx + Tailwind application where all 18 designed screens (36 frames, desktop + mobile) are laid out and reachable by routing — plus the `pencil-design-extraction` skill, the `web-impl` agent, and the convention note that make the design reproducible. **Phase 1 builds screens, not behaviour:** no gateway calls, no NgRx effects issuing HTTP, auth structured but not wired.
 
@@ -144,8 +146,10 @@ Per [[phase-c-review-flow]], this milestone has three stop points, matching the 
 
 ## Outcome
 
-> [!info] PR open, not yet merged
-> As of 2026-09-04, all 13 issues (JE-162–JE-172, JE-174, JE-175) are implemented on `feature/web-app-foundation`. The branch is pushed and [PR #76](https://github.com/je-martinez/3-microservices-running-on-aws-infrastructure/pull/76) is open against `main`, awaiting review — nothing on this branch is merged yet. This section will be completed once the PR merges.
+> [!success] Merged into `main` on 2026-09-05
+> All 13 issues (JE-162–JE-172, JE-174, JE-175) are in `main` via [PR #76](https://github.com/je-martinez/3-microservices-running-on-aws-infrastructure/pull/76) (`feature/web-app-foundation` → `main`), squash commit [`18781e9`](https://github.com/je-martinez/3-microservices-running-on-aws-infrastructure/commit/18781e9de05c7e2d7fa472308ecadc93a1b7f076).
+
+`main` carries all 18 designed screens laid out and reachable by routing, the 26 design tokens in `apps/web/DESIGN.md`, typed phase-1 fixtures, the committed HTML snapshots of the design frames, the [[pencil-design-extraction]] skill and the `web-impl` agent, and the navigation E2E project. Phase 2 — real gateway calls replacing those fixtures — is [[web-gateway-integration-milestone]].
 
 ## Related
 
@@ -155,3 +159,5 @@ Per [[phase-c-review-flow]], this milestone has three stop points, matching the 
 - [[2026-08-18-web-app-foundation]] — the implementation plan with detailed task steps.
 - [[2026-08-17-web-app-foundation-design]] — the design spec specifying each deliverable.
 - [[2026-09-04-web-gateway-integration-design]] — phase 2 design, replacing the fixtures this milestone shipped with real gateway calls.
+- [[web-gateway-integration-milestone]] — the phase-2 milestone that continues this one.
+- [[pencil-design-extraction]] — the extraction convention JE-170/JE-171 produced.

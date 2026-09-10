@@ -4,9 +4,12 @@ type: spec
 area: events-pipeline
 status: accepted
 created: 2026-06-26
-updated: 2026-09-09
+updated: 2026-09-10
 tags: [type/spec, area/events-pipeline, status/accepted, issue/JE-180, issue/JE-181]
 related:
+  - "[[2026-08-05-email-payload-enrichment-design]]"
+  - "[[money-representation]]"
+  - "[[friendly-order-number]]"
   - "[[2026-09-09-a-rejected-message-is-not-a-retried-one]]"
   - "[[2026-08-29-e2e-email-support-store]]"
   - "[[2026-08-29-the-emulator-was-the-ceiling-not-the-code]]"
@@ -373,6 +376,94 @@ invite disagreement.
 > the interface itself, not an ORM mapping, produces the on-disk casing.
 
 Hard deletes are prohibited; see [[soft-delete]] and [[ADR-0004-soft-delete-only]].
+
+### Per-type `payload` shapes
+
+The envelope validates `payload` only as `z.record(z.string(), z.unknown())`
+(`src/domain/envelope.ts`). The real per-type contract lives in each handler, which
+`safeParse`s the payload against its own Zod schema and throws a `PermanentError` on
+failure — so a payload shape mismatch is not a retryable error, it consumes the record and
+the email is never sent. Full design of the enrichment that sized these payloads:
+[[2026-08-05-email-payload-enrichment-design]].
+
+> [!warning] Casing is per-payload and deliberately not uniform
+> The **envelope** is `snake_case` everywhere — that is the contract every producer shares.
+> The payloads are not: `ORDER_CREATED` and `TRACKING_STATUS_CHANGED` are `snake_case`,
+> while `USER_CREATED` is camelCase (`fullName`, `userId`, `createdAt`) and
+> `AUTH_OTP_REQUESTED`/`PASSWORD_RESET_REQUESTED` mix both in one object (`full_name`
+> beside `ttlSeconds`). Each payload keeps its producer's own casing. Mixing spellings
+> inside one object is worse than the inconsistency across objects, and renaming an
+> established key rejects every envelope in flight — the schemas validate the **wire**, not
+> a preference.
+
+**`USER_CREATED`** (`src/handlers/user-created.ts`) — camelCase:
+
+| Field | Zod | Notes |
+|---|---|---|
+| `email` | `z.string().email()` | The recipient. |
+| `fullName` | `.min(1)` | |
+| `userId` | `.min(1)` | Duplicates the envelope's root `user_id` on purpose — the renderer is handed the **payload**, so the template reads the account id from here. |
+| `createdAt` | `.min(1)` | Already ISO-8601 on the wire (`payload.createdAt.toISOString()` at the producer), hence a string rather than a coerced date. |
+
+Both registration paths publish the identical shape (`register.ts` and
+`register-passwordless.ts`), since both produce the same welcome email.
+
+**`ORDER_CREATED`** (`src/handlers/order-created.ts`) — `snake_case`. Beyond
+`order_id`/`user_id`/`email`/`created_at` it carries `full_name`, the four money figures
+(`subtotal_cents`, `tax_cents`, `shipping_cents`, `total_cents`), an optional
+`shipping_address`, an optional `order_number`, and a non-empty `items[]` of
+`{ name, quantity, unit_price_cents }`. Four contracts here are load-bearing:
+
+- **The four money figures are four INDEPENDENT integers.** The consumer never re-derives
+  `total_cents` from the other three: the split was computed once by the code that priced
+  the order, and a recomputed total can contradict the row the receipt describes. See
+  [[money-representation]].
+- **A receipt line carries the product NAME, not its id, and no per-line total.** The
+  template multiplies quantity by unit price; a second figure on the wire can contradict
+  the two it came from. `OrderDetail` stores `ProductId`, so the producer joins against
+  the products already loaded in its pricing loop — in memory, not a second query.
+- **`shipping_address` is `.optional()`, never `.nullable()`.** The producer omits the key
+  rather than sending null; accepting both would give the templates two spellings of "no
+  address". It stays a permissive `z.record` because the snapshot's shape is owned by
+  Users — a strict object would reject the whole envelope when an upstream field is added.
+- **`order_number` is optional** for the same reason `request_id` is on the envelope: a
+  message published before the field existed can still be on the queue at deploy time, and
+  a schema failure is a `PermanentError` whose email is never sent. See
+  [[friendly-order-number]].
+
+**`TRACKING_STATUS_CHANGED`** (`src/handlers/tracking-status-changed.ts`) — `snake_case`.
+`status` is an enum of the five forward-only states; alongside `previous_status`,
+`changed_at` and `email` it carries `full_name`, `order_id` (present on the envelope too,
+because the template shows it in the body), `tracking_number`, an optional `order_number`
+and `shipping_address`, and `history[]` of `{ status, datetime }`.
+
+`history[]` is what makes the five-step timeline renderable at all: without it a transition
+event can only describe its own step and the template would have to invent the rest.
+`full_name` is `z.string()` rather than `.min(1)` and the producer always sends the key —
+`""` when unknown — deliberately unlike `shipping_address`: an absent address means the
+notification cannot be delivered, while an absent name is cosmetic and the mail still sends.
+The producer sends `shipping_address` as raw JSON bytes rather than a string, and normalizes
+a literal `null` document to an omitted key first, because a re-encoded string-containing-JSON
+or an explicit null is a `PermanentError` under an `.optional()`-not-`.nullable()` schema —
+the record is consumed, the email **and** the WebSocket push are lost, and the producer logs
+success.
+
+**`AUTH_OTP_REQUESTED` and `PASSWORD_RESET_REQUESTED`** share one shape, field for field:
+`{ email, full_name, code, ttlSeconds }` — see [Dispatch](#dispatch) for why they remain two
+event types rather than one parameterized type. Two schema choices are contracts:
+
+- **`full_name` is a plain `z.string()`, NOT `.min(1)`, and `""` is the normal path.** The
+  producer is a Cognito Lambda reading `event.request.userAttributes.name`, which it falls
+  back to `""` for. Users' `signUp` does write the standard `name` attribute at
+  `AdminCreateUser` — written for this one consumer, which runs inside Cognito with no
+  database access and can read nothing but Cognito's own attributes (see
+  [[cognito-custom-auth-triggers]]) — so a name is normally present for accounts created
+  through it, but the consumer must not depend on that. A `.min(1)` costs the user their
+  login or reset code over a missing greeting.
+- **`code` stays `.min(1)`, never a six-digit pattern.** A length or format rule turns a
+  Cognito format change into silently discarded emails. The code is redacted before
+  persistence — see
+  [Payload redaction](#payload-redaction--the-one-exception-to-persist-verbatim).
 
 DocumentDB indexes:
 
@@ -1101,3 +1192,12 @@ flushed are lost or arrive late on the next cold invocation, attributed to the w
   (`ForgotPasswordCommand`), and the two security properties its best-effort publish protects.
 - [[2026-08-12-custom-business-metrics-cloudwatch-design]] — the design for the email
   sent/failed metrics, the permanent-vs-transient split, and the required `templateKey` field.
+- [[2026-08-05-email-payload-enrichment-design]] — the design that sized the four enriched
+  payload shapes documented under [Per-type `payload` shapes](#per-type-payload-shapes):
+  what each producer transports, what is modelled, and what is hardcoded.
+- [[money-representation]] — why `ORDER_CREATED`'s four money figures travel as four
+  independent integers the consumer never re-derives, and why a receipt line carries no
+  per-line total.
+- [[friendly-order-number]] — the `order_number` object both `ORDER_CREATED` and
+  `TRACKING_STATUS_CHANGED` carry, why it is optional on both, and why the producer owns
+  the displayed form.

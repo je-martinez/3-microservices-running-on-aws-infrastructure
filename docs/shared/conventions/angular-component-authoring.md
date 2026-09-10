@@ -24,12 +24,11 @@ related:
 
 # Angular Component Authoring
 
-Two rules for every Angular component in `apps/web/`, both named directly by the user after
-reviewing the just-delivered web app, and both currently violated across the whole app. Neither
-is a style preference: the first is a maintainability rule with a concrete recurring failure
-mode attached, the second is an accessibility rule. This note is the durable record so the next
-component — and `web-impl` and the `pencil-design-extraction` skill that feeds it — do not
-reproduce either.
+The rules every Angular component in `apps/web/` follows. None is a style preference: Rules 1–2
+are a maintainability rule and an accessibility rule the user named directly after reviewing the
+web app; Rules 3–6 each carry a concrete failure this repo hit; Rules 7–10 govern forms, which
+are Signal Forms schemas here. This note is the durable record so the next component — and
+`web-impl` and the `pencil-design-extraction` skill that feeds it — reproduce none of them.
 
 ## Current state — the app does not comply yet
 
@@ -152,13 +151,45 @@ token store on boot — an inherently asynchronous read. A guard that checks a s
 must `await` the rehydration before making its allow/deny decision — this is not an edge case,
 it is the default path every reload of `/orders`, `/checkout`, or `/profile` takes.
 
-## Rule 7 — a gating `required` is paired with `pattern(path.x, /\S/)`
+## Rule 7 — a form is a Signal Forms schema; validation lives in the schema, not the component
 
-Angular Signal Forms' `required()` counts a value of nothing but spaces as **present**: its
-`isEmpty()` rejects only `''`, `false`, `null`/`undefined` (and `NaN` for numbers). So
-`required()` alone is **weaker** than the `fullName().trim().length > 0` guard it typically
-replaces during a migration — it compiles, it passes the existing tests, and it lets a user
-register with a name of three spaces or save a delivery address that ships nowhere.
+Every form in `apps/web/` is a Signal Forms `form()` over a `signal()` model, with its
+constraints declared in the schema callback. The component holds the model and the form; it does
+not hand-roll validity.
+
+```ts
+protected readonly model = signal<ProfileForm>(EMPTY_PROFILE_FORM);
+
+protected readonly profileForm = form(this.model, (path) => {
+  required(path.fullName, { message: 'Enter your full name' });
+  pattern(path.fullName, /\S/, { message: 'Enter your full name' });
+  maxLength(path.postalCode, 5);
+});
+```
+
+Three consequences follow, and each is a rule of its own:
+
+- **Submission is gated by the schema's own verdict**, `form().valid()`, never by a hand-written
+  predicate over the model's fields. A component that keeps its own `trim().length > 0` check
+  beside a schema has two sources of truth, and they drift.
+
+  ```ts
+  protected readonly canSave = computed(() => this.profileForm().valid() && !this.saving());
+  ```
+
+- **A rejected submit calls `form().markAsTouched()`**, so every field's error becomes visible at
+  once. Errors stay hidden until touched (see `Field.visibleError`), so without this a user who
+  presses a disabled-looking button gets no explanation.
+- **A constraint is declared once, in the schema**, and reaches both the native attribute and any
+  custom control's own formatting — see Rule 9, which makes this mandatory rather than merely
+  tidy.
+
+## Rule 8 — a gating `required` is paired with `pattern(path.x, /\S/)`
+
+`required()` counts a value of nothing but spaces as **present**: its `isEmpty()` rejects only
+`''`, `false`, `null`/`undefined` (and `NaN` for numbers). So `required()` alone is **weaker**
+than a `fullName().trim().length > 0` guard — it compiles, it passes the existing tests, and it
+lets a user register with a name of three spaces or save a delivery address that ships nowhere.
 
 Whenever a `required` is what **gates submission**, pair it:
 
@@ -179,6 +210,51 @@ a blank email blocks submission on its own and masks a missing name check entire
 
 Full incident, the `file:line` evidence in the installed Angular, and the mutation check that
 proves the test is not inert: [[2026-09-10-signal-forms-required-accepts-whitespace]].
+
+## Rule 9 — `[formField]` owns its control bindings; declare the constraint in the schema
+
+`[formField]` claims a fixed set of control bindings and feeds them itself: `disabled`,
+`disabledReasons`, `dirty`, `errors`, `hidden`, `invalid`, `max`, `maxLength`, `min`,
+`minLength`, `name`, `pattern`, `pending`, `readonly`, `required`, `touched`. Binding any of them
+by hand on the same element is a **compile error**, not a warning:
+
+```
+NG8022: Binding to '[maxLength]' is not allowed on nodes using the '[formField]' directive
+```
+
+So `maxLength(path.postalCode, 5)` goes in the schema, and the directive carries it down to the
+input's `maxlength` attribute **and** to the numeric `Field`'s digit truncation — one declaration
+driving both.
+
+**A custom control may not have a public member named after any of those sixteen keys**, even
+meaning something unrelated. This is the sharper half: `PhoneField`'s advisory "this number looks
+incomplete" flag cannot be called `invalid`, because `invalid` is owned, and it carries the name
+`incomplete` instead. Check a control's public members against the list before adding
+`[formField]` support, and re-read the list from
+`apps/web/node_modules/@angular/forms/fesm2022/signals.mjs` rather than from memory — it is
+version-specific. Full detail: [[2026-09-10-formfield-owns-its-control-bindings-ng8022]].
+
+## Rule 10 — a field that formats as you type is a `FormValueControl`, not a raw `<input>`
+
+`[formField]` registers **its own** DOM `input` listener and re-reads the element's raw value on
+every event. An `<input>` whose `(input)` handler sanitises by rewriting `element.value` is
+therefore in a race with that listener, and the **unsanitised** value can win — the handler runs,
+but field state may already hold the pre-rewrite value, and the request is built from field
+state.
+
+A custom control implementing `FormValueControl` is safe by construction: it sanitises **before**
+setting its own `value` model, so there is no raw DOM read to race. `Field`, `PhoneField`, and
+`StreetAutocomplete` (`apps/web/src/app/shared/ui/`) are all this shape — `value` is a `model()`,
+never an `input()`, and re-typing it breaks every `[formField]` binding silently.
+
+- **Prefer a `FormValueControl`** for any field needing as-you-type formatting.
+- **When a formatted field must stay a raw `<input>`, make its handler the single writer** and
+  let the schema validate what the handler has already written — never add a second sanitisation
+  point.
+
+This is specifically a native-element problem; it does not generalise into "Signal Forms fights
+sanitisation". Full detail, including the OTP and card-number cases:
+[[2026-09-10-formfield-reads-the-raw-dom-value]].
 
 ## Where this bites — the extraction workflow, not just the component
 
@@ -218,11 +294,13 @@ colours — and it was the half that got missed when the app was first built.
   (`apps/web/src/app/core/overlay/defer-enter-animation.ts`) this app uses to hold an overlay's
   enter animation until its first frame is actually presented, and why its deferred flag must
   be a `signal` rather than a plain field.
-- [[2026-09-10-signal-forms-required-accepts-whitespace]] — the lesson behind Rule 7: the
+- [[2026-09-10-signal-forms-required-accepts-whitespace]] — the lesson behind Rule 8: the
   incident, the `isEmpty()` source evidence in the installed Angular, and the mutation check
   that distinguishes a real regression test from an inert one.
-- [[2026-09-10-formfield-reads-the-raw-dom-value]] — the same directive Rule 7 validates:
-  `[formField]` registers its own `input` listener and takes the element's raw value, so a
-  sanitising `(input)` handler races it rather than filtering it.
-- [[2026-09-10-formfield-owns-its-control-bindings-ng8022]] — `[formField]` claims a fixed set
-  of control bindings and feeds them itself; binding one by hand is a compile error (NG8022).
+- [[2026-09-10-formfield-reads-the-raw-dom-value]] — the lesson behind Rule 10: `[formField]`
+  registers its own `input` listener and takes the element's raw value, so a sanitising
+  `(input)` handler races it rather than filtering it, and a `FormValueControl` removes the race
+  by construction.
+- [[2026-09-10-formfield-owns-its-control-bindings-ng8022]] — the lesson behind Rule 9: the
+  sixteen owned control bindings, the NG8022 compile error, and the custom-control member that
+  collides on name alone.

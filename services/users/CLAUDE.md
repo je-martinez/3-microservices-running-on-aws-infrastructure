@@ -97,6 +97,7 @@ services/users/
 - Prefixed nano IDs: [../../docs/shared/conventions/nano-id.md](../../docs/shared/conventions/nano-id.md)
 - Audit fields: [../../docs/shared/conventions/audit-fields.md](../../docs/shared/conventions/audit-fields.md)
 - API versioning: [../../docs/shared/conventions/versioning.md](../../docs/shared/conventions/versioning.md)
+- OpenAPI specs (a GENERATED, committed artifact — never hand-written or hand-patched): [../../docs/shared/conventions/openapi-specs.md](../../docs/shared/conventions/openapi-specs.md) → [[openapi-specs]]
 - DB naming (snake_case ↔ PascalCase aliases): [../../docs/shared/conventions/db-naming.md](../../docs/shared/conventions/db-naming.md)
 - Env validation (Zod): [../../docs/shared/decisions/ADR-0014-env-validation-zod.md](../../docs/shared/decisions/ADR-0014-env-validation-zod.md)
 - Logging context & tracing: [../../docs/shared/conventions/logging-context.md](../../docs/shared/conventions/logging-context.md)

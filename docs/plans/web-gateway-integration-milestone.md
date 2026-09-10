@@ -2,13 +2,13 @@
 title: "Web Gateway Integration Milestone"
 type: plan
 area: shared
-status: draft
+status: active
 created: 2026-09-04
-updated: 2026-09-07
+updated: 2026-09-10
 tags:
   - type/plan
   - area/shared
-  - status/draft
+  - status/active
   - milestone/web-gateway-integration
   - issue/JE-237
   - issue/JE-238
@@ -30,6 +30,10 @@ related:
   - "[[angular-component-authoring]]"
   - "[[env-files]]"
   - "[[2026-09-06-address-geocoding-proxy-design]]"
+  - "[[2026-09-07-dev-form-autofill]]"
+  - "[[2026-09-10-formfield-owns-its-control-bindings-ng8022]]"
+  - "[[2026-09-10-formfield-reads-the-raw-dom-value]]"
+  - "[[2026-09-10-signal-forms-required-accepts-whitespace]]"
 ---
 
 # Web Gateway Integration Milestone
@@ -39,17 +43,18 @@ and the blocking dependency graph. The detailed design lives in
 [[2026-09-04-web-gateway-integration-design]] (superpowers spec). This note is the
 milestone-level map, per [[milestone-plan]].
 
-> [!warning] Implemented and committed, PR not yet open — stacked on an unmerged branch
-> All 9 issues (JE-237 through JE-245) are implemented, one commit each, on
-> `feature/web-gateway-integration`, cut from `feature/web-app-foundation` (not `main` — this
-> milestone continues phase 1, not a fresh branch). [PR #76](https://github.com/je-martinez/3-microservices-running-on-aws-infrastructure/pull/76)
-> for `feature/web-app-foundation` → `main` is still **open**, so this branch's own PR
-> (`feature/web-gateway-integration` → `feature/web-app-foundation`) depends on #76 merging
-> first — it cannot be opened against a moving base in the meantime. **Nothing from this
-> milestone is merged yet.** A tenth issue, JE-246, was filed as a **backend bug** found during
-> implementation rather than implemented here — see the Outcome section. See
-> [[linear-references]] — the vault references Linear via tags and links, it never mirrors
-> issue status.
+> [!success] Milestone complete — merged into `main`
+> The nine planned issues (JE-237 through JE-245) are delivered, and the branch grew well beyond
+> them before it closed: 113 commits reached `main` through
+> [PR #77](https://github.com/je-martinez/3-microservices-running-on-aws-infrastructure/pull/77)
+> (`feature/web-gateway-integration` → `main`), squash commit
+> [`a529dac`](https://github.com/je-martinez/3-microservices-running-on-aws-infrastructure/commit/a529daccc242fc241ee2b155ecf90554b9c5df72),
+> merged 2026-09-10. The branch was cut from `feature/web-app-foundation`, whose own
+> [PR #76](https://github.com/je-martinez/3-microservices-running-on-aws-infrastructure/pull/76)
+> merged on 2026-09-05; PR #77 opened against `main` on 2026-09-08. Both branches are deleted. The
+> **What the branch delivered beyond the plan** section below records the extra scope; the
+> per-issue tables describe the plan, not the final commit history. See [[linear-references]] —
+> the vault references Linear via tags and links, it never mirrors issue status.
 
 **Goal:** replace phase 1's 100%-fixture `apps/web/` with real API Gateway calls: a same-origin
 nginx/`ng serve` proxy (not CORS), an encrypted-IndexedDB token store, a deduped refresh
@@ -175,7 +180,36 @@ Per [[phase-c-review-flow]], this milestone has two stop points, matching the bl
 - **JE-245** — `cart-drawer.ts` is server-backed (`GET`/`PUT`/`DELETE /v1/cart`); mutations are
   serialized in the store since `PUT` replaces the whole cart.
 
+## What the branch delivered beyond the plan
+
+The nine issues above describe the milestone as planned. The branch that shipped it carries 113
+commits, so a large part of `main`'s current web app is not traceable to any of them. Rather
+than invent issue IDs, this section names the extra scope as it appears in the merged history:
+
+- **Signal Forms migration.** Every form in `apps/web/` is expressed as a Signal Forms schema,
+  on Angular 22 (Angular, NgRx, the builder, and eslint moved together). Three traps this
+  surfaced are recorded as lessons — [[2026-09-10-formfield-owns-its-control-bindings-ng8022]],
+  [[2026-09-10-formfield-reads-the-raw-dom-value]], and
+  [[2026-09-10-signal-forms-required-accepts-whitespace]].
+- **Address autocomplete.** A same-origin Geoapify geocoding proxy
+  ([[2026-09-06-address-geocoding-proxy-design]]) backs a street autocomplete on both the
+  checkout and profile address forms, with one input per address field and no invented country.
+- **A readable order number.** Orders gives every order a number a customer can read aloud, and
+  snapshots the product name and image onto each order line so history survives catalogue edits.
+- **Real sign-out.** Users revokes the caller's Cognito session on sign-out, and the web app's
+  Sign out actually ends the session rather than only clearing local state.
+- **Checkout and cart hardening.** The stepper is driven from real state with cart writes
+  coalesced into one debounced call, order placement moved from the cart drawer to checkout, and
+  the card form matches what Stripe accepts.
+- **Dev-only form autofill**, whose three constraints are recorded in
+  [[2026-09-07-dev-form-autofill]].
+- **Repo-wide comment-convention enforcement** extended to Angular templates, with the gate wired
+  into every agent.
+
 ## Verification totals
+
+Measured at the point the nine planned issues completed, before the extra scope above landed —
+these are the plan's numbers, not the branch's final ones.
 
 - **175 Vitest** unit tests (refresh interceptor including the concurrent case, encrypted token
   store, guards, and the rest of the new `core/` surface).
@@ -186,18 +220,18 @@ Per [[phase-c-review-flow]], this milestone has two stop points, matching the bl
 
 ## Outcome
 
-> [!info] JE-246 filed as a backend bug, not implemented on this branch
-> A backend defect surfaced during implementation was filed as **JE-246** rather than fixed
-> here — this milestone's scope is the web app, not the services it calls. See
-> [[2026-09-04-web-gateway-integration-design]] for what phase 2 covers; JE-246 is tracked and
-> resolved independently in Linear per [[linear-references]].
+> [!success] Merged into `main` on 2026-09-10
+> The whole branch is in `main` via
+> [PR #77](https://github.com/je-martinez/3-microservices-running-on-aws-infrastructure/pull/77),
+> squash commit
+> [`a529dac`](https://github.com/je-martinez/3-microservices-running-on-aws-infrastructure/commit/a529daccc242fc241ee2b155ecf90554b9c5df72)
+> — 688 files, +47,170/−24,861. `apps/web/` runs entirely against the API Gateway; the phase-1
+> fixtures it replaced are gone.
 
-> [!warning] Not yet mergeable — dependency on PR #76
-> As of 2026-09-04, all 9 issues are implemented and committed on
-> `feature/web-gateway-integration`. [PR #76](https://github.com/je-martinez/3-microservices-running-on-aws-infrastructure/pull/76)
-> (`feature/web-app-foundation` → `main`) is still open; this branch's own PR depends on #76
-> merging first, since it is stacked on top of it. This section will be completed once both
-> PRs merge.
+> [!info] JE-246 is a backend bug, not part of this branch
+> A backend defect found during implementation belongs to **JE-246** rather than to this
+> milestone — the scope here is the web app, not the services it calls. JE-246 is tracked
+> independently in Linear per [[linear-references]].
 
 ## Related
 
@@ -206,7 +240,7 @@ Per [[phase-c-review-flow]], this milestone has two stop points, matching the bl
 - [[phase-c-review-flow]] — batch-review flow and dependency-gate stop points referenced above.
 - [[2026-09-04-web-gateway-integration-design]] — the design spec specifying each deliverable.
 - [[web-app-foundation-milestone]] — the phase-1 milestone this one continues, and the branch
-  it is stacked on.
+  it was cut from.
 - [[testing]] — the three-layer testing convention adapted for the web app's Vitest + gateway
   Playwright specs.
 - [[angular-component-authoring]] — component conventions the new `core/` code follows.
@@ -215,3 +249,8 @@ Per [[phase-c-review-flow]], this milestone has two stop points, matching the bl
   [[2026-09-06-address-geocoding-proxy-design]]).
 - [[2026-09-06-address-geocoding-proxy-design]] — converted this milestone's `ng serve` proxy
   from JSON to an ES module to serve `/geocode/` alongside `/v1`.
+- [[2026-09-07-dev-form-autofill]] — the three constraints behind the dev-only autofill.
+- [[2026-09-10-formfield-owns-its-control-bindings-ng8022]],
+  [[2026-09-10-formfield-reads-the-raw-dom-value]],
+  [[2026-09-10-signal-forms-required-accepts-whitespace]] — the Signal Forms traps the migration
+  surfaced.

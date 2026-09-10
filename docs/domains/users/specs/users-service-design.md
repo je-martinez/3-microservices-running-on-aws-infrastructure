@@ -4,7 +4,7 @@ type: spec
 area: users
 status: active
 created: 2026-06-26
-updated: 2026-08-27
+updated: 2026-09-10
 tags: [type/spec, area/users, status/active]
 related:
   - "[[2026-08-25-response-caching-layer-design]]"
@@ -85,6 +85,7 @@ All routes are versioned under `/v1` (see [[versioning]]). Source of truth: `ser
 | `POST` | `/v1/users/register` | Creates a user in Cognito and the DB. Reserves the `usr_` id before Cognito `signUp` (see [`custom:app_user_id`](#customapp_user_id-token-claim)). |
 | `POST` | `/v1/users/login` | Authenticates via Cognito; returns tokens. |
 | `POST` | `/v1/users/refresh` | Exchanges a Cognito refresh token for new id/access tokens (`REFRESH_TOKEN_AUTH`). See [[2026-07-11-refresh-token-endpoint-design]]. |
+| `POST` | `/v1/users/logout` | Revokes the caller's Cognito session via `GlobalSignOut`, invalidating the id, access **and** refresh tokens at once. Reads the access token from the `Authorization` header, not a body field. `204` with no body; `401` when no parseable Bearer token is present. Idempotent — an already-revoked or expired token also answers `204`. See [Sign-out](#sign-out) below. |
 | `POST` | `/v1/users/otp/start` | Starts a passwordless OTP challenge for the given email; returns `{ session }`. Works for both auth types — the second login path for a `PASSWORD` user and the only path for a `PASSWORDLESS` user. Public route, no JWT authorizer. See [Passwordless OTP authentication](#passwordless-otp-authentication) below. |
 | `POST` | `/v1/users/otp/verify` | Verifies `{ email, session, code }` against the Cognito `CUSTOM_AUTH` challenge; returns the same `AuthTokens` shape as `POST /v1/users/login`. Public route. |
 | `POST` | `/v1/users/register/passwordless` | Creates a `PASSWORDLESS` user: a `User` row with `authType=PASSWORDLESS` plus a backing Cognito user whose password is a random 32-byte value never revealed to the caller. Public route. |
@@ -108,6 +109,7 @@ A global `app.setErrorHandler` in `routes.ts` maps typed auth-domain errors (`se
 |---|---|---|---|
 | `EmailAlreadyExistsError` | `POST /v1/users/register`, `POST /v1/users/register/passwordless` | `409` | `email_exists` |
 | `InvalidCredentialsError` | `POST /v1/users/login`, `POST /v1/users/refresh` | `401` | `invalid_credentials` |
+| No parseable Bearer token (no error class — inline `401`) | `POST /v1/users/logout` | `401` | `invalid_credentials` — reuses the login code rather than adding one. The **only** failure this route reports: an expired or already-revoked token answers `204`, see [Sign-out](#sign-out). |
 | `InvalidOtpError` | `POST /v1/users/otp/verify` | `401` | `invalid_otp` |
 | `InvalidResetCodeError` | `POST /v1/users/password/confirm` | `401` | `invalid_reset_code` — deliberately identical for an unknown email, a wrong code, and an expired code; see [Password reset](#password-reset). |
 | Not found (no error class — inline `404`) | `GET /v1/users/me`, `PATCH /v1/users/me`, `PATCH /v1/users/me/password`, `DELETE /v1/users/me` | `404` | `not_found` |
@@ -317,6 +319,64 @@ boolean attribute type, so the mirrored value is the string `"true"`/`"false"`.
 **Rejected alternative:** having the Pre-Token-Generation Lambda read the column live over gRPC.
 That would keep a single source of truth, but requires VPC configuration and DB credentials for
 the Lambda and adds latency plus a new failure point to every token issue.
+
+## Sign-out
+
+`POST /v1/users/logout` revokes the caller's Cognito session. `SignOutCommand`
+(`services/users/src/features/users/commands/sign-out.ts`) delegates to
+`AuthProvider.signOut(accessToken)`, implemented in `CognitoAuthProvider` as
+**`GlobalSignOut`, not `RevokeToken`**: `GlobalSignOut` invalidates the id, access and
+refresh tokens together, while `RevokeToken` kills only the refresh token and leaves the
+access token usable until it expires on its own — a window in which a stolen access token
+still authenticates.
+
+**The token comes from the `Authorization` header, never a body field.** Every other
+authenticated route here reads identity from `x-user-id`, but that carries a Cognito `sub`,
+not a token, and `GlobalSignOut` needs the token itself: it is the *only* authorization the
+call evaluates — no pool id, no client id, no IAM policy. A body field would carry the same
+credential twice and could name a **different** session than the one that authenticated the
+request. The token must also carry the `aws.cognito.signin.user.admin` scope, which tokens
+minted by `AdminInitiateAuth` do.
+
+The route is deliberately **absent** from `shared/http/public-routes.ts`. That absence is
+what makes the `onRequest` hook `401 unauthenticated` a caller with no identity, and it is
+also why the route cannot simply be made public: that list strips the `Authorization`
+header, which is the one thing this route needs.
+
+### The idempotency contract — `204`, not `401`, for a dead session
+
+Cognito answers `NotAuthorizedException` for an expired, malformed **or already-revoked**
+token alike. `CognitoAuthProvider.signOut` swallows that exception (and
+`UserNotFoundException`) rather than mapping it to a `401`: all three mean the session is
+gone, which is exactly what the caller asked for, and a client that has already cleared its
+local tokens can do nothing with an error. A `401` here fails the second of two clicks.
+Genuine failures — a `TooManyRequestsException`, say — still propagate untouched through the
+command to the global error handler.
+
+`401` therefore remains for exactly one case: no parseable Bearer token at all. A caller past
+the `onRequest` guard holds an `x-user-id` but may still have sent no `Authorization` header
+(a direct internal call, or a gateway misconfigured to drop it), and there is nothing to
+revoke, so `bearerToken()` returning `null` short-circuits to `401 invalid_credentials`
+without reaching Cognito.
+
+The access token is a credential and never reaches a log line or a span attribute — not raw,
+not truncated, not hashed, since a hash of a bearer credential is still a handle to it. This
+flow consequently carries **no identifying attribute of its own**; the caller's identity
+reaches the trace through the log context and the parent HTTP span. `SignOutCommand` is
+wrapped in `withWorkflowSpan("sign_out", …)` and emits
+`sign_out_started`/`sign_out_succeeded`/`sign_out_failed` (`reason: "cognito_error"`), per
+[[logging-context]].
+
+### The web client's refresh interceptor skips this path
+
+`apps/web`'s `refreshInterceptor` excludes `/users/logout` from its retry-on-`401` handling.
+Retrying it loops forever: the `401` triggers a refresh, the refresh fails, the failure signs
+the user out, and signing out calls this path again. Sign-out lives in one Angular service
+(`SignOut`) with two operations, because the two callers do not mean the same thing —
+`complete()` is the user pressing Sign out (revoke server-side, then clear local state), and
+`discard()` is the failed-refresh path, which clears without calling the server at all: a
+token that could not be refreshed cannot authorize a revocation either, so the call would
+fail for certain and only delay the redirect.
 
 ## Account deletion
 

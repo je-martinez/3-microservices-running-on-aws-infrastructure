@@ -143,6 +143,8 @@ services/orders/
 - Prefixed nano IDs (`prd_`, `ord_`, `odd_`): [../../docs/shared/conventions/nano-id.md](../../docs/shared/conventions/nano-id.md)
 - Audit fields: [../../docs/shared/conventions/audit-fields.md](../../docs/shared/conventions/audit-fields.md)
 - API versioning (`/v1`): [../../docs/shared/conventions/versioning.md](../../docs/shared/conventions/versioning.md)
+- OpenAPI specs (a GENERATED, committed artifact — never hand-written or hand-patched): [../../docs/shared/conventions/openapi-specs.md](../../docs/shared/conventions/openapi-specs.md) → [[openapi-specs]]
+- Friendly order number (never join on it, never log it, never let it replace the id): [../../docs/shared/conventions/friendly-order-number.md](../../docs/shared/conventions/friendly-order-number.md) → [[friendly-order-number]]
 - DB naming (snake_case columns ↔ PascalCase properties): [../../docs/shared/conventions/db-naming.md](../../docs/shared/conventions/db-naming.md)
 - gRPC inter-service: [../../docs/shared/decisions/ADR-0003-grpc-inter-service.md](../../docs/shared/decisions/ADR-0003-grpc-inter-service.md)
 - Read/write replicas: [../../docs/shared/decisions/ADR-0006-read-write-replicas.md](../../docs/shared/decisions/ADR-0006-read-write-replicas.md)

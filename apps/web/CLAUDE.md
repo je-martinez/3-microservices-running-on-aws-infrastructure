@@ -154,6 +154,39 @@ parsed **once**, in `src/app/core/config/app-config.ts`, into the typed
 is truthy), so parsing it in one place instead of at each call site is what
 keeps that from becoming a bug. Every other file reads `APP_CONFIG`.
 
+## 2d. GOLDEN RULE — forms are Signal Forms schemas
+
+Every form in this app is an Angular **Signal Forms** schema: a `model` signal
+plus `form(this.model, (path) => { … })` declaring `required()`, `pattern()`,
+`maxLength()` and friends. `ReactiveFormsModule`, `FormBuilder` and
+`new FormControl` appear nowhere in `src/` and must not come back — a form
+written the Reactive way matches nothing else in the codebase.
+
+Three properties of the framework bite hard enough to be rules of their own.
+All three are verified against the installed Angular **22.1.6**, not against
+its documentation.
+
+**`required()` accepts whitespace.** Its `isEmpty` treats a value as present
+unless it is `''`, `false`, `null` or `undefined`, so `"   "` satisfies it. It
+is therefore WEAKER than a `.trim().length > 0` guard, and translating one into
+the other silently loosens the check. Where blank-but-not-empty must be
+rejected, pair it with `pattern(path.field, /\S/)`. See
+[[2026-09-10-signal-forms-required-accepts-whitespace]].
+
+**`[formField]` owns its control bindings.** It claims and feeds a fixed set —
+`required`, `disabled`, `readonly`, `pattern`, `min`/`max`, `minLength`/
+`maxLength`, `name`, and the state flags. Binding any of them by hand on the
+same element is a COMPILE error (NG8022), not a warning. Let the schema carry
+them. See [[2026-09-10-formfield-owns-its-control-bindings-ng8022]].
+
+**`[formField]` reads the RAW DOM value.** It registers its own `input`
+listener and re-reads `element.value` on every event, so it is not a passive
+observer of a value the component curates. Any "format as you type" handler
+that sanitises by rewriting `element.value` RACES that listener, and the
+unsanitised value can win — the request is built from field state, not from the
+DOM. Sanitise into the model, never by rewriting the element. See
+[[2026-09-10-formfield-reads-the-raw-dom-value]].
+
 ## 3. Folder structure
 ```
 apps/web/

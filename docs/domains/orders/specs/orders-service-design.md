@@ -4,7 +4,7 @@ type: spec
 area: orders
 status: accepted
 created: 2026-06-26
-updated: 2026-08-26
+updated: 2026-09-10
 tags: [type/spec, area/orders, status/accepted]
 related:
   - "[[2026-08-25-response-caching-layer-design]]"
@@ -39,6 +39,9 @@ related:
   - "[[money-representation]]"
   - "[[nano-id]]"
   - "[[2026-08-25-cart-endpoints-design]]"
+  - "[[2026-08-05-email-payload-enrichment-design]]"
+  - "[[friendly-order-number]]"
+  - "[[2026-09-07-friendly-order-number]]"
 ---
 
 # Orders Service Design
@@ -528,6 +531,63 @@ unauthenticated request never started the flow, so there is no flow to trace —
 `_started` line both begin only after the key check passes. Full event contract:
 [[2026-08-25-account-deletion-design#Observability]].
 
+## Shipping — an order-level charge, read from configuration
+
+Shipping is a real domain field, not a rendering-time constant: `Order.ShippingCents`
+(`Orders.Domain/Entities/Order.cs`) persists to `order.shipping_cents`, a `bigint` that is
+`NOT NULL` with a `0` default so rows written before the column existed read back as "no
+shipping charged" rather than null — which is what they genuinely were. Storage is integer
+cents like every other amount here ([[money-as-integer-cents]]); `Order.Shipping` is the
+non-persisted `ShippingCents / 100m` dollar view, and `OrderDto` reports it as a `Money`
+object alongside `Subtotal`/`Tax`/`Total` ([[money-representation]]).
+
+**It enters the total once, at order level.** `CreateOrderService` prices each line
+(`OrderPricing.PriceLine`), accumulates `subtotal` and `tax` from those lines, then adds the
+flat charge exactly once: `total_cents = subtotal_cents + tax_cents + shipping_cents`. This is
+the single place an order's total diverges from the sum of its lines. Shipping must not reach
+`OrderPricing.PriceLine` or any `OrderDetails` row — a line whose total exceeds
+`unit_price × quantity` is no longer explainable from its own columns, and it is charged per
+shipment, not per product. It is also not taxed: tax comes from the lines alone.
+
+**The rate lives in the `configuration` table, not in code.** `IConfigurationReader.GetShippingCentsAsync`
+reads the `shipping_cents` key per request, exactly as `GetTaxRateAsync` reads `tax_rate` — one
+pattern for business parameters, and a rate that changes without a redeploy. The port returns
+`long`, never `decimal`, so the value reaches the column with no rounding step. `ConfigurationSeed`
+plants `1500` ($15.00) as the default and checks each key **independently**, not behind one early
+return on `tax_rate`: a database seeded before `shipping_cents` existed would otherwise never
+receive the key, and every order would then fail on the missing-key exception (`ConfigurationReader`
+throws rather than defaulting — an unpriced shipment must not be silently free).
+
+`GET /v1/cart` reads the same key through the same port, which is what lets the cart's
+unconditional shipping line agree with what checkout charges — see
+[Cart](#cart) above. The `ORDER_CREATED` envelope carries `shipping_cents` as its own field
+beside `subtotal_cents`/`tax_cents`/`total_cents`, so a receipt template renders all four
+figures rather than deriving one from the others.
+
+## Order number — a customer-facing label, not an identifier
+
+`order.order_number` is what a customer reads, quotes to support, and sees on a receipt:
+`260907-8KJ4M2` as displayed, `2609078KJ4M2` as stored in a `char(12)` column under the plain
+unique index `ux_order_order_number`. It is minted in `CreateOrderService` from the order's own
+`created_at` in UTC, with a collision re-mint bounded at three attempts and detected by **index
+name**, never by the bare MySQL error number. Full rule — format, alphabet, uniqueness argument,
+the `DateTimeKind.Unspecified` trap, the backfill, and the `raw`/`formatted` wire shape that
+mirrors [[money-representation]] — is [[friendly-order-number]]; it is not restated here.
+
+**The prohibitions matter more than the format**, because every one of them is a way the label
+quietly becomes an identifier:
+
+- **Never join on the number.** `Order.Id` (the `ord_` nano-id, [[nano-id]]) stays the primary
+  key, Tracking's foreign key, and what `GET /v1/orders/{order_id}` routes on.
+- **Never log it.** Log lines carry `order_id`, per [[logging-context]].
+- **Never let it replace the id in a contract.** The `ORDER_CREATED` envelope's `order_id` is
+  still the id; `order_number` travels beside it as an optional object, omitted rather than
+  null when an order predates the backfill.
+
+Tracking mirrors the column so its email templates can print the number, and deliberately mints
+none of its own — Orders owns the format and the uniqueness guarantee. See
+[[tracking-service-design]].
+
 ## Data Model
 
 All fields follow snake_case naming in the database and are mapped to PascalCase aliases in the ORM layer. See [[db-naming]]. All IDs use the prefixed nano-id format (`ord_`, `prd_`, `odd_`, `crt_`, `cti_`). See [[nano-id]]. All entities carry the standard audit fields and support soft delete only. See [[audit-fields]] and [[soft-delete]].
@@ -535,7 +595,7 @@ All fields follow snake_case naming in the database and are mapped to PascalCase
 > [!note] Money is integer cents, not decimal
 > The tables below still show the original `decimal(10,2)` columns as first designed. As shipped,
 > every monetary column is an integer-cents `bigint` (`unit_price_cents`, `subtotal_cents`,
-> `tax_cents`, `total_cents`) with a non-persisted computed dollar property — see
+> `tax_cents`, `shipping_cents`, `total_cents`) with a non-persisted computed dollar property — see
 > [[money-as-integer-cents]] for the full decision and rationale. `Order` and `OrderDetails` also
 > carry both `user_id` (internal) and `cognito_sub` (gateway-supplied) — the "double identity"
 > decision recorded in [[2026-07-14-orders-service-milestone-design]]. **HTTP responses**
@@ -610,8 +670,10 @@ One record per submitted order.
 |---|---|---|
 | `id` | `varchar(28)` | `ord_` prefix, nano-id |
 | `user_id` | `varchar(28)` | FK → Users service (resolved via gRPC) |
+| `order_number` | `char(12)`, nullable | Customer-facing label, canonical form `2609078KJ4M2`, unique via `ux_order_order_number`. **Not** an identifier — see [Order number](#order-number--a-customer-facing-label-not-an-identifier) below and [[friendly-order-number]]. |
 | `subtotal` | `decimal(10,2)` | |
 | `tax` | `decimal(10,2)` | |
+| `shipping_cents` | `bigint`, `NOT NULL DEFAULT 0` | The order-level delivery charge, in cents. Part of `total_cents`, never spread across lines — see [Shipping](#shipping--an-order-level-charge-read-from-configuration) below. |
 | `total` | `decimal(10,2)` | |
 | `shipping_address` | `json` | Snapshot of the delivery address at order-creation time, resolved via Users' `GetUserById` (see [[users-service-design]]) and forwarded to Tracking's `init-tracking`. See [Delivery address flow](#delivery-address-flow-users--orders--tracking). Deliberately a point-in-time copy, not a live reference — see the snapshot-semantics note above. |
 | `created_by` | `varchar(28)` | audit |
@@ -729,6 +791,7 @@ This service follows all shared conventions defined once in the vault:
 
 - [[soft-delete]] — no physical deletes; `deleted_at`/`deleted_by` only. DB user forbidden from running `DELETE`.
 - [[nano-id]] — prefixed nano-ids for all entity IDs (`ord_`, `prd_`, `odd_`, `crt_`, `cti_`).
+- [[friendly-order-number]] — the customer-facing `order_number` label, its format, and the prohibitions that keep it from becoming an identifier; see [Order number](#order-number--a-customer-facing-label-not-an-identifier) above.
 - [[money-representation]] — every HTTP amount is a `Money` object (`cents`/`amount`/`formatted`/`currency`), camelCase on the wire; storage stays `bigint` cents per [[money-as-integer-cents]], and the `ORDER_CREATED` SQS envelope is unaffected.
 - [[audit-fields]] — `created_by`, `created_at`, `updated_by`, `updated_at`, `deleted_by`, `deleted_at` on every entity.
 - [[db-naming]] — snake_case in DB, PascalCase aliases in EF Core models.
@@ -856,3 +919,11 @@ Full milestone design: [[2026-07-14-orders-service-milestone-design]].
 - [[2026-08-26-cache-keys-built-from-a-raw-identity-header]] — the data leak found in this
   service's account-deletion cascade: cache keys built from the raw `x-user-id` header,
   swept incompletely when the cascade invalidated only the canonical identity pair.
+- [[2026-08-05-email-payload-enrichment-design]] — the design this note propagates for
+  [Shipping](#shipping--an-order-level-charge-read-from-configuration): the `shipping_cents`
+  column, the `configuration`-table rate, and the four figures the `ORDER_CREATED` envelope
+  carries so a receipt never re-derives its own total.
+- [[friendly-order-number]] — the full convention for `order_number`: format, Crockford
+  alphabet, uniqueness, the collision retry, the UTC prefix trap, and the backfill. Summarized
+  under [Order number](#order-number--a-customer-facing-label-not-an-identifier) above.
+- [[2026-09-07-friendly-order-number]] — the design plan behind that convention.
