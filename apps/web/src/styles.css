@@ -174,11 +174,22 @@ body {
  * `display: inline` with no flex sizing — so a page's own `flex-1` resolves
  * against that inline box rather than this container, and a short route paints
  * only as tall as its content, leaving `body` grey below it.
+ *
+ * CONTRACT: `router-outlet` MUST stay excluded. Angular inserts the routed
+ * component as the outlet's SIBLING, not its child, so a bare `> *` also
+ * stretches the empty outlet: two `flex: 1 0 auto` children then split the
+ * free space and the page renders pushed down (measured: a 94px empty outlet
+ * above a page that should start at 0), reading as a vertically centred screen.
  * See [[angular-component-authoring]] */
-.app-scroll > * {
+.app-scroll > *:not(router-outlet) {
   display: flex;
   flex: 1 0 auto;
   flex-direction: column;
+}
+
+/* The outlet is an insertion marker, never a box in the layout. */
+.app-scroll > router-outlet {
+  display: none;
 }
 
 /* CONTRACT: Every page whose own background is `bg-surface-white` MUST also
