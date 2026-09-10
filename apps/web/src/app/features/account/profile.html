@@ -62,8 +62,10 @@
               </span>
             </div>
           </div>
-          <span class="bg-surface-subtle flex h-[1.875rem] w-fit shrink-0 flex-row items-center justify-center rounded-full px-[0.8125rem]">
-            <span class="text-ink-secondary text-[0.78125rem] whitespace-nowrap">{{ memberSinceLabel() }}</span>
+          <!-- CONTRACT: `bg-line` pairs with `text-brand-navy`. On this ground
+               `text-ink-secondary` is 3.9:1, under AA. -->
+          <span class="bg-line flex h-[1.875rem] w-fit shrink-0 flex-row items-center justify-center rounded-full px-[0.8125rem]">
+            <span class="text-brand-navy text-[0.78125rem] whitespace-nowrap">{{ memberSinceLabel() }}</span>
           </span>
         </div>
 
