@@ -29375,6 +29375,1686 @@
           ]
         }
       ]
+    },
+    {
+      "type": "frame",
+      "id": "gRMM7",
+      "x": 7386,
+      "y": -1307,
+      "name": "Notifications — Status Variants",
+      "fill": "$bg-white",
+      "cornerRadius": 12,
+      "stroke": "$border-color",
+      "strokeWidth": 1,
+      "layout": "vertical",
+      "gap": 20,
+      "padding": 24,
+      "children": [
+        {
+          "type": "frame",
+          "id": "DDjmU",
+          "name": "Sheet Head",
+          "layout": "vertical",
+          "gap": 4,
+          "children": [
+            {
+              "type": "text",
+              "id": "MhifU",
+              "name": "Sheet Title",
+              "fill": "$text-primary",
+              "content": "Order status notifications",
+              "fontFamily": "$font-heading",
+              "fontSize": 17,
+              "fontWeight": "700",
+              "letterSpacing": -0.3
+            },
+            {
+              "type": "text",
+              "id": "W5SoQ",
+              "name": "Sheet Sub",
+              "fill": "$text-secondary",
+              "content": "One in-app notification and one toast per tracking transition. Titles match the email headings in tracking-status-changed.",
+              "fontFamily": "$font-body",
+              "fontSize": 13,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "k91NE",
+          "name": "Columns",
+          "gap": 32,
+          "children": [
+            {
+              "type": "frame",
+              "id": "PeAGS",
+              "name": "Column Notification Item",
+              "layout": "vertical",
+              "gap": 14,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "D6yWqS",
+                  "name": "Column Label",
+                  "fill": "$text-muted",
+                  "content": "IN-APP NOTIFICATION",
+                  "fontFamily": "$font-body",
+                  "fontSize": 11.5,
+                  "fontWeight": "600",
+                  "letterSpacing": 1.3
+                },
+                {
+                  "type": "frame",
+                  "id": "nM40v",
+                  "name": "Cell PLACED",
+                  "layout": "vertical",
+                  "gap": 6,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "nQBSj",
+                      "name": "Cell Token",
+                      "fill": "$text-muted",
+                      "content": "PLACED",
+                      "fontFamily": "$font-body",
+                      "fontSize": 11,
+                      "fontWeight": "600",
+                      "letterSpacing": 0.8
+                    },
+                    {
+                      "id": "hP7bn",
+                      "type": "ref",
+                      "ref": "qwO6X",
+                      "name": "Notification PLACED",
+                      "descendants": {
+                        "DB6ap": {
+                          "fill": "#E5E7EB"
+                        },
+                        "qfnF6": {
+                          "icon": "receipt-text",
+                          "fill": "$text-secondary"
+                        },
+                        "RzwFV": {
+                          "content": "Order placed"
+                        },
+                        "C0lkFB": {
+                          "content": "ORD-3MRAI-10482 · Received and confirmed. We'll email your receipt."
+                        },
+                        "HiiEZ": {
+                          "content": "3 days ago"
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "nVOKx",
+                  "name": "Cell PROCESSING",
+                  "layout": "vertical",
+                  "gap": 6,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "TK68n",
+                      "name": "Cell Token",
+                      "fill": "$text-muted",
+                      "content": "PROCESSING",
+                      "fontFamily": "$font-body",
+                      "fontSize": 11,
+                      "fontWeight": "600",
+                      "letterSpacing": 0.8
+                    },
+                    {
+                      "id": "ffiPu",
+                      "type": "ref",
+                      "ref": "qwO6X",
+                      "name": "Notification PROCESSING",
+                      "descendants": {
+                        "DB6ap": {
+                          "fill": "$warn-bg"
+                        },
+                        "qfnF6": {
+                          "icon": "package",
+                          "fill": "$warn-text"
+                        },
+                        "RzwFV": {
+                          "content": "Your order is being prepared"
+                        },
+                        "C0lkFB": {
+                          "content": "ORD-3MRAI-10482 · Being picked and packed for shipment."
+                        },
+                        "HiiEZ": {
+                          "content": "2 days ago"
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "i5SBM",
+                  "name": "Cell SHIPPED",
+                  "layout": "vertical",
+                  "gap": 6,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "GSV0k",
+                      "name": "Cell Token",
+                      "fill": "$text-muted",
+                      "content": "SHIPPED",
+                      "fontFamily": "$font-body",
+                      "fontSize": 11,
+                      "fontWeight": "600",
+                      "letterSpacing": 0.8
+                    },
+                    {
+                      "id": "IagEk",
+                      "type": "ref",
+                      "ref": "qwO6X",
+                      "name": "Notification SHIPPED",
+                      "descendants": {
+                        "DB6ap": {
+                          "fill": "$info-bg"
+                        },
+                        "qfnF6": {
+                          "icon": "warehouse",
+                          "fill": "$info-blue"
+                        },
+                        "RzwFV": {
+                          "content": "Your order has shipped"
+                        },
+                        "C0lkFB": {
+                          "content": "ORD-3MRAI-10482 · Handed to the carrier and on its way to you."
+                        },
+                        "HiiEZ": {
+                          "content": "yesterday"
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "YcPZT",
+                  "name": "Cell OUT_FOR_DELIVERY",
+                  "layout": "vertical",
+                  "gap": 6,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "V6HtgO",
+                      "name": "Cell Token",
+                      "fill": "$text-muted",
+                      "content": "OUT_FOR_DELIVERY",
+                      "fontFamily": "$font-body",
+                      "fontSize": 11,
+                      "fontWeight": "600",
+                      "letterSpacing": 0.8
+                    },
+                    {
+                      "id": "Hd08G",
+                      "type": "ref",
+                      "ref": "qwO6X",
+                      "name": "Notification OUT_FOR_DELIVERY",
+                      "descendants": {
+                        "DB6ap": {
+                          "fill": "$brand-orange-light"
+                        },
+                        "qfnF6": {
+                          "icon": "truck",
+                          "fill": "$brand-orange-text"
+                        },
+                        "RzwFV": {
+                          "content": "Out for delivery"
+                        },
+                        "C0lkFB": {
+                          "content": "ORD-3MRAI-10482 · Arriving today, by 6:00 pm."
+                        },
+                        "HiiEZ": {
+                          "content": "12 min ago"
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "OatDI",
+                  "name": "Cell DELIVERED",
+                  "layout": "vertical",
+                  "gap": 6,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "gs99V",
+                      "name": "Cell Token",
+                      "fill": "$text-muted",
+                      "content": "DELIVERED",
+                      "fontFamily": "$font-body",
+                      "fontSize": 11,
+                      "fontWeight": "600",
+                      "letterSpacing": 0.8
+                    },
+                    {
+                      "id": "u4zutH",
+                      "type": "ref",
+                      "ref": "qwO6X",
+                      "name": "Notification DELIVERED",
+                      "descendants": {
+                        "DB6ap": {
+                          "fill": "$success-bg"
+                        },
+                        "qfnF6": {
+                          "icon": "package-check",
+                          "fill": "$success-text"
+                        },
+                        "RzwFV": {
+                          "content": "Delivered"
+                        },
+                        "C0lkFB": {
+                          "content": "ORD-3MRAI-10482 · Delivered Aug 5, 3:31 pm."
+                        },
+                        "HiiEZ": {
+                          "content": "just now"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "J0QasP",
+              "name": "Column Toast",
+              "layout": "vertical",
+              "gap": 14,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "sqYyK",
+                  "name": "Column Label",
+                  "fill": "$text-muted",
+                  "content": "TOAST",
+                  "fontFamily": "$font-body",
+                  "fontSize": 11.5,
+                  "fontWeight": "600",
+                  "letterSpacing": 1.3
+                },
+                {
+                  "type": "frame",
+                  "id": "sfNkV",
+                  "name": "Cell PLACED",
+                  "layout": "vertical",
+                  "gap": 6,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "fFhTq",
+                      "name": "Cell Token",
+                      "fill": "$text-muted",
+                      "content": "PLACED",
+                      "fontFamily": "$font-body",
+                      "fontSize": 11,
+                      "fontWeight": "600",
+                      "letterSpacing": 0.8
+                    },
+                    {
+                      "id": "B8sZ2B",
+                      "type": "ref",
+                      "ref": "jYz4h",
+                      "name": "Toast PLACED",
+                      "descendants": {
+                        "R3FrPo": {
+                          "fill": "#E5E7EB"
+                        },
+                        "ebhgY": {
+                          "icon": "receipt-text",
+                          "fill": "$text-secondary"
+                        },
+                        "m2sELO": {
+                          "content": "Order placed"
+                        },
+                        "ddaSx": {
+                          "content": "ORD-3MRAI-10482 · Received and confirmed. We'll email your receipt."
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "aHD4x",
+                  "name": "Cell PROCESSING",
+                  "layout": "vertical",
+                  "gap": 6,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "sVEC6",
+                      "name": "Cell Token",
+                      "fill": "$text-muted",
+                      "content": "PROCESSING",
+                      "fontFamily": "$font-body",
+                      "fontSize": 11,
+                      "fontWeight": "600",
+                      "letterSpacing": 0.8
+                    },
+                    {
+                      "id": "dcJcU",
+                      "type": "ref",
+                      "ref": "jYz4h",
+                      "name": "Toast PROCESSING",
+                      "descendants": {
+                        "R3FrPo": {
+                          "fill": "$warn-bg"
+                        },
+                        "ebhgY": {
+                          "icon": "package",
+                          "fill": "$warn-text"
+                        },
+                        "m2sELO": {
+                          "content": "Your order is being prepared"
+                        },
+                        "ddaSx": {
+                          "content": "ORD-3MRAI-10482 · Being picked and packed for shipment."
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "X8gN1",
+                  "name": "Cell SHIPPED",
+                  "layout": "vertical",
+                  "gap": 6,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "ZfYHD",
+                      "name": "Cell Token",
+                      "fill": "$text-muted",
+                      "content": "SHIPPED",
+                      "fontFamily": "$font-body",
+                      "fontSize": 11,
+                      "fontWeight": "600",
+                      "letterSpacing": 0.8
+                    },
+                    {
+                      "id": "zBPsR",
+                      "type": "ref",
+                      "ref": "jYz4h",
+                      "name": "Toast SHIPPED",
+                      "descendants": {
+                        "R3FrPo": {
+                          "fill": "$info-bg"
+                        },
+                        "ebhgY": {
+                          "icon": "warehouse",
+                          "fill": "$info-blue"
+                        },
+                        "m2sELO": {
+                          "content": "Your order has shipped"
+                        },
+                        "ddaSx": {
+                          "content": "ORD-3MRAI-10482 · Handed to the carrier and on its way to you."
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "bJ0m0",
+                  "name": "Cell OUT_FOR_DELIVERY",
+                  "layout": "vertical",
+                  "gap": 6,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "YEZih",
+                      "name": "Cell Token",
+                      "fill": "$text-muted",
+                      "content": "OUT_FOR_DELIVERY",
+                      "fontFamily": "$font-body",
+                      "fontSize": 11,
+                      "fontWeight": "600",
+                      "letterSpacing": 0.8
+                    },
+                    {
+                      "id": "McIE0",
+                      "type": "ref",
+                      "ref": "jYz4h",
+                      "name": "Toast OUT_FOR_DELIVERY",
+                      "descendants": {
+                        "R3FrPo": {
+                          "fill": "$brand-orange-light"
+                        },
+                        "ebhgY": {
+                          "icon": "truck",
+                          "fill": "$brand-orange-text"
+                        },
+                        "m2sELO": {
+                          "content": "Out for delivery"
+                        },
+                        "ddaSx": {
+                          "content": "ORD-3MRAI-10482 · Arriving today, by 6:00 pm."
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "pvCFy",
+                  "name": "Cell DELIVERED",
+                  "layout": "vertical",
+                  "gap": 6,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "tZlKO",
+                      "name": "Cell Token",
+                      "fill": "$text-muted",
+                      "content": "DELIVERED",
+                      "fontFamily": "$font-body",
+                      "fontSize": 11,
+                      "fontWeight": "600",
+                      "letterSpacing": 0.8
+                    },
+                    {
+                      "id": "DZiW6",
+                      "type": "ref",
+                      "ref": "jYz4h",
+                      "name": "Toast DELIVERED",
+                      "descendants": {
+                        "R3FrPo": {
+                          "fill": "$success-bg"
+                        },
+                        "ebhgY": {
+                          "icon": "package-check",
+                          "fill": "$success-text"
+                        },
+                        "m2sELO": {
+                          "content": "Delivered"
+                        },
+                        "ddaSx": {
+                          "content": "ORD-3MRAI-10482 · Delivered Aug 5, 3:31 pm."
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "I3GQwM",
+      "x": 8366,
+      "y": -1307,
+      "name": "Notifications — Welcome",
+      "fill": "$bg-white",
+      "cornerRadius": 12,
+      "stroke": "$border-color",
+      "strokeWidth": 1,
+      "layout": "vertical",
+      "gap": 20,
+      "padding": 24,
+      "children": [
+        {
+          "type": "frame",
+          "id": "p05sj",
+          "name": "Sheet Head",
+          "layout": "vertical",
+          "gap": 4,
+          "children": [
+            {
+              "type": "text",
+              "id": "kPHht",
+              "name": "Sheet Title",
+              "fill": "$text-primary",
+              "content": "Welcome notification",
+              "fontFamily": "$font-heading",
+              "fontSize": 17,
+              "fontWeight": "700",
+              "letterSpacing": -0.3
+            },
+            {
+              "type": "text",
+              "id": "w1RWq",
+              "name": "Sheet Sub",
+              "fill": "$text-secondary",
+              "content": "Fired on account creation, not on an order. Its own tint keeps it from reading as a tracking state.",
+              "fontFamily": "$font-body",
+              "fontSize": 13,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "XtltR",
+          "name": "Columns",
+          "gap": 32,
+          "children": [
+            {
+              "type": "frame",
+              "id": "mmdNB",
+              "name": "Column Notification Item",
+              "layout": "vertical",
+              "gap": 14,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "u1OpD",
+                  "name": "Column Label",
+                  "fill": "$text-muted",
+                  "content": "IN-APP NOTIFICATION",
+                  "fontFamily": "$font-body",
+                  "fontSize": 11.5,
+                  "fontWeight": "600",
+                  "letterSpacing": 1.3
+                },
+                {
+                  "id": "AqgrB",
+                  "type": "ref",
+                  "ref": "qwO6X",
+                  "name": "Notification WELCOME",
+                  "descendants": {
+                    "DB6ap": {
+                      "fill": "$brand-navy-light"
+                    },
+                    "qfnF6": {
+                      "icon": "party-popper",
+                      "fill": "$brand-navy"
+                    },
+                    "RzwFV": {
+                      "content": "Welcome to 3MRAI!"
+                    },
+                    "C0lkFB": {
+                      "content": "Your account is ready. Start exploring orders, tracking and more."
+                    },
+                    "HiiEZ": {
+                      "content": "just now"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "B55J0",
+              "name": "Column Toast",
+              "layout": "vertical",
+              "gap": 14,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "bV8WJ",
+                  "name": "Column Label",
+                  "fill": "$text-muted",
+                  "content": "TOAST",
+                  "fontFamily": "$font-body",
+                  "fontSize": 11.5,
+                  "fontWeight": "600",
+                  "letterSpacing": 1.3
+                },
+                {
+                  "id": "K50vBZ",
+                  "type": "ref",
+                  "ref": "jYz4h",
+                  "name": "Toast WELCOME",
+                  "descendants": {
+                    "R3FrPo": {
+                      "fill": "$brand-navy-light"
+                    },
+                    "ebhgY": {
+                      "icon": "party-popper",
+                      "fill": "$brand-navy"
+                    },
+                    "qwtBl": {
+                      "content": "WELCOME"
+                    },
+                    "m2sELO": {
+                      "content": "Welcome to 3MRAI!"
+                    },
+                    "ddaSx": {
+                      "content": "Your account is ready. Start exploring orders, tracking and more."
+                    },
+                    "M5wET": {
+                      "content": "View my profile"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "v7j7HT",
+      "x": 23401,
+      "y": 3008,
+      "name": "Notifications — All",
+      "clip": true,
+      "width": 1440,
+      "height": 1120,
+      "fill": "$bg-body",
+      "layout": "vertical",
+      "children": [
+        {
+          "id": "MKicK",
+          "type": "ref",
+          "ref": "EMNqu",
+          "name": "App Header",
+          "width": "fill_container"
+        },
+        {
+          "type": "frame",
+          "id": "WePzj",
+          "name": "Body",
+          "width": "fill_container",
+          "height": "fill_container",
+          "fill": "$bg-body",
+          "layout": "vertical",
+          "padding": [
+            44,
+            48
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "qIQPk",
+              "name": "Notifications Column",
+              "width": 1040,
+              "layout": "vertical",
+              "gap": 24,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "Q5RM3D",
+                  "name": "Toolbar",
+                  "width": "fill_container",
+                  "justifyContent": "space_between",
+                  "alignItems": "end",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "nUjKX",
+                      "name": "Title Block",
+                      "layout": "vertical",
+                      "gap": 5,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "V8mzJx",
+                          "name": "Page Title",
+                          "fill": "$text-primary",
+                          "content": "Notifications",
+                          "fontFamily": "$font-heading",
+                          "fontSize": 30,
+                          "fontWeight": "700",
+                          "letterSpacing": -0.8
+                        },
+                        {
+                          "type": "text",
+                          "id": "HyDkS",
+                          "name": "Page Sub",
+                          "fill": "$text-secondary",
+                          "content": "3 unread · 7 in the last 90 days",
+                          "fontFamily": "$font-body",
+                          "fontSize": 15,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "WJUDT",
+                      "name": "Toolbar Right",
+                      "gap": 20,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "LBziQ",
+                          "name": "Filters",
+                          "gap": 10,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "HL62z",
+                              "name": "Pill All",
+                              "height": 38,
+                              "fill": "$brand-navy",
+                              "cornerRadius": 19,
+                              "stroke": "$brand-navy",
+                              "strokeWidth": 1,
+                              "padding": [
+                                0,
+                                17
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "W63Xx",
+                                  "name": "Pill Label",
+                                  "fill": "#FFFFFF",
+                                  "content": "All",
+                                  "fontFamily": "$font-body",
+                                  "fontSize": 13.5,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "DLiRW",
+                              "name": "Pill Unread",
+                              "height": 38,
+                              "fill": "$bg-white",
+                              "cornerRadius": 19,
+                              "stroke": "$border-strong",
+                              "strokeWidth": 1,
+                              "padding": [
+                                0,
+                                17
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "YOQUJ",
+                                  "name": "Pill Label",
+                                  "fill": "$text-secondary",
+                                  "content": "Unread",
+                                  "fontFamily": "$font-body",
+                                  "fontSize": 13.5,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "Q3wz2g",
+                              "name": "Pill Read",
+                              "height": 38,
+                              "fill": "$bg-white",
+                              "cornerRadius": 19,
+                              "stroke": "$border-strong",
+                              "strokeWidth": 1,
+                              "padding": [
+                                0,
+                                17
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "cOmD7",
+                                  "name": "Pill Label",
+                                  "fill": "$text-secondary",
+                                  "content": "Read",
+                                  "fontFamily": "$font-body",
+                                  "fontSize": 13.5,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "Pez0s",
+                          "name": "Mark All Read",
+                          "fill": "$brand-navy",
+                          "content": "Mark all as read",
+                          "fontFamily": "$font-body",
+                          "fontSize": 14,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "cRlgg",
+                  "name": "Groups",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 24,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "Z0vRM",
+                      "name": "Group TODAY",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 10,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "ma0KO",
+                          "name": "Group Label",
+                          "fill": "$text-muted",
+                          "content": "TODAY",
+                          "fontFamily": "$font-body",
+                          "fontSize": 12,
+                          "fontWeight": "600",
+                          "letterSpacing": 1.5
+                        },
+                        {
+                          "type": "frame",
+                          "id": "dJ3G3",
+                          "name": "Group Card",
+                          "width": "fill_container",
+                          "fill": "$bg-white",
+                          "cornerRadius": 12,
+                          "stroke": "$border-color",
+                          "strokeWidth": 1,
+                          "layout": "vertical",
+                          "gap": 4,
+                          "padding": 10,
+                          "children": [
+                            {
+                              "id": "DnXQ6",
+                              "type": "ref",
+                              "ref": "qwO6X",
+                              "name": "Notif OUT_FOR_DELIVERY",
+                              "width": "fill_container",
+                              "fill": "$bg-subtle",
+                              "descendants": {
+                                "DB6ap": {
+                                  "fill": "$brand-orange-light"
+                                },
+                                "qfnF6": {
+                                  "icon": "truck",
+                                  "fill": "$brand-orange-text"
+                                },
+                                "RzwFV": {
+                                  "content": "Out for delivery"
+                                },
+                                "C0lkFB": {
+                                  "content": "ORD-3MRAI-10482 · Arriving today, by 6:00 pm."
+                                },
+                                "HiiEZ": {
+                                  "content": "12 min ago"
+                                },
+                                "J36lC": {
+                                  "enabled": true
+                                }
+                              }
+                            },
+                            {
+                              "id": "x62zk",
+                              "type": "ref",
+                              "ref": "qwO6X",
+                              "name": "Notif SHIPPED",
+                              "width": "fill_container",
+                              "fill": "$bg-subtle",
+                              "descendants": {
+                                "DB6ap": {
+                                  "fill": "$info-bg"
+                                },
+                                "qfnF6": {
+                                  "icon": "warehouse",
+                                  "fill": "$info-blue"
+                                },
+                                "RzwFV": {
+                                  "content": "Your order has shipped"
+                                },
+                                "C0lkFB": {
+                                  "content": "ORD-3MRAI-10482 · Handed to the carrier and on its way to you."
+                                },
+                                "HiiEZ": {
+                                  "content": "8:15 am"
+                                },
+                                "J36lC": {
+                                  "enabled": true
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "qlKYd",
+                      "name": "Group YESTERDAY",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 10,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "z0o7vn",
+                          "name": "Group Label",
+                          "fill": "$text-muted",
+                          "content": "YESTERDAY",
+                          "fontFamily": "$font-body",
+                          "fontSize": 12,
+                          "fontWeight": "600",
+                          "letterSpacing": 1.5
+                        },
+                        {
+                          "type": "frame",
+                          "id": "zSMGQ",
+                          "name": "Group Card",
+                          "width": "fill_container",
+                          "fill": "$bg-white",
+                          "cornerRadius": 12,
+                          "stroke": "$border-color",
+                          "strokeWidth": 1,
+                          "layout": "vertical",
+                          "gap": 4,
+                          "padding": 10,
+                          "children": [
+                            {
+                              "id": "inrVE",
+                              "type": "ref",
+                              "ref": "qwO6X",
+                              "name": "Notif PROCESSING",
+                              "width": "fill_container",
+                              "fill": "$bg-subtle",
+                              "descendants": {
+                                "DB6ap": {
+                                  "fill": "$warn-bg"
+                                },
+                                "qfnF6": {
+                                  "icon": "package",
+                                  "fill": "$warn-text"
+                                },
+                                "RzwFV": {
+                                  "content": "Your order is being prepared"
+                                },
+                                "C0lkFB": {
+                                  "content": "ORD-3MRAI-10482 · Being picked and packed for shipment."
+                                },
+                                "HiiEZ": {
+                                  "content": "4:40 pm"
+                                },
+                                "J36lC": {
+                                  "enabled": true
+                                }
+                              }
+                            },
+                            {
+                              "id": "KTCcS",
+                              "type": "ref",
+                              "ref": "qwO6X",
+                              "name": "Notif SHIPPED",
+                              "width": "fill_container",
+                              "fill": "#FFFFFF00",
+                              "descendants": {
+                                "DB6ap": {
+                                  "fill": "$info-bg"
+                                },
+                                "qfnF6": {
+                                  "icon": "warehouse",
+                                  "fill": "$info-blue"
+                                },
+                                "RzwFV": {
+                                  "content": "Your order has shipped"
+                                },
+                                "C0lkFB": {
+                                  "content": "ORD-3MRAI-10455 · Handed to the carrier and on its way to you."
+                                },
+                                "HiiEZ": {
+                                  "content": "9:02 am"
+                                },
+                                "J36lC": {
+                                  "enabled": false
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "WIumc",
+                      "name": "Group EARLIER",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 10,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "QFCGD",
+                          "name": "Group Label",
+                          "fill": "$text-muted",
+                          "content": "EARLIER",
+                          "fontFamily": "$font-body",
+                          "fontSize": 12,
+                          "fontWeight": "600",
+                          "letterSpacing": 1.5
+                        },
+                        {
+                          "type": "frame",
+                          "id": "VLzga",
+                          "name": "Group Card",
+                          "width": "fill_container",
+                          "fill": "$bg-white",
+                          "cornerRadius": 12,
+                          "stroke": "$border-color",
+                          "strokeWidth": 1,
+                          "layout": "vertical",
+                          "gap": 4,
+                          "padding": 10,
+                          "children": [
+                            {
+                              "id": "RoNK9",
+                              "type": "ref",
+                              "ref": "qwO6X",
+                              "name": "Notif PLACED",
+                              "width": "fill_container",
+                              "fill": "#FFFFFF00",
+                              "descendants": {
+                                "DB6ap": {
+                                  "fill": "#E5E7EB"
+                                },
+                                "qfnF6": {
+                                  "icon": "receipt-text",
+                                  "fill": "$text-secondary"
+                                },
+                                "RzwFV": {
+                                  "content": "Order placed"
+                                },
+                                "C0lkFB": {
+                                  "content": "ORD-3MRAI-10482 · Received and confirmed. We'll email your receipt."
+                                },
+                                "HiiEZ": {
+                                  "content": "Aug 2 · 10:24 am"
+                                },
+                                "J36lC": {
+                                  "enabled": false
+                                }
+                              }
+                            },
+                            {
+                              "id": "X24Etq",
+                              "type": "ref",
+                              "ref": "qwO6X",
+                              "name": "Notif DELIVERED",
+                              "width": "fill_container",
+                              "fill": "#FFFFFF00",
+                              "descendants": {
+                                "DB6ap": {
+                                  "fill": "$success-bg"
+                                },
+                                "qfnF6": {
+                                  "icon": "package-check",
+                                  "fill": "$success-text"
+                                },
+                                "RzwFV": {
+                                  "content": "Delivered"
+                                },
+                                "C0lkFB": {
+                                  "content": "ORD-3MRAI-10390 · Delivered Jul 24, 2:10 pm."
+                                },
+                                "HiiEZ": {
+                                  "content": "Jul 24 · 2:10 pm"
+                                },
+                                "J36lC": {
+                                  "enabled": false
+                                }
+                              }
+                            },
+                            {
+                              "id": "ygfEf",
+                              "type": "ref",
+                              "ref": "qwO6X",
+                              "name": "Notif WELCOME",
+                              "width": "fill_container",
+                              "fill": "#FFFFFF00",
+                              "descendants": {
+                                "DB6ap": {
+                                  "fill": "$brand-navy-light"
+                                },
+                                "qfnF6": {
+                                  "icon": "party-popper",
+                                  "fill": "$brand-navy"
+                                },
+                                "RzwFV": {
+                                  "content": "Welcome to 3MRAI!"
+                                },
+                                "C0lkFB": {
+                                  "content": "Your account is ready. Start exploring orders, tracking and more."
+                                },
+                                "HiiEZ": {
+                                  "content": "Jun 12 · 9:00 am"
+                                },
+                                "J36lC": {
+                                  "enabled": false
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "p6PjdF",
+      "x": 7350,
+      "y": 4400,
+      "name": "Mobile — Notifications All",
+      "clip": true,
+      "width": 390,
+      "fill": "$bg-body",
+      "layout": "vertical",
+      "children": [
+        {
+          "id": "i4frwM",
+          "type": "ref",
+          "ref": "fguH5",
+          "name": "App Header",
+          "width": "fill_container"
+        },
+        {
+          "type": "frame",
+          "id": "g6oSs",
+          "name": "Body",
+          "width": "fill_container",
+          "fill": "$bg-body",
+          "layout": "vertical",
+          "gap": 18,
+          "padding": [
+            20,
+            24,
+            28,
+            24
+          ],
+          "children": [
+            {
+              "type": "frame",
+              "id": "pc6DA",
+              "name": "Header Row",
+              "width": "fill_container",
+              "justifyContent": "space_between",
+              "alignItems": "end",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "tsDja",
+                  "name": "Title Block",
+                  "layout": "vertical",
+                  "gap": 4,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "Jjk7V",
+                      "name": "Page Title",
+                      "fill": "$text-primary",
+                      "content": "Notifications",
+                      "fontFamily": "$font-heading",
+                      "fontSize": 26,
+                      "fontWeight": "700",
+                      "letterSpacing": -0.5
+                    },
+                    {
+                      "type": "text",
+                      "id": "jV5IR",
+                      "name": "Page Sub",
+                      "fill": "$text-secondary",
+                      "content": "3 unread · 7 in the last 90 days",
+                      "fontFamily": "$font-body",
+                      "fontSize": 13,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "flzas",
+                  "name": "Mark All Read",
+                  "fill": "$brand-navy",
+                  "content": "Mark all read",
+                  "fontFamily": "$font-body",
+                  "fontSize": 13,
+                  "fontWeight": "600"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "ox4Wc",
+              "name": "Filters",
+              "width": "fill_container",
+              "gap": 8,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "SQ83t",
+                  "name": "Pill All",
+                  "height": 38,
+                  "fill": "$brand-navy",
+                  "cornerRadius": 19,
+                  "stroke": "$brand-navy",
+                  "strokeWidth": 1,
+                  "padding": [
+                    0,
+                    14
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "sdFeZ",
+                      "name": "Pill Label",
+                      "fill": "#FFFFFF",
+                      "content": "All",
+                      "fontFamily": "$font-body",
+                      "fontSize": 13.5,
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "mS2u8",
+                  "name": "Pill Unread",
+                  "height": 38,
+                  "fill": "$bg-white",
+                  "cornerRadius": 19,
+                  "stroke": "$border-strong",
+                  "strokeWidth": 1,
+                  "padding": [
+                    0,
+                    14
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "Cbarw",
+                      "name": "Pill Label",
+                      "fill": "$text-secondary",
+                      "content": "Unread",
+                      "fontFamily": "$font-body",
+                      "fontSize": 13.5,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "t82xY",
+                  "name": "Pill Read",
+                  "height": 38,
+                  "fill": "$bg-white",
+                  "cornerRadius": 19,
+                  "stroke": "$border-strong",
+                  "strokeWidth": 1,
+                  "padding": [
+                    0,
+                    14
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "w0T8Q",
+                      "name": "Pill Label",
+                      "fill": "$text-secondary",
+                      "content": "Read",
+                      "fontFamily": "$font-body",
+                      "fontSize": 13.5,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "lGeeN",
+              "name": "Groups",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 18,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "Iv3No",
+                  "name": "Group TODAY",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 8,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "r4ttPM",
+                      "name": "Group Label",
+                      "fill": "$text-muted",
+                      "content": "TODAY",
+                      "fontFamily": "$font-body",
+                      "fontSize": 11.5,
+                      "fontWeight": "600",
+                      "letterSpacing": 1.4
+                    },
+                    {
+                      "type": "frame",
+                      "id": "PFPjY",
+                      "name": "Group Card",
+                      "width": "fill_container",
+                      "fill": "$bg-white",
+                      "cornerRadius": 12,
+                      "stroke": "$border-color",
+                      "strokeWidth": 1,
+                      "layout": "vertical",
+                      "gap": 4,
+                      "padding": 8,
+                      "children": [
+                        {
+                          "id": "vkhkd",
+                          "type": "ref",
+                          "ref": "qwO6X",
+                          "name": "Notif OUT_FOR_DELIVERY",
+                          "width": "fill_container",
+                          "fill": "$bg-subtle",
+                          "descendants": {
+                            "DB6ap": {
+                              "fill": "$brand-orange-light"
+                            },
+                            "qfnF6": {
+                              "icon": "truck",
+                              "fill": "$brand-orange-text"
+                            },
+                            "RzwFV": {
+                              "content": "Out for delivery"
+                            },
+                            "C0lkFB": {
+                              "content": "ORD-3MRAI-10482 · Arriving today, by 6:00 pm."
+                            },
+                            "HiiEZ": {
+                              "content": "12 min ago"
+                            },
+                            "J36lC": {
+                              "enabled": true
+                            }
+                          }
+                        },
+                        {
+                          "id": "yzyyC",
+                          "type": "ref",
+                          "ref": "qwO6X",
+                          "name": "Notif SHIPPED",
+                          "width": "fill_container",
+                          "fill": "$bg-subtle",
+                          "descendants": {
+                            "DB6ap": {
+                              "fill": "$info-bg"
+                            },
+                            "qfnF6": {
+                              "icon": "warehouse",
+                              "fill": "$info-blue"
+                            },
+                            "RzwFV": {
+                              "content": "Your order has shipped"
+                            },
+                            "C0lkFB": {
+                              "content": "ORD-3MRAI-10482 · Handed to the carrier and on its way to you."
+                            },
+                            "HiiEZ": {
+                              "content": "8:15 am"
+                            },
+                            "J36lC": {
+                              "enabled": true
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "a4gQD2",
+                  "name": "Group YESTERDAY",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 8,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "SqxH4",
+                      "name": "Group Label",
+                      "fill": "$text-muted",
+                      "content": "YESTERDAY",
+                      "fontFamily": "$font-body",
+                      "fontSize": 11.5,
+                      "fontWeight": "600",
+                      "letterSpacing": 1.4
+                    },
+                    {
+                      "type": "frame",
+                      "id": "yHzSR",
+                      "name": "Group Card",
+                      "width": "fill_container",
+                      "fill": "$bg-white",
+                      "cornerRadius": 12,
+                      "stroke": "$border-color",
+                      "strokeWidth": 1,
+                      "layout": "vertical",
+                      "gap": 4,
+                      "padding": 8,
+                      "children": [
+                        {
+                          "id": "rImoj",
+                          "type": "ref",
+                          "ref": "qwO6X",
+                          "name": "Notif PROCESSING",
+                          "width": "fill_container",
+                          "fill": "$bg-subtle",
+                          "descendants": {
+                            "DB6ap": {
+                              "fill": "$warn-bg"
+                            },
+                            "qfnF6": {
+                              "icon": "package",
+                              "fill": "$warn-text"
+                            },
+                            "RzwFV": {
+                              "content": "Your order is being prepared"
+                            },
+                            "C0lkFB": {
+                              "content": "ORD-3MRAI-10482 · Being picked and packed for shipment."
+                            },
+                            "HiiEZ": {
+                              "content": "4:40 pm"
+                            },
+                            "J36lC": {
+                              "enabled": true
+                            }
+                          }
+                        },
+                        {
+                          "id": "xZqRr",
+                          "type": "ref",
+                          "ref": "qwO6X",
+                          "name": "Notif SHIPPED",
+                          "width": "fill_container",
+                          "fill": "#FFFFFF00",
+                          "descendants": {
+                            "DB6ap": {
+                              "fill": "$info-bg"
+                            },
+                            "qfnF6": {
+                              "icon": "warehouse",
+                              "fill": "$info-blue"
+                            },
+                            "RzwFV": {
+                              "content": "Your order has shipped"
+                            },
+                            "C0lkFB": {
+                              "content": "ORD-3MRAI-10455 · Handed to the carrier and on its way to you."
+                            },
+                            "HiiEZ": {
+                              "content": "9:02 am"
+                            },
+                            "J36lC": {
+                              "enabled": false
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "jrwi9",
+                  "name": "Group EARLIER",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 8,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "f0GrWu",
+                      "name": "Group Label",
+                      "fill": "$text-muted",
+                      "content": "EARLIER",
+                      "fontFamily": "$font-body",
+                      "fontSize": 11.5,
+                      "fontWeight": "600",
+                      "letterSpacing": 1.4
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Qtt7s",
+                      "name": "Group Card",
+                      "width": "fill_container",
+                      "fill": "$bg-white",
+                      "cornerRadius": 12,
+                      "stroke": "$border-color",
+                      "strokeWidth": 1,
+                      "layout": "vertical",
+                      "gap": 4,
+                      "padding": 8,
+                      "children": [
+                        {
+                          "id": "nbF8S",
+                          "type": "ref",
+                          "ref": "qwO6X",
+                          "name": "Notif PLACED",
+                          "width": "fill_container",
+                          "fill": "#FFFFFF00",
+                          "descendants": {
+                            "DB6ap": {
+                              "fill": "#E5E7EB"
+                            },
+                            "qfnF6": {
+                              "icon": "receipt-text",
+                              "fill": "$text-secondary"
+                            },
+                            "RzwFV": {
+                              "content": "Order placed"
+                            },
+                            "C0lkFB": {
+                              "content": "ORD-3MRAI-10482 · Received and confirmed. We'll email your receipt."
+                            },
+                            "HiiEZ": {
+                              "content": "Aug 2 · 10:24 am"
+                            },
+                            "J36lC": {
+                              "enabled": false
+                            }
+                          }
+                        },
+                        {
+                          "id": "SrVGv",
+                          "type": "ref",
+                          "ref": "qwO6X",
+                          "name": "Notif DELIVERED",
+                          "width": "fill_container",
+                          "fill": "#FFFFFF00",
+                          "descendants": {
+                            "DB6ap": {
+                              "fill": "$success-bg"
+                            },
+                            "qfnF6": {
+                              "icon": "package-check",
+                              "fill": "$success-text"
+                            },
+                            "RzwFV": {
+                              "content": "Delivered"
+                            },
+                            "C0lkFB": {
+                              "content": "ORD-3MRAI-10390 · Delivered Jul 24, 2:10 pm."
+                            },
+                            "HiiEZ": {
+                              "content": "Jul 24 · 2:10 pm"
+                            },
+                            "J36lC": {
+                              "enabled": false
+                            }
+                          }
+                        },
+                        {
+                          "id": "eCm4e",
+                          "type": "ref",
+                          "ref": "qwO6X",
+                          "name": "Notif WELCOME",
+                          "width": "fill_container",
+                          "fill": "#FFFFFF00",
+                          "descendants": {
+                            "DB6ap": {
+                              "fill": "$brand-navy-light"
+                            },
+                            "qfnF6": {
+                              "icon": "party-popper",
+                              "fill": "$brand-navy"
+                            },
+                            "RzwFV": {
+                              "content": "Welcome to 3MRAI!"
+                            },
+                            "C0lkFB": {
+                              "content": "Your account is ready. Start exploring orders, tracking and more."
+                            },
+                            "HiiEZ": {
+                              "content": "Jun 12 · 9:00 am"
+                            },
+                            "J36lC": {
+                              "enabled": false
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
     }
   ],
   "variables": {
@@ -29497,6 +31177,10 @@
     "scrim-overlay": {
       "type": "color",
       "value": "#12161FA6"
+    },
+    "brand-navy-light": {
+      "type": "color",
+      "value": "#EDF0F6"
     }
   },
   "fileToken": "d47359f3-8968-480c-b671-faa693ea90b5"
