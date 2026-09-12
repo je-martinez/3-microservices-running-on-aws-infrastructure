@@ -1,5 +1,6 @@
 import { CloudWatchClient } from "@aws-sdk/client-cloudwatch";
 import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
+import { SNSClient } from "@aws-sdk/client-sns";
 import { SQSClient } from "@aws-sdk/client-sqs";
 import { diContainer } from "@fastify/awilix";
 import { asValue, asFunction, asClass, Lifetime } from "awilix";
@@ -7,7 +8,7 @@ import { env, type Env } from "../config/env.ts";
 import { db, type Db } from "../db/prisma.ts";
 // `NoopEventPublisher` stays imported and exported from that module — it is
 // still registered by tests that must not emit.
-import { SqsEventPublisher, type EventPublisher } from "../messaging/event-publisher.ts";
+import { SnsEventPublisher, type EventPublisher } from "../messaging/event-publisher.ts";
 import { MetricsPublisher } from "../metrics/cloudwatch-metrics.ts";
 import { BusinessMetricsPoller } from "../metrics/business-metrics.ts";
 import { CognitoAuthProvider } from "../auth/cognito-auth-provider.ts";
@@ -40,6 +41,7 @@ declare module "@fastify/awilix" {
     env: Env;
     db: Db;
     cognitoClient: CognitoIdentityProviderClient;
+    snsClient: SNSClient;
     sqsClient: SQSClient;
     cloudwatchClient: CloudWatchClient;
     auth: AuthProvider;
@@ -110,6 +112,16 @@ export function registerSingletons(): void {
         }),
       { lifetime: Lifetime.SINGLETON },
     ),
+    snsClient: asFunction(
+      ({ env: cradleEnv }: { env: Env }) =>
+        new SNSClient({
+          region: cradleEnv.AWS_REGION,
+          endpoint: cradleEnv.AWS_ENDPOINT_URL,
+        }),
+      { lifetime: Lifetime.SINGLETON },
+    ),
+    // Publishing goes to the topic; this client stays because the notifications
+    // consumer receives from a queue.
     sqsClient: asFunction(
       ({ env: cradleEnv }: { env: Env }) =>
         new SQSClient({
@@ -119,8 +131,8 @@ export function registerSingletons(): void {
       { lifetime: Lifetime.SINGLETON },
     ),
     events: asFunction(
-      ({ sqsClient, env: cradleEnv }: { sqsClient: SQSClient; env: Env }) =>
-        new SqsEventPublisher(sqsClient, cradleEnv.EVENTS_QUEUE_URL),
+      ({ snsClient, env: cradleEnv }: { snsClient: SNSClient; env: Env }) =>
+        new SnsEventPublisher(snsClient, cradleEnv.EVENTS_TOPIC_ARN),
       { lifetime: Lifetime.SINGLETON },
     ),
     cloudwatchClient: asFunction(

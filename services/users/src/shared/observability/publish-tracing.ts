@@ -1,10 +1,10 @@
 import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
 
 // CONTRACT: Each service names its own publish span after the EVENT TYPE
-// (`sqs.publish order_created` in Orders is the reference shape). The AWS SDK's
-// own `<queue> send` span names the one part of the hop that never varies — every
-// event goes to the same queue — so it cannot say what was published. It is not
-// suppressed: it stays a CHILD, answering "how did the call to SQS go".
+// (`sns.publish order_created` in Orders is the reference shape). The AWS SDK's
+// own `<topic> publish` span names the one part of the hop that never varies —
+// every event goes to the same topic — so it cannot say what was published. It is
+// not suppressed: it stays a CHILD, answering "how did the call to SNS go".
 // See [[logging-context]]
 const tracer = trace.getTracer("users-messaging");
 
@@ -31,15 +31,15 @@ export interface PublishSpan {
  */
 export function withPublishSpan<T>(eventType: string, fn: (span: PublishSpan) => Promise<T>): Promise<T> {
   return tracer.startActiveSpan(
-    `sqs.publish ${eventType}`,
+    `sns.publish ${eventType}`,
     {
       kind: SpanKind.PRODUCER,
       // The event type is both the span's name and an attribute: the name is what a
       // waterfall renders, the attribute is what a query filters on.
       attributes: {
-        "messaging.system": "aws_sqs",
+        "messaging.system": "aws_sns",
         "messaging.operation": "publish",
-        "messaging.destination.kind": "queue",
+        "messaging.destination.kind": "topic",
         event_type: eventType,
       },
     },

@@ -29,6 +29,7 @@
   "dependencies": {
     "@aws-sdk/client-cloudwatch": "^3.1075.0",
     "@aws-sdk/client-cognito-identity-provider": "^3.1075.0",
+    "@aws-sdk/client-sns": "^3.1131.0",
     "@aws-sdk/client-sqs": "^3.1075.0",
     "@fastify/awilix": "^8.2.0",
     "@fastify/otel": "^0.20.1",

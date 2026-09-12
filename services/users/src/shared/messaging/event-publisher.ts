@@ -1,4 +1,4 @@
-import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
+import { PublishCommand, type SNSClient } from "@aws-sdk/client-sns";
 import { context, propagation } from "@opentelemetry/api";
 import { appLogger } from "#shared/logging/app-logger";
 import { hashEmail } from "#shared/logging/email-hash";
@@ -42,7 +42,7 @@ export interface EventPublisher {
 }
 
 // Kept deliberately (it is NOT dead code): tests and any environment that must
-// not emit register this instead of the SQS publisher.
+// not emit register this instead of the SNS publisher.
 export class NoopEventPublisher implements EventPublisher {
   async publishUserCreated(_payload: UserCreatedPayload): Promise<void> {
     return;
@@ -70,7 +70,7 @@ const EVENT_SOURCE = "users";
 // See [[logging-context]]
 
 // WARNING: In production this value is overwritten. @opentelemetry/instrumentation-aws-sdk
-// injects into the same MessageAttributes object from its own `<queue> send` span, so the
+// injects into the same MessageAttributes object from its own `<topic> publish` span, so the
 // id on the wire is the SDK span's. Keep this anyway: that span is a CHILD of the publish
 // span (identical subtree), and this is the only injection left if the aws-sdk
 // instrumentation is ever disabled or fails to patch.
@@ -87,13 +87,13 @@ function traceparentAttributes(): Record<string, { DataType: "String"; StringVal
 }
 
 // CONTRACT: `event_id` is the pipeline's idempotency key — the events collection
-// has a unique index on it, so an SQS redelivery collides and is treated as
+// has a unique index on it, so a redelivery collides and is treated as
 // already-processed. Minted inside the publisher so the seam signature is untouched.
 // See [[nano-id]]
-export class SqsEventPublisher implements EventPublisher {
+export class SnsEventPublisher implements EventPublisher {
   constructor(
-    private readonly client: SQSClient,
-    private readonly queueUrl: string,
+    private readonly client: SNSClient,
+    private readonly topicArn: string,
   ) {}
 
   async publishUserCreated(payload: UserCreatedPayload): Promise<void> {
@@ -146,11 +146,13 @@ export class SqsEventPublisher implements EventPublisher {
     await withPublishSpan(EVENT_TYPE.toLowerCase(), async (span) => {
       try {
         await this.client.send(
-          new SendMessageCommand({
-            QueueUrl: this.queueUrl,
-            MessageBody: JSON.stringify(envelope),
-            // Duplicated as message attributes so the queue can be inspected and
-            // filtered without deserializing the body.
+          new PublishCommand({
+            TopicArn: this.topicArn,
+            Message: JSON.stringify(envelope),
+            // CONTRACT: These survive raw message delivery, which is what keeps
+            // the traceparent joined across the topic and lets the notifications
+            // subscription filter on `type`. Duplicated from the body so a queue
+            // can be inspected and filtered without deserializing it.
             MessageAttributes: {
               type: { DataType: "String", StringValue: envelope.type },
               source: { DataType: "String", StringValue: envelope.source },
@@ -189,7 +191,7 @@ export class SqsEventPublisher implements EventPublisher {
           {
             err,
             app_event: "user_created_publish_failed",
-            reason: "sqs_send_failed",
+            reason: "sns_publish_failed",
             user_id: payload.id,
             email_hash: hashEmail(payload.email),
           },
@@ -244,9 +246,13 @@ export class SqsEventPublisher implements EventPublisher {
     await withPublishSpan(PASSWORD_RESET_EVENT_TYPE.toLowerCase(), async (span) => {
       try {
         await this.client.send(
-          new SendMessageCommand({
-            QueueUrl: this.queueUrl,
-            MessageBody: JSON.stringify(envelope),
+          new PublishCommand({
+            TopicArn: this.topicArn,
+            Message: JSON.stringify(envelope),
+            // CONTRACT: These survive raw message delivery, which is what keeps
+            // the traceparent joined across the topic and lets the notifications
+            // subscription filter on `type`. Duplicated from the body so a queue
+            // can be inspected and filtered without deserializing it.
             MessageAttributes: {
               type: { DataType: "String", StringValue: envelope.type },
               source: { DataType: "String", StringValue: envelope.source },
@@ -281,7 +287,7 @@ export class SqsEventPublisher implements EventPublisher {
           {
             err,
             app_event: "password_reset_requested_publish_failed",
-            reason: "sqs_send_failed",
+            reason: "sns_publish_failed",
             user_id: payload.userId,
             email_hash: hashEmail(payload.email),
           },

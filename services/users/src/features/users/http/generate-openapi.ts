@@ -21,10 +21,13 @@ process.env.COGNITO_CLIENT_ID ??= "generate-openapi";
 process.env.AWS_ENDPOINT_URL ??= "http://localhost:4566";
 process.env.AWS_REGION ??= "us-east-1";
 process.env.WEBHOOK_SECRET ??= "generate-openapi";
-// Added to `env.ts` after this script was written; both are required with no
-// default, so the eager parse above fails without them.
+// Required with no default in `env.ts`, so the eager parse above fails without
+// them. Placeholders only — this script opens no transport.
 process.env.GRPC_API_KEY ??= "generate-openapi";
-process.env.EVENTS_QUEUE_URL ??= "http://localhost:4566/000000000000/generate-openapi";
+process.env.EVENTS_TOPIC_ARN ??= "arn:aws:sns:us-east-1:000000000000:generate-openapi";
+process.env.NOTIFICATIONS_QUEUE_URL ??= "http://localhost:4566/000000000000/generate-openapi";
+process.env.WS_MANAGEMENT_ENDPOINT ??= "http://localhost:4566/execute-api/generate-openapi/$default";
+process.env.WS_CONNECTIONS_TABLE ??= "generate-openapi-ws-connections";
 // The account-deletion cascade's targets. Placeholders only — no request is ever
 // sent here: the `cascade` SINGLETON is never resolved by this throwaway container.
 process.env.ORDERS_BASE_URL ??= "http://localhost:8080";
