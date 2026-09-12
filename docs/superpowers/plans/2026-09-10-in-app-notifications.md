@@ -4,7 +4,7 @@ type: plan
 area: shared
 status: draft
 created: 2026-09-10
-updated: 2026-09-10
+updated: 2026-09-11
 tags:
   - type/plan
   - area/shared
@@ -7552,6 +7552,10 @@ Re-run over only what the correction changed, per the brief.
 ## Related
 
 - [[2026-09-10-in-app-notifications-design]] — the approved spec this plan implements.
+- [[2026-09-11-plans-locate-tests-by-name-not-by-importer]] — Phase 2's Tasks 2.1 (Users), 2.3
+  (Orders), and 2.4 (Tracking) each independently omitted a referencing test suite because it
+  was located by filename resemblance instead of by grepping for the renamed symbol; read before
+  writing the test step of any future rename task in this plan.
 - [[users-service-design]] — gains the `Notification` model, three endpoints, the consumer and the push.
 - [[events-pipeline-design]] — its producers change transport; its envelope and handlers do not.
 - [[terraform-modules]] — gains the SNS topic, the notifications queue and both subscriptions.

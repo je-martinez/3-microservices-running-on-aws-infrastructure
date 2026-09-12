@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-17
-updated: 2026-09-04
+updated: 2026-09-11
 tags: [type/convention, area/shared, status/active]
 related:
   - "[[2026-08-17-web-app-foundation-design]]"
@@ -499,6 +499,9 @@ invalidates the catalogue cache.
 - [[local-dev]]
 - [[2026-07-17-testing-layers-and-e2e-gateway-design]]
 - [[2026-07-17-testing-layers-and-e2e-gateway]] — the implementation plan for the design above.
+- [[2026-09-11-plans-locate-tests-by-name-not-by-importer]] — a rename task's plan must locate
+  affected tests by grepping for who references the symbol, never by matching a filename to the
+  source file's name, or it silently omits the suite that enforces the contract.
 - [[events-pipeline-design]] — where the adapted three-layer treatment for a non-HTTP,
   SQS-triggered component is implemented.
 - [[2026-08-03-events-pipeline-milestone-design]] — full detail on the adapted layers and the

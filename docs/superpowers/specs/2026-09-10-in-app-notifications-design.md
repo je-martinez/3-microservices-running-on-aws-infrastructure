@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: accepted
 created: 2026-09-10
-updated: 2026-09-10
+updated: 2026-09-11
 tags:
   - type/spec
   - area/shared
@@ -557,6 +557,10 @@ a manual PRODUCER span, as the pipeline's publisher does.
   web surface (panel, toasts, All screen, WebSocket client) builds on.
 - [[2026-08-05-realtime-tracking-events-websocket-design]] — the existing WebSocket channel,
   connections table, and management-API pattern this design's push reuses.
+- [[2026-09-11-plans-locate-tests-by-name-not-by-importer]] — the Phase 2 producer-swap
+  implementation of this design (Users/Orders/Tracking) surfaced the planning failure this
+  lesson documents: plan test-file references picked by filename resemblance instead of by
+  grepping for who imports the renamed symbol.
 - [[user-id-vs-cognito-sub-ownership-key]] — the ownership-key trap this design's Postgres-native
   `user_id` key sidesteps.
 - [[soft-delete]] / [[ADR-0004-soft-delete-only]] — the soft-delete convention `Notification`
