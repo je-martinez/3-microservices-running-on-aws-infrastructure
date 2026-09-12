@@ -6,7 +6,7 @@
 // which a test can import; main() cannot, so anything decided here is observable
 // only by starting a process.
 //
-// CONTRACT: CACHE_ENABLED, METRICS_ENABLED and EVENTS_QUEUE_URL are read here
+// CONTRACT: CACHE_ENABLED, METRICS_ENABLED and EVENTS_TOPIC_ARN are read here
 // once and turned into a dependency. No use case or middleware branches on a
 // flag. See [[screaming-architecture]]
 package main
@@ -27,7 +27,7 @@ import (
 	"github.com/XSAM/otelsql"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	awscw "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
-	awssqs "github.com/aws/aws-sdk-go-v2/service/sqs"
+	awssns "github.com/aws/aws-sdk-go-v2/service/sns"
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
 	goredis "github.com/redis/go-redis/v9"
@@ -175,11 +175,11 @@ func run() error {
 		return err
 	}
 
-	sqsOptions := []func(*awssqs.Options){}
+	snsOptions := []func(*awssns.Options){}
 	cwOptions := []func(*awscw.Options){}
 	if cfg.AWSEndpointURL != nil {
 		endpoint := *cfg.AWSEndpointURL
-		sqsOptions = append(sqsOptions, func(o *awssqs.Options) { o.BaseEndpoint = &endpoint })
+		snsOptions = append(snsOptions, func(o *awssns.Options) { o.BaseEndpoint = &endpoint })
 		cwOptions = append(cwOptions, func(o *awscw.Options) { o.BaseEndpoint = &endpoint })
 	}
 
@@ -237,24 +237,24 @@ func run() error {
 
 	// ── The event publisher ──────────────────────────────────────────────────
 	//
-	// The noop when EVENTS_QUEUE_URL is empty, so a runtime with no queue serves
-	// every route and emits nothing; sending to "" would fail once per
+	// The noop when EVENTS_TOPIC_ARN is empty, so a runtime with no topic serves
+	// every route and emits nothing; publishing to "" would fail once per
 	// transition forever on a best-effort path. It resolves the user itself
 	// because the pipeline's handler requires an email Tracking never persists.
 	publisher := sqs.NewNoopPublisher()
 	switch {
-	case cfg.EventsQueueURL == "":
+	case cfg.EventsTopicARN == "":
 		logger.Warn("events_publishing_disabled",
 			slog.String("app_event", "events_publishing_disabled"),
-			slog.String("reason", "EVENTS_QUEUE_URL_empty"))
+			slog.String("reason", "EVENTS_TOPIC_ARN_empty"))
 	case usersClient == nil:
 		logger.Warn("events_publishing_disabled",
 			slog.String("app_event", "events_publishing_disabled"),
 			slog.String("reason", "users_client_unavailable"))
 	default:
 		publisher = sqs.NewPublisher(
-			awssqs.NewFromConfig(awsCfg, sqsOptions...),
-			cfg.EventsQueueURL,
+			awssns.NewFromConfig(awsCfg, snsOptions...),
+			cfg.EventsTopicARN,
 			usersClient,
 			logger,
 		)
@@ -306,7 +306,7 @@ func run() error {
 		// From config, not the constant: the E2E suite pays this interval four
 		// times per delivery spec, three specs deep. NewProgression falls back to
 		// DefaultProgressionInterval on a non-positive value.
-		time.Duration(cfg.ProgressionIntervalSeconds * float64(time.Second)),
+		time.Duration(cfg.ProgressionIntervalSeconds*float64(time.Second)),
 		logger,
 		// CONTRACT: The WORKFLOW tracer — one OpenObserve query must resolve
 		// this span the same way across every service that opens it.

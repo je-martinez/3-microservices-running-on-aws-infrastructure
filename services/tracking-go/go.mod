@@ -5,10 +5,10 @@ go 1.26.7
 require (
 	github.com/XSAM/otelsql v0.43.0
 	github.com/alicebob/miniredis/v2 v2.38.0
-	github.com/aws/aws-sdk-go-v2 v1.45.0
+	github.com/aws/aws-sdk-go-v2 v1.47.0
 	github.com/aws/aws-sdk-go-v2/config v1.33.0
 	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.69.0
-	github.com/aws/aws-sdk-go-v2/service/sqs v1.48.0
+	github.com/aws/aws-sdk-go-v2/service/sns v1.47.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/goccy/go-yaml v1.19.2
@@ -28,8 +28,8 @@ require (
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.0 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.19.0 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.0 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.0 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.3 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.3 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.19 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.0 // indirect

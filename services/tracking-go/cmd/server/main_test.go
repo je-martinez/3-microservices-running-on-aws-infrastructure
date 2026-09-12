@@ -44,8 +44,8 @@ func minimalEnv(t *testing.T, port int) {
 	t.Setenv("CACHE_ENABLED", "false")
 	t.Setenv("METRICS_ENABLED", "false")
 
-	// No queue: the publisher becomes the noop rather than trying to send to "".
-	t.Setenv("EVENTS_QUEUE_URL", "")
+	// No topic: the publisher becomes the noop rather than publishing to "".
+	t.Setenv("EVENTS_TOPIC_ARN", "")
 
 	// Keep the OTLP exporter from retrying against a collector that is not here.
 	// Config lives in ENV VARS, never in code — including in a test.

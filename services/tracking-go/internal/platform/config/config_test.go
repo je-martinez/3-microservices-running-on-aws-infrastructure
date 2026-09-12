@@ -20,7 +20,7 @@ func setRequired(t *testing.T) {
 func isolateDefaultEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("AWS_ENDPOINT_URL", "")
-	t.Setenv("EVENTS_QUEUE_URL", "")
+	t.Setenv("EVENTS_TOPIC_ARN", "")
 }
 
 func TestLoadDefaults(t *testing.T) {
@@ -38,8 +38,8 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.UsersGRPCURL != "users:50051" {
 		t.Errorf("UsersGRPCURL = %q, want %q", cfg.UsersGRPCURL, "users:50051")
 	}
-	if cfg.EventsQueueURL != "" {
-		t.Errorf("EventsQueueURL = %q, want empty", cfg.EventsQueueURL)
+	if cfg.EventsTopicARN != "" {
+		t.Errorf("EventsTopicARN = %q, want empty", cfg.EventsTopicARN)
 	}
 	if cfg.AWSEndpointURL != nil {
 		t.Errorf("AWSEndpointURL = %v, want nil", cfg.AWSEndpointURL)

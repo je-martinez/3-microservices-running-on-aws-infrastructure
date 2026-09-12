@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	awssqs "github.com/aws/aws-sdk-go-v2/service/sqs"
+	awssns "github.com/aws/aws-sdk-go-v2/service/sns"
 
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/grpcusers"
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/sqs"
@@ -19,23 +19,27 @@ import (
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/platform/logging"
 )
 
-type fakeSQS struct {
+// testTopicARN is the shape Floci and AWS both mint; the publisher treats it as
+// an opaque string, so only its emptiness is behavioural.
+const testTopicARN = "arn:aws:sns:us-east-1:000000000000:3mrai-local-events-topic"
+
+type fakeSNS struct {
 	mu   sync.Mutex
-	sent []*awssqs.SendMessageInput
+	sent []*awssns.PublishInput
 	err  error
 }
 
-func (f *fakeSQS) SendMessage(_ context.Context, in *awssqs.SendMessageInput, _ ...func(*awssqs.Options)) (*awssqs.SendMessageOutput, error) {
+func (f *fakeSNS) Publish(_ context.Context, in *awssns.PublishInput, _ ...func(*awssns.Options)) (*awssns.PublishOutput, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.sent = append(f.sent, in)
 	if f.err != nil {
 		return nil, f.err
 	}
-	return &awssqs.SendMessageOutput{}, nil
+	return &awssns.PublishOutput{}, nil
 }
 
-func (f *fakeSQS) last() *awssqs.SendMessageInput {
+func (f *fakeSNS) last() *awssns.PublishInput {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if len(f.sent) == 0 {
@@ -44,7 +48,7 @@ func (f *fakeSQS) last() *awssqs.SendMessageInput {
 	return f.sent[len(f.sent)-1]
 }
 
-func (f *fakeSQS) count() int {
+func (f *fakeSNS) count() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.sent)
@@ -87,14 +91,14 @@ func fullInput() sqs.StatusChanged {
 	}
 }
 
-func decodeEnvelope(t *testing.T, in *awssqs.SendMessageInput) map[string]any {
+func decodeEnvelope(t *testing.T, in *awssns.PublishInput) map[string]any {
 	t.Helper()
 	if in == nil {
 		t.Fatal("nothing was sent")
 	}
 	var envelope map[string]any
-	if err := json.Unmarshal([]byte(*in.MessageBody), &envelope); err != nil {
-		t.Fatalf("body is not JSON: %v\n%s", err, *in.MessageBody)
+	if err := json.Unmarshal([]byte(*in.Message), &envelope); err != nil {
+		t.Fatalf("body is not JSON: %v\n%s", err, *in.Message)
 	}
 	return envelope
 }
@@ -105,10 +109,10 @@ func decodeEnvelope(t *testing.T, in *awssqs.SendMessageInput) map[string]any {
 // number support cannot find. The shape matches what Orders sends on
 // ORDER_CREATED, so ONE Zod schema validates both. See [[friendly-order-number]]
 func TestEnvelopeCarriesBothFormsOfTheOrderNumber(t *testing.T) {
-	client := &fakeSQS{}
+	client := &fakeSNS{}
 	resolver := stubResolver{user: grpcusers.ResolvedUser{
 		InternalID: "usr_abc", Email: "person@example.com", FullName: "Ada Lovelace"}}
-	p := sqs.NewPublisher(client, "https://sqs/queue", resolver, quietLog())
+	p := sqs.NewPublisher(client, testTopicARN, resolver, quietLog())
 
 	p.PublishTrackingStatusChanged(t.Context(), fullInput())
 
@@ -135,10 +139,10 @@ func TestEnvelopeCarriesBothFormsOfTheOrderNumber(t *testing.T) {
 // PermanentError — the record is consumed and the email and the WebSocket push
 // are lost while this producer logs success. See [[events-pipeline-design]]
 func TestAnOrderWithoutANumberOmitsTheKey(t *testing.T) {
-	client := &fakeSQS{}
+	client := &fakeSNS{}
 	resolver := stubResolver{user: grpcusers.ResolvedUser{
 		InternalID: "usr_abc", Email: "person@example.com", FullName: "Ada Lovelace"}}
-	p := sqs.NewPublisher(client, "https://sqs/queue", resolver, quietLog())
+	p := sqs.NewPublisher(client, testTopicARN, resolver, quietLog())
 
 	in := fullInput()
 	in.OrderNumber = ""
@@ -152,10 +156,10 @@ func TestAnOrderWithoutANumberOmitsTheKey(t *testing.T) {
 }
 
 func TestEnvelopeShape(t *testing.T) {
-	client := &fakeSQS{}
+	client := &fakeSNS{}
 	resolver := stubResolver{user: grpcusers.ResolvedUser{
 		InternalID: "usr_abc", Email: "person@example.com", FullName: "Ada Lovelace"}}
-	p := sqs.NewPublisher(client, "https://sqs/queue", resolver, quietLog())
+	p := sqs.NewPublisher(client, testTopicARN, resolver, quietLog())
 
 	ctx := logging.WithLogFields(t.Context(),
 		slog.String(logging.KeyRequestID, "req_7gK3mP1vXz9wLq2bN8rRt4Yc"))
@@ -273,8 +277,8 @@ func TestEventIDIsDeterministic(t *testing.T) {
 }
 
 func TestEnvelopeEventIDMatchesDerive(t *testing.T) {
-	client := &fakeSQS{}
-	p := sqs.NewPublisher(client, "q",
+	client := &fakeSNS{}
+	p := sqs.NewPublisher(client, testTopicARN,
 		stubResolver{user: grpcusers.ResolvedUser{Email: "a@b.com"}}, quietLog())
 	p.PublishTrackingStatusChanged(t.Context(), fullInput())
 
@@ -288,8 +292,8 @@ func TestEnvelopeEventIDMatchesDerive(t *testing.T) {
 // consumes the record and LOSES the email and the push.
 func TestOmissionRules(t *testing.T) {
 	t.Run("request_id omitted when the context has none", func(t *testing.T) {
-		client := &fakeSQS{}
-		p := sqs.NewPublisher(client, "q",
+		client := &fakeSNS{}
+		p := sqs.NewPublisher(client, testTopicARN,
 			stubResolver{user: grpcusers.ResolvedUser{Email: "a@b.com"}}, quietLog())
 		p.PublishTrackingStatusChanged(t.Context(), fullInput())
 
@@ -297,14 +301,14 @@ func TestOmissionRules(t *testing.T) {
 		if _, present := envelope["request_id"]; present {
 			t.Errorf("request_id = %v, want the key absent", envelope["request_id"])
 		}
-		if strings.Contains(*client.last().MessageBody, `"request_id":null`) {
+		if strings.Contains(*client.last().Message, `"request_id":null`) {
 			t.Error("request_id was emitted as null")
 		}
 	})
 
 	t.Run("author.cognito_sub omitted when the row has none", func(t *testing.T) {
-		client := &fakeSQS{}
-		p := sqs.NewPublisher(client, "q",
+		client := &fakeSNS{}
+		p := sqs.NewPublisher(client, testTopicARN,
 			stubResolver{user: grpcusers.ResolvedUser{Email: "a@b.com"}}, quietLog())
 		in := fullInput()
 		in.CognitoSub = ""
@@ -321,15 +325,15 @@ func TestOmissionRules(t *testing.T) {
 	// path, not an edge case. The pipeline's schema is `.optional()` and NOT
 	// `.nullable()`: an emitted null fails Zod exactly as a wrong type does.
 	t.Run("shipping_address omitted when the column is NULL", func(t *testing.T) {
-		client := &fakeSQS{}
-		p := sqs.NewPublisher(client, "q",
+		client := &fakeSNS{}
+		p := sqs.NewPublisher(client, testTopicARN,
 			stubResolver{user: grpcusers.ResolvedUser{Email: "a@b.com"}}, quietLog())
 
 		in := fullInput()
 		in.ShippingAddress = nil
 		p.PublishTrackingStatusChanged(t.Context(), in)
 
-		body := *client.last().MessageBody
+		body := *client.last().Message
 		payload, _ := decodeEnvelope(t, client.last())["payload"].(map[string]any)
 		if _, present := payload["shipping_address"]; present {
 			t.Errorf("shipping_address = %v on a NULL column, want the key absent", payload["shipping_address"])
@@ -351,8 +355,8 @@ func TestOmissionRules(t *testing.T) {
 			"zero-length": {},
 		} {
 			t.Run(name, func(t *testing.T) {
-				client := &fakeSQS{}
-				p := sqs.NewPublisher(client, "q",
+				client := &fakeSNS{}
+				p := sqs.NewPublisher(client, testTopicARN,
 					stubResolver{user: grpcusers.ResolvedUser{Email: "a@b.com"}}, quietLog())
 
 				in := fullInput()
@@ -374,15 +378,15 @@ func TestOmissionRules(t *testing.T) {
 	// NOT save us there — the bytes are non-empty, so they marshal straight
 	// through as `"shipping_address": null`, the exact shape Zod rejects.
 	t.Run("shipping_address omitted when the column holds the JSON literal null", func(t *testing.T) {
-		client := &fakeSQS{}
-		p := sqs.NewPublisher(client, "q",
+		client := &fakeSNS{}
+		p := sqs.NewPublisher(client, testTopicARN,
 			stubResolver{user: grpcusers.ResolvedUser{Email: "a@b.com"}}, quietLog())
 
 		in := fullInput()
 		in.ShippingAddress = json.RawMessage(`null`)
 		p.PublishTrackingStatusChanged(t.Context(), in)
 
-		body := *client.last().MessageBody
+		body := *client.last().Message
 		if strings.Contains(body, `"shipping_address":null`) {
 			t.Errorf("shipping_address was emitted as null; the schema is .optional(), NOT .nullable(): %s", body)
 		}
@@ -393,8 +397,8 @@ func TestOmissionRules(t *testing.T) {
 	})
 
 	t.Run("full_name ALWAYS present, empty when unknown", func(t *testing.T) {
-		client := &fakeSQS{}
-		p := sqs.NewPublisher(client, "q",
+		client := &fakeSNS{}
+		p := sqs.NewPublisher(client, testTopicARN,
 			stubResolver{user: grpcusers.ResolvedUser{Email: "a@b.com", FullName: ""}}, quietLog())
 		p.PublishTrackingStatusChanged(t.Context(), fullInput())
 
@@ -414,8 +418,8 @@ func TestOmissionRules(t *testing.T) {
 func TestActorIsThreadedThroughNotConstant(t *testing.T) {
 	for _, actor := range []audit.Actor{audit.CarrierStatusUpdate, audit.TestModeProgression} {
 		t.Run(string(actor), func(t *testing.T) {
-			client := &fakeSQS{}
-			p := sqs.NewPublisher(client, "q",
+			client := &fakeSNS{}
+			p := sqs.NewPublisher(client, testTopicARN,
 				stubResolver{user: grpcusers.ResolvedUser{Email: "a@b.com"}}, quietLog())
 			in := fullInput()
 			in.Actor = actor
@@ -429,12 +433,12 @@ func TestActorIsThreadedThroughNotConstant(t *testing.T) {
 	}
 }
 
-// type and source travel as message attributes so the queue can be inspected
+// type and source travel as message attributes so the topic can be inspected
 // without deserializing the body, and the W3C context rides beside them — NOT
 // inside the envelope.
 func TestMessageAttributes(t *testing.T) {
-	client := &fakeSQS{}
-	p := sqs.NewPublisher(client, "q",
+	client := &fakeSNS{}
+	p := sqs.NewPublisher(client, testTopicARN,
 		stubResolver{user: grpcusers.ResolvedUser{Email: "a@b.com"}}, quietLog())
 	p.PublishTrackingStatusChanged(t.Context(), fullInput())
 
@@ -461,14 +465,14 @@ func TestMessageAttributes(t *testing.T) {
 
 // With no valid active span the propagator writes nothing: omitted, never blank.
 func TestTraceparentOmittedWithoutASpan(t *testing.T) {
-	client := &fakeSQS{}
-	p := sqs.NewPublisher(client, "q",
+	client := &fakeSNS{}
+	p := sqs.NewPublisher(client, testTopicARN,
 		stubResolver{user: grpcusers.ResolvedUser{Email: "a@b.com"}}, quietLog())
 	p.PublishTrackingStatusChanged(t.Context(), fullInput())
 
 	if attr, present := client.last().MessageAttributes["traceparent"]; present {
 		if attr.StringValue != nil && *attr.StringValue == "" {
-			t.Error("a blank traceparent was sent; it must be omitted entirely")
+			t.Error("a blank traceparent was published; it must be omitted entirely")
 		}
 	}
 }
@@ -478,15 +482,15 @@ func TestTraceparentOmittedWithoutASpan(t *testing.T) {
 func TestFailuresAreLoggedAndSwallowed(t *testing.T) {
 	t.Run("email_resolution_failed", func(t *testing.T) {
 		var buf strings.Builder
-		client := &fakeSQS{}
-		p := sqs.NewPublisher(client, "q",
+		client := &fakeSNS{}
+		p := sqs.NewPublisher(client, testTopicARN,
 			stubResolver{err: errors.New("users is unreachable")},
 			slog.New(slog.NewJSONHandler(&buf, nil)))
 
 		p.PublishTrackingStatusChanged(t.Context(), fullInput())
 
 		if client.count() != 0 {
-			t.Error("a message was sent despite a failed resolution")
+			t.Error("a message was published despite a failed resolution")
 		}
 		if !strings.Contains(buf.String(), "email_resolution_failed") {
 			t.Errorf("no reason=email_resolution_failed: %s", buf.String())
@@ -495,36 +499,36 @@ func TestFailuresAreLoggedAndSwallowed(t *testing.T) {
 
 	t.Run("no_email_for_user aborts before building anything", func(t *testing.T) {
 		var buf strings.Builder
-		client := &fakeSQS{}
-		p := sqs.NewPublisher(client, "q",
+		client := &fakeSNS{}
+		p := sqs.NewPublisher(client, testTopicARN,
 			stubResolver{user: grpcusers.ResolvedUser{InternalID: "usr_abc", Email: ""}},
 			slog.New(slog.NewJSONHandler(&buf, nil)))
 
 		p.PublishTrackingStatusChanged(t.Context(), fullInput())
 
 		if client.count() != 0 {
-			t.Error("a message was sent with no email")
+			t.Error("a message was published with no email")
 		}
 		if !strings.Contains(buf.String(), "no_email_for_user") {
 			t.Errorf("no reason=no_email_for_user: %s", buf.String())
 		}
 	})
 
-	t.Run("sqs_send_failed carries email_hash", func(t *testing.T) {
+	t.Run("sns_publish_failed carries email_hash", func(t *testing.T) {
 		var buf strings.Builder
-		client := &fakeSQS{err: errors.New("queue unreachable")}
-		p := sqs.NewPublisher(client, "q",
+		client := &fakeSNS{err: errors.New("topic unreachable")}
+		p := sqs.NewPublisher(client, testTopicARN,
 			stubResolver{user: grpcusers.ResolvedUser{Email: "person@example.com"}},
 			slog.New(slog.NewJSONHandler(&buf, nil)))
 
 		p.PublishTrackingStatusChanged(t.Context(), fullInput())
 
 		out := buf.String()
-		if !strings.Contains(out, "sqs_send_failed") {
-			t.Errorf("no reason=sqs_send_failed: %s", out)
+		if !strings.Contains(out, "sns_publish_failed") {
+			t.Errorf("no reason=sns_publish_failed: %s", out)
 		}
 		if !strings.Contains(out, sqs.HashEmail("person@example.com")) {
-			t.Errorf("sqs_send_failed must carry email_hash: %s", out)
+			t.Errorf("sns_publish_failed must carry email_hash: %s", out)
 		}
 		// NEVER the plaintext address.
 		if strings.Contains(out, "person@example.com") {
@@ -532,9 +536,9 @@ func TestFailuresAreLoggedAndSwallowed(t *testing.T) {
 		}
 	})
 
-	t.Run("publisher_unavailable when the queue url is empty", func(t *testing.T) {
+	t.Run("publisher_unavailable when the topic arn is empty", func(t *testing.T) {
 		var buf strings.Builder
-		client := &fakeSQS{}
+		client := &fakeSNS{}
 		p := sqs.NewPublisher(client, "",
 			stubResolver{user: grpcusers.ResolvedUser{Email: "a@b.com"}},
 			slog.New(slog.NewJSONHandler(&buf, nil)))
@@ -542,7 +546,7 @@ func TestFailuresAreLoggedAndSwallowed(t *testing.T) {
 		p.PublishTrackingStatusChanged(t.Context(), fullInput())
 
 		if client.count() != 0 {
-			t.Error("a message was sent with no queue url")
+			t.Error("a message was published with no topic arn")
 		}
 		if !strings.Contains(buf.String(), "publisher_unavailable") {
 			t.Errorf("no reason=publisher_unavailable: %s", buf.String())
@@ -553,8 +557,8 @@ func TestFailuresAreLoggedAndSwallowed(t *testing.T) {
 // The address, the name and the email never appear in any log line.
 func TestNoPIIIsLogged(t *testing.T) {
 	var buf strings.Builder
-	client := &fakeSQS{err: errors.New("boom")}
-	p := sqs.NewPublisher(client, "q",
+	client := &fakeSNS{err: errors.New("boom")}
+	p := sqs.NewPublisher(client, testTopicARN,
 		stubResolver{user: grpcusers.ResolvedUser{
 			Email: "person@example.com", FullName: "Ada Lovelace"}},
 		slog.New(slog.NewJSONHandler(&buf, nil)))
@@ -570,4 +574,33 @@ func TestNoPIIIsLogged(t *testing.T) {
 
 func TestNoopPublisherSendsNothing(t *testing.T) {
 	sqs.NewNoopPublisher().PublishTrackingStatusChanged(t.Context(), fullInput())
+}
+
+// TestPublishesToTheTopicRatherThanAQueue pins the transport itself.
+//
+// CONTRACT: The envelope crosses SNS byte-for-byte — raw message delivery hands
+// the pipeline this exact document, and its Zod schema rejects any other shape
+// as a PermanentError that loses the email and the push.
+// See [[events-pipeline-design]]
+func TestPublishesToTheTopicRatherThanAQueue(t *testing.T) {
+	client := &fakeSNS{}
+	p := sqs.NewPublisher(client, testTopicARN,
+		stubResolver{user: grpcusers.ResolvedUser{Email: "a@b.com"}}, quietLog())
+
+	p.PublishTrackingStatusChanged(t.Context(), fullInput())
+
+	if client.count() != 1 {
+		t.Fatalf("published %d messages, want 1", client.count())
+	}
+	sent := client.last()
+	if sent.TopicArn == nil || *sent.TopicArn != testTopicARN {
+		t.Errorf("TopicArn = %v, want %q", sent.TopicArn, testTopicARN)
+	}
+	envelope := decodeEnvelope(t, sent)
+	if envelope["type"] != "TRACKING_STATUS_CHANGED" {
+		t.Errorf("type = %v, want TRACKING_STATUS_CHANGED", envelope["type"])
+	}
+	if envelope["source"] != "tracking" {
+		t.Errorf("source = %v, want tracking", envelope["source"])
+	}
 }

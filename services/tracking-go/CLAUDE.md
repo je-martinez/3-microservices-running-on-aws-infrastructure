@@ -207,7 +207,7 @@ why a dropped `Register*` call fails a unit test at the commit that dropped it
 rather than a gateway E2E hours later. Never move composition back into `main.go`.
 
 **Flags are decided in the composition root and nowhere else.** `CACHE_ENABLED`,
-`METRICS_ENABLED` and `EVENTS_QUEUE_URL` are each read exactly once, in `main.go`,
+`METRICS_ENABLED` and `EVENTS_TOPIC_ARN` are each read exactly once, in `main.go`,
 and turned into a **dependency**: a null gateway, a nil publisher, a noop
 publisher. No use case and no middleware branches on a flag.
 
@@ -746,10 +746,15 @@ Other implementation rules:
 
 ### `TRACKING_STATUS_CHANGED` — the third producer
 
-Tracking publishes to the shared SQS events queue (`EVENTS_QUEUE_URL`) on **every**
-status transition, consumed by the events-pipeline Lambda, which emails the user
-and pushes over WebSocket. See `internal/adapter/sqs/` and
-`internal/adapter/notify/`.
+Tracking publishes to the shared SNS events topic (`EVENTS_TOPIC_ARN`) on **every**
+status transition. The topic fans the message out to the events-pipeline queue —
+with `raw_message_delivery`, so the consumer receives the envelope byte-for-byte
+and needs no change — and the Lambda emails the user and pushes over WebSocket.
+See `internal/adapter/sqs/` and `internal/adapter/notify/`.
+
+The adapter package is named `sqs` although it publishes to SNS:
+`cmd/server/wiring_reachability_test.go` pins its import path, so a rename means
+editing that inventory in the same change. The `CONTRACT` on `NewPublisher` says so.
 
 - **Best-effort, never fails the write.** A publish failure is logged with a
   machine-readable `reason` and swallowed — a notification must not break the write
