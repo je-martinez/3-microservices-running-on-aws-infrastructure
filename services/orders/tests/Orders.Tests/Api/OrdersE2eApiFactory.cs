@@ -94,9 +94,9 @@ public abstract class OrdersE2eApiFactoryBase : WebApplicationFactory<Program>, 
         builder.UseSetting("GRPC_API_KEY", "test-key");
         builder.UseSetting("TRACKING_BASE_URL", "http://localhost:8000");
         builder.UseSetting("E2E_TESTING_ENABLED", E2eTestingEnabled ? "true" : "false");
-        // Well-formed placeholder so the SQS client can be constructed. Nothing is
+        // Well-formed placeholder so the SNS client can be constructed. Nothing is
         // ever sent to it: NoopEventPublisher replaces the real publisher below.
-        builder.UseSetting("EVENTS_QUEUE_URL", "http://localhost:4566/000000000000/events");
+        builder.UseSetting("EVENTS_TOPIC_ARN", "arn:aws:sns:us-east-1:000000000000:events");
         // Base URL the product read service prefixes onto each image's bucket key.
         // Placeholder — nothing here fetches the composed URL.
         builder.UseSetting("ASSETS_BASE_URL", "http://localhost:4566/test-assets");

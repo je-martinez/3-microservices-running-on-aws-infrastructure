@@ -1,8 +1,8 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Amazon.SQS;
-using Amazon.SQS.Model;
+using Amazon.SimpleNotificationService;
+using Amazon.SimpleNotificationService.Model;
 using Microsoft.Extensions.Logging;
 using Orders.Application.Abstractions;
 using Orders.Infrastructure.Id;
@@ -10,7 +10,7 @@ using Orders.Infrastructure.Id;
 namespace Orders.Infrastructure.Messaging;
 
 /// <summary>
-/// Publishes <c>ORDER_CREATED</c> onto the shared events queue, where the
+/// Publishes <c>ORDER_CREATED</c> onto the shared events topic, where the
 /// events-pipeline Lambda consumes it and sends the confirmation email.
 /// </summary>
 /// <remarks>
@@ -21,7 +21,7 @@ namespace Orders.Infrastructure.Messaging;
 /// is recorded FAILED, and no email is ever sent — silently, for every event.
 /// See [[events-pipeline-design]]
 /// </remarks>
-public class SqsEventPublisher : IEventPublisher
+public class SnsEventPublisher : IEventPublisher
 {
     private const string EventIdPrefix = NanoIdConfig.EventPrefix;
     private const string EventType = "ORDER_CREATED";
@@ -37,7 +37,7 @@ public class SqsEventPublisher : IEventPublisher
     };
 
     /// <summary>
-    /// The ActivitySource for the publish span, identifying the queue hop.
+    /// The ActivitySource for the publish span, identifying the topic hop.
     /// CONTRACT: Keep it registered in <c>Program.cs</c> via <c>AddSource</c>. .NET drops
     /// every source the pipeline was not told about — no span, no error.
     /// See [[ADR-0019-distributed-tracing-opentelemetry]]
@@ -45,18 +45,21 @@ public class SqsEventPublisher : IEventPublisher
     public const string ActivitySourceName = "orders-messaging";
 
     /// <summary>The publish span's name, asserted by the tests that pin the trace hop.</summary>
-    public const string PublishActivityName = "sqs.publish order_created";
+    public const string PublishActivityName = "sns.publish order_created";
 
     private static readonly ActivitySource Source = new(ActivitySourceName);
 
-    private readonly IAmazonSQS _client;
-    private readonly string _queueUrl;
-    private readonly ILogger<SqsEventPublisher> _logger;
+    private readonly IAmazonSimpleNotificationService _client;
+    private readonly string _topicArn;
+    private readonly ILogger<SnsEventPublisher> _logger;
 
-    public SqsEventPublisher(IAmazonSQS client, string queueUrl, ILogger<SqsEventPublisher> logger)
+    public SnsEventPublisher(
+        IAmazonSimpleNotificationService client,
+        string topicArn,
+        ILogger<SnsEventPublisher> logger)
     {
         _client = client;
-        _queueUrl = queueUrl;
+        _topicArn = topicArn;
         _logger = logger;
     }
 
@@ -79,13 +82,13 @@ public class SqsEventPublisher : IEventPublisher
         var envelope = new EventEnvelope(
             // CONTRACT: Mint the event id here, never in the caller. It is the idempotency
             // key behind the pipeline's unique index on event_id; a caller-supplied id lets
-            // an SQS redelivery be processed twice.
+            // a redelivery be processed twice.
             EventId: NanoId.NewId(EventIdPrefix),
             Type: EventType,
             Source: EventSource,
             UserId: userId,
             OrderId: orderId,
-            // WHY: The only link across the queue — the pipeline Lambda runs no OTel SDK,
+            // WHY: The only link across the topic — the pipeline Lambda runs no OTel SDK,
             // so trace_id never reaches it. Null outside a request, and omitted when null.
             RequestId: AmbientRequestId.Current,
             // WHY: `author` is WHO acted; the root UserId is WHO the event is about. Actor
@@ -126,10 +129,10 @@ public class SqsEventPublisher : IEventPublisher
                 // WHY: Round-trip ("O") UTC — a machine-locale rendering is ambiguous.
                 CreatedAt: createdAt.ToUniversalTime().ToString("O")));
 
-        var request = new SendMessageRequest
+        var request = new PublishRequest
         {
-            QueueUrl = _queueUrl,
-            MessageBody = JsonSerializer.Serialize(envelope, SerializerOptions),
+            TopicArn = _topicArn,
+            Message = JsonSerializer.Serialize(envelope, SerializerOptions),
         };
 
         // CONTRACT: Start the activity OUTSIDE the try, with the try/catch nested in its
@@ -145,7 +148,7 @@ public class SqsEventPublisher : IEventPublisher
             // span and the consumer parents its work to that instead of to this send.
             request.MessageAttributes = BuildMessageAttributes();
 
-            await _client.SendMessageAsync(request, ct);
+            await _client.PublishAsync(request, ct);
 
             // CONTRACT: Never log the email, name or address (PII) — the ids identify the
             // message. Keep the line inside the activity: OpenObserve's "View logs" filters
@@ -162,22 +165,22 @@ public class SqsEventPublisher : IEventPublisher
 
 
             // CONTRACT: Do NOT rethrow. The order is already persisted and its stock already
-            // decremented, so rethrowing aborts the enclosing transaction and a queue outage
+            // decremented, so rethrowing aborts the enclosing transaction and a topic outage
             // rolls back a sale the customer completed. Log at error with the `*_failed`
             // app_event so it stays alertable and backfillable — never the email or address
             // (PII). See [[logging-context]]
             _logger.LogError(
                 ex,
                 "ORDER_CREATED publish failed (non-fatal): the order was created but no event was emitted {app_event} {reason} {order_id} {user_id}",
-                "order_created_publish_failed", "sqs_send_failed", orderId, userId);
+                "order_created_publish_failed", "sns_publish_failed", orderId, userId);
         }
     }
 
     // CONTRACT: Call this INSIDE the publish activity's scope — it reads Activity.Current.
-    // Called while building the SendMessageRequest, it captures the enclosing create_order
+    // Called while building the PublishRequest, it captures the enclosing create_order
     // span and the consumer parents process_record as a sibling of the send, so expanding
     // the publish shows only SDK internals. Omit traceparent when there is no activity:
-    // SQS rejects an empty StringValue, turning a missing trace into a failed publish.
+    // SNS rejects an empty StringValue, turning a missing trace into a failed publish.
     // It rides in the attributes, never in the body, which the consumer's schema validates.
     // See [[ADR-0019-distributed-tracing-opentelemetry]]
     private static Dictionary<string, MessageAttributeValue> BuildMessageAttributes()
@@ -224,7 +227,7 @@ public class SqsEventPublisher : IEventPublisher
     }
 
     // CONTRACT: Every root key is required except `request_id`, which is omitted when
-    // absent. Making it required fails validation for messages already on the queue from
+    // absent. Making it required fails validation for messages already in flight from
     // before the field existed — PermanentError, dead-lettered, email silently never sent.
     // `order_id` is nullable but required, and this publisher always fills it.
     // See [[events-pipeline-design]]
@@ -271,7 +274,7 @@ public class SqsEventPublisher : IEventPublisher
     // CONTRACT: Both forms travel. `raw` is the canonical value a consumer would send back;
     // `formatted` is what a template prints, verbatim. The consumer's schema must keep the
     // whole object OPTIONAL — messages published before this field existed can still be on
-    // the queue at deploy time, and a schema failure is a PermanentError whose email is
+    // in flight at deploy time, and a schema failure is a PermanentError whose email is
     // never sent. See [[events-pipeline-design]]
     private sealed record OrderNumberPayload(
         [property: JsonPropertyName("raw")] string Raw,

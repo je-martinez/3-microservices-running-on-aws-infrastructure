@@ -164,9 +164,9 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
         // Well-formed placeholder so the typed Tracking client can be constructed.
         // Nothing in these tests calls it, so no request is ever dialed.
         builder.UseSetting("TRACKING_BASE_URL", "http://localhost:8000");
-        // Well-formed placeholder so the SQS client can be constructed. Nothing is
+        // Well-formed placeholder so the SNS client can be constructed. Nothing is
         // ever sent to it: NoopEventPublisher replaces the real publisher below.
-        builder.UseSetting("EVENTS_QUEUE_URL", "http://localhost:4566/000000000000/events");
+        builder.UseSetting("EVENTS_TOPIC_ARN", "arn:aws:sns:us-east-1:000000000000:events");
         // Base URL the product read service prefixes onto each image's bucket key. A
         // fixed placeholder: these tests assert on the composed shape, not on a
         // reachable object, and nothing fetches the URL.

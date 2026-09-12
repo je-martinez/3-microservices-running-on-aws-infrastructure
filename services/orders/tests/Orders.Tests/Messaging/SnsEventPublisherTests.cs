@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
-using Amazon.SQS;
-using Amazon.SQS.Model;
+using Amazon.SimpleNotificationService;
+using Amazon.SimpleNotificationService.Model;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Orders.Application.Abstractions;
@@ -15,15 +15,15 @@ namespace Orders.Tests.Messaging;
 /// Verifies the ORDER_CREATED message this publisher actually puts on the wire.
 /// </summary>
 /// <remarks>
-/// CONTRACT: Every assertion reads the <see cref="SendMessageRequest"/> the publisher BUILT.
+/// CONTRACT: Every assertion reads the <see cref="PublishRequest"/> the publisher BUILT.
 /// Do NOT assert a stub's configured behaviour back at itself — that passes against any
 /// implementation, including one that publishes nothing or leaks PII. The contract belongs
 /// to the consumer's Zod schemas, and a mismatch fails silently in production
 /// (PermanentError, no email). See [[events-pipeline-design]]
 /// </remarks>
-public class SqsEventPublisherTests
+public class SnsEventPublisherTests
 {
-    private const string QueueUrl = "http://localhost:4566/000000000000/3mrai-local-events";
+    private const string TopicArn = "arn:aws:sns:us-east-1:000000000000:3mrai-local-events-topic";
     private const string OrderId = "ord_abc123";
     // The canonical (stored) form; the publisher derives the displayed one.
     private const string OrderNumberCanonical = "2609078KJ4M2";
@@ -60,7 +60,7 @@ public class SqsEventPublisherTests
     // WHY: One place to build a full publish call, so each test names only the argument it
     // is about.
     private static Task Publish(
-        SqsEventPublisher publisher,
+        SnsEventPublisher publisher,
         string? cognitoSub = CognitoSub,
         string? shippingAddress = ShippingAddressJson,
         IReadOnlyList<OrderCreatedItem>? items = null,
@@ -70,21 +70,21 @@ public class SqsEventPublisherTests
             SubtotalCents, TaxCents, ShippingCents, TotalCents,
             shippingAddress, items ?? Items, CreatedAt, cognitoSub);
 
-    private static (SqsEventPublisher Publisher, RecordingSqs Sqs, CapturingLogger Logger) Build(
+    private static (SnsEventPublisher Publisher, RecordingSns Sns, CapturingLogger Logger) Build(
         Exception? sendFailure = null)
     {
-        var sqs = new RecordingSqs(sendFailure);
+        var sns = new RecordingSns(sendFailure);
         var logger = new CapturingLogger();
-        return (new SqsEventPublisher(sqs.Object, QueueUrl, logger), sqs, logger);
+        return (new SnsEventPublisher(sns.Object, TopicArn, logger), sns, logger);
     }
 
     private static async Task<JsonElement> PublishAndReadBody(
-        RecordingSqs sqs,
-        SqsEventPublisher publisher,
+        RecordingSns sns,
+        SnsEventPublisher publisher,
         string? shippingAddress = ShippingAddressJson)
     {
         await Publish(publisher, shippingAddress: shippingAddress);
-        return JsonDocument.Parse(sqs.Requests.Single().MessageBody).RootElement;
+        return JsonDocument.Parse(sns.Requests.Single().Message).RootElement;
     }
 
     /// <summary>
@@ -95,9 +95,9 @@ public class SqsEventPublisherTests
     [Fact]
     public async Task Payload_carries_both_forms_of_the_order_number()
     {
-        var (publisher, sqs, _) = Build();
+        var (publisher, sns, _) = Build();
 
-        var payload = (await PublishAndReadBody(sqs, publisher)).GetProperty("payload");
+        var payload = (await PublishAndReadBody(sns, publisher)).GetProperty("payload");
 
         var number = payload.GetProperty("order_number");
         Assert.Equal(OrderNumberCanonical, number.GetProperty("raw").GetString());
@@ -114,11 +114,11 @@ public class SqsEventPublisherTests
     [Fact]
     public async Task An_order_without_a_number_omits_the_key_rather_than_sending_null()
     {
-        var (publisher, sqs, _) = Build();
+        var (publisher, sns, _) = Build();
 
         await Publish(publisher, orderNumber: null);
 
-        var payload = JsonDocument.Parse(sqs.Requests.Single().MessageBody)
+        var payload = JsonDocument.Parse(sns.Requests.Single().Message)
             .RootElement.GetProperty("payload");
         Assert.False(
             payload.TryGetProperty("order_number", out _),
@@ -126,23 +126,45 @@ public class SqsEventPublisherTests
     }
 
     [Fact]
-    public async Task Sends_one_message_to_the_configured_queue_url()
+    public async Task Publishes_one_message_to_the_configured_topic_arn()
     {
-        var (publisher, sqs, _) = Build();
+        var (publisher, sns, _) = Build();
 
         await Publish(publisher);
 
-        var request = Assert.Single(sqs.Requests);
-        // WHY: Pins that the injected queue URL is the one actually used.
-        Assert.Equal(QueueUrl, request.QueueUrl);
+        var request = Assert.Single(sns.Requests);
+        // WHY: Pins that the injected topic ARN is the one actually used.
+        Assert.Equal(TopicArn, request.TopicArn);
+    }
+
+    [Fact]
+    public async Task PublishesToTheTopicRatherThanAQueue()
+    {
+        var (publisher, sns, _) = Build();
+
+        await publisher.PublishOrderCreatedAsync(
+            "ord_1", "3MRAI10482", "usr_1", "a@b.c", "A B",
+            1000, 80, 500, 1580, null, Array.Empty<OrderCreatedItem>(),
+            new DateTime(2026, 1, 15, 10, 30, 0, DateTimeKind.Utc));
+
+        var request = sns.Requests.Single();
+        Assert.Equal(TopicArn, request.TopicArn);
+        // CONTRACT: The envelope is preserved byte-for-byte across the transport
+        // change — the pipeline's Zod schema validates this exact object.
+        using var document = JsonDocument.Parse(request.Message);
+        Assert.Equal("ORDER_CREATED", document.RootElement.GetProperty("type").GetString());
+        Assert.Equal("orders", document.RootElement.GetProperty("source").GetString());
+        Assert.Equal(
+            "ORDER_CREATED",
+            request.MessageAttributes["type"].StringValue);
     }
 
     [Fact]
     public async Task Envelope_carries_every_required_key_in_snake_case()
     {
-        var (publisher, sqs, _) = Build();
+        var (publisher, sns, _) = Build();
 
-        var body = await PublishAndReadBody(sqs, publisher);
+        var body = await PublishAndReadBody(sns, publisher);
 
         // EnvelopeSchema requires all seven. `order_id` is nullable but NOT optional: an
         // absent key fails validation just as a wrong name would.
@@ -162,7 +184,7 @@ public class SqsEventPublisherTests
         Assert.False(string.IsNullOrWhiteSpace(body.GetProperty("event_id").GetString()));
     }
 
-    // The correlation id crosses the queue as a ROOT envelope field, which is the hop the
+    // The correlation id crosses the topic as a ROOT envelope field, which is the hop the
     // whole design exists for: the pipeline Lambda runs no OTel SDK, so trace_id never
     // reaches it and nothing else joins the confirmation email to the HTTP request that
     // caused it. Seeded here the way CallerContextMiddleware seeds it at ingress.
@@ -171,9 +193,9 @@ public class SqsEventPublisherTests
     {
         const string RequestIdValue = "req_V1StGXR8Z5jdHi6BMyTqWxYz";
         AmbientRequestId.Set(RequestIdValue);
-        var (publisher, sqs, _) = Build();
+        var (publisher, sns, _) = Build();
 
-        var body = await PublishAndReadBody(sqs, publisher);
+        var body = await PublishAndReadBody(sns, publisher);
 
         // At the ROOT, not inside payload or author: the consumer reads it off the
         // envelope, alongside event_id and type.
@@ -183,14 +205,14 @@ public class SqsEventPublisherTests
     [Fact]
     public async Task Envelope_omits_request_id_entirely_when_there_is_none()
     {
-        var (publisher, sqs, _) = Build();
+        var (publisher, sns, _) = Build();
 
-        var body = await PublishAndReadBody(sqs, publisher);
+        var body = await PublishAndReadBody(sns, publisher);
 
         // OMITTED, never `"request_id": null` — the same WhenWritingNull rule
         // author.cognito_sub follows. A null would read as "correlation resolved to
         // nothing" rather than "this message carries none", and the consumer's schema
-        // declares the field optional precisely so pre-existing queued messages without
+        // declares the field optional precisely so pre-existing in-flight messages without
         // it still validate instead of being dead-lettered.
         Assert.False(body.TryGetProperty("request_id", out _));
     }
@@ -198,9 +220,9 @@ public class SqsEventPublisherTests
     [Fact]
     public async Task Payload_matches_the_consumers_OrderCreatedPayloadSchema()
     {
-        var (publisher, sqs, _) = Build();
+        var (publisher, sns, _) = Build();
 
-        var body = await PublishAndReadBody(sqs, publisher);
+        var body = await PublishAndReadBody(sns, publisher);
         var payload = body.GetProperty("payload");
 
         // CONTRACT: Every field OrderCreatedPayloadSchema requires, exactly, in snake_case.
@@ -231,9 +253,9 @@ public class SqsEventPublisherTests
     [Fact]
     public async Task Carries_the_buyers_name_for_the_greeting_and_the_billed_to_line()
     {
-        var (publisher, sqs, _) = Build();
+        var (publisher, sns, _) = Build();
 
-        var payload = (await PublishAndReadBody(sqs, publisher)).GetProperty("payload");
+        var payload = (await PublishAndReadBody(sns, publisher)).GetProperty("payload");
 
         // The consumer cannot look this up — it has no access to Users — so a dropped
         // full_name is an email addressed to nobody, not a recoverable omission.
@@ -243,9 +265,9 @@ public class SqsEventPublisherTests
     [Fact]
     public async Task Carries_the_four_figure_money_breakdown_the_receipt_prints()
     {
-        var (publisher, sqs, _) = Build();
+        var (publisher, sns, _) = Build();
 
-        var payload = (await PublishAndReadBody(sqs, publisher)).GetProperty("payload");
+        var payload = (await PublishAndReadBody(sns, publisher)).GetProperty("payload");
 
         // All four travel as their own figure. The constants are mutually distinct, so a
         // publisher that wired subtotal into tax_cents (or derived one from another) fails
@@ -273,9 +295,9 @@ public class SqsEventPublisherTests
     [Fact]
     public async Task Items_carry_each_lines_name_quantity_and_unit_price()
     {
-        var (publisher, sqs, _) = Build();
+        var (publisher, sns, _) = Build();
 
-        var payload = (await PublishAndReadBody(sqs, publisher)).GetProperty("payload");
+        var payload = (await PublishAndReadBody(sns, publisher)).GetProperty("payload");
         var items = payload.GetProperty("items");
 
         Assert.Equal(JsonValueKind.Array, items.ValueKind);
@@ -305,9 +327,9 @@ public class SqsEventPublisherTests
     [Fact]
     public async Task Embeds_the_shipping_address_as_a_json_object_not_a_string_of_json()
     {
-        var (publisher, sqs, _) = Build();
+        var (publisher, sns, _) = Build();
 
-        var payload = (await PublishAndReadBody(sqs, publisher)).GetProperty("payload");
+        var payload = (await PublishAndReadBody(sns, publisher)).GetProperty("payload");
         var address = payload.GetProperty("shipping_address");
 
         // Re-parsed from the stored snapshot, so the consumer receives a real object. Left
@@ -323,14 +345,14 @@ public class SqsEventPublisherTests
     [Fact]
     public async Task Omits_shipping_address_entirely_when_the_buyer_has_none_on_file()
     {
-        var (publisher, sqs, _) = Build();
+        var (publisher, sns, _) = Build();
 
         await Publish(publisher, shippingAddress: null);
 
         // Asserted against the RAW JSON as well as the parsed keys, exactly like
         // author.cognito_sub: `"shipping_address": null` would satisfy a ValueKind.Null
         // check while violating the contract, which says an absent address is ABSENT.
-        var raw = sqs.Requests.Single().MessageBody;
+        var raw = sns.Requests.Single().Message;
         var payload = JsonDocument.Parse(raw).RootElement.GetProperty("payload");
 
         Assert.False(payload.TryGetProperty("shipping_address", out _));
@@ -345,9 +367,9 @@ public class SqsEventPublisherTests
     [Fact]
     public async Task Author_records_who_originated_the_event_not_only_who_it_is_about()
     {
-        var (publisher, sqs, _) = Build();
+        var (publisher, sns, _) = Build();
 
-        var body = await PublishAndReadBody(sqs, publisher);
+        var body = await PublishAndReadBody(sns, publisher);
         var author = body.GetProperty("author");
 
         // A real human acted here — the buyer placed their own order — so all three keys
@@ -366,9 +388,9 @@ public class SqsEventPublisherTests
     [Fact]
     public async Task Author_does_not_repeat_the_producing_service()
     {
-        var (publisher, sqs, _) = Build();
+        var (publisher, sns, _) = Build();
 
-        var body = await PublishAndReadBody(sqs, publisher);
+        var body = await PublishAndReadBody(sns, publisher);
 
         // AuthorSchema has no `source`. Two copies of a per-publisher constant carry no
         // information and can only drift; the root one stays.
@@ -379,9 +401,9 @@ public class SqsEventPublisherTests
     [Fact]
     public async Task Author_ids_are_real_ids_never_the_actor_label()
     {
-        var (publisher, sqs, _) = Build();
+        var (publisher, sns, _) = Build();
 
-        var body = await PublishAndReadBody(sqs, publisher);
+        var body = await PublishAndReadBody(sns, publisher);
         var author = body.GetProperty("author");
 
         // The failure this rules out is filling an unknown id with the actor string. A
@@ -396,7 +418,7 @@ public class SqsEventPublisherTests
     [Fact]
     public async Task Omits_cognito_sub_entirely_rather_than_serializing_it_as_null()
     {
-        var (publisher, sqs, _) = Build();
+        var (publisher, sns, _) = Build();
 
         // No sub supplied — the shape a producer with no human author sends.
         await Publish(publisher, cognitoSub: null);
@@ -404,7 +426,7 @@ public class SqsEventPublisherTests
         // Asserted against the RAW JSON as well as the parsed keys: `"cognito_sub": null`
         // would satisfy a ValueKind.Null check while violating the contract, which says
         // an unknown identity is ABSENT, never present-and-null.
-        var raw = sqs.Requests.Single().MessageBody;
+        var raw = sns.Requests.Single().Message;
         var author = JsonDocument.Parse(raw).RootElement.GetProperty("author");
 
         Assert.Equal(
@@ -416,22 +438,22 @@ public class SqsEventPublisherTests
     [Fact]
     public async Task A_blank_cognito_sub_is_omitted_too_rather_than_sent_as_an_empty_string()
     {
-        var (publisher, sqs, _) = Build();
+        var (publisher, sns, _) = Build();
 
         // proto3 has no null, so an absent identity can reach us as "". An empty string
         // would pass a null check and reach the consumer as a real-looking value.
         await Publish(publisher, cognitoSub: "  ");
 
-        var raw = sqs.Requests.Single().MessageBody;
+        var raw = sns.Requests.Single().Message;
         Assert.DoesNotContain("cognito_sub", raw);
     }
 
     [Fact]
     public async Task Order_id_stays_present_despite_the_null_ignoring_serializer()
     {
-        var (publisher, sqs, _) = Build();
+        var (publisher, sns, _) = Build();
 
-        var body = await PublishAndReadBody(sqs, publisher);
+        var body = await PublishAndReadBody(sns, publisher);
 
         // Guards the WhenWritingNull switch made for the author: `order_id` is nullable
         // but REQUIRED, so a future null there would be silently DROPPED rather than
@@ -443,20 +465,20 @@ public class SqsEventPublisherTests
     [Fact]
     public async Task Sets_type_and_source_as_message_attributes()
     {
-        var (publisher, sqs, _) = Build();
+        var (publisher, sns, _) = Build();
 
         await Publish(publisher);
 
-        // Duplicated as attributes so the queue can be inspected/filtered without
+        // Duplicated as attributes so a message can be inspected/filtered without
         // deserializing bodies.
-        var attributes = Assert.Single(sqs.Requests).MessageAttributes;
+        var attributes = Assert.Single(sns.Requests).MessageAttributes;
         Assert.Equal("ORDER_CREATED", attributes["type"].StringValue);
         Assert.Equal("String", attributes["type"].DataType);
         Assert.Equal("orders", attributes["source"].StringValue);
         Assert.Equal("String", attributes["source"].DataType);
     }
 
-    // The trace hop across the queue. Unlike `type`/`source`, this attribute duplicates
+    // The trace hop across the topic. Unlike `type`/`source`, this attribute duplicates
     // nothing in the body — it is how the consumer joins its own spans to the HTTP request
     // that produced the message. Asserted on the attributes, never on the body: the
     // envelope is a Zod-validated contract with no traceparent field.
@@ -465,7 +487,7 @@ public class SqsEventPublisherTests
     {
         using var listener = ListenToEverything();
         using var source = new ActivitySource(TestActivitySourceName);
-        var (publisher, sqs, _) = Build();
+        var (publisher, sns, _) = Build();
 
         // StartActivity returns null unless something LISTENS to the source, and a null
         // activity would make this test pass for the wrong reason — so it is asserted.
@@ -474,7 +496,7 @@ public class SqsEventPublisherTests
 
         await Publish(publisher);
 
-        var attributes = Assert.Single(sqs.Requests).MessageAttributes;
+        var attributes = Assert.Single(sns.Requests).MessageAttributes;
         var traceparent = attributes["traceparent"];
         Assert.Equal("String", traceparent.DataType);
         // W3C format: version-traceid-spanid-flags. Matching the shape rather than only
@@ -497,7 +519,7 @@ public class SqsEventPublisherTests
         var started = new List<Activity>();
         using var listener = ListenToEverything(started);
         using var source = new ActivitySource(TestActivitySourceName);
-        var (publisher, sqs, _) = Build();
+        var (publisher, sns, _) = Build();
 
         // Stands in for create_order: the workflow span the publish happens inside.
         using var workflow = source.StartActivity("create_order");
@@ -506,14 +528,14 @@ public class SqsEventPublisherTests
         await Publish(publisher);
 
         var publishSpan = Assert.Single(
-            started, a => a.OperationName == SqsEventPublisher.PublishActivityName);
+            started, a => a.OperationName == SnsEventPublisher.PublishActivityName);
 
         // A CHILD of the workflow, so the cascade stays one connected trace rather than
         // the publish starting a detached root.
         Assert.Equal(workflow.SpanId, publishSpan.ParentSpanId);
         Assert.Equal(workflow.TraceId, publishSpan.TraceId);
 
-        var traceparent = Assert.Single(sqs.Requests).MessageAttributes["traceparent"].StringValue;
+        var traceparent = Assert.Single(sns.Requests).MessageAttributes["traceparent"].StringValue;
         var spanId = traceparent.Split('-')[2];
 
         // THE POINT: the id on the wire is the publish span's...
@@ -529,12 +551,12 @@ public class SqsEventPublisherTests
     {
         // No listener, so no Activity is ever created here.
         Assert.Null(Activity.Current);
-        var (publisher, sqs, _) = Build();
+        var (publisher, sns, _) = Build();
 
         await Publish(publisher);
 
-        var attributes = Assert.Single(sqs.Requests).MessageAttributes;
-        // OMITTED, not present-and-empty. Beyond losing the correlation, SQS REJECTS a
+        var attributes = Assert.Single(sns.Requests).MessageAttributes;
+        // OMITTED, not present-and-empty. Beyond losing the correlation, SNS REJECTS a
         // MessageAttributeValue with an empty StringValue — an empty traceparent would
         // turn "no trace in scope" into a failed publish.
         Assert.False(attributes.ContainsKey("traceparent"));
@@ -543,11 +565,11 @@ public class SqsEventPublisherTests
         Assert.True(attributes.ContainsKey("source"));
     }
 
-    // The other half of the omission rule, and the case the publish span introduced: a
-    // listener IS attached, so the publisher's own activity is created even though no
-    // caller started one. The traceparent must then be the publish span's — a root one —
-    // rather than absent. Pinned because "no ambient activity" and "no activity at all"
-    // stopped being the same situation once this class started creating its own span.
+    // The other half of the omission rule: a listener IS attached, so the publisher's own
+    // activity exists even though no caller started one, and the traceparent must be that
+    // root span rather than absent. CONTRACT: "no ambient activity" and "no activity at
+    // all" are distinct cases here, because the publisher creates its own span — conflate
+    // them and the omission test above passes while this path silently loses its trace.
     [Fact]
     public async Task Injects_a_root_traceparent_when_the_publish_span_has_no_caller()
     {
@@ -555,15 +577,15 @@ public class SqsEventPublisherTests
         using var listener = ListenToEverything(started);
         // No caller activity: the publish span is the root of its own trace.
         Assert.Null(Activity.Current);
-        var (publisher, sqs, _) = Build();
+        var (publisher, sns, _) = Build();
 
         await Publish(publisher);
 
         var publishSpan = Assert.Single(
-            started, a => a.OperationName == SqsEventPublisher.PublishActivityName);
+            started, a => a.OperationName == SnsEventPublisher.PublishActivityName);
         Assert.Equal(default, publishSpan.ParentSpanId);
 
-        var traceparent = Assert.Single(sqs.Requests).MessageAttributes["traceparent"].StringValue;
+        var traceparent = Assert.Single(sns.Requests).MessageAttributes["traceparent"].StringValue;
         Assert.Matches("^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$", traceparent);
         Assert.Equal(publishSpan.SpanId.ToHexString(), traceparent.Split('-')[2]);
     }
@@ -579,9 +601,9 @@ public class SqsEventPublisherTests
         var started = new List<Activity>();
         using var listener = ListenToEverything(started);
         using var source = new ActivitySource(TestActivitySourceName);
-        var sqs = new RecordingSqs(failure: null);
-        var logger = new SpanScopedLogger<SqsEventPublisher>();
-        var publisher = new SqsEventPublisher(sqs.Object, QueueUrl, logger);
+        var sns = new RecordingSns(failure: null);
+        var logger = new SpanScopedLogger<SnsEventPublisher>();
+        var publisher = new SnsEventPublisher(sns.Object, TopicArn, logger);
 
         // WHY: Stands in for create_order, the workflow the publish runs inside.
         using var workflow = source.StartActivity("create_order");
@@ -590,7 +612,7 @@ public class SqsEventPublisherTests
         await Publish(publisher);
 
         var publishSpan = Assert.Single(
-            started, a => a.OperationName == SqsEventPublisher.PublishActivityName);
+            started, a => a.OperationName == SnsEventPublisher.PublishActivityName);
 
         var entry = Assert.Single(logger.Entries);
         Assert.Equal(LogLevel.Information, entry.Level);
@@ -610,7 +632,7 @@ public class SqsEventPublisherTests
 
         // The very event_id that went on the wire, not merely some non-empty string: a
         // line naming a different id would be worse than no line at all.
-        var body = JsonDocument.Parse(Assert.Single(sqs.Requests).MessageBody).RootElement;
+        var body = JsonDocument.Parse(Assert.Single(sns.Requests).Message).RootElement;
         Assert.Equal(body.GetProperty("event_id").GetString(), entry.Values["event_id"]);
     }
 
@@ -621,10 +643,10 @@ public class SqsEventPublisherTests
     public async Task The_publication_log_leaks_no_email_name_or_address()
     {
         using var listener = ListenToEverything();
-        var sqs = new RecordingSqs(failure: null);
-        var logger = new SpanScopedLogger<SqsEventPublisher>();
+        var sns = new RecordingSns(failure: null);
+        var logger = new SpanScopedLogger<SnsEventPublisher>();
 
-        await Publish(new SqsEventPublisher(sqs.Object, QueueUrl, logger));
+        await Publish(new SnsEventPublisher(sns.Object, TopicArn, logger));
 
         // Over the rendered line AND every structured value — a field carrying the email
         // never shows up in the rendered text, which is how such a leak survives a weaker
@@ -650,35 +672,35 @@ public class SqsEventPublisherTests
         var started = new List<Activity>();
         using var listener = ListenToEverything(started);
         using var source = new ActivitySource(TestActivitySourceName);
-        var sqs = new RecordingSqs(new AmazonSQSException("queue unreachable"));
-        var logger = new SpanScopedLogger<SqsEventPublisher>();
+        var sns = new RecordingSns(new AmazonSimpleNotificationServiceException("topic unreachable"));
+        var logger = new SpanScopedLogger<SnsEventPublisher>();
 
         using var workflow = source.StartActivity("create_order");
         Assert.NotNull(workflow);
 
-        // Still swallowed — the order must survive a dead queue.
-        await Publish(new SqsEventPublisher(sqs.Object, QueueUrl, logger));
+        // Still swallowed — the order must survive a dead topic.
+        await Publish(new SnsEventPublisher(sns.Object, TopicArn, logger));
 
         var publishSpan = Assert.Single(
-            started, a => a.OperationName == SqsEventPublisher.PublishActivityName);
+            started, a => a.OperationName == SnsEventPublisher.PublishActivityName);
 
         var entry = Assert.Single(logger.Entries);
         Assert.Equal(LogLevel.Error, entry.Level);
         Assert.Same(publishSpan, entry.Activity);
         Assert.NotSame(workflow, entry.Activity);
         Assert.Equal("order_created_publish_failed", entry.Values["app_event"]);
-        Assert.Equal("sqs_send_failed", entry.Values["reason"]);
+        Assert.Equal("sns_publish_failed", entry.Values["reason"]);
 
         // And the span itself is red, so the waterfall does not render a failed send as a
         // healthy hop. The workflow's own status is untouched: the publish is best-effort
         // and does not fail the order.
         Assert.Equal(ActivityStatusCode.Error, publishSpan.Status);
-        Assert.Equal("queue unreachable", publishSpan.StatusDescription);
+        Assert.Equal("topic unreachable", publishSpan.StatusDescription);
         Assert.Equal(ActivityStatusCode.Unset, workflow.Status);
     }
 
     // WHY: Unique to this file, so the listener cannot pick up parallel tests' activities.
-    private const string TestActivitySourceName = "orders-tests-sqs-publisher";
+    private const string TestActivitySourceName = "orders-tests-sns-publisher";
 
     // CONTRACT: Listen to the test's source AND the publisher's. With only the test source,
     // StartActivity returns null inside the publisher and the traceparent falls back to the
@@ -689,7 +711,7 @@ public class SqsEventPublisherTests
         var listener = new ActivityListener
         {
             ShouldListenTo = s =>
-                s.Name == TestActivitySourceName || s.Name == SqsEventPublisher.ActivitySourceName,
+                s.Name == TestActivitySourceName || s.Name == SnsEventPublisher.ActivitySourceName,
             Sample = (ref ActivityCreationOptions<ActivityContext> _) =>
                 ActivitySamplingResult.AllDataAndRecorded,
             ActivityStarted = activity => started?.Add(activity),
@@ -702,14 +724,14 @@ public class SqsEventPublisherTests
     [Fact]
     public async Task Generates_a_fresh_event_id_per_call()
     {
-        var (publisher, sqs, _) = Build();
+        var (publisher, sns, _) = Build();
 
         // Same arguments both times: only an id minted INSIDE the publisher can differ.
         await Publish(publisher);
         await Publish(publisher);
 
-        var ids = sqs.Requests
-            .Select(r => JsonDocument.Parse(r.MessageBody).RootElement.GetProperty("event_id").GetString())
+        var ids = sns.Requests
+            .Select(r => JsonDocument.Parse(r.Message).RootElement.GetProperty("event_id").GetString())
             .ToList();
 
         Assert.Equal(2, ids.Count);
@@ -722,7 +744,7 @@ public class SqsEventPublisherTests
     [Fact]
     public async Task Swallows_a_publish_failure_so_the_order_survives()
     {
-        var (publisher, _, logger) = Build(sendFailure: new AmazonSQSException("queue unreachable"));
+        var (publisher, _, logger) = Build(sendFailure: new AmazonSimpleNotificationServiceException("topic unreachable"));
 
         // No assertion that "the throwing fake threw" — the behaviour under test is that
         // the publisher does NOT propagate, i.e. the caller's transaction is not aborted.
@@ -738,7 +760,7 @@ public class SqsEventPublisherTests
     [Fact]
     public async Task Publish_failure_log_leaks_no_email_and_no_address()
     {
-        var (publisher, _, logger) = Build(sendFailure: new AmazonSQSException("queue unreachable"));
+        var (publisher, _, logger) = Build(sendFailure: new AmazonSimpleNotificationServiceException("topic unreachable"));
 
         await Publish(publisher);
 
@@ -754,23 +776,23 @@ public class SqsEventPublisherTests
         Assert.DoesNotContain("@", everything);
     }
 
-    // CONTRACT: Assertions read `Requests` — the real SendMessageRequest the publisher
+    // CONTRACT: Assertions read `Requests` — the real PublishRequest the publisher
     // built — never Moq's configured return value. MockBehavior.Strict so any call other
-    // than SendMessageAsync throws instead of returning a silent default.
-    private sealed class RecordingSqs
+    // than PublishAsync throws instead of returning a silent default.
+    private sealed class RecordingSns
     {
-        public RecordingSqs(Exception? failure)
+        public RecordingSns(Exception? failure)
         {
-            var mock = new Mock<IAmazonSQS>(MockBehavior.Strict);
+            var mock = new Mock<IAmazonSimpleNotificationService>(MockBehavior.Strict);
             var setup = mock
-                .Setup(s => s.SendMessageAsync(It.IsAny<SendMessageRequest>(), It.IsAny<CancellationToken>()))
+                .Setup(s => s.PublishAsync(It.IsAny<PublishRequest>(), It.IsAny<CancellationToken>()))
                 // Records BEFORE the outcome, so even the failure path can be asserted on
                 // the request that was actually built.
-                .Callback<SendMessageRequest, CancellationToken>((req, _) => Requests.Add(req));
+                .Callback<PublishRequest, CancellationToken>((req, _) => Requests.Add(req));
 
             if (failure is null)
             {
-                setup.ReturnsAsync(new SendMessageResponse());
+                setup.ReturnsAsync(new PublishResponse());
             }
             else
             {
@@ -780,15 +802,15 @@ public class SqsEventPublisherTests
             Object = mock.Object;
         }
 
-        public List<SendMessageRequest> Requests { get; } = new();
-        public IAmazonSQS Object { get; }
+        public List<PublishRequest> Requests { get; } = new();
+        public IAmazonSimpleNotificationService Object { get; }
     }
 
     private sealed record LogEntry(LogLevel Level, string Rendered, string Everything);
 
     // Captures not only the rendered line but the template, every structured value, and the
     // exception — the PII test needs all of them (see its comment).
-    private sealed class CapturingLogger : ILogger<SqsEventPublisher>
+    private sealed class CapturingLogger : ILogger<SnsEventPublisher>
     {
         public List<LogEntry> Entries { get; } = new();
 

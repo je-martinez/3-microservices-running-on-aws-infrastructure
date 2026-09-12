@@ -13,7 +13,7 @@ public class CloudWatchMetricsPublisher : IMetricsPublisher
 
     /// <summary>
     /// Activity source for this publisher's spans. Named for its area, like
-    /// SqsEventPublisher's "orders-messaging", and registered with the tracer
+    /// SnsEventPublisher's "orders-messaging", and registered with the tracer
     /// provider in Program.cs — an unregistered source produces NO activities at
     /// all, silently.
     /// </summary>
