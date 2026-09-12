@@ -110,6 +110,15 @@ locals {
       get_cart    = { key = "GET /v1/cart", path = "/v1/cart", auth = true }
       put_cart    = { key = "PUT /v1/cart", path = "/v1/cart", auth = true }
       delete_cart = { key = "DELETE /v1/cart", path = "/v1/cart", auth = true }
+
+      # CONTRACT: Keep all three auth = true. Every query is scoped to the caller's
+      # own user_id, taken from the JWT and never from a parameter or body; they are
+      # absent from Users' public-routes.ts for the same reason. No nginx location
+      # block: /v1/notifications falls under `location /`, as for /v1/users/me above.
+      # See [[2026-09-10-in-app-notifications-design]]
+      list_notifications         = { key = "GET /v1/notifications", path = "/v1/notifications", auth = true }
+      notifications_unread_count = { key = "GET /v1/notifications/unread-count", path = "/v1/notifications/unread-count", auth = true }
+      mark_notifications_read    = { key = "PATCH /v1/notifications/read", path = "/v1/notifications/read", auth = true }
     },
     var.enable_e2e_cleanup_route ? {
       e2e_cleanup = { key = "DELETE /v1/users/e2e-cleanup", path = "/v1/users/e2e-cleanup", auth = false }

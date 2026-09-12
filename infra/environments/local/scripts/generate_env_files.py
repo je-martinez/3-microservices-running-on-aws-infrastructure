@@ -233,6 +233,11 @@ def build(repo_root: Path) -> dict[Path, dict]:
     ws_connections_gsi = terraform_output(tf_dir, "ws_connections_gsi")
     ws_management_endpoint = terraform_output(tf_dir, "ws_management_endpoint")
 
+    # The SNS fan-out topic and the Users-consumed queue. Read, never derived:
+    # Floci remints both identifiers whenever the resources are recreated.
+    events_topic_arn = terraform_output(tf_dir, "events_topic_arn")
+    notifications_queue_url = terraform_output(tf_dir, "notifications_queue_url")
+
     # Discovered per-engine, never assumed: Floci assigns proxy ports 7000-7099
     # by cluster creation order, so postgres and mysql swap across applies.
     pg_port = discover_port("postgres")
@@ -330,6 +335,21 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # Users publishes USER_CREATED here (its Zod env schema requires
                 # this, so the service will not boot without it).
                 "EVENTS_QUEUE_URL": events_queue_url,
+                # Users PUBLISHES to the topic and CONSUMES the notifications
+                # queue. Both required by its Zod env schema, so the service will
+                # not boot without them.
+                "EVENTS_TOPIC_ARN": events_topic_arn,
+                "NOTIFICATIONS_QUEUE_URL": notifications_queue_url,
+                # Realtime push for NOTIFICATION_CREATED. Users resolves
+                # user_id -> cognito_sub locally, then queries this GSI for the
+                # owner's open sockets.
+                "WS_CONNECTIONS_TABLE": ws_connections_table,
+                "WS_CONNECTIONS_GSI": ws_connections_gsi,
+                # IN-NETWORK (floci:4566) with Floci's undocumented /execute-api/
+                # prefix. A wrong shape answers HTTP 400 with an S3 XML body, not
+                # an endpoint error.
+                # See [[floci-websocket-apigw-dynamodb-support]]
+                "WS_MANAGEMENT_ENDPOINT": ws_management_endpoint,
                 "OTEL_EXPORTER_OTLP_ENDPOINT": OTLP_ENDPOINT,
                 "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
                 # Metrics do NOT travel over OTLP: they go to CloudWatch via
@@ -382,6 +402,10 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # Orders publishes ORDER_CREATED here — the same shared queue
                 # Users and Tracking write to.
                 "EVENTS_QUEUE_URL": events_queue_url,
+                # The publish target. EVENTS_QUEUE_URL stays for now so a
+                # half-migrated stack still boots; it is removed once every
+                # producer reads the topic.
+                "EVENTS_TOPIC_ARN": events_topic_arn,
                 # Base URL the product catalogue's image keys hang off. Rows store
                 # a bucket-relative key ("products/x.jpg") and ProductReadService
                 # composes the absolute URL from this, so the bucket name is never
@@ -448,6 +472,10 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # delivery-status transition — the same shared queue Users and
                 # Orders write to.
                 "EVENTS_QUEUE_URL": events_queue_url,
+                # The publish target. EVENTS_QUEUE_URL stays for now so a
+                # half-migrated stack still boots; it is removed once every
+                # producer reads the topic.
+                "EVENTS_TOPIC_ARN": events_topic_arn,
                 "OTEL_EXPORTER_OTLP_ENDPOINT": OTLP_ENDPOINT,
                 "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
                 "OTEL_METRICS_EXPORTER": "none",
