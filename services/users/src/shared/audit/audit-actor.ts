@@ -23,4 +23,10 @@ export enum AuditActor {
   // source rather than an id.
   DeleteAccount = "users_api:delete_account",
   E2eCleanup = "users_api:e2e_cleanup",
+  // The SQS consumer's writes. A distinct actor from every other member here
+  // because these rows originate OUTSIDE a request — `deleted_by`/`created_by`
+  // record WHAT produced the change, and "an event arrived" is a different fact
+  // from "a user asked".
+  NotificationCreated = "users_api:notification_created",
+  NotificationsMarkedRead = "users_api:notifications_marked_read",
 }
