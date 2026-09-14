@@ -165,6 +165,51 @@ components:
           minLength: 8
       required:
         - newPassword
+    NotificationInput:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: "#/components/schemas/NotificationInput"
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+        metadata:
+          type: object
+          propertyNames:
+            type: string
+          additionalProperties: {}
+        read_at:
+          anyOf:
+            - type: string
+            - type: "null"
+        created_at:
+          type: string
+      required:
+        - id
+        - type
+        - title
+        - body
+        - metadata
+        - read_at
+        - created_at
+    MarkReadInput:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: "#/components/schemas/MarkReadInput"
+      type: object
+      properties:
+        ids:
+          maxItems: 50
+          type: array
+          items:
+            type: string
+            minLength: 1
+      required:
+        - ids
     User:
       $schema: https://json-schema.org/draft/2020-12/schema
       $id: "#/components/schemas/User"
@@ -289,6 +334,94 @@ components:
           const: password_updated
       required:
         - status
+      additionalProperties: false
+    Notification:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: "#/components/schemas/Notification"
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+        metadata:
+          type: object
+          propertyNames:
+            type: string
+          additionalProperties: {}
+        read_at:
+          anyOf:
+            - type: string
+            - type: "null"
+        created_at:
+          type: string
+      required:
+        - id
+        - type
+        - title
+        - body
+        - metadata
+        - read_at
+        - created_at
+      additionalProperties: false
+    NotificationsPage:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: "#/components/schemas/NotificationsPage"
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Notification"
+        unread_count:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        window_total:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        window_days:
+          type: number
+          const: 90
+      required:
+        - items
+        - unread_count
+        - window_total
+        - window_days
+      additionalProperties: false
+    UnreadCount:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: "#/components/schemas/UnreadCount"
+      type: object
+      properties:
+        unread_count:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+      required:
+        - unread_count
+      additionalProperties: false
+    MarkReadResult:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      $id: "#/components/schemas/MarkReadResult"
+      type: object
+      properties:
+        updated:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        unread_count:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+      required:
+        - updated
+        - unread_count
       additionalProperties: false
 paths:
   /v1/health:
@@ -679,6 +812,101 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /v1/notifications:
+    get:
+      operationId: listNotifications
+      summary: List the caller's newest notifications
+      tags:
+        - notifications
+      description: Returns the newest 50 by created_at desc with NO date bound, plus
+        an exact unread_count and a 90-day window_total that may exceed
+        items.length. Deliberately unpaginated.
+      parameters:
+        - schema:
+            default: all
+            type: string
+            enum:
+              - all
+              - unread
+              - read
+          in: query
+          name: filter
+          required: false
+        - schema:
+            type: string
+          in: header
+          name: x-user-id
+          required: false
+          description: Cognito subject forwarded by the API Gateway authorizer. Required
+            in practice — a request without it resolves no current user and is
+            answered 404 (not a 400).
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationsPage"
+  /v1/notifications/unread-count:
+    get:
+      operationId: getUnreadNotificationCount
+      summary: Count the caller's unread notifications
+      tags:
+        - notifications
+      parameters:
+        - schema:
+            type: string
+          in: header
+          name: x-user-id
+          required: false
+          description: Cognito subject forwarded by the API Gateway authorizer. Required
+            in practice — a request without it resolves no current user and is
+            answered 404 (not a 400).
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UnreadCount"
+  /v1/notifications/read:
+    patch:
+      operationId: markNotificationsRead
+      summary: Mark the caller's notifications read
+      tags:
+        - notifications
+      description: "Idempotent: only rows with read_at IS NULL are updated, which
+        matters because the client's mark-on-enter can fire twice on a remount.
+        A SINGLE id matching no row answers 404, indistinguishable from \"does
+        not exist\", so it cannot probe for another user's notifications."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarkReadInput"
+      parameters:
+        - schema:
+            type: string
+          in: header
+          name: x-user-id
+          required: false
+          description: Cognito subject forwarded by the API Gateway authorizer. Required
+            in practice — a request without it resolves no current user and is
+            answered 404 (not a 400).
+      responses:
+        "200":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarkReadResult"
+        "404":
+          description: Default Response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /v1/webhooks/cognito:
     post:
       operationId: cognitoWebhook
@@ -793,5 +1021,7 @@ tags:
     description: Registration, auth and profile
   - name: webhooks
     description: Inbound Cognito trigger (shared-secret guarded)
+  - name: notifications
+    description: In-app notification inbox
   - name: e2e
     description: Test-only routes (E2E_TESTING_ENABLED)

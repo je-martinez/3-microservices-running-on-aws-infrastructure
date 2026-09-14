@@ -72,6 +72,11 @@ import {
   HealthResponseSchema, E2ECleanupResponseSchema,
   UserIdHeader, WebhookSecretHeader, AuthorizationHeader,
 } from "./schemas.ts";
+import {
+  NotificationsPageSchema, UnreadCountSchema,
+  MarkReadInputSchema, MarkReadResultSchema, NotificationFilterQuerySchema,
+} from "#features/notifications/http/schemas";
+import type { Notification } from "#features/notifications/domain/notification";
 
 // `User` (the domain shape returned by commands/queries) carries real `Date`
 // fields; `UserSchema` documents the wire shape as ISO strings (see
@@ -83,6 +88,24 @@ export function serializeUser(user: User) {
     createdAt: user.createdAt.toISOString(),
     updatedAt: user.updatedAt.toISOString(),
     deletedAt: user.deletedAt ? user.deletedAt.toISOString() : null,
+  };
+}
+
+// `Notification` carries real `Date` fields; the wire shape is snake_case with ISO
+// strings. Convert at the HTTP boundary — Zod's serializer strictly REJECTS a Date
+// against z.string(), it does not coerce.
+export function serializeNotification(notification: Notification) {
+  return {
+    id: notification.id,
+    type: notification.type,
+    title: notification.title,
+    body: notification.body,
+    // Spread into a plain record: `NotificationMetadata` is an interface, which
+    // carries no index signature and so does not assign to the schema's
+    // z.record(). The keys are unchanged.
+    metadata: { ...notification.metadata } as Record<string, unknown>,
+    read_at: notification.readAt ? notification.readAt.toISOString() : null,
+    created_at: notification.createdAt.toISOString(),
   };
 }
 
@@ -237,6 +260,7 @@ export function buildApp(
         { name: "health", description: "Liveness" },
         { name: "users", description: "Registration, auth and profile" },
         { name: "webhooks", description: "Inbound Cognito trigger (shared-secret guarded)" },
+        { name: "notifications", description: "In-app notification inbox" },
         { name: "e2e", description: "Test-only routes (E2E_TESTING_ENABLED)" },
       ],
     },
@@ -552,6 +576,77 @@ export function buildApp(
       await invalidateMeCache(req, currentActor, updated.id);
 
       return reply.send(serializeUser(updated));
+    });
+
+    // CONTRACT: `user_id` comes from the JWT via the x-user-id header, NEVER from a
+    // parameter or body — a caller-supplied id would read anyone's inbox. Do NOT
+    // add any of these three to `shared/http/public-routes.ts`: that absence is
+    // what makes the onRequest hook 401 a request with no identity.
+    // See [[2026-09-10-in-app-notifications-design]]
+    r.get("/v1/notifications", {
+      schema: {
+        tags: ["notifications"], operationId: "listNotifications",
+        summary: "List the caller's newest notifications",
+        description:
+          "Returns the newest 50 by created_at desc with NO date bound, plus an exact "
+          + "unread_count and a 90-day window_total that may exceed items.length. "
+          + "Deliberately unpaginated.",
+        headers: UserIdHeader,
+        querystring: NotificationFilterQuerySchema,
+        response: { 200: NotificationsPageSchema },
+      },
+    }, async (req, reply) => {
+      const { notificationQueryService, currentUser } = req.diScope.cradle;
+      const page = await notificationQueryService.list(currentUser, req.query.filter);
+      return reply.send({
+        items: page.items.map(serializeNotification),
+        unread_count: page.unread_count,
+        window_total: page.window_total,
+        window_days: page.window_days,
+      });
+    });
+
+    // Separate from the list so the bell badge costs one COUNT rather than a full
+    // page fetch — the panel polls this, the list is read on open.
+    r.get("/v1/notifications/unread-count", {
+      schema: {
+        tags: ["notifications"], operationId: "getUnreadNotificationCount",
+        summary: "Count the caller's unread notifications",
+        headers: UserIdHeader,
+        response: { 200: UnreadCountSchema },
+      },
+    }, async (req, reply) => {
+      const { notificationQueryService, currentUser } = req.diScope.cradle;
+      return reply.send({ unread_count: await notificationQueryService.unreadCount(currentUser) });
+    });
+
+    // CONTRACT: A LIST of ids, which is why there is no separate read-all route —
+    // one endpoint covers entering the All screen, "Mark all as read", and marking
+    // a single one. An empty list answers 200 with updated: 0, never 400.
+    r.patch("/v1/notifications/read", {
+      schema: {
+        tags: ["notifications"], operationId: "markNotificationsRead",
+        summary: "Mark the caller's notifications read",
+        description:
+          "Idempotent: only rows with read_at IS NULL are updated, which matters because "
+          + "the client's mark-on-enter can fire twice on a remount. A SINGLE id matching "
+          + "no row answers 404, indistinguishable from \"does not exist\", so it cannot "
+          + "probe for another user's notifications.",
+        headers: UserIdHeader,
+        body: MarkReadInputSchema,
+        response: { 200: MarkReadResultSchema, 404: ErrorSchema },
+      },
+    }, async (req, reply) => {
+      const { markNotificationsReadCommand, currentUser } = req.diScope.cradle;
+      const { ids } = req.body;
+      const result = await markNotificationsReadCommand.execute(currentUser, ids);
+
+      // Only the SINGLE-id case 404s. Several ids are a bulk operation where some
+      // already being read is routine, so a zero there is a normal 200.
+      if (ids.length === 1 && result.updated === 0) {
+        return reply.code(404).send({ error: "not_found" });
+      }
+      return reply.send(result);
     });
 
     // WARNING: PUBLIC at the API Gateway — no JWT authorizer. Its callers are the
