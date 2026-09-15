@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-03
-updated: 2026-07-28
+updated: 2026-09-15
 tags:
   - type/convention
   - area/shared
@@ -44,7 +44,24 @@ When the main session reaches a git write point, it presents these options as an
 **interactive, arrow-navigable list via the `AskUserQuestion` tool** — NOT as plain
 text the user has to read and answer by typing a letter. The user selects an option
 with the arrow keys. First the session summarizes what is staged and the proposed
-Conventional-Commits message (in the surrounding text), then presents the menu:
+Conventional-Commits message (in the surrounding text), then presents the menu.
+
+The letters (A–E) are this convention's own vocabulary — how the user and the
+session refer to an option in conversation ("option B"), and how other vault notes
+cite this menu. They are **not** part of what `AskUserQuestion` renders: the tool
+numbers its own options, so a label that also carries the letter produces a
+redundant double index — `1. A. Commit + push` reads worse than `1. Commit + push`,
+and gets worse as the list grows (`2. B. …`, `3. C. …`). The letter belongs in this
+note's prose and in how people talk about the menu; the **option `label` passed to
+`AskUserQuestion` must carry the action only**, never the letter:
+
+| Letter (prose only — never in the label) | `label` sent to `AskUserQuestion` |
+|---|---|
+| A | `Commit + push + create PR (opened, never merged)` |
+| B | `Commit + push (commits and pushes the branch to the remote)` |
+| C | `Commit only (commits locally, no push)` |
+| D | `Continue without committing (leaves the work in the working tree)` |
+| E | (native "Other" free-text input — no label to write) |
 
 - **A. Commit + push + create PR** — offered **only when the feature/issue is
   complete**. When the work is not complete, A is omitted from the menu. PR base
@@ -65,6 +82,23 @@ Rules:
   free-text "E. Write manually" maps to the tool's native "Other" input. Presenting
   these options as prose is a mistake — the whole point of the menu is the selectable
   list.
+- **Do not put the letter inside the option `label`.** The letters above are this
+  note's shared vocabulary for talking about the menu — they are not part of the
+  rendered option text. `AskUserQuestion` supplies its own numbering, so a label of
+  `"A. Commit + push"` renders as a confusing double index (`1. A. Commit + push`,
+  `2. B. Commit + push`, …); the label must be the action alone (`"Commit + push"`),
+  which the tool then renders as a single, clean index (`1. Commit + push`).
+- **Put the short clarification inline in the label, in parentheses, and leave
+  `description` empty.** Before: the action in `label` and the clarification as a
+  separate `description`, which `AskUserQuestion` renders on its own second line —
+  `❯ 1. Commit + push` then `     Commitea y pushea la rama al remoto, sin abrir PR.`
+  on the row below. After: the clarification folded into the `label` itself —
+  `❯ 1. Commit + push (commitea y sube la rama al remoto)` — so the option and its
+  clarification read on one row instead of two. This is a clarification, not a full
+  sentence: labels must stay short enough to fit one terminal line, so keep the
+  parenthetical brief. If an option genuinely needs more explanation than fits in a
+  short parenthetical, put that explanation in the surrounding prose the session
+  already gives before presenting the menu — not in the label.
 - **Choosing an option IS the confirmation** for that write. The push bundled into B
   is not re-confirmed separately.
 - A choice authorizes **only that action** — never auto-merge, never a standing
