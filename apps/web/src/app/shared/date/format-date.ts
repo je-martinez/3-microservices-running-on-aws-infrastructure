@@ -43,6 +43,21 @@ function formatUtc(iso: string, pattern: string): string {
   return parsed ? format(toUtcWallClock(parsed), pattern) : INVALID_DATE;
 }
 
+/**
+ * CONTRACT: Callers comparing dates (day bucketing, "N min ago") use this over
+ * `parseISO`. Mixing a UTC-shifted date with a raw one buckets a row against a
+ * timestamp it disagrees with. See [[angular-component-authoring]]
+ */
+export function parseUtcWallClock(iso: string): Date | null {
+  const parsed = parseWireDate(iso);
+  return parsed ? toUtcWallClock(parsed) : null;
+}
+
+/** `8:15 am` — the clock-only form the notification date groups use. */
+export function formatUtcTime(iso: string): string {
+  return formatUtc(iso, 'h:mm aaa');
+}
+
 export function formatDate(iso: string): string {
   return formatUtc(iso, 'MMM d, yyyy');
 }
