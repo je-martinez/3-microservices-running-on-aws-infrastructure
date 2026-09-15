@@ -673,8 +673,11 @@ describe('CheckoutPaymentPage', () => {
     expect(stepStates()).toEqual({ Cart: 'complete', Address: 'current', Payment: 'upcoming' });
 
     // The check glyph is what claims completion — Address must not render one.
+    // CONTRACT: Match the `lucide-<name>` CLASS the library emits. It writes no
+    // `data-lucide-name` attribute, so an attribute read returns null and a
+    // `.not.toBe('check')` on it passes however the step renders.
     const address = root().querySelector<HTMLElement>('[data-step="Address"]');
-    expect(address?.querySelector('svg')?.getAttribute('data-lucide-name')).not.toBe('check');
+    expect(Array.from(address?.querySelector('svg')?.classList ?? [])).not.toContain('lucide-check');
     // Exactly one step is current, so the buyer is never pointed at two places.
     expect(root().querySelectorAll('[aria-current="step"]')).toHaveLength(1);
   });
