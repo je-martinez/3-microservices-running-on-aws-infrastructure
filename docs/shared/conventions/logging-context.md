@@ -4,12 +4,13 @@ type: convention
 area: shared
 status: active
 created: 2026-07-19
-updated: 2026-08-27
+updated: 2026-09-15
 tags:
   - type/convention
   - area/shared
   - status/active
 related:
+  - "[[2026-09-10-in-app-notifications-design]]"
   - "[[2026-08-15-request-id-correlation-design]]"
   - "[[2026-07-19-logging-context-and-tracing-design]]"
   - "[[2026-07-19-logging-context-and-tracing]]"
@@ -222,6 +223,21 @@ a speculative list).
 > needs the other to be understood; a `*_failed` span sets `ERROR` status with the identical
 > `reason` string the log carries, not a paraphrase of it. Full design:
 > [[2026-08-18-distributed-tracing-spans-design]].
+
+> [!info] Users' notification consumer (2026-09-15) — three new `app_event` values
+> [[2026-09-10-in-app-notifications-design]] added `notification_created`,
+> `notifications_marked_read`, and `notification_push_failed` to Users' flow logs.
+> `notification_created` and `notifications_marked_read` follow the standard
+> `<flow>_started`/`_succeeded`/`_failed` triad; `notification_push_failed` is its own event
+> rather than a `reason` on `notification_created`, because the WebSocket push happens **after**
+> the row is already committed and must never fail that write (see
+> [[users-service-design#WebSocket push — Users pushes its own realtime message, the pipeline does not]])
+> — a push failure is a distinct, always-swallowed outcome, not a failure branch of persistence.
+> The `sqs-consumer` that emits these runs **outside any HTTP request**, so it continues the
+> trace from the `traceparent` message attribute rather than starting a fresh one — the same
+> pattern the events-pipeline already uses, and one that survives the new SNS hop unchanged
+> because raw message delivery passes `MessageAttributes` through untouched (see
+> [[events-pipeline-design#Transport change (2026-09-15): producers now publish to SNS, not SQS directly]]).
 
 **There is no `SUCCESS` severity, by design.** The original input asked for a `[SUCCESS]` level;
 it is not an OpenTelemetry severity (the spec defines `TRACE`/`DEBUG`/`INFO`/`WARN`/`ERROR`/
@@ -508,6 +524,10 @@ had none.
 
 ## Related
 
+- [[2026-09-10-in-app-notifications-design]] — the three new `app_event` values on Users'
+  notification consumer, and the `traceparent`-continuation pattern documented above.
+- [[users-service-design]] — where those `app_event` values are emitted, and the WebSocket push
+  contract that motivates `notification_push_failed` being its own event.
 - [[2026-08-15-request-id-correlation-design]] — the full design for `request_id`: format,
   validation rationale, propagation mechanics, and the three implementation traps summarized
   above.

@@ -4,7 +4,7 @@ type: lesson
 area: infra
 status: active
 created: 2026-09-10
-updated: 2026-09-10
+updated: 2026-09-15
 tags:
   - type/lesson
   - area/infra
@@ -12,6 +12,9 @@ tags:
   - severity/low
 related:
   - "[[2026-09-10-in-app-notifications-design]]"
+  - "[[terraform-modules]]"
+  - "[[events-pipeline-design]]"
+  - "[[users-service-design]]"
   - "[[ADR-0017-floci-local]]"
   - "[[floci-sqs-lambda-docdb-support]]"
   - "[[floci-rds-apigw-limits]]"
@@ -133,6 +136,11 @@ phase — this note is the phase's only durable artefact.
 
 - [[2026-09-10-in-app-notifications-design]] — the design this probe unblocks; Phase 0 of its
   implementation plan.
+- [[terraform-modules]] — the real (non-throwaway) `aws_sns_topic`/`aws_sqs_queue`/subscription
+  Terraform this probe de-risked before it was written.
+- [[events-pipeline-design]] — the existing consumer this probe confirmed would need zero code
+  changes under the new SNS→SQS topology.
+- [[users-service-design]] — the new in-process consumer on the filtered notifications queue.
 - [[ADR-0017-floci-local]] — why this repo runs Floci at all, and its known-limits baseline.
 - [[floci-sqs-lambda-docdb-support]] — the companion probe for SQS/Lambda/DocumentDB from the
   events-pipeline milestone; same "empirically verify before designing around it" method.
