@@ -4,7 +4,7 @@ type: lesson
 area: infra
 status: active
 created: 2026-08-06
-updated: 2026-08-06
+updated: 2026-09-13
 tags:
   - type/lesson
   - area/infra
@@ -19,6 +19,7 @@ related:
   - "[[events-pipeline-design]]"
   - "[[2026-08-05-realtime-tracking-events-websocket-design]]"
   - "[[2026-08-05-realtime-tracking-events-websocket]]"
+  - "[[count-only-assertions-hide-cause]]"
 ---
 
 # Floci WebSocket API Gateway + DynamoDB support probe
@@ -186,7 +187,8 @@ transitions (`PROCESSING`, `SHIPPED`, `OUT_FOR_DELIVERY`, `DELIVERED`) and four 
 [[tracking-service-design#Events]]. With the assertion corrected to four, both positive tests pass
 and the full E2E suite is 83/83. The count-only assertion (`expected 5, got 4`) is what hid this —
 it could not distinguish a dropped message from a wrong expectation, which is why the four
-hypotheses above had to be ruled out one at a time before the real cause was visible. See
+hypotheses above had to be ruled out one at a time before the real cause was visible — now a
+standing convention, [[count-only-assertions-hide-cause]]. See
 [[2026-08-05-realtime-tracking-events-websocket-design#Debugging lesson — a count-only assertion
 hides which system is wrong]] and
 [[events-pipeline-design#Realtime WebSocket fan-out (second output of TRACKING_STATUS_CHANGED)]].
@@ -211,5 +213,8 @@ real emulator; the existing local stack was untouched.
 - [[events-pipeline-design]] — the realtime fan-out this probe de-risked.
 - [[2026-08-05-realtime-tracking-events-websocket-design]] — the design spec these findings back,
   including the full POC verification section.
+- [[count-only-assertions-hide-cause]] — the standing rule extracted from the debugging session
+  recorded above: an assertion checking only a count cannot distinguish a dropped message from a
+  wrong expectation.
 - [[2026-08-05-realtime-tracking-events-websocket]] — the implementation plan; Task 10's fix round
   is where the JWT-issuer finding was made.

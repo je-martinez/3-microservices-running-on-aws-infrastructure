@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: accepted
 created: 2026-09-10
-updated: 2026-09-11
+updated: 2026-09-13
 tags:
   - type/spec
   - area/shared
@@ -34,6 +34,7 @@ related:
   - "[[ADR-0019-distributed-tracing-opentelemetry]]"
   - "[[pencil-design-extraction]]"
   - "[[doc-propagation]]"
+  - "[[count-only-assertions-hide-cause]]"
 ---
 
 # In-App Notifications Design
@@ -531,8 +532,9 @@ WebSocket delivery of `NOTIFICATION_CREATED` needs a gateway E2E using the exist
 `e2e/support/ws-client.ts` harness (the same collector introduced for
 [[2026-08-05-realtime-tracking-events-websocket-design]]). Assertions must print **what** arrived,
 not just how many — a count-only assertion cannot distinguish a real drop from a wrong
-expectation, as documented in that design's own debugging lesson
-([Debugging lesson — a count-only assertion hides which system is wrong](2026-08-05-realtime-tracking-events-websocket-design.md#debugging-lesson--a-count-only-assertion-hides-which-system-is-wrong)).
+expectation, per the standing convention [[count-only-assertions-hide-cause]] (originally
+documented in that design's own debugging lesson,
+[Debugging lesson — a count-only assertion hides which system is wrong](2026-08-05-realtime-tracking-events-websocket-design.md#debugging-lesson--a-count-only-assertion-hides-which-system-is-wrong)).
 
 ## Observability
 
@@ -561,6 +563,10 @@ a manual PRODUCER span, as the pipeline's publisher does.
   implementation of this design (Users/Orders/Tracking) surfaced the planning failure this
   lesson documents: plan test-file references picked by filename resemblance instead of by
   grepping for who imports the renamed symbol.
+- [[count-only-assertions-hide-cause]] — the standing convention this design's gateway E2E
+  reinforced twice: the five-frame assertion prints WHAT arrived on failure, and the shared
+  socket's two message types required a type-filtered wait rather than a count-based one, since
+  a count-based wait can resolve on a mixture of both types and assert the wrong set.
 - [[user-id-vs-cognito-sub-ownership-key]] — the ownership-key trap this design's Postgres-native
   `user_id` key sidesteps.
 - [[soft-delete]] / [[ADR-0004-soft-delete-only]] — the soft-delete convention `Notification`

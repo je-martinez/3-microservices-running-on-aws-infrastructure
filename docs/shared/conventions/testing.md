@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-17
-updated: 2026-09-11
+updated: 2026-09-13
 tags: [type/convention, area/shared, status/active]
 related:
   - "[[2026-08-17-web-app-foundation-design]]"
@@ -30,6 +30,7 @@ related:
   - "[[2026-08-05-realtime-tracking-events-websocket-design]]"
   - "[[2026-08-05-realtime-tracking-events-websocket]]"
   - "[[2026-08-12-custom-business-metrics-cloudwatch-design]]"
+  - "[[count-only-assertions-hide-cause]]"
 ---
 
 # Testing
@@ -311,7 +312,8 @@ itself works.
 > failure (`expected 5, got 4`) hid that the test helper needed to report *which* messages
 > arrived, not just how many, before the real cause was visible — see
 > [[2026-08-05-realtime-tracking-events-websocket-design#Debugging lesson — a count-only
-> assertion hides which system is wrong]]. See also
+> assertion hides which system is wrong]] — extracted as its own rule in
+> [[count-only-assertions-hide-cause]]. See also
 > [[2026-08-05-realtime-tracking-events-websocket-design#Verification results (POC, 2026-08-05)]]
 > and [[events-pipeline-design#Realtime WebSocket fan-out (second output of TRACKING_STATUS_CHANGED)]].
 > Recorded here as a concrete instance of this convention's own rule: an unexplained red test is
@@ -535,3 +537,7 @@ invalidates the catalogue cache.
   and compare fresh page loads, not two opens in the same warm session.
 - [[headed-browser-consent]] — ask before opening any headed browser window for a frontend
   check, and which monitor to target when the user accepts.
+- [[count-only-assertions-hide-cause]] — a count-only assertion cannot distinguish a broken
+  system from a wrong expectation; assert or log WHAT arrived, not just how many. Includes the
+  sharper case where a count-based WAIT on a multi-type channel can resolve on the wrong
+  mixture, not just report it poorly.
