@@ -14683,7 +14683,7 @@
               "fill": "#FFFFFF00"
             },
             "OKLQC/DB6ap": {
-              "fill": "#E5E7EB"
+              "fill": "$neutral-bg"
             },
             "OKLQC/qfnF6": {
               "icon": "receipt-text",
@@ -15327,7 +15327,7 @@
               "width": "fill_container",
               "descendants": {
                 "DB6ap": {
-                  "fill": "#E5E7EB"
+                  "fill": "$neutral-bg"
                 },
                 "qfnF6": {
                   "icon": "receipt-text",
@@ -29469,7 +29469,7 @@
                       "name": "Notification PLACED",
                       "descendants": {
                         "DB6ap": {
-                          "fill": "#E5E7EB"
+                          "fill": "$neutral-bg"
                         },
                         "qfnF6": {
                           "icon": "receipt-text",
@@ -29709,7 +29709,7 @@
                       "name": "Toast PLACED",
                       "descendants": {
                         "R3FrPo": {
-                          "fill": "#E5E7EB"
+                          "fill": "$neutral-bg"
                         },
                         "ebhgY": {
                           "icon": "receipt-text",
@@ -30467,7 +30467,7 @@
                               "fill": "#FFFFFF00",
                               "descendants": {
                                 "DB6ap": {
-                                  "fill": "#E5E7EB"
+                                  "fill": "$neutral-bg"
                                 },
                                 "qfnF6": {
                                   "icon": "receipt-text",
@@ -30968,7 +30968,7 @@
                           "fill": "#FFFFFF00",
                           "descendants": {
                             "DB6ap": {
-                              "fill": "#E5E7EB"
+                              "fill": "$neutral-bg"
                             },
                             "qfnF6": {
                               "icon": "receipt-text",
@@ -31181,6 +31181,10 @@
     "brand-navy-light": {
       "type": "color",
       "value": "#EDF0F6"
+    },
+    "neutral-bg": {
+      "type": "color",
+      "value": "#E5E7EB"
     }
   },
   "fileToken": "d47359f3-8968-480c-b671-faa693ea90b5"

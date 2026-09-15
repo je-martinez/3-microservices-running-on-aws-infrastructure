@@ -10,6 +10,7 @@ Design source: `assets/web-app/web-app.pen`
 |---|---|---|
 | `brand-navy` | `#2D3748` | `bg-brand-navy` |
 | `brand-navy-deep` | `#1F2733` | `bg-brand-navy-deep` |
+| `brand-navy-light` | `#EDF0F6` | `bg-brand-navy-light` |
 | `brand-orange` | `#F7941D` | `bg-brand-orange` |
 | `brand-orange-light` | `#FFF4E5` | `bg-brand-orange-light` |
 | `brand-orange-text` | `#C2710E` | `text-brand-orange-text` |
@@ -34,6 +35,7 @@ Design source: `assets/web-app/web-app.pen`
 | `info-bg` | `#EFF6FF` | `bg-info-bg` |
 | `warn-text` | `#B45309` | `text-warn-ink` |
 | `warn-bg` | `#FFF7ED` | `bg-warn-bg` |
+| `neutral-bg` | `#E5E7EB` | `bg-neutral-bg` |
 | `font-heading` | `Inter` | `font-heading` |
 | `font-body` | `Inter` | `font-body` |
 | `radius-md` | `10px` | `rounded-md` |
@@ -42,6 +44,8 @@ Design source: `assets/web-app/web-app.pen`
 Renamed on emission (`.pen` name → `styles.css` variable → utility): `bg-body` → `--color-surface-body` → `bg-surface-body`; `bg-white` → `--color-surface-white` → `bg-surface-white`; `bg-subtle` → `--color-surface-subtle` → `bg-surface-subtle`; `text-primary` → `--color-ink-primary` → `text-ink-primary`; `text-secondary` → `--color-ink-secondary` → `text-ink-secondary`; `text-muted` → `--color-ink-muted` → `text-ink-muted`; `text-on-dark` → `--color-ink-on-dark` → `text-ink-on-dark`; `border-color` → `--color-line` → `border-line`; `border-strong` → `--color-line-strong` → `border-line-strong`; `success-text` → `--color-success-ink` → `text-success-ink`; `warn-text` → `--color-warn-ink` → `text-warn-ink`.
 
 `text-muted-on-dark` and `text-subtle-on-dark` are newer than the rest of the table: they were added to the `.pen` on 2026-08-18, when building the Brand Panel component turned up two text colours on its dark background with no variable behind them — literal hex, a real gap in the design system. Both were added to `web-app.pen` and the four affected nodes rebound to them, so the `.pen`, not just `styles.css`, is the source of truth for the count above. Two more followed the same route: `text-on-orange-light` (the register screens' info-note text) and `scrim-overlay`. The scrim one is worth knowing about — the cart's scrim and the mobile account menu's are the SAME `#12161FA6` in the design, but the code had them at two different opacities (`/40` and `/65`) before the token existed. `A6` is 65%, so the shared `Scrim` component had been wrong since it was written; comparing two approximations of one design value is what surfaced it.
+
+`neutral-bg` came the same way, on 2026-09-14, from the notification work: the `PLACED` bubble tint was a literal `#E5E7EB` in six nodes across the status-variant sheet, both All screens and the read-state panel. It is a role of its own, **not** a reuse of `border-color`, which shares its value today — a border colour and a bubble tint are different decisions, and one variable for both means a future border change silently retints the notification. `brand-navy-light` needed no `.pen` change in that pass: it already existed at `#EDF0F6` and the welcome variants already referenced it, so only `styles.css` and this table were behind.
 
 Never use an arbitrary hex value (`bg-[#2D3748]`) in a component — always the token utility. `apps/web/src/styles.css` is the generated source of truth for these values; do not hand-edit it (re-run the `pencil-design-extraction` skill instead).
 
