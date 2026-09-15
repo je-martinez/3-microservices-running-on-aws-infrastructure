@@ -25,6 +25,7 @@ related:
   - "[[2026-07-30-post-infra-root-design]]"
   - "[[2026-07-30-post-infra-root]]"
   - "[[2026-09-15-a-falsy-default-that-means-disabled-erases-the-difference-from-unconfigured]]"
+  - "[[web-app-env-config]]"
 ---
 
 # Env Files
@@ -245,3 +246,5 @@ When changing env plumbing, verify against a real bring-up, not by inspection:
   whole milestone.
 - [[2026-07-30-post-infra-root]] — the plan that shipped the execution-log table and the
   `bootstrap`/`post-infra` split.
+- [[web-app-env-config]] — the runbook operationalizing the `NG_APP_WS_URL` bridge above into a
+  step-by-step procedure and symptom table.

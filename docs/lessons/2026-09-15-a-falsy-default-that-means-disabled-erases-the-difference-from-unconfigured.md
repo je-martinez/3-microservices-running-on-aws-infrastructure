@@ -16,6 +16,7 @@ related:
   - "[[testing]]"
   - "[[2026-09-04-a-build-time-env-var-absent-at-build-time-is-a-live-lookup]]"
   - "[[code-comments]]"
+  - "[[web-app-env-config]]"
 ---
 
 # A falsy default that means "disabled" erases the difference from "unconfigured"
@@ -105,3 +106,5 @@ it is a dependency carrying no job.
   throwing lookup instead of a silent default.
 - [[code-comments]] — the `CONTRACT:`/`WHY:` tags `app-config.ts` uses to record both the
   "never throw at module scope" rule and the dotted-access requirement.
+- [[web-app-env-config]] — the runbook that turns this lesson into a repeatable procedure: how
+  to bridge `WS_URL` into `apps/web/.env` on a fresh clone and after every Floci rebuild.
