@@ -6,7 +6,7 @@ import { NotificationItem } from '../../shared/ui/notification-item';
 /**
  * Design: `Notifications Panel` (`LWQ8g`) — ONE component (spec D8) for the
  * Unread (`mSssa`) / Read (`YZIGp`) pair, whose Tabs switch a local `activeTab`
- * signal filtering `NOTIFICATIONS` by each item's `read` flag.
+ * signal filtering `NOTIFICATIONS` by each item's `readAt`.
  *
  * CONTRACT: Keep this panel at `z-50`. Its frames carry no Scrim rectangle, so
  * `hasScrim` is false for 'notifications' and nothing else lifts it above
@@ -40,9 +40,9 @@ export class NotificationsPanel {
 
   protected readonly activeTab = signal<'unread' | 'read'>('unread');
 
-  // Phase 1 has no notifications store — read/unread derives from the fixture.
-  protected readonly unread = computed(() => NOTIFICATIONS.filter((n) => !n.read));
-  protected readonly read = computed(() => NOTIFICATIONS.filter((n) => n.read));
+  // Read/unread derives from the fixture until this panel binds NotificationsStore.
+  protected readonly unread = computed(() => NOTIFICATIONS.filter((n) => n.readAt === null));
+  protected readonly read = computed(() => NOTIFICATIONS.filter((n) => n.readAt !== null));
 
   protected readonly visibleNotifications = computed(() =>
     this.activeTab() === 'unread' ? this.unread() : this.read(),

@@ -8,6 +8,8 @@ interface ImportMetaEnv {
   readonly NG_APP_API_GATEWAY_URL: string;
   /** Flag only — the Geoapify key never reaches the bundle. */
   readonly NG_APP_GEOCODE_ENABLED: string;
+  /** Host-facing realtime socket URL; empty leaves the socket unopened. */
+  readonly NG_APP_WS_URL: string;
 }
 
 interface ImportMeta {

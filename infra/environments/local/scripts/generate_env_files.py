@@ -580,6 +580,12 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # Just the id: nginx builds the rest of the path itself, because
                 # it cannot express the `$default` stage segment as a literal.
                 "API_GATEWAY_API_ID": api_id,
+                # CONTRACT: The HOST-facing url, read by a BROWSER — not
+                # WS_MANAGEMENT_ENDPOINT, whose in-network shape answers a
+                # handshake with an S3 XML body. Copy it into
+                # apps/web/.env as NG_APP_WS_URL and restart `pnpm dev`:
+                # NG_APP_* is inlined at build time.
+                "WS_URL": ws_url,
             },
             custom_defaults={
                 # CONTRACT: CUSTOM, never generated — the AUTO box is rewritten

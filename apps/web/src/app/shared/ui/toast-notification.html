@@ -2,7 +2,7 @@
   class="border-line bg-surface-white fixed top-24 right-6 z-50 flex h-fit w-100 max-w-[calc(100vw-2rem)] flex-col items-start justify-start gap-0 overflow-hidden rounded-xl border shadow-[0px_10px_30px_0px_#1A1A2E29]"
 >
   <div class="flex h-fit w-full shrink-0 flex-row items-start justify-start gap-3 p-4">
-    @if (notification().status; as status) {
+    @if (notification().metadata.status; as status) {
       <app-tracking-status-icon [status]="status" />
     } @else {
       <span

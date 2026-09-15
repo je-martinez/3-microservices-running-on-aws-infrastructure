@@ -23,9 +23,9 @@ export class AppLayout {
   protected readonly overlay = inject(OverlayStore);
   protected readonly cart = inject(CartStore);
 
-  // Drives the bell's unread dot straight off the fixture — Phase 1 has no
-  // notifications store.
-  protected readonly hasUnreadNotifications = NOTIFICATIONS.some((n) => !n.read);
+  // Drives the bell's unread dot off the fixture until this layout binds
+  // NotificationsStore.hasUnread.
+  protected readonly hasUnreadNotifications = NOTIFICATIONS.some((n) => n.readAt === null);
 
   /**
    * CONTRACT: The cart opens as an overlay ONLY on `/`. `CartDrawer` mounts in
