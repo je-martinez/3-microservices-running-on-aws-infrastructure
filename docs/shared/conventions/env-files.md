@@ -4,7 +4,7 @@ type: convention
 area: infra
 status: active
 created: 2026-07-20
-updated: 2026-09-10
+updated: 2026-09-15
 tags:
   - type/convention
   - area/infra
@@ -24,6 +24,7 @@ related:
   - "[[2026-09-07-a-dead-path-is-not-fail-closed-against-an-external-host]]"
   - "[[2026-07-30-post-infra-root-design]]"
   - "[[2026-07-30-post-infra-root]]"
+  - "[[2026-09-15-a-falsy-default-that-means-disabled-erases-the-difference-from-unconfigured]]"
 ---
 
 # Env Files
@@ -238,5 +239,9 @@ When changing env plumbing, verify against a real bring-up, not by inspection:
 - [[2026-07-30-post-infra-root-design]] — the design behind the execution log; it proposed
   emitting the table name into `.env.local.infra` as a `tf-backend` output, whereas the shipped
   path is the `Makefile` export plus per-provisioner `environment` blocks documented above.
+- [[2026-09-15-a-falsy-default-that-means-disabled-erases-the-difference-from-unconfigured]] —
+  `NG_APP_WS_URL` unset in the hand-maintained `.env` versus generated in `.env.local.web`, with
+  nothing bridging or warning on the gap, left realtime notifications silently disabled for a
+  whole milestone.
 - [[2026-07-30-post-infra-root]] — the plan that shipped the execution-log table and the
   `bootstrap`/`post-infra` split.

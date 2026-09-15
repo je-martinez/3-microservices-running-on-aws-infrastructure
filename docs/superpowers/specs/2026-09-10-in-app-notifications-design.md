@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: accepted
 created: 2026-09-10
-updated: 2026-09-13
+updated: 2026-09-15
 tags:
   - type/spec
   - area/shared
@@ -35,6 +35,8 @@ related:
   - "[[pencil-design-extraction]]"
   - "[[doc-propagation]]"
   - "[[count-only-assertions-hide-cause]]"
+  - "[[2026-09-15-a-falsy-default-that-means-disabled-erases-the-difference-from-unconfigured]]"
+  - "[[2026-09-15-a-live-push-cascade-invalidates-exact-ui-assertions]]"
 ---
 
 # In-App Notifications Design
@@ -582,3 +584,10 @@ a manual PRODUCER span, as the pipeline's publisher does.
 - [[pencil-design-extraction]] — the method used to read the `.pen` frames and the convention for
   reporting design-token gaps upstream instead of hand-editing styles.
 - [[doc-propagation]] — the convention this spec's `propagates-to:` frontmatter satisfies.
+- [[2026-09-15-a-falsy-default-that-means-disabled-erases-the-difference-from-unconfigured]] —
+  `NG_APP_WS_URL`'s `|| ""` default made a missing variable and a deliberate opt-out
+  indistinguishable, leaving this design's realtime surface silently disabled for the whole
+  milestone with no log line to catch it.
+- [[2026-09-15-a-live-push-cascade-invalidates-exact-ui-assertions]] — writing this design's web
+  and gateway E2E surfaced that a TestMode order's cascade, and registration's own WELCOME push,
+  invalidate any exact-emptiness assertion on the notification surface.

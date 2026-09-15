@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-09-13
-updated: 2026-09-13
+updated: 2026-09-15
 tags:
   - type/convention
   - area/shared
@@ -16,6 +16,7 @@ related:
   - "[[2026-09-11-plans-locate-tests-by-name-not-by-importer]]"
   - "[[floci-websocket-apigw-dynamodb-support]]"
   - "[[code-comments]]"
+  - "[[2026-09-15-a-live-push-cascade-invalidates-exact-ui-assertions]]"
 ---
 
 # Count-only assertions hide cause — assert or log WHAT arrived, not just how many
@@ -134,3 +135,7 @@ assumed.
   filename).
 - [[code-comments]] — the tagged-comment convention `e2e/support/ws-client.ts` follows when
   pointing at this note from its `CONTRACT:` block.
+- [[2026-09-15-a-live-push-cascade-invalidates-exact-ui-assertions]] — the same rule applied to
+  the *shape* of an assertion rather than its failure message: an emptiness/exact-count check on
+  a live-push surface can be actively wrong (racing a legitimate later arrival), not merely
+  unhelpful on failure.
