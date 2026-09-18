@@ -140,6 +140,44 @@ describe('NotificationsStore', () => {
     });
 
     /**
+     * CONTRACT: Hammering one pill costs ONE request, not one per click. Without
+     * this the reader holds an open tap on the gateway from a single button.
+     */
+    it('sends nothing when setFilter names the filter already selected', async () => {
+      const { store, controller } = setup();
+      const first = store.setFilter('unread');
+      (await awaitRequest(controller, '/v1/notifications', 'GET')).flush(page([]));
+      await first;
+
+      await Promise.all([store.setFilter('unread'), store.setFilter('unread')]);
+      await store.setFilter('unread');
+
+      expect(controller.match(() => true)).toHaveLength(0);
+      expect(store.filter()).toBe('unread');
+      controller.verify();
+    });
+
+    /**
+     * CONTRACT: One list request is in flight at a time. Clicking through
+     * All → Unread → Read faster than the server answers otherwise stacks three,
+     * and whichever lands LAST wins — which need not be the pill now lit.
+     */
+    it('ignores a filter change while a list request is still in flight', async () => {
+      const { store, controller } = setup();
+      const first = store.load();
+      const pending = await awaitRequest(controller, '/v1/notifications', 'GET');
+
+      const ignored = store.setFilter('unread');
+
+      expect(controller.match(() => true)).toHaveLength(0);
+      pending.flush(page([]));
+      await Promise.all([first, ignored]);
+
+      expect(store.filter()).toBe('all');
+      controller.verify();
+    });
+
+    /**
      * CONTRACT: Filter the held items client-side as well as asking the server.
      * A frame arriving over the socket lands in `items` regardless of the active
      * filter, and the Read tab would otherwise show an unread row until reload.
@@ -326,6 +364,28 @@ describe('NotificationsStore', () => {
 
       expect(store.unreadCount()).toBe(0);
       expect(store.hasUnread()).toBe(false);
+      controller.verify();
+    });
+
+    /**
+     * CONTRACT: Repeated "Mark all as read" costs ONE PATCH. The rows stay
+     * unread until the first lands, so an unguarded second click re-sends the
+     * very same ids, and a held button sends one per frame.
+     */
+    it('sends one PATCH when mark-all is clicked repeatedly', async () => {
+      const { store, controller } = setup();
+      const loaded = store.load();
+      (await awaitRequest(controller, '/v1/notifications', 'GET')).flush(
+        page([wire(), wire({ id: 'ntf_2' })]),
+      );
+      await loaded;
+
+      const clicks = [store.markAllRead(), store.markAllRead(), store.markAllRead()];
+      const request = await awaitRequest(controller, '/v1/notifications/read', 'PATCH');
+      request.flush({ updated: 2, unread_count: 0 });
+      await Promise.all(clicks);
+
+      expect(store.unreadCount()).toBe(0);
       controller.verify();
     });
 

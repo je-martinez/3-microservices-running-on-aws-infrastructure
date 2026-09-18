@@ -126,6 +126,27 @@ describe('NotificationsAllPage', () => {
     expect(pills(fixture)[0].getAttribute('aria-pressed')).toBe('true');
   });
 
+  /**
+   * CONTRACT: Hammering one pill costs ONE request. Six clicks on Unread issuing
+   * six GETs is an open tap on the gateway from a single button, and this is the
+   * regression that spec exists for.
+   */
+  it('issues one request no matter how many times the same pill is clicked', async () => {
+    (await awaitRequest(controller, LIST, 'GET')).flush(page([]));
+    await settle(fixture);
+
+    for (let click = 0; click < 6; click += 1) pills(fixture)[1].click();
+    const first = await awaitRequest(controller, LIST, 'GET');
+    first.flush(page([]));
+    await settle(fixture);
+
+    for (let click = 0; click < 6; click += 1) pills(fixture)[1].click();
+    await settle(fixture);
+
+    expect(controller.match((r) => r.url === LIST)).toHaveLength(0);
+    expect(pills(fixture)[1].getAttribute('aria-pressed')).toBe('true');
+  });
+
   it('re-requests the list under the chosen filter when a pill is clicked', async () => {
     (await awaitRequest(controller, LIST, 'GET')).flush(page([]));
     await settle(fixture);

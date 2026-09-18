@@ -92,7 +92,8 @@ export const NotificationsStore = signalStore(
     /**
      * CONTRACT: Ids whose mark-read is in flight, held separately from
      * `highlighted` because that one commits only once the PATCH lands. Without
-     * this, a remount re-entering first sends a SECOND PATCH for the same ids.
+     * this, a remount re-entering — or a second "Mark all as read" click — sends
+     * a SECOND PATCH for the same ids, since they read unread until it lands.
      */
     const marking = new Set<string>();
 
@@ -104,7 +105,16 @@ export const NotificationsStore = signalStore(
         .map((item) => item.id);
     }
 
+    /**
+     * CONTRACT: Guards the list endpoint the way `marking` guards the PATCH. A
+     * filter pill is a plain button, so without this one held click issues a GET
+     * per frame — the reader holds an open tap on the gateway.
+     */
+    let listing = false;
+
     async function fetch(filter: NotificationFilter): Promise<void> {
+      if (listing) return;
+      listing = true;
       patchState(store, { filter, loading: true, error: null });
       try {
         const page = await firstValueFrom(api.list(filter));
@@ -116,6 +126,7 @@ export const NotificationsStore = signalStore(
       } catch (error: unknown) {
         patchState(store, { error: messageFor(error, UNREACHABLE) });
       } finally {
+        listing = false;
         patchState(store, { loading: false });
       }
     }
@@ -148,16 +159,33 @@ export const NotificationsStore = signalStore(
       /** Reads the newest page under the active filter. Safe on every open. */
       load: (filter: NotificationFilter = store.filter()): Promise<void> => fetch(filter),
 
-      /** Switches tab and re-requests, because the counters are server-side. */
-      setFilter: (filter: NotificationFilter): Promise<void> => fetch(filter),
+      /**
+       * CONTRACT: Re-selecting the ACTIVE filter is a no-op, ahead of `fetch`'s
+       * in-flight guard. A pill the reader keeps clicking is the common case,
+       * and it must cost nothing once the first request has landed.
+       */
+      setFilter: (filter: NotificationFilter): Promise<void> =>
+        filter === store.filter() ? Promise.resolve() : fetch(filter),
 
       markRead: async (ids: readonly string[]): Promise<void> => {
         await markRead(ids);
       },
 
-      /** Marks every currently-unread row read in ONE request. */
+      /**
+       * CONTRACT: Marks every unread row in ONE request, skipping ids already
+       * in flight. Rows stay unread until the PATCH lands, so a second click
+       * otherwise re-sends the same ids — a held button, one request per frame.
+       */
       markAllRead: async (): Promise<void> => {
-        await markRead(unreadIds());
+        const fresh = unreadIds().filter((id) => !marking.has(id));
+        if (fresh.length === 0) return;
+
+        fresh.forEach((id) => marking.add(id));
+        try {
+          await markRead(fresh);
+        } finally {
+          fresh.forEach((id) => marking.delete(id));
+        }
       },
 
       /**
