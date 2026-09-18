@@ -1,36 +1,19 @@
-# Web app — Angular 21 + Tailwind 4 SPA, built with Node 24 (pinned via repo
-# .nvmrc) and served as STATIC FILES by nginx.
-# Build context: REPO ROOT (pnpm-lock.yaml and pnpm-workspace.yaml live there),
-# same as the users and orders services.
-#
-# Multi-stage: deps stage installs the @3mrai/web package closure from the
-# lockfile; builder stage runs `ng build` (Angular's production configuration)
-# emitting dist/web/browser; runtime stage is plain nginx serving that
-# directory — NO Node at runtime.
-#
-# This is NOT server-side rendered. angular.json declares no `ssr`/`server`
-# options, so the build emits a browser bundle only and there is no Node
-# process to run. Adding SSR later means adding a server/ output and running
-# `node server/server.mjs` here instead of nginx — a different image shape, not
-# a flag.
+# Web app — Angular + Tailwind SPA on Node 24, served as STATIC FILES by nginx.
+# Build context is the REPO ROOT, where the pnpm lockfile and workspace live.
 
-# ── Build-time flag: NG_APP_STRIPE_ENABLED ──────────────────────────────────
-# @ngx-env/builder INLINES NG_APP_* values into the JavaScript bundle at
-# COMPILE time (the app reads `import.meta.env.NG_APP_STRIPE_ENABLED`, and a
-# browser has no process.env). That has two consequences worth stating plainly:
-#
-#  1. This CANNOT come from `env_file:` or `environment:` at runtime. A runtime
-#     variable would be read by nothing — the container would keep serving
-#     whatever value was compiled in, with no error anywhere. That is why the
-#     compose service has no env_file line.
-#  2. CHANGING IT REQUIRES A REBUILD, NOT A RESTART:
-#         docker compose build web && docker compose up -d web
-#     `docker compose restart web` re-serves the same bundle and looks like the
-#     flag is being ignored.
-#
-# Declared before FROM so every stage can reference it, and re-declared inside
-# the builder stage (an ARG's scope ends at the next FROM).
-# Default false, matching apps/web/.env.example.
+# Multi-stage: deps installs the @3mrai/web closure; builder runs `ng build`
+# emitting dist/web/browser; runtime is plain nginx — NO Node, because
+# angular.json declares no `ssr`/`server`. SSR would be a different image.
+
+# CONTRACT: NG_APP_* are BUILD ARGS, never runtime env. @ngx-env inlines them at
+# compile time, so a runtime variable is read by nothing and the container keeps
+# serving the compiled value with no error. Changing one needs a rebuild:
+# `docker compose build web && docker compose up -d web`. A restart re-serves
+# the same bundle and reads exactly like the flag being ignored.
+# See [[web-app-env-config]]
+
+# Declared before FROM so every stage sees it; an ARG's scope ends at the next
+# FROM, hence the re-declaration in builder. Default matches .env.example.
 ARG NG_APP_STRIPE_ENABLED=false
 # CONTRACT: EVERY NG_APP_* the app reads needs an ARG here AND an ENV in the
 # builder stage. @ngx-env only inlines variables present at build time; one it
@@ -43,6 +26,7 @@ ARG NG_APP_API_GATEWAY_URL=/v1
 # autocomplete at all. Default false so an unconfigured checkout gets the plain
 # address input rather than a field that 503s on every keystroke.
 ARG NG_APP_GEOCODE_ENABLED=false
+ARG NG_APP_WS_URL=
 
 FROM node:24-alpine AS base
 ENV PNPM_HOME="/pnpm"
@@ -77,6 +61,8 @@ ARG NG_APP_API_GATEWAY_URL
 ENV NG_APP_API_GATEWAY_URL=$NG_APP_API_GATEWAY_URL
 ARG NG_APP_GEOCODE_ENABLED
 ENV NG_APP_GEOCODE_ENABLED=$NG_APP_GEOCODE_ENABLED
+ARG NG_APP_WS_URL
+ENV NG_APP_WS_URL=$NG_APP_WS_URL
 # Source and build configuration. public/ holds favicon.ico (angular.json
 # `assets`), styles/tsconfig drive the compile. apps/web/design is NOT copied —
 # it is 2MB of static HTML design references for humans, excluded in

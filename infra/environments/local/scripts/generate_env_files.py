@@ -278,6 +278,12 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 "COGNITO_CLIENT_ID": client_id,
                 "USERS_DB_PORT": str(pg_port),
                 "ORDERS_DB_PORT": str(my_port),
+                # CONTRACT: Interpolated into the web image's NG_APP_WS_URL
+                # BUILD ARG, never a runtime variable — @ngx-env inlines
+                # NG_APP_* at compile time, so changing it needs a rebuild and a
+                # restart re-serves the old bundle. It carries the api id Floci
+                # remints on every apply. See [[web-app-env-config]]
+                "WS_URL": ws_url,
             },
         ),
         # --- infra: terraform outputs, for the E2E suite and for humans ------
@@ -621,6 +627,38 @@ def build(repo_root: Path) -> dict[Path, dict]:
     }
 
 
+def sync_web_ws_url(repo_root: Path, ws_url: str) -> Path | None:
+    """Point apps/web/.env's NG_APP_WS_URL at the current gateway.
+
+    CONTRACT: Rewrite ONLY that line. The file is hand-maintained — its other
+    entries are per-developer flags carrying their own comments — so it is not
+    regenerated like the AUTO-boxed env files beside it.
+
+    WHY: Floci remints the api id on every apply, and NG_APP_* is inlined at
+    BUILD time. A stale value opens no socket and logs nothing, so live toasts
+    and the unread badge are simply absent from a healthy-looking app.
+    See [[web-app-env-config]]
+    """
+    path = repo_root / "apps" / "web" / ".env"
+    if not path.exists():
+        inf(f"{path.relative_to(repo_root)} absent — copy .env.example and re-run to get NG_APP_WS_URL")
+        return None
+
+    line = f"NG_APP_WS_URL={ws_url}"
+    lines = path.read_text().splitlines()
+    for index, existing in enumerate(lines):
+        if existing.startswith("NG_APP_WS_URL="):
+            if existing == line:
+                return None
+            lines[index] = line
+            break
+    else:
+        lines += ["", "# Host-facing realtime WebSocket URL, synced from WS_URL by `make env-file`.", line]
+
+    path.write_text("\n".join(lines) + "\n")
+    return path
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -653,6 +691,12 @@ def main(argv: list[str]) -> int:
         args.repo_root, web_spec["generated"]["API_GATEWAY_API_ID"]
     )
     inf(f"wrote {proxy_path.relative_to(args.repo_root)}")
+
+    # The browser's half of the realtime contract, read back from the same spec
+    # for the same reason as the proxy above.
+    synced = sync_web_ws_url(args.repo_root, web_spec["generated"]["WS_URL"])
+    if synced is not None:
+        inf(f"synced NG_APP_WS_URL in {synced.relative_to(args.repo_root)}")
 
     ok(f"generated {len(files)} env files + 1 proxy config (CUSTOM sections preserved)")
     return 0
