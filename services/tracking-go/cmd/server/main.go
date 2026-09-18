@@ -38,6 +38,7 @@ import (
 	adapterhttp "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/http"
 	adaptermysql "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/mysql"
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/notify"
+	"github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/ordershttp"
 	tracing "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/otel"
 	cache "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/redis"
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/sqs"
@@ -260,6 +261,24 @@ func run() error {
 		)
 	}
 
+	// ── The cross-service cache invalidation ─────────────────────────────────
+	//
+	// CONTRACT: The INTERNAL key, GRPCAPIKey — never TrackingCarrierAPIKey. The
+	// two share a header name and nothing else, and handing an outside vendor's
+	// secret to an internal surface reaches route 6, a mass soft-delete.
+	// See [[two-api-keys-two-trust-domains]]
+	//
+	// An empty ORDERS_BASE_URL leaves it inert rather than failing the boot: a
+	// status change then clears only this service's keys, which is a stale read
+	// and not a lost delivery.
+	if cfg.OrdersBaseURL == "" {
+		logger.Warn("orders_cache_invalidation_disabled",
+			slog.String("app_event", "orders_cache_invalidation_disabled"),
+			slog.String("reason", "ORDERS_BASE_URL_empty"))
+	}
+	orderCacheInvalidator := ordershttp.NewCacheInvalidator(
+		cfg.OrdersBaseURL, cfg.GRPCAPIKey, logger)
+
 	// ── Metrics consumers: middleware and ticker ─────────────────────────────
 	//
 	// CONTRACT: Keep this a nil INTERFACE, never a typed nil. A (*publisher)(nil)
@@ -301,6 +320,10 @@ func run() error {
 			progressionStatuses,
 			notify.NewStatusEventPublisher(publisher),
 			notify.NewTrackingCacheInvalidator(gateway, logger),
+			// The SAME invalidator the carrier path uses. A TestMode transition
+			// makes Orders' cached body stale in exactly the same way, so the
+			// two must not disagree about what a transition invalidates.
+			orderCacheInvalidator,
 			nil, // the production clock: UTC, truncated to the second
 		),
 		// From config, not the constant: the E2E suite pays this interval four
@@ -327,6 +350,8 @@ func run() error {
 		// non-nil. Left as the zero interface when there is no client.
 		Users:     userResolverOrNil(userResolver),
 		Publisher: publisher,
+		// The cross-service sweep, on the carrier webhook's write path.
+		OrderCacheInvalidator: orderCacheInvalidator,
 		// The real TestMode progression, constructed above on the PROCESS
 		// context. The handler invokes it only after the response is written,
 		// and therefore after the creating transaction has committed.

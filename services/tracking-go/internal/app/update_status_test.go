@@ -145,7 +145,7 @@ func TestUpdateStatus(t *testing.T) {
 		}}
 		pub := &recordingPublisher{}
 		inv := &stubInvalidator{writer: w}
-		uc := app.NewUpdateStatus(w, pub, inv, fixedClock(now))
+		uc := app.NewUpdateStatus(w, pub, inv, &stubOrderInvalidator{}, fixedClock(now))
 
 		got, err := uc.Execute(context.Background(), "ord_1", domain.StatusProcessing, "")
 		if err != nil {
@@ -196,7 +196,7 @@ func TestUpdateStatus(t *testing.T) {
 			Status: domain.StatusPlaced,
 		}}
 		pub := &recordingPublisher{}
-		uc := app.NewUpdateStatus(w, pub, &stubInvalidator{}, fixedClock(now))
+		uc := app.NewUpdateStatus(w, pub, &stubInvalidator{}, &stubOrderInvalidator{}, fixedClock(now))
 
 		if _, err := uc.Execute(context.Background(), "ord_1",
 			domain.StatusProcessing, audit.TestModeProgression); err != nil {
@@ -226,7 +226,7 @@ func TestUpdateStatus(t *testing.T) {
 			}},
 		}
 		pub := &recordingPublisher{}
-		uc := app.NewUpdateStatus(w, pub, &stubInvalidator{}, fixedClock(now))
+		uc := app.NewUpdateStatus(w, pub, &stubInvalidator{}, &stubOrderInvalidator{}, fixedClock(now))
 		if _, err := uc.Execute(context.Background(), "ord_1", domain.StatusProcessing, ""); err != nil {
 			t.Fatal(err)
 		}
@@ -265,7 +265,7 @@ func TestUpdateStatus(t *testing.T) {
 				}}
 				pub := &recordingPublisher{}
 				inv := &stubInvalidator{}
-				uc := app.NewUpdateStatus(w, pub, inv, fixedClock(now))
+				uc := app.NewUpdateStatus(w, pub, inv, &stubOrderInvalidator{}, fixedClock(now))
 
 				_, err := uc.Execute(context.Background(), "ord_1", tc.requested, "")
 				var invalid *domain.InvalidTransitionError
@@ -291,7 +291,7 @@ func TestUpdateStatus(t *testing.T) {
 	t.Run("a missing tracking is ErrTrackingNotFound and writes nothing", func(t *testing.T) {
 		w := &stubStatusWriter{getErr: domain.ErrTrackingNotFound}
 		pub := &recordingPublisher{}
-		uc := app.NewUpdateStatus(w, pub, &stubInvalidator{}, fixedClock(now))
+		uc := app.NewUpdateStatus(w, pub, &stubInvalidator{}, &stubOrderInvalidator{}, fixedClock(now))
 
 		_, err := uc.Execute(context.Background(), "ord_gone", domain.StatusShipped, "")
 		if !errors.Is(err, domain.ErrTrackingNotFound) {
@@ -308,7 +308,7 @@ func TestUpdateStatus(t *testing.T) {
 	t.Run("a deleted TestMode fixture publishes from its last committed snapshot", func(t *testing.T) {
 		w := &stubStatusWriter{}
 		pub := &recordingPublisher{}
-		uc := app.NewUpdateStatus(w, pub, &stubInvalidator{}, fixedClock(now))
+		uc := app.NewUpdateStatus(w, pub, &stubInvalidator{}, &stubOrderInvalidator{}, fixedClock(now))
 		current := domain.TrackingWithHistory{
 			Tracking: domain.Tracking{
 				ID:             "trk_1",
@@ -361,7 +361,7 @@ func TestUpdateStatus(t *testing.T) {
 		}
 		pub := &recordingPublisher{}
 		inv := &stubInvalidator{}
-		uc := app.NewUpdateStatus(w, pub, inv, fixedClock(now))
+		uc := app.NewUpdateStatus(w, pub, inv, &stubOrderInvalidator{}, fixedClock(now))
 
 		if _, err := uc.Execute(context.Background(), "ord_1", domain.StatusShipped, ""); !errors.Is(err, boom) {
 			t.Fatalf("err = %v, want the underlying persistence error", err)
@@ -380,7 +380,7 @@ func TestUpdateStatus(t *testing.T) {
 			Status: domain.StatusPlaced,
 		}}
 		inv := &stubInvalidator{}
-		uc := app.NewUpdateStatus(w, panickingPublisher{}, inv, fixedClock(now))
+		uc := app.NewUpdateStatus(w, panickingPublisher{}, inv, &stubOrderInvalidator{}, fixedClock(now))
 
 		got, err := uc.Execute(context.Background(), "ord_1", domain.StatusProcessing, "")
 		if err != nil {
@@ -400,7 +400,7 @@ func TestUpdateStatus(t *testing.T) {
 			OrderID: "ord_1", UserID: "usr_1", CognitoSub: "sub-1",
 			Status: domain.StatusPlaced,
 		}}
-		uc := app.NewUpdateStatus(w, &recordingPublisher{}, panickingInvalidator{}, fixedClock(now))
+		uc := app.NewUpdateStatus(w, &recordingPublisher{}, panickingInvalidator{}, &stubOrderInvalidator{}, fixedClock(now))
 
 		if _, err := uc.Execute(context.Background(), "ord_1", domain.StatusProcessing, ""); err != nil {
 			t.Fatalf("a cache failure broke a committed write: %v", err)
@@ -415,7 +415,7 @@ func TestUpdateStatus(t *testing.T) {
 			CognitoSub: "sub-persisted", Status: domain.StatusPlaced,
 		}}
 		inv := &stubInvalidator{writer: w}
-		uc := app.NewUpdateStatus(w, &recordingPublisher{}, inv, fixedClock(now))
+		uc := app.NewUpdateStatus(w, &recordingPublisher{}, inv, &stubOrderInvalidator{}, fixedClock(now))
 		if _, err := uc.Execute(context.Background(), "ord_1", domain.StatusProcessing, ""); err != nil {
 			t.Fatal(err)
 		}
@@ -438,7 +438,7 @@ func TestUpdateStatus(t *testing.T) {
 		w := &stubStatusWriter{current: domain.Tracking{
 			OrderID: "ord_1", Status: domain.StatusPlaced,
 		}}
-		uc := app.NewUpdateStatus(w, &recordingPublisher{}, &stubInvalidator{}, nil)
+		uc := app.NewUpdateStatus(w, &recordingPublisher{}, &stubInvalidator{}, &stubOrderInvalidator{}, nil)
 		if _, err := uc.Execute(context.Background(), "ord_1", domain.StatusShipped, ""); err != nil {
 			t.Fatal(err)
 		}
@@ -457,6 +457,116 @@ func TestUpdateStatus(t *testing.T) {
 		// begin disagreeing about what a transition means.
 		var _ interface {
 			Execute(ctx context.Context, orderID string, requested domain.Status, actor audit.Actor) (domain.TrackingWithHistory, error)
-		} = app.NewUpdateStatus(&stubStatusWriter{}, &recordingPublisher{}, &stubInvalidator{}, fixedClock(now))
+		} = app.NewUpdateStatus(&stubStatusWriter{}, &recordingPublisher{}, &stubInvalidator{}, &stubOrderInvalidator{}, fixedClock(now))
+	})
+}
+
+// stubOrderInvalidator records the cross-service sweep Orders exposes.
+type stubOrderInvalidator struct {
+	called             bool
+	orderID            string
+	calledBeforeCommit bool
+
+	writer *stubStatusWriter
+}
+
+func (s *stubOrderInvalidator) InvalidateOrderCache(_ context.Context, orderID string) {
+	s.called = true
+	s.orderID = orderID
+	if s.writer != nil && !s.writer.committed {
+		s.calledBeforeCommit = true
+	}
+}
+
+type panickingOrderInvalidator struct{}
+
+func (panickingOrderInvalidator) InvalidateOrderCache(context.Context, string) {
+	panic("orders is unreachable")
+}
+
+func TestUpdateStatusInvalidatesTheOrdersCache(t *testing.T) {
+	now := time.Date(2026, 9, 18, 15, 0, 0, 0, time.UTC)
+
+	newTracking := func() domain.Tracking {
+		// Two DIFFERENT identity values, so a fixture cannot pass by confusing
+		// the ownership key with the internal id.
+		return domain.Tracking{
+			ID: "trk_1", OrderID: "ord_1", UserID: "usr_1",
+			CognitoSub: "sub-1", Status: domain.StatusPlaced,
+		}
+	}
+
+	t.Run("sweeps Orders by order id alone, after the commit", func(t *testing.T) {
+		w := &stubStatusWriter{current: newTracking()}
+		orders := &stubOrderInvalidator{writer: w}
+		uc := app.NewUpdateStatus(w, &recordingPublisher{}, &stubInvalidator{}, orders, fixedClock(now))
+
+		if _, err := uc.Execute(context.Background(), "ord_1", domain.StatusProcessing, ""); err != nil {
+			t.Fatal(err)
+		}
+		if !orders.called {
+			t.Fatal("Orders' cached order responses were never invalidated, so an " +
+				"includeTracking read serves the previous status for a full TTL")
+		}
+		if orders.orderID != "ord_1" {
+			t.Errorf("invalidated order %q, want ord_1", orders.orderID)
+		}
+		if orders.calledBeforeCommit {
+			t.Error("Orders was swept before the commit — its re-read would repopulate " +
+				"the entry with the pre-update status")
+		}
+	})
+
+	t.Run("a rejected transition sweeps nothing", func(t *testing.T) {
+		current := newTracking()
+		current.Status = domain.StatusDelivered
+		w := &stubStatusWriter{current: current}
+		orders := &stubOrderInvalidator{}
+		uc := app.NewUpdateStatus(w, &recordingPublisher{}, &stubInvalidator{}, orders, fixedClock(now))
+
+		if _, err := uc.Execute(context.Background(), "ord_1", domain.StatusShipped, ""); err == nil {
+			t.Fatal("a transition out of DELIVERED was accepted")
+		}
+		if orders.called {
+			t.Error("a rejected transition invalidated Orders' cache")
+		}
+	})
+
+	t.Run("an Orders failure never fails the committed transition", func(t *testing.T) {
+		w := &stubStatusWriter{current: newTracking()}
+		uc := app.NewUpdateStatus(
+			w, &recordingPublisher{}, &stubInvalidator{}, panickingOrderInvalidator{}, fixedClock(now))
+
+		got, err := uc.Execute(context.Background(), "ord_1", domain.StatusProcessing, "")
+		if err != nil {
+			t.Fatalf("an unreachable Orders failed the carrier's status update: %v", err)
+		}
+		if got.Tracking.Status != domain.StatusProcessing {
+			t.Errorf("status = %q, want PROCESSING", got.Tracking.Status)
+		}
+	})
+
+	t.Run("a local invalidator panic still reaches Orders", func(t *testing.T) {
+		w := &stubStatusWriter{current: newTracking()}
+		orders := &stubOrderInvalidator{}
+		uc := app.NewUpdateStatus(
+			w, &recordingPublisher{}, panickingInvalidator{}, orders, fixedClock(now))
+
+		if _, err := uc.Execute(context.Background(), "ord_1", domain.StatusProcessing, ""); err != nil {
+			t.Fatal(err)
+		}
+		if !orders.called {
+			t.Error("a Redis fault skipped the Orders sweep that follows it, leaving the " +
+				"only surface this tracking is read through stale for a full TTL")
+		}
+	})
+
+	t.Run("a nil Orders invalidator is a legal degraded wiring", func(t *testing.T) {
+		w := &stubStatusWriter{current: newTracking()}
+		uc := app.NewUpdateStatus(w, &recordingPublisher{}, &stubInvalidator{}, nil, fixedClock(now))
+
+		if _, err := uc.Execute(context.Background(), "ord_1", domain.StatusProcessing, ""); err != nil {
+			t.Fatalf("an unwired Orders invalidator failed the transition: %v", err)
+		}
 	})
 }

@@ -39,6 +39,7 @@ const (
 	pkgCloudWatch = modulePath + "/internal/adapter/cloudwatch"
 	pkgSQS        = modulePath + "/internal/adapter/sqs"
 	pkgGRPCUsers  = modulePath + "/internal/adapter/grpcusers"
+	pkgOrdersHTTP = modulePath + "/internal/adapter/ordershttp"
 	pkgMySQL      = modulePath + "/internal/adapter/mysql"
 	pkgApp        = modulePath + "/internal/app"
 	pkgNotify     = modulePath + "/internal/adapter/notify"
@@ -83,6 +84,7 @@ var requiredSeams = []wiringSeam{
 	{pkgHTTP, "StampResolvedUserID", "bug #2: the read handlers cannot build a cache key without a usr_ id, so EVERY read is a miss forever while the code looks correct"},
 	{pkgRedis, "NewUserInvalidator", "a deleted user's cached reads survive the deletion cascade and keep being served"},
 	{pkgNotify, "NewTrackingCacheInvalidator", "a status change does not evict the cached tracking, so reads serve the previous status until the TTL expires"},
+	{pkgOrdersHTTP, "NewCacheInvalidator", "a status change never reaches Orders, and Orders is the ONLY surface a user reads a tracking through: GET /v1/orders/{id}?includeTracking=true keeps serving the superseded status for Orders' full 120s TTL, measured at 120.6s and skipping all four transitions of a delivery run"},
 
 	// ── Routing and the request path ────────────────────────────────────────
 	{pkgHTTP, "NewAppRouter", "bug #1: the process serves no routes at all"},

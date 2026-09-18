@@ -459,9 +459,16 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # gateway hands it — the same lookup Orders makes.
                 "USERS_GRPC_URL": "http://users:50051",
                 # The INTERNAL service-to-service key — the same value Users and
-                # Orders share. Tracking presents it when calling Users, rather
-                # than validating it on the way in.
+                # Orders share. Tracking presents it when calling Users and when
+                # invalidating Orders' cache, and validates it on route 6.
                 "GRPC_API_KEY": GRPC_API_KEY,
+                # Where Tracking POSTs the cross-service cache invalidation after
+                # a status change. Tracking is read only through Orders'
+                # includeTracking response, so without this sweep the page serves
+                # the pre-update status for Orders' full 120s TTL.
+                # CONTRACT: The CONTAINER port, like the cascade URLs above — a
+                # host mapping is ECONNREFUSED inside the compose network.
+                "ORDERS_BASE_URL": "http://orders:8080",
                 # WORKAROUND(local): Do NOT use localhost or the proxy port for
                 # Redis; Tracking dials itself or the wrong port and gets
                 # ECONNREFUSED. Use the backing container name and port 6379.

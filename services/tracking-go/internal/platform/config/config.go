@@ -38,6 +38,16 @@ type Config struct {
 	// strips it.
 	UsersGRPCURL string
 
+	// OrdersBaseURL is where this service POSTs the cross-service cache
+	// invalidation on a status change, presenting GRPCAPIKey.
+	//
+	// CONTRACT: Optional, and an empty value is a legal DEGRADED wiring rather
+	// than a boot failure — the invalidator goes inert and Orders' entries
+	// expire by TTL. Requiring it would trade a stale read for no deliveries at
+	// all. Peer containers dial the CONTAINER port (http://orders:8080); a host
+	// mapping is ECONNREFUSED inside the compose network. See [[env-files]]
+	OrdersBaseURL string
+
 	// EventsTopicARN is the one shared SNS topic all three producers publish to.
 	// Defaults to empty; publishing fails (loudly, at the publisher) when it is.
 	EventsTopicARN string
@@ -115,6 +125,7 @@ func Load() (Config, error) {
 		TrackingCarrierAPIKey:      os.Getenv("TRACKING_CARRIER_API_KEY"),
 		Port:                       intInRange("PORT", defaultPort, 1, 65535),
 		UsersGRPCURL:               stringOr("USERS_GRPC_URL", defaultUsersGRPCURL),
+		OrdersBaseURL:              strings.TrimSpace(os.Getenv("ORDERS_BASE_URL")),
 		EventsTopicARN:             os.Getenv("EVENTS_TOPIC_ARN"),
 		AWSEndpointURL:             optionalString("AWS_ENDPOINT_URL"),
 		AWSRegion:                  stringOr("AWS_REGION", defaultAWSRegion),

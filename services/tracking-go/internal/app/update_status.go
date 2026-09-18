@@ -42,13 +42,28 @@ type CacheInvalidator interface {
 	InvalidateTracking(ctx context.Context, orderID, cognitoSub, userID string)
 }
 
+// OrderCacheInvalidator asks Orders to forget its own cached responses for one
+// order. Returns nothing, for the same reason CacheInvalidator does.
+//
+// CONTRACT: The ORDER ID is the whole payload. Orders resolves the owner from
+// its own row and builds its own keys, so no cognito_sub, no user_id and no key
+// shape crosses the seam — a caller that learned the key format would freeze it.
+// Tracking is only ever read through Orders' includeTracking response, so
+// clearing only this service's keys leaves the surface users actually hit
+// serving the superseded status for Orders' full TTL.
+// See [[x-cache-response-header]]
+type OrderCacheInvalidator interface {
+	InvalidateOrderCache(ctx context.Context, orderID string)
+}
+
 // UpdateStatus is the SINGLE write path behind BOTH the carrier PUT and TestMode
 // progression. The ONLY thing that differs between its two callers is the actor.
 type UpdateStatus struct {
-	writer      StatusWriter
-	publisher   EventPublisher
-	invalidator CacheInvalidator
-	clock       func() time.Time
+	writer       StatusWriter
+	publisher    EventPublisher
+	invalidator  CacheInvalidator
+	orderInvalid OrderCacheInvalidator
+	clock        func() time.Time
 }
 
 // NewUpdateStatus wires the transition. A nil clock takes the production one.
@@ -56,6 +71,7 @@ func NewUpdateStatus(
 	writer StatusWriter,
 	publisher EventPublisher,
 	invalidator CacheInvalidator,
+	orderInvalidator OrderCacheInvalidator,
 	clock func() time.Time,
 ) *UpdateStatus {
 	if clock == nil {
@@ -66,10 +82,11 @@ func NewUpdateStatus(
 		clock = func() time.Time { return time.Now().UTC().Truncate(time.Second) }
 	}
 	return &UpdateStatus{
-		writer:      writer,
-		publisher:   publisher,
-		invalidator: invalidator,
-		clock:       clock,
+		writer:       writer,
+		publisher:    publisher,
+		invalidator:  invalidator,
+		orderInvalid: orderInvalidator,
+		clock:        clock,
 	}
 }
 
@@ -114,13 +131,19 @@ func (uc *UpdateStatus) Execute(
 		return domain.TrackingWithHistory{}, err
 	}
 
-	// CONTRACT: Both of these run AFTER the commit and cannot fail the request.
-	// Invalidating first opens a window where a concurrent read misses, sees the
-	// pre-update row, and writes that stale body back under the key just
+	// CONTRACT: All three of these run AFTER the commit and cannot fail the
+	// request. Invalidating first opens a window where a concurrent read misses,
+	// sees the pre-update row, and writes that stale body back under the key just
 	// cleared — serving a superseded status for a full TTL. Identities come off
 	// the PERSISTED ROW; the carrier sends none. See [[x-cache-response-header]]
 	uc.publish(ctx, updated, string(previous), actor)
 	uc.invalidate(ctx, updated)
+	// CONTRACT: Sweep Orders too. This service's own keys are not the surface a
+	// user reads: Orders caches the combined order-plus-tracking body, so
+	// clearing only Redis here leaves GET /v1/orders/{id}?includeTracking=true
+	// answering the pre-update status for Orders' full 120s TTL — measured at
+	// 120.6s, skipping all four transitions of a delivery run.
+	uc.invalidateOrder(ctx, updated.Tracking.OrderID)
 
 	return updated, nil
 }
@@ -205,4 +228,18 @@ func (uc *UpdateStatus) invalidate(ctx context.Context, t domain.TrackingWithHis
 	}
 	uc.invalidator.InvalidateTracking(ctx,
 		t.Tracking.OrderID, t.Tracking.CognitoSub, t.Tracking.UserID)
+}
+
+// invalidateOrder is the third best-effort step, with its OWN recover for the
+// same reason invalidate has one: a Redis fault must not skip the cross-service
+// sweep, which clears the only cache a user's read actually goes through.
+//
+// CONTRACT: Pass the order id and nothing else. Orders owns the key shape and
+// resolves the owner from its own row. See [[x-cache-response-header]]
+func (uc *UpdateStatus) invalidateOrder(ctx context.Context, orderID string) {
+	defer func() { _ = recover() }()
+	if uc.orderInvalid == nil {
+		return
+	}
+	uc.orderInvalid.InvalidateOrderCache(ctx, orderID)
 }

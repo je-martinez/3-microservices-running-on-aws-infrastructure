@@ -58,6 +58,13 @@ type AppRouterOptions struct {
 	Publisher sqs.Publisher
 	Hook      ProgressionHook
 
+	// OrderCacheInvalidator sweeps ORDERS' cached order-plus-tracking bodies on
+	// a status change. Optional in the same sense as Publisher: nil leaves those
+	// entries to expire by Orders' own TTL, which is a degraded read and never a
+	// failed write. Built in the composition root from ORDERS_BASE_URL and the
+	// INTERNAL key. See [[two-api-keys-two-trust-domains]]
+	OrderCacheInvalidator app.OrderCacheInvalidator
+
 	// Metrics is nil when METRICS_ENABLED is false. A nil publisher DISABLES the
 	// metric at the call site, which is why the flag is gated in the composition
 	// root and nowhere else.
@@ -150,7 +157,13 @@ func NewAppRouter(opts AppRouterOptions) *gin.Engine {
 			adaptermysql.NewStatusRepository(opts.WriterDB),
 			notify.NewStatusEventPublisher(opts.Publisher),
 			notify.NewTrackingCacheInvalidator(gateway, log),
-			nil,
+			// CONTRACT: Clearing only this service's Redis keys is not enough.
+			// Tracking is read exclusively through Orders' combined response, so
+			// without this sweep the page serves the pre-update status for
+			// Orders' full TTL while this service's own read is already correct.
+			// See [[x-cache-response-header]]
+			opts.OrderCacheInvalidator,
+			nil, // the production clock: UTC, truncated to the second
 		),
 		log,
 		tracing.Tracer(tracing.TracerWorkflow),
