@@ -127,6 +127,17 @@ describe('NotificationItem', () => {
     expect(row(fixture).classList).toContain('bg-surface-subtle');
   });
 
+  /**
+   * CONTRACT: Assert the HOST's width, not the inner row's. A component element
+   * defaults to `inline`, so the row's `w-full` measures a host collapsed to its
+   * content and the unread tint paints half the container.
+   */
+  it.each([null, '2026-09-12T08:00:00Z'])('the host spans the container at readAt %s', (readAt) => {
+    const host = render({ readAt }).nativeElement as HTMLElement;
+
+    expect(Array.from(host.classList)).toEqual(expect.arrayContaining(['block', 'w-full']));
+  });
+
   it('drops the dot and the background once readAt is set', () => {
     const fixture = render({ readAt: '2026-09-12T08:00:00Z' });
 

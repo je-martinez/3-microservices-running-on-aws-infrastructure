@@ -105,16 +105,27 @@ def require(values: dict[str, str], key: str, paths: list[Path]) -> str:
     return value
 
 
+def normalize_order_number(value: str) -> str:
+    """Return the CANONICAL spelling of an order number.
+
+    CONTRACT: Match untrusted input against the canonical form AFTER stripping the
+    separator, never against the displayed one — Orders mints `260918F2MM7M` and
+    stores that, while every surface shows `260918-F2MM7M`, so a number copied off
+    the screen finds nothing. See [[friendly-order-number]]
+    """
+    return value.replace("-", "")
+
+
 def classify(value: str) -> str:
     """Return "order_id" or "order_number" for a bare positional value."""
     if value.startswith(ORDER_ID_PREFIX):
         return "order_id"
-    if len(value) == ORDER_NUMBER_LENGTH:
+    if len(normalize_order_number(value)) == ORDER_NUMBER_LENGTH:
         return "order_number"
     raise ResolutionError(
         f"cannot tell what '{value}' is: an order id starts with '{ORDER_ID_PREFIX}' "
-        f"and an order number is {ORDER_NUMBER_LENGTH} characters. "
-        "Pass --order-id or --order-number to be explicit."
+        f"and an order number is {ORDER_NUMBER_LENGTH} characters, with or without "
+        "its separator. Pass --order-id or --order-number to be explicit."
     )
 
 
@@ -263,9 +274,10 @@ def run(args: argparse.Namespace) -> int:
     if args.order_id:
         field, value = "order_id", args.order_id
     elif args.order_number:
-        field, value = "order_number", args.order_number
+        field, value = "order_number", normalize_order_number(args.order_number)
     else:
-        field, value = classify(args.order), args.order
+        field = classify(args.order)
+        value = normalize_order_number(args.order) if field == "order_number" else args.order
 
     port = discover_port("mysql")
     order_id, order_number, current = lookup(field, value, port)
@@ -325,7 +337,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "order",
         nargs="?",
-        help="order id (ord_…) or 12-character order number; detected automatically",
+        help="order id (ord_…) or order number, with or without its separator",
     )
     parser.add_argument("--order-id", help="order id, stated explicitly")
     parser.add_argument("--order-number", help="order number, stated explicitly")

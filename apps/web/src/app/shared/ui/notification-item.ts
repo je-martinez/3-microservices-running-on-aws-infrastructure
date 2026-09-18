@@ -20,6 +20,9 @@ import { visualFor } from './notification-icon-map';
   imports: [LucideDynamicIcon],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './notification-item.html',
+  // CONTRACT: The host carries the width. Left `inline`, the row's own `w-full`
+  // measures a host collapsed to its content and the tint paints half the row.
+  host: { class: 'block w-full' },
 })
 export class NotificationItem {
   readonly notification = input.required<AppNotification>();
