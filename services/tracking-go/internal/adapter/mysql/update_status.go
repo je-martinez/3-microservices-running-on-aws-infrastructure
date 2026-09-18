@@ -26,49 +26,17 @@ func NewStatusRepository(db *sql.DB) *StatusRepository {
 
 // GetByOrderID finds a LIVE tracking by order_id ALONE.
 //
-// CONTRACT: Keep this UNSCOPED and a separate method from the scoped read. The
-// carrier webhook's gateway route declares no authorizer, so no x-user-id ever
-// arrives; applying the cognito_sub filter 404s every carrier call while looking
-// implemented. A separate method, not an optional argument: Go's zero string is
-// "", which silently means "scoped to the empty string".
-// See [[user-id-vs-cognito-sub-ownership-key]]
+// CONTRACT: Keep this UNSCOPED, and a separate method rather than an optional
+// scope argument — the carrier webhook carries no x-user-id, and Go's zero
+// string silently means "scoped to the empty string", which 404s every carrier
+// call. See [[user-id-vs-cognito-sub-ownership-key]]
 //
-// CONTRACT: Scan shipping_address into a plain []byte, not json.RawMessage —
-// RawMessage is no sql.Scanner, so a NULL address fails at RUNTIME. Backtick
-// `datetime`: it is a MySQL type keyword.
+// CONTRACT: Read through sqlc, never a hand-written SELECT beside it. A
+// duplicate query is not regenerated, so a migration adding a column leaves it
+// short and the mapping below reads a field nothing scanned into — an
+// order_number absent from every status notification. See [[soft-delete]]
 func (r *StatusRepository) GetByOrderID(ctx context.Context, orderID string) (domain.Tracking, error) {
-	const query = "SELECT\n" +
-		"  id, user_id, order_id, status, shipping_address,\n" +
-		"  `datetime` AS occurred_at,\n" +
-		"  created_by, created_at, updated_by, updated_at,\n" +
-		"  deleted_by, deleted_at, cognito_sub, tags, tracking_number\n" +
-		"FROM tracking\n" +
-		"WHERE order_id = ?\n" +
-		// Soft delete: the application never issues DELETE, and every read
-		// filters the tombstones out.
-		"  AND deleted_at IS NULL"
-
-	var (
-		row     Tracking
-		address []byte
-	)
-	err := r.db.QueryRowContext(ctx, query, orderID).Scan(
-		&row.ID,
-		&row.UserID,
-		&row.OrderID,
-		&row.Status,
-		&address,
-		&row.Datetime,
-		&row.CreatedBy,
-		&row.CreatedAt,
-		&row.UpdatedBy,
-		&row.UpdatedAt,
-		&row.DeletedBy,
-		&row.DeletedAt,
-		&row.CognitoSub,
-		&row.Tags,
-		&row.TrackingNumber,
-	)
+	row, err := New(r.db).GetTrackingByOrderID(ctx, orderID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.Tracking{}, fmt.Errorf("%w for order_id %s", domain.ErrTrackingNotFound, orderID)
 	}
@@ -88,9 +56,9 @@ func (r *StatusRepository) GetByOrderID(ctx context.Context, orderID string) (do
 		// nil when the column is NULL, never an empty non-nil slice: the
 		// publisher's omit-vs-send decision is an explicit nil check, and "no
 		// address" must not travel as an empty value.
-		ShippingAddress: address,
+		ShippingAddress: row.ShippingAddress,
 		Tags:            row.Tags,
-		Datetime:        row.Datetime,
+		Datetime:        row.OccurredAt,
 		CreatedBy:       row.CreatedBy.String,
 		CreatedAt:       row.CreatedAt,
 		UpdatedBy:       row.UpdatedBy.String,
