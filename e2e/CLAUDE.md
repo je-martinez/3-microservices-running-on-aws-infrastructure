@@ -168,7 +168,7 @@ throws would replace a clear timing failure with a confusing connection error.
   by load tests.
 - **The carrier webhook** (`PUT /v1/trackings/{orderId}/status`) authenticates
   with `TRACKING_CARRIER_API_KEY` — an **external vendor's** credential, a
-  different secret from the internal `GRPC_API_KEY`. Never substitute one for
+  different secret from the internal `INTERNAL_API_KEY`. Never substitute one for
   the other.
 - **Each virtual user needs its own token.** A shared one collapses every
   user-scoped read onto a single `cognito_sub` and hides the per-user query

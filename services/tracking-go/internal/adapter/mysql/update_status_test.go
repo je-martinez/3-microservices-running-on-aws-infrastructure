@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -42,16 +43,31 @@ func transitionCleanup(t *testing.T, db *sql.DB, orderIDs ...string) {
 	}
 }
 
+// seededOrderNumber derives a customer-facing order number from the order id.
+//
+// CONTRACT: Every fixture row carries a NON-EMPTY order_number. A NULL here is
+// indistinguishable from a read that never selects the column, so a suite
+// seeding NULL cannot fail when the number is dropped on the way to the
+// TRACKING_STATUS_CHANGED envelope — the notification then addresses the user
+// by raw order id. See [[tracking-service-design]]
+func seededOrderNumber(orderID string) string {
+	digits := 0
+	for _, r := range orderID {
+		digits = (digits*31 + int(r)) % 1000000
+	}
+	return fmt.Sprintf("2609%02d%06d", len(orderID)%100, digits)
+}
+
 // transitionSeed inserts one tracking plus one history row directly, so this
 // suite does not depend on the creation repository another task owns.
 func transitionSeed(t *testing.T, db *sql.DB, orderID, trackingID, userID, cognitoSub string, status domain.Status, at time.Time) {
 	t.Helper()
 	if _, err := db.ExecContext(t.Context(), `
 		INSERT INTO tracking (
-		  id, user_id, order_id, status, `+"`datetime`"+`,
+		  id, user_id, order_id, order_number, status, `+"`datetime`"+`,
 		  created_by, created_at, updated_by, updated_at, cognito_sub, tags, tracking_number
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, JSON_ARRAY(), ?)`,
-		trackingID, userID, orderID, string(status), at,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, JSON_ARRAY(), ?)`,
+		trackingID, userID, orderID, seededOrderNumber(orderID), string(status), at,
 		string(audit.CreateTracking), at, string(audit.CreateTracking), at, cognitoSub,
 		// Derived from the ORDER id, not the tracking id: the tracking ids in
 		// this suite share a common prefix and would collide on
@@ -101,6 +117,15 @@ func TestGetByOrderIDIsUnscoped(t *testing.T) {
 	}
 	if got.Status != domain.StatusPlaced {
 		t.Errorf("status = %q, want PLACED", got.Status)
+	}
+	// The transition path is the only place a tracking is re-read into the
+	// entity the TRACKING_STATUS_CHANGED envelope is built from, so a column
+	// missing from this read is a column missing from every status
+	// notification and status email.
+	if want := seededOrderNumber(orderID); got.OrderNumber != want {
+		t.Errorf("order_number = %q, want %q — an empty value is omitted from the "+
+			"event envelope and the notification falls back to the raw order id",
+			got.OrderNumber, want)
 	}
 }
 

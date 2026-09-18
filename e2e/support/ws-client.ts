@@ -37,7 +37,8 @@ export async function openSocket(wsUrl: string, token: string): Promise<Collecte
         if (Date.now() > deadline) {
           // CONTRACT: Report WHAT arrived, never only how many. "got 3" is identical
           // whether the fan-out dropped a message or the expectation was wrong, and
-          // the statuses name the missing transition immediately.
+          // the statuses name the missing transition immediately. See
+          // [[count-only-assertions-hide-cause]]
           const detail = JSON.stringify(messages);
           throw new Error(
             `timed out waiting for ${n} messages; got ${messages.length}: ${detail}`,

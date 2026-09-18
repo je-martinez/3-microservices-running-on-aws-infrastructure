@@ -1,7 +1,7 @@
 <div class="flex h-dvh w-full flex-col">
   <app-app-header
     [cartCount]="cart.itemCount()"
-    [hasUnreadNotifications]="hasUnreadNotifications"
+    [hasUnreadNotifications]="notifications.hasUnread()"
     (notificationsClicked)="overlay.toggleNotifications()"
     (profileClicked)="overlay.toggleAccountMenu()"
     (cartClicked)="openCart()"
@@ -11,4 +11,16 @@
   <div class="app-scroll flex w-full flex-col">
     <router-outlet />
   </div>
+
+  <!-- CONTRACT: The toast mounts HERE, outside OverlayStore. It is transient and
+       carries no scrim, and folding it into `active` would make showing one
+       close the cart. -->
+  @if (toasts.current(); as toast) {
+    <app-toast-notification
+      [notification]="toast"
+      (paused)="setToastPaused($event)"
+      (dismissed)="toasts.dismiss(toast.id)"
+      (viewOrder)="openToastTarget()"
+    />
+  }
 </div>

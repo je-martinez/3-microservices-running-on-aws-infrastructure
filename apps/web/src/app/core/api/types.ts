@@ -258,17 +258,56 @@ export interface User {
   isDeleted: boolean;
 }
 
+/** Drives the toast eyebrow and the CTA. A column on the server, not metadata. */
+export type NotificationType = "WELCOME" | "ORDER_STATUS";
+
 /**
- * NOT from a contract — no service exposes a notifications endpoint today.
- * Read from the design's Notification Item (qwO6X) and Toast (jYz4h) frames.
+ * What the server's `metadata` bag carries.
+ *
+ * CONTRACT: Keys VARY by variant — a WELCOME row has neither `status` nor
+ * `order_id` — so every one but `occurred_at` is optional. This is what keeps
+ * presentation DERIVED rather than baked into the text: without `status` there
+ * is no icon and no tint, without `order_id` there is no "View order" CTA.
+ * See [[2026-09-10-in-app-notifications-design]]
+ */
+export interface NotificationMetadata {
+  /**
+   * The STORED status, five wide. `PLACED` is written by the ORDER_CREATED-driven
+   * row, the other four by tracking transitions — the web treats all five alike.
+   */
+  status?: TrackingStatus;
+  order_id?: string;
+  /** The display form, e.g. `260912-RNEKNE`. Absent for an order with none. */
+  order_number?: string;
+  occurred_at: string;
+}
+
+/**
+ * One notification as the app renders it — services/users/openapi.yaml's
+ * `Notification`, camelCased at the API boundary.
+ *
+ * CONTRACT: `readAt` is a timestamp, not an `isRead` boolean — it answers "when"
+ * as well as "whether", and it governs TWO visual properties: the unread dot and
+ * the row's `bg-surface-subtle` background.
+ * See [[2026-09-10-in-app-notifications-design]]
  */
 export interface AppNotification {
   id: string;
+  type: NotificationType;
   title: string;
   body: string;
-  status: TrackingStatus | null;
+  metadata: NotificationMetadata;
+  readAt: string | null;
   createdAt: string;
-  read: boolean;
+}
+
+/** One page of the inbox, with its two independent counters. */
+export interface NotificationsPage {
+  items: AppNotification[];
+  unreadCount: number;
+  /** A 90-day count without the list cap, so it MAY exceed items.length. */
+  windowTotal: number;
+  windowDays: number;
 }
 
 /** An order line resolved against the catalogue, for rendering. */

@@ -23,11 +23,11 @@ const schema = z.object({
   // development value.
   WEBHOOK_SECRET: z.string().min(1),
   // gRPC server (spec: Users GetUserById surface). Port defaults to 50051;
-  // GRPC_API_KEY is the shared symmetric key validated by the x-api-key
+  // INTERNAL_API_KEY is the shared symmetric key validated by the x-api-key
   // interceptor and is required in every environment so the surface can never
   // be deployed unguarded by omission.
   GRPC_PORT: z.coerce.number().int().positive().default(50051),
-  GRPC_API_KEY: z.string().min(1),
+  INTERNAL_API_KEY: z.string().min(1),
   // CONTRACT: Required with no default — a missing value must fail at boot with a
   // named Zod error, or DELETE /v1/users/me reaches a half-configured cascade and
   // reports success for orders it never deleted. Named to match Orders'
@@ -35,11 +35,20 @@ const schema = z.object({
   // See [[ADR-0014-env-validation-zod]]
   ORDERS_BASE_URL: z.string().url(),
   TRACKING_BASE_URL: z.string().url(),
-  // Shared events queue consumed by the events-pipeline Lambda. Required in
-  // every environment and never hardcoded: `make env-file` writes it into
-  // .env.local.users from the Terraform output, because Floci remints the queue
-  // URL on every apply (see [[env-files]]).
-  EVENTS_QUEUE_URL: z.string().url(),
+  // CONTRACT: Never default this — a placeholder ARN publishes into the void and
+  // loses every event silently. Generated: Floci remints it. See [[env-files]]
+  EVENTS_TOPIC_ARN: z.string().min(1),
+  NOTIFICATIONS_QUEUE_URL: z.string().url(),
+  // CONTRACT: The IN-NETWORK @connections endpoint (floci:4566) with Floci's
+  // undocumented /execute-api/{apiId}/{stage} prefix — not a host URL, and not
+  // validated as one (`$default` is a legal segment). A wrong shape answers HTTP
+  // 400 with an S3 XML body. See [[floci-websocket-apigw-dynamodb-support]]
+  WS_MANAGEMENT_ENDPOINT: z.string().min(1),
+  WS_CONNECTIONS_TABLE: z.string().min(1),
+  // CONTRACT: Keyed by `cognito_sub`, never `user_id` — querying it with an
+  // internal usr_ id returns zero rows and no error, reading exactly like "the
+  // user has nothing open". See [[user-id-vs-cognito-sub-ownership-key]]
+  WS_CONNECTIONS_GSI: z.string().min(1).default("by-cognito-sub"),
   // CONTRACT: REDIS_HOST is the backing container name (`floci-valkey-<id>`), NEVER
   // "localhost". The ElastiCache API reports "localhost", which from inside the
   // `users` container resolves to that container itself — ECONNREFUSED on the first

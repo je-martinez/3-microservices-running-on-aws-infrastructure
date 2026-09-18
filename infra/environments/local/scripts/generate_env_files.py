@@ -121,11 +121,11 @@ export default {{
 MAILPIT_API_URL = "http://localhost:8025/api/v1"
 
 # ─── The two key-based auth schemes — KEEP THEM SEPARATE ─────────────────────
-# CONTRACT: Do NOT collapse these keys or give them the same value. The gRPC key
-# authenticates internal services; the carrier key is exposed to a third party.
-# Reuse grants that carrier access across the internal service mesh.
-# See [[tracking-service-design]], [[grpc-api-key-authorization]]
-GRPC_API_KEY = "local-dev-grpc-key"
+# CONTRACT: Do NOT collapse these keys or give them the same value. Every holder
+# of the internal key is one of our own services; the carrier key is handed to a
+# third party. Reuse grants that carrier access across the internal service mesh.
+# See [[tracking-service-design]], [[internal-api-key-authorization]]
+INTERNAL_API_KEY = "local-dev-internal-key"
 TRACKING_CARRIER_API_KEY = "local-dev-carrier-key"
 
 # WORKAROUND(local): Do NOT read this token through a Terraform output. Targeted
@@ -233,6 +233,11 @@ def build(repo_root: Path) -> dict[Path, dict]:
     ws_connections_gsi = terraform_output(tf_dir, "ws_connections_gsi")
     ws_management_endpoint = terraform_output(tf_dir, "ws_management_endpoint")
 
+    # The SNS fan-out topic and the Users-consumed queue. Read, never derived:
+    # Floci remints both identifiers whenever the resources are recreated.
+    events_topic_arn = terraform_output(tf_dir, "events_topic_arn")
+    notifications_queue_url = terraform_output(tf_dir, "notifications_queue_url")
+
     # Discovered per-engine, never assumed: Floci assigns proxy ports 7000-7099
     # by cluster creation order, so postgres and mysql swap across applies.
     pg_port = discover_port("postgres")
@@ -273,6 +278,12 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 "COGNITO_CLIENT_ID": client_id,
                 "USERS_DB_PORT": str(pg_port),
                 "ORDERS_DB_PORT": str(my_port),
+                # CONTRACT: Interpolated into the web image's NG_APP_WS_URL
+                # BUILD ARG, never a runtime variable — @ngx-env inlines
+                # NG_APP_* at compile time, so changing it needs a rebuild and a
+                # restart re-serves the old bundle. It carries the api id Floci
+                # remints on every apply. See [[web-app-env-config]]
+                "WS_URL": ws_url,
             },
         ),
         # --- infra: terraform outputs, for the E2E suite and for humans ------
@@ -315,7 +326,7 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 "DATABASE_READER_URL": users_db,
                 "COGNITO_USER_POOL_ID": pool_id,
                 "COGNITO_CLIENT_ID": client_id,
-                "GRPC_API_KEY": GRPC_API_KEY,
+                "INTERNAL_API_KEY": INTERNAL_API_KEY,
                 # CONTRACT: Do NOT use host ports for the account-deletion
                 # cascade. Peer containers dial these private routes on container
                 # ports; host mappings return ECONNREFUSED inside the network.
@@ -330,6 +341,21 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # Users publishes USER_CREATED here (its Zod env schema requires
                 # this, so the service will not boot without it).
                 "EVENTS_QUEUE_URL": events_queue_url,
+                # Users PUBLISHES to the topic and CONSUMES the notifications
+                # queue. Both required by its Zod env schema, so the service will
+                # not boot without them.
+                "EVENTS_TOPIC_ARN": events_topic_arn,
+                "NOTIFICATIONS_QUEUE_URL": notifications_queue_url,
+                # Realtime push for NOTIFICATION_CREATED. Users resolves
+                # user_id -> cognito_sub locally, then queries this GSI for the
+                # owner's open sockets.
+                "WS_CONNECTIONS_TABLE": ws_connections_table,
+                "WS_CONNECTIONS_GSI": ws_connections_gsi,
+                # IN-NETWORK (floci:4566) with Floci's undocumented /execute-api/
+                # prefix. A wrong shape answers HTTP 400 with an S3 XML body, not
+                # an endpoint error.
+                # See [[floci-websocket-apigw-dynamodb-support]]
+                "WS_MANAGEMENT_ENDPOINT": ws_management_endpoint,
                 "OTEL_EXPORTER_OTLP_ENDPOINT": OTLP_ENDPOINT,
                 "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
                 # Metrics do NOT travel over OTLP: they go to CloudWatch via
@@ -372,7 +398,7 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # surface. Orders POSTs the caller's order here to open a
                 # tracking record, forwarding the x-user-id it received.
                 "TRACKING_BASE_URL": "http://tracking:8000",
-                "GRPC_API_KEY": GRPC_API_KEY,
+                "INTERNAL_API_KEY": INTERNAL_API_KEY,
                 # WORKAROUND(local): Do NOT use localhost or the proxy port for
                 # Redis; Orders dials itself or the wrong port and gets
                 # ECONNREFUSED. Use the backing container name and port 6379.
@@ -382,6 +408,10 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # Orders publishes ORDER_CREATED here — the same shared queue
                 # Users and Tracking write to.
                 "EVENTS_QUEUE_URL": events_queue_url,
+                # The publish target. EVENTS_QUEUE_URL stays for now so a
+                # half-migrated stack still boots; it is removed once every
+                # producer reads the topic.
+                "EVENTS_TOPIC_ARN": events_topic_arn,
                 # Base URL the product catalogue's image keys hang off. Rows store
                 # a bucket-relative key ("products/x.jpg") and ProductReadService
                 # composes the absolute URL from this, so the bucket name is never
@@ -429,9 +459,16 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # gateway hands it — the same lookup Orders makes.
                 "USERS_GRPC_URL": "http://users:50051",
                 # The INTERNAL service-to-service key — the same value Users and
-                # Orders share. Tracking presents it when calling Users, rather
-                # than validating it on the way in.
-                "GRPC_API_KEY": GRPC_API_KEY,
+                # Orders share. Tracking presents it when calling Users and when
+                # invalidating Orders' cache, and validates it on route 6.
+                "INTERNAL_API_KEY": INTERNAL_API_KEY,
+                # Where Tracking POSTs the cross-service cache invalidation after
+                # a status change. Tracking is read only through Orders'
+                # includeTracking response, so without this sweep the page serves
+                # the pre-update status for Orders' full 120s TTL.
+                # CONTRACT: The CONTAINER port, like the cascade URLs above — a
+                # host mapping is ECONNREFUSED inside the compose network.
+                "ORDERS_BASE_URL": "http://orders:8080",
                 # WORKAROUND(local): Do NOT use localhost or the proxy port for
                 # Redis; Tracking dials itself or the wrong port and gets
                 # ECONNREFUSED. Use the backing container name and port 6379.
@@ -441,13 +478,17 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # The EXTERNAL carrier/webhook key, validated by the service
                 # itself on PUT /v1/trackings/{orderId}/status (a gateway route
                 # with NO Cognito authorizer). A DIFFERENT value from
-                # GRPC_API_KEY on purpose — see the trust-domain note at the top
+                # INTERNAL_API_KEY on purpose — see the trust-domain note at the top
                 # of this file before touching either.
                 "TRACKING_CARRIER_API_KEY": TRACKING_CARRIER_API_KEY,
                 # Tracking publishes TRACKING_STATUS_CHANGED here on every
                 # delivery-status transition — the same shared queue Users and
                 # Orders write to.
                 "EVENTS_QUEUE_URL": events_queue_url,
+                # The publish target. EVENTS_QUEUE_URL stays for now so a
+                # half-migrated stack still boots; it is removed once every
+                # producer reads the topic.
+                "EVENTS_TOPIC_ARN": events_topic_arn,
                 "OTEL_EXPORTER_OTLP_ENDPOINT": OTLP_ENDPOINT,
                 "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
                 "OTEL_METRICS_EXPORTER": "none",
@@ -552,6 +593,12 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # Just the id: nginx builds the rest of the path itself, because
                 # it cannot express the `$default` stage segment as a literal.
                 "API_GATEWAY_API_ID": api_id,
+                # CONTRACT: The HOST-facing url, read by a BROWSER — not
+                # WS_MANAGEMENT_ENDPOINT, whose in-network shape answers a
+                # handshake with an S3 XML body. Copy it into
+                # apps/web/.env as NG_APP_WS_URL and restart `pnpm dev`:
+                # NG_APP_* is inlined at build time.
+                "WS_URL": ws_url,
             },
             custom_defaults={
                 # CONTRACT: CUSTOM, never generated — the AUTO box is rewritten
@@ -587,6 +634,38 @@ def build(repo_root: Path) -> dict[Path, dict]:
     }
 
 
+def sync_web_ws_url(repo_root: Path, ws_url: str) -> Path | None:
+    """Point apps/web/.env's NG_APP_WS_URL at the current gateway.
+
+    CONTRACT: Rewrite ONLY that line. The file is hand-maintained — its other
+    entries are per-developer flags carrying their own comments — so it is not
+    regenerated like the AUTO-boxed env files beside it.
+
+    WHY: Floci remints the api id on every apply, and NG_APP_* is inlined at
+    BUILD time. A stale value opens no socket and logs nothing, so live toasts
+    and the unread badge are simply absent from a healthy-looking app.
+    See [[web-app-env-config]]
+    """
+    path = repo_root / "apps" / "web" / ".env"
+    if not path.exists():
+        inf(f"{path.relative_to(repo_root)} absent — copy .env.example and re-run to get NG_APP_WS_URL")
+        return None
+
+    line = f"NG_APP_WS_URL={ws_url}"
+    lines = path.read_text().splitlines()
+    for index, existing in enumerate(lines):
+        if existing.startswith("NG_APP_WS_URL="):
+            if existing == line:
+                return None
+            lines[index] = line
+            break
+    else:
+        lines += ["", "# Host-facing realtime WebSocket URL, synced from WS_URL by `make env-file`.", line]
+
+    path.write_text("\n".join(lines) + "\n")
+    return path
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -619,6 +698,12 @@ def main(argv: list[str]) -> int:
         args.repo_root, web_spec["generated"]["API_GATEWAY_API_ID"]
     )
     inf(f"wrote {proxy_path.relative_to(args.repo_root)}")
+
+    # The browser's half of the realtime contract, read back from the same spec
+    # for the same reason as the proxy above.
+    synced = sync_web_ws_url(args.repo_root, web_spec["generated"]["WS_URL"])
+    if synced is not None:
+        inf(f"synced NG_APP_WS_URL in {synced.relative_to(args.repo_root)}")
 
     ok(f"generated {len(files)} env files + 1 proxy config (CUSTOM sections preserved)")
     return 0

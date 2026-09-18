@@ -4,7 +4,7 @@ type: spec
 area: events-pipeline
 status: accepted
 created: 2026-08-05
-updated: 2026-08-06
+updated: 2026-09-13
 tags:
   - type/spec
   - area/events-pipeline
@@ -25,6 +25,7 @@ related:
   - "[[testing]]"
   - "[[logging-context]]"
   - "[[terraform-modules]]"
+  - "[[count-only-assertions-hide-cause]]"
 ---
 
 # Realtime Tracking Events over WebSocket Design
@@ -376,7 +377,7 @@ is what led to checking [[tracking-service-design#Events]]'s own TestMode table 
 assertion, not the system, was wrong. **Generalized rule: any test asserting "N things happened"
 should assert or at least log *which* N, not only the count** — a count-only failure collapses two
 unrelated failure modes (the system under test, and the test's own expectation) into one
-indistinguishable signal.
+indistinguishable signal. Extracted as its own convention: [[count-only-assertions-hide-cause]].
 
 ## Verification results (POC, 2026-08-05)
 
@@ -492,3 +493,6 @@ so the full call is `POST /execute-api/{apiId}/{stage}/@connections/{connectionI
   publisher may log (no tokens, no plaintext email).
 - [[terraform-modules]] — the module inventory the new `api-gateway-ws` and `dynamodb` modules
   join, and the reasoning for why `lambda/` is not reused for these three functions.
+- [[count-only-assertions-hide-cause]] — the standing convention extracted from this design's own
+  "Debugging lesson" section: an assertion checking only a count cannot distinguish a broken
+  system from a wrong expectation.

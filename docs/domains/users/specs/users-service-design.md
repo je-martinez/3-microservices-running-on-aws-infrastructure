@@ -4,9 +4,10 @@ type: spec
 area: users
 status: active
 created: 2026-06-26
-updated: 2026-09-10
+updated: 2026-09-15
 tags: [type/spec, area/users, status/active]
 related:
+  - "[[2026-09-10-in-app-notifications-design]]"
   - "[[2026-08-25-response-caching-layer-design]]"
   - "[[x-cache-response-header]]"
   - "[[2026-08-25-account-deletion-design]]"
@@ -95,6 +96,9 @@ All routes are versioned under `/v1` (see [[versioning]]). Source of truth: `ser
 | `PATCH` | `/v1/users/me` | Updates the authenticated user's profile. |
 | `PATCH` | `/v1/users/me/password` | Sets a new password for the authenticated caller (no code) via `AdminSetUserPassword`; clears `mustChangePassword`. A dedicated command, not part of the general profile update — see [Password reset](#password-reset). |
 | `DELETE` | `/v1/users/me` | Deletes the caller's own account: cascades to Orders and Tracking, soft-deletes the Users row, then removes the Cognito account. `204` on success; `401` no `x-user-id`; `404` the row is already deleted; `502` a cascade leg failed. See [Account deletion](#account-deletion) below. |
+| `GET` | `/v1/notifications?filter=all\|unread\|read` | Returns `{ items, unread_count, window_total, window_days: 90 }` — newest 50 by `createdAt desc`, `filter` defaults to `all`. See [Notifications](#notifications) below. |
+| `GET` | `/v1/notifications/unread-count` | Returns `{ unread_count }`. |
+| `PATCH` | `/v1/notifications/read` | Body `{ ids: [...] }` → `{ updated: n, unread_count }`. Marks the given ids read for the authenticated user; an empty list is a normal `200`, not a `400`. |
 | `POST` | `/v1/webhooks/cognito` | Cognito PostConfirmation trigger webhook; shared-secret guarded (`x-webhook-secret`), no JWT authorizer. See [Cognito identity capture](#cognito-identity-capture). |
 | `DELETE` | `/v1/users/e2e-cleanup` | **[E2E only]** Soft-deletes E2E-sourced users. Gated on `E2E_TESTING_ENABLED`. |
 | `GET` | `/v1/users/e2e-identity` | **[E2E only]** Reads captured Cognito identity rows by email, for E2E assertions. Gated on `E2E_TESTING_ENABLED`. |
@@ -170,6 +174,53 @@ Upserted on every accepted Cognito webhook event (`cognitoSub` unique). Columns:
 ### `users_cognito_events` — event log
 
 One row per accepted trigger delivery. Columns: `id` (`cge_` prefix), `cognito_sub` (FK → `users_cognito_data.cognitoSub`), `event_type`, `message_id` (**unique**, derived as `sha256(sub + ":" + triggerSource)` — see [[2026-07-09-users-cognito-webhook-design]]), `raw_payload` (`jsonb`), plus the standard audit fields and `@@index([deletedAt])`. The unique `message_id` is what makes webhook delivery idempotent: a `P2002` conflict on it is treated as a routine duplicate, not an error.
+
+### `notifications`
+
+> [!info] Shipped 2026-09-15 — In-App Notifications milestone
+> Full design: [[2026-09-10-in-app-notifications-design]]. Stores rendered copy, not structured
+> facts to render at read time — a deliberate simplicity trade-off, see the decision below.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `varchar` | Prefixed nano ID, `ntf_…` (see [[nano-id]]) |
+| `user_id` | `varchar` | **No foreign key** to `users.id` — see the callout below. |
+| `type` | `varchar` | `"WELCOME"` \| `"ORDER_STATUS"` |
+| `title` | `varchar` | Rendered copy, not derived at read time. |
+| `body` | `varchar` | Rendered copy, not derived at read time. |
+| `metadata` | `jsonb` | `{ status?, order_id?, order_number?, occurred_at }` — presentation facts (icon, tint, CTA) that must stay derivable even though `title`/`body` are frozen text. |
+| `read_at` | `timestamptz` | Nullable. A timestamp, not an `isRead` boolean — same shape as `deleted_at`, answering "when" as well as "whether." |
+| `created_by` / `created_at` | `varchar` / `timestamptz` | See the callout below — `created_by` is **non-nullable** and set explicitly. |
+| `updated_by` / `updated_at` | `varchar` / `timestamptz` | |
+| `deleted_by` / `deleted_at` | `varchar` / `timestamptz` | Null = active; set = soft-deleted. |
+
+Indexed on `[userId, readAt]` and `[deletedAt]` (`@@index`). Follows every other table's soft-delete
+and audit conventions (see [[soft-delete]], [[ADR-0004-soft-delete-only]], [[audit-fields]],
+[[nano-id]]) with two deliberate deviations:
+
+> [!warning] No foreign key to `users.id` — a `TRACKING_STATUS_CHANGED` can arrive before the row does
+> Every sibling table (`users_cognito_data`, `users_cognito_events`) has an FK to `users.id`;
+> `notifications` does not. A status event can arrive for a `user_id` that does not yet exist (or
+> is already soft-deleted) — an FK would turn that insert into a failure retried straight to the
+> DLQ for a row the system will never be able to write. The notification is stored regardless; the
+> `GET` (which filters by the authenticated caller) simply never serves an orphaned row to anyone.
+
+> [!warning] `created_by` is non-nullable — the consumer runs outside any request
+> The Prisma cross-cutting extension normally auto-stamps `created_by` from the
+> AsyncLocalStorage actor seeded per-request. The `sqs-consumer` that writes this table runs
+> **outside any HTTP request** (see [Notifications](#notifications) below), so `getActor()`
+> returns `undefined` there and an auto-stamp would insert `null` — but the column is declared
+> non-nullable, matching every other audited table. The consumer therefore passes `createdBy`
+> explicitly (a semantic `AuditActor`, e.g. `NotificationCreated`), the same pattern
+> `author.actor` already gives the events-pipeline's own documents (see
+> [[events-pipeline-design#The envelope's author object]]).
+
+No idempotency key (no `@unique` on an event id): a duplicate row on SQS redelivery is an
+accepted, informed outcome, not a bug to fix by adding one — see
+[[2026-09-10-in-app-notifications-design#Approved decision 4 — No idempotency key. Duplicates are an accepted outcome.]].
+No retention/cleanup job either: rows are kept indefinitely, per [[ADR-0004-soft-delete-only]] —
+see the design's own decision 9 for why a soft-delete-after-90-days job was considered and
+rejected (it frees no space).
 
 > [!note] No Hard Deletes
 > The DB user is forbidden from running `DELETE`. All removals go through soft delete only.
@@ -557,6 +608,96 @@ one parameterized type). Its `code` is redacted before the event document reache
 swallow-and-log, that keeps a publish failure from ever surfacing as a `500` for a known email
 (see [[ADR-0020-self-owned-password-reset#Two security properties this flow is built around (load-bearing, tested)]]).
 
+## Notifications
+
+> [!info] Shipped 2026-09-15 — In-App Notifications milestone
+> Full design: [[2026-09-10-in-app-notifications-design]]. Gives users a bell/panel, a full-page
+> list, and live toasts, produced from events the system already emits, stored in this service's
+> own Postgres (see [`notifications`](#notifications) above), and pushed live over the WebSocket
+> channel [[2026-08-05-realtime-tracking-events-websocket-design]] established.
+
+**Why Postgres in Users, not DynamoDB, and not Cognito.** No AWS service related to Cognito
+offers an inbox with read/unread state or message history — Cognito is an identity directory,
+and Pinpoint/SNS/SES are delivery channels, not queryable per-user stores. Postgres in Users was
+chosen over the repo's usual DynamoDB-keyed-by-`cognito_sub` pattern (used for
+`websocket_connections`) because the natural key here is the service's own `usr_` id, which
+sidesteps the [[user-id-vs-cognito-sub-ownership-key]] trap entirely — there is no `cognito_sub`
+index to accidentally query with the wrong id.
+
+### Fan-out: SNS replaces the shared queue's direct `SendMessage`
+
+SQS is point-to-point: the shared `<id>-events` queue already has one consumer (the
+events-pipeline Lambda), and adding a second competing consumer on that same queue would mean
+emails and notifications each go missing at random, one message reaching exactly one consumer.
+All three producers (Users, Orders, Tracking) now publish to a new SNS topic instead, which fans
+out to **two** SQS queues — the existing `<id>-events` (unchanged, consumed by the pipeline) and
+a new `<id>-notifications` (consumed here). See [[terraform-modules]] for the topology and
+[[events-pipeline-design]] for why the pipeline's own code needs zero changes.
+
+### The `sqs-consumer` — started in `server.ts`, never in `buildApp()`
+
+[sqs-consumer](https://www.npmjs.com/package/sqs-consumer) runs inside the Users process,
+sharing the Awilix container, Prisma client, and logger with the HTTP surface.
+
+> [!warning] CONTRACT — start in `server.ts`, not `buildApp()`
+> `buildApp()` is also called by the test suite. A live SQS long-poll started there would open a
+> real connection — and **consume and delete real messages** — on every Vitest run, outside any
+> test's control. This is the same contract `server.ts` already carries for the
+> `BusinessMetricsPoller` (see [Metrics](#metrics) below): the consumer is constructed in the
+> Awilix container but only **started** in `server.ts`, and stopped on `SIGTERM` beside the
+> poller.
+
+Consumer behaviour:
+
+- **Discards non-notification `type`s in code**, as defence in depth alongside the SNS
+  subscription's filter policy on the `type` message attribute (see [[terraform-modules]]).
+- Maps one of three trigger events to a stored row: `USER_CREATED` → the `WELCOME` variant;
+  `ORDER_CREATED` → the `PLACED` variant (**not** a tracking status — see the callout below);
+  `TRACKING_STATUS_CHANGED` → the four real transition variants (`PROCESSING`, `SHIPPED`,
+  `OUT_FOR_DELIVERY`, `DELIVERED`).
+- **Never throws on a permanent error** (an invalid payload is logged and consumed) — the same
+  rationale as the events-pipeline's `PermanentError`: throwing would retry to the DLQ with no
+  chance of ever succeeding.
+- **Continues the trace from the `traceparent` message attribute**, which survives SNS raw
+  message delivery unchanged — see [[logging-context]] and
+  [[ADR-0019-distributed-tracing-opentelemetry]].
+- Deletes the SQS message only after the insert commits (the library's default when the handler
+  does not throw) — this narrows, but does not remove, the at-least-once duplicate window; see
+  [[2026-09-10-in-app-notifications-design#Approved decision 4 — No idempotency key. Duplicates are an accepted outcome.]].
+
+> [!warning] `PLACED` is triggered by `ORDER_CREATED`, never by a tracking status
+> Tracking's `PLACED` is the status a row is *created* at, not a transition, and is **never
+> emitted by any Tracking code path** — `create_tracking.go` holds no publisher at all; only
+> `update_status.go` publishes. `ORDER_CREATED` is the real, verified-emitted trigger for the
+> "order placed" copy variant, already registered in the pipeline's dispatch and carrying
+> everything the consumer needs (`order_id`, `user_id`, `created_at`, an optional
+> `order_number.formatted`) with no extra lookup. **Tracking is not modified by this feature** —
+> its E2E CONTRACT asserting four transition messages with `PLACED` explicitly absent stays true
+> and untouched. The stored row is unchanged either way: still `type: "ORDER_STATUS"` with
+> `metadata.status = "PLACED"`; only the triggering event differs.
+
+### WebSocket push — Users pushes its own realtime message, the pipeline does not
+
+After persisting a notification, Users pushes `NOTIFICATION_CREATED` to the owner's open sockets,
+reusing the pattern already proven in
+`functions/events-pipeline/src/shared/realtime/websocket-publisher.ts`: query the
+`by-cognito-sub` DynamoDB GSI, reactive delete on `410 Gone`.
+
+- Users resolves `user_id → cognito_sub` with a local `SELECT` on its own `users` table — no
+  remote call.
+- Message shape: `{ "type": "NOTIFICATION_CREATED", "notification": { id, type, title, body,
+  metadata, read_at }, "unread_count": n }`. `unread_count` rides along so the badge updates
+  without a second request.
+- **CONTRACT: the push never fails the persistence, and never throws.** Same contract the
+  pipeline's own publisher already documents: if `PostToConnection` fails, the notification is
+  already stored and simply appears the next time the panel is opened. Realtime is an
+  enhancement, never the source of truth. The pipeline's existing `TRACKING_STATUS_CHANGED` push
+  is untouched — it serves live order-detail updates, a different message on the same socket.
+- Rejected alternative: leaving the push in the events-pipeline. Its existing tracking message
+  has no `title`/`body` and, critically, `WELCOME` would never be pushed at all (the pipeline's
+  `user-created` handler does not touch the socket) — Users pushing its own message is what makes
+  every one of the eleven copy variants reachable in realtime, not just the tracking ones.
+
 ## Metrics
 
 > [!info] Shipped 2026-08-12 — Custom Business Metrics milestone
@@ -774,6 +915,9 @@ convention/pattern notes in `shared/`) live in `docs/domains/users/decisions/`:
 
 ## Related
 
+- [[2026-09-10-in-app-notifications-design]] — full design for the `notifications` table, the
+  three `/v1/notifications` endpoints, the in-process `sqs-consumer`, and the WebSocket push
+  documented above.
 - [[2026-08-25-account-deletion-design]] — full design for `DELETE /v1/users/me`, the
   `CascadeClient`, `AuthProvider.deleteUser`, the partial-unique-index email change, and the
   four-layer empty-identity guards.

@@ -11,7 +11,7 @@ func setRequired(t *testing.T) {
 	t.Helper()
 	t.Setenv("DATABASE_WRITER_URL", "mysql+pymysql://root:secret@db:3306/tracking")
 	t.Setenv("DATABASE_READER_URL", "mysql+pymysql://root:secret@db:3306/tracking")
-	t.Setenv("GRPC_API_KEY", "internal-key")
+	t.Setenv("INTERNAL_API_KEY", "internal-key")
 	t.Setenv("TRACKING_CARRIER_API_KEY", "carrier-key")
 }
 
@@ -20,7 +20,7 @@ func setRequired(t *testing.T) {
 func isolateDefaultEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("AWS_ENDPOINT_URL", "")
-	t.Setenv("EVENTS_QUEUE_URL", "")
+	t.Setenv("EVENTS_TOPIC_ARN", "")
 }
 
 func TestLoadDefaults(t *testing.T) {
@@ -38,8 +38,8 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.UsersGRPCURL != "users:50051" {
 		t.Errorf("UsersGRPCURL = %q, want %q", cfg.UsersGRPCURL, "users:50051")
 	}
-	if cfg.EventsQueueURL != "" {
-		t.Errorf("EventsQueueURL = %q, want empty", cfg.EventsQueueURL)
+	if cfg.EventsTopicARN != "" {
+		t.Errorf("EventsTopicARN = %q, want empty", cfg.EventsTopicARN)
 	}
 	if cfg.AWSEndpointURL != nil {
 		t.Errorf("AWSEndpointURL = %v, want nil", cfg.AWSEndpointURL)
@@ -89,7 +89,7 @@ func TestLoadRequiresTheFourRequiredVariables(t *testing.T) {
 	for _, missing := range []string{
 		"DATABASE_WRITER_URL",
 		"DATABASE_READER_URL",
-		"GRPC_API_KEY",
+		"INTERNAL_API_KEY",
 		"TRACKING_CARRIER_API_KEY",
 	} {
 		t.Run("missing_"+missing, func(t *testing.T) {
@@ -222,4 +222,36 @@ func TestEchoSQL(t *testing.T) {
 			t.Errorf("EchoSQL() with ENVIRONMENT=%s = %v, want %v", tt.env, cfg.EchoSQL(), tt.want)
 		}
 	}
+}
+
+func TestOrdersBaseURL(t *testing.T) {
+	t.Run("is read from the environment", func(t *testing.T) {
+		setRequired(t)
+		isolateDefaultEnv(t)
+		t.Setenv("ORDERS_BASE_URL", "http://orders:8080")
+
+		cfg, err := config.Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.OrdersBaseURL != "http://orders:8080" {
+			t.Errorf("OrdersBaseURL = %q, want http://orders:8080", cfg.OrdersBaseURL)
+		}
+	})
+
+	t.Run("absent is a legal degraded wiring, not a boot failure", func(t *testing.T) {
+		// A status change then clears only this service's keys. Refusing to boot
+		// would trade a stale read for no deliveries at all.
+		setRequired(t)
+		isolateDefaultEnv(t)
+		t.Setenv("ORDERS_BASE_URL", "")
+
+		cfg, err := config.Load()
+		if err != nil {
+			t.Fatalf("an absent ORDERS_BASE_URL stopped the service booting: %v", err)
+		}
+		if cfg.OrdersBaseURL != "" {
+			t.Errorf("OrdersBaseURL = %q, want empty", cfg.OrdersBaseURL)
+		}
+	})
 }

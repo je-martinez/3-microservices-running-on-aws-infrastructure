@@ -16,7 +16,7 @@ first, every time. Cross-cutting rules are **referenced**, never duplicated.
   (`Grpc.Net.Client` + `Grpc.Tools`), generated from the shared repo-root
   `proto/users.proto` (`GrpcServices="Both"` — the client is used at runtime; the
   server stub is only for the in-process test). Every call attaches the shared
-  `x-api-key` metadata (`GRPC_API_KEY`); `NOT_FOUND` maps to a null resolution.
+  `x-api-key` metadata (`INTERNAL_API_KEY`); `NOT_FOUND` maps to a null resolution.
 - Money: stored as **integer cents** in `bigint` `_cents` columns (Stripe-style),
   mapped to `long` in C#. Dollar values are non-persisted computed properties
   (`cents / 100m`), ignored by EF. Never `decimal`/`float` for stored money; API
@@ -138,7 +138,10 @@ services/orders/
 > commands, DTOs, and exceptions. The Api wires the concrete services.
 
 ## 4. Conventions (referenced, never duplicated)
-- CQRS (read/write DbContexts): [../../docs/shared/patterns/cqrs.md](../../docs/shared/patterns/cqrs.md)
+- CQRS (read/write DbContexts, and the endpoint-stays-thin rule): [../../docs/shared/patterns/cqrs.md](../../docs/shared/patterns/cqrs.md) → [[cqrs]].
+  **A Minimal API endpoint delegate never injects a DbContext or runs a query/save
+  directly — that logic belongs in the handler (an Infrastructure-layer service class
+  here, per [[clean-architecture-divergence]]), even for internal/small routes.**
 - Soft delete only: [../../docs/shared/conventions/soft-delete.md](../../docs/shared/conventions/soft-delete.md)
 - Prefixed nano IDs (`prd_`, `ord_`, `odd_`): [../../docs/shared/conventions/nano-id.md](../../docs/shared/conventions/nano-id.md)
 - Audit fields: [../../docs/shared/conventions/audit-fields.md](../../docs/shared/conventions/audit-fields.md)
@@ -207,7 +210,7 @@ services/orders/
     to the internal `usr_` id via the Users gRPC client, then in one transaction
     locks each product `FOR UPDATE`, decrements stock, prices lines in cents,
     persists Order + OrderDetails with BOTH `user_id` and `cognito_sub`, and emits
-    `ORDER_CREATED` to SQS (see below). Full rollback on any failure.
+    `ORDER_CREATED` to SNS (see below). Full rollback on any failure.
   - `[GET] /v1/orders/my-orders`, `[GET] /v1/orders/{order_id}` — ownership by
     query filter (`cognito_sub` from `x-user-id`); another user's order → 404.
     Both take an optional `includeTracking` query param (default **false**); when
@@ -290,10 +293,12 @@ services/orders/
     rows for someone else's teardown to delete. `order.tags` is a JSON column
     (MySQL has no array type), queried with `JSON_CONTAINS`; `OrderDetail`
     carries no tag of its own and is deleted through its parent.
-- `ORDER_CREATED` **is published to SQS** by `SqsEventPublisher`
-  (`Orders.Infrastructure/Messaging/`), on the shared events queue Users and
-  Tracking also write to. `NoopEventPublisher` is kept for tests that must not
-  emit. The envelope is snake_case with `type`/`source` also set as message
+- `ORDER_CREATED` **is published to SNS** by `SnsEventPublisher`
+  (`Orders.Infrastructure/Messaging/`), on the shared events topic Users and
+  Tracking also publish to; the events-pipeline queue is a subscriber of that
+  topic, and raw message delivery is what keeps the consumer unchanged.
+  `NoopEventPublisher` is kept for tests that must not emit. The envelope is
+  snake_case with `type`/`source` also set as message
   attributes, and `event_id` is minted inside the publisher as the pipeline's
   idempotency key. It carries an `author` block —
   `{ actor: AuditActor.CreateOrder, user_id, cognito_sub }` — recording WHO
@@ -304,4 +309,4 @@ services/orders/
   `CallerProfile` maps it off the `GetUserById` response order creation already
   makes. A publish failure is logged and swallowed, never rethrown: the publish
   runs inside the write transaction, so throwing would roll back a paid-for
-  order because a queue was down.
+  order because the topic was down.

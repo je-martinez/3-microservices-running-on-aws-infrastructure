@@ -4,9 +4,11 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-09-04
+updated: 2026-09-18
 tags: [type/spec, area/shared, status/active]
 related:
+  - "[[2026-09-10-in-app-notifications-design]]"
+  - "[[2026-09-10-in-app-notifications]]"
   - "[[2026-08-27-tracking-go-migration-design]]"
   - "[[2026-08-27-tracking-go-migration]]"
   - "[[tracking-go-migration-milestone]]"
@@ -123,7 +125,7 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-08-25-response-caching-layer]] — implementation plan for the response caching layer: the `CacheGateway`/`CachedRead`/`CacheInvalidator` trio per service (`ioredis` Users, `StackExchange.Redis` Orders, `redis-py` Tracking), the `cognito_sub -> user_id` identity cache in Orders/Tracking, CloudWatch cache metrics, and three-layer test coverage (unit/integration, internal E2E, gateway E2E) across all seven cached endpoints.
 - [[response-caching-layer-milestone]] — logical execution plan for the Response Caching Layer milestone: task sequence and dependency graph for the infra gate (JE-195), the parallel Orders/Tracking/Users branches, and the closing E2E + load-test issue (JE-200).
 - [[2026-08-25-account-deletion-design]] — design spec for letting a user delete their own account: `DELETE /v1/users/me` cascading synchronously to Orders and Tracking, a partial unique index on `users.email` (live rows only) so the address can be reused, and Cognito `AdminDeleteUser` as the deliberate exception to [[ADR-0004-soft-delete-only]].
-- [[2026-08-25-account-deletion]] — implementation plan for account deletion: the partial unique index and its migration, `AuthProvider.deleteUser` via `AdminDeleteUserCommand`, the two new internal cascade routes (`DELETE /v1/orders/by-user`, `DELETE /v1/trackings/by-user`) guarded by `GRPC_API_KEY`, the `CascadeClient` in Users, `DeleteAccountCommand`, the gateway route, three-layer E2E, and vault propagation.
+- [[2026-08-25-account-deletion]] — implementation plan for account deletion: the partial unique index and its migration, `AuthProvider.deleteUser` via `AdminDeleteUserCommand`, the two new internal cascade routes (`DELETE /v1/orders/by-user`, `DELETE /v1/trackings/by-user`) guarded by `INTERNAL_API_KEY`, the `CascadeClient` in Users, `DeleteAccountCommand`, the gateway route, three-layer E2E, and vault propagation.
 - [[account-deletion-milestone]] — logical execution plan for the Account Deletion milestone: task sequence and dependency graph over T1–T10, with T5–T9 chained on the independent T1–T4 foundation.
 - [[2026-08-27-tracking-go-migration-design]] — design spec for migrating Tracking from Python/FastAPI to Go/Gin: a faithful layer-by-layer port (Gin + sqlc + golang-migrate, see [[ADR-0021-tracking-go-gin-sqlc-stack]]) built alongside the untouched Python service against the same database, a new `tracking-go-impl` agent fanned out across foundation/platform/endpoint/TestMode/verification waves, and a four-part closing gate (three test layers, empty `openapi.yaml` diff, measured Gatling comparison, observability parity) before the Python folder is deleted.
 - [[2026-08-27-tracking-go-migration]] — implementation plan for the Go migration: 28 tasks across Wave 0 Foundations (sequential), Wave 1 Platform (4 parallel agents), Wave 2 Endpoints (5 parallel agents), Wave 2.5 TestMode (gated on both creation and the carrier webhook), Wave 3 Verification (3 parallel agents), and Wave 4's single irreversible cutover task.
@@ -134,6 +136,8 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[web-app-foundation-milestone]] — logical execution plan for the Web App Foundation milestone: task sequence, phases, and blocking dependency graph for JE-162 through JE-172, plus JE-174 and JE-175.
 - [[2026-09-04-web-gateway-integration-design]] — design spec for phase 2 of `apps/web/`: replacing phase-1 fixtures with real gateway calls via same-origin nginx/`ng serve` proxying, an encrypted-IndexedDB token store, a deduped refresh interceptor, and a server-backed cart; a 9-issue work plan on `feature/web-gateway-integration`, cut from `feature/web-app-foundation`.
 - [[web-gateway-integration-milestone]] — logical execution plan for the Web Gateway Integration milestone: task sequence, phases, and blocking dependency graph for JE-237 through JE-245, plus JE-246 filed as a backend bug.
+- [[2026-09-10-in-app-notifications-design]] — design spec for an in-app notification inbox (bell panel, full-page list, live toasts): Postgres in Users (not DynamoDB/Cognito), SNS fan-out replacing the shared queue's point-to-point limit, a deliberately simple title/body/metadata model with no FK to `users` and no idempotency key, an in-process `sqs-consumer`, and Users pushing its own `NOTIFICATION_CREATED` WebSocket message. Corrects its own decision 2 mid-flight: `PLACED` is never emitted by Tracking, so `ORDER_CREATED` is the real trigger for the "order placed" copy variant.
+- [[2026-09-10-in-app-notifications]] — implementation plan for the notifications feature: the blocking Floci SNS fan-out POC (see [[floci-sns-fanout-support]]), the Terraform topic/queue/subscriptions, the three producers' SNS switch, the Users schema/consumer/endpoints/WebSocket push, and the web app's first WebSocket client, NgRx store, and the `brand-navy-light`/`neutral-bg` design tokens.
 
 > [!note] No plan note for the AuditActor enum
 > [[2026-07-12-audit-actor-enum-design]] was implemented directly from the spec — there is no separate `writing-plans` plan for it.
@@ -199,3 +203,6 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[web-app-foundation-milestone]]
 - [[2026-09-04-web-gateway-integration-design]]
 - [[web-gateway-integration-milestone]]
+- [[2026-09-10-in-app-notifications-design]]
+- [[2026-09-10-in-app-notifications]]
+- [[floci-sns-fanout-support]]

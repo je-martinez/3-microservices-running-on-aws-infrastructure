@@ -4,7 +4,7 @@ type: plan
 area: tracking
 status: draft
 created: 2026-08-27
-updated: 2026-08-27
+updated: 2026-09-18
 tags:
   - type/plan
   - area/tracking
@@ -3359,7 +3359,7 @@ There are exactly **four required** variables. Everything else has a default, an
 |---|---|---|---|
 | `DATABASE_WRITER_URL` | string | — | YES (len ≥ 1) |
 | `DATABASE_READER_URL` | string | — | YES (len ≥ 1) |
-| `GRPC_API_KEY` | string | — | YES (len ≥ 1) |
+| `INTERNAL_API_KEY` | string | — | YES (len ≥ 1) |
 | `TRACKING_CARRIER_API_KEY` | string | — | YES (len ≥ 1) |
 | `PORT` | int | `8000` | no (> 0, < 65536) |
 | `USERS_GRPC_URL` | string | `users:50051` | no |
@@ -3497,7 +3497,7 @@ func setRequired(t *testing.T) {
 	t.Helper()
 	t.Setenv("DATABASE_WRITER_URL", "mysql+pymysql://root:secret@db:3306/tracking")
 	t.Setenv("DATABASE_READER_URL", "mysql+pymysql://root:secret@db:3306/tracking")
-	t.Setenv("GRPC_API_KEY", "internal-key")
+	t.Setenv("INTERNAL_API_KEY", "internal-key")
 	t.Setenv("TRACKING_CARRIER_API_KEY", "carrier-key")
 }
 
@@ -3566,7 +3566,7 @@ func TestLoadRequiresTheFourRequiredVariables(t *testing.T) {
 	for _, missing := range []string{
 		"DATABASE_WRITER_URL",
 		"DATABASE_READER_URL",
-		"GRPC_API_KEY",
+		"INTERNAL_API_KEY",
 		"TRACKING_CARRIER_API_KEY",
 	} {
 		t.Run("missing_"+missing, func(t *testing.T) {
@@ -3746,11 +3746,11 @@ type Config struct {
 
 	Port int
 
-	// GRPCAPIKey is the INTERNAL service-to-service credential (ADR-0003),
+	// InternalAPIKey is the INTERNAL service-to-service credential (ADR-0003),
 	// shared with Users and Orders. TrackingCarrierAPIKey is the EXTERNAL key
 	// handed to a third-party carrier. They are two fields because they are two
 	// trust domains — see internal/adapter/http/auth.go.
-	GRPCAPIKey            string
+	InternalAPIKey            string
 	TrackingCarrierAPIKey string
 
 	// UsersGRPCURL may carry an http:// or https:// scheme: Orders' .NET channel
@@ -3819,7 +3819,7 @@ func Load() (Config, error) {
 	cfg := Config{
 		DatabaseWriterURL:      os.Getenv("DATABASE_WRITER_URL"),
 		DatabaseReaderURL:      os.Getenv("DATABASE_READER_URL"),
-		GRPCAPIKey:             os.Getenv("GRPC_API_KEY"),
+		InternalAPIKey:             os.Getenv("INTERNAL_API_KEY"),
 		TrackingCarrierAPIKey:  os.Getenv("TRACKING_CARRIER_API_KEY"),
 		Port:                   intInRange("PORT", defaultPort, 1, 65535),
 		UsersGRPCURL:           stringOr("USERS_GRPC_URL", defaultUsersGRPCURL),
@@ -3843,7 +3843,7 @@ func Load() (Config, error) {
 	}{
 		{"DATABASE_WRITER_URL", cfg.DatabaseWriterURL},
 		{"DATABASE_READER_URL", cfg.DatabaseReaderURL},
-		{"GRPC_API_KEY", cfg.GRPCAPIKey},
+		{"INTERNAL_API_KEY", cfg.InternalAPIKey},
 		{"TRACKING_CARRIER_API_KEY", cfg.TrackingCarrierAPIKey},
 	}
 	for _, r := range required {
@@ -8398,10 +8398,10 @@ Runs concurrently with A, B and C. It touches `internal/adapter/http/auth*.go` (
 |---|---|---|---|---|
 | Gateway JWT sub | `x-user-id` | none (trusted) | 401 `{"detail":"missing x-user-id"}` | value trusted verbatim |
 | Carrier key | `x-api-key` | `TRACKING_CARRIER_API_KEY` | 401 `{"detail":"invalid api key"}` | 401, **identical body** |
-| Internal key | `x-api-key` | `GRPC_API_KEY` | 401 `{"detail":"invalid api key"}` | 401, **identical body** |
+| Internal key | `x-api-key` | `INTERNAL_API_KEY` | 401 `{"detail":"invalid api key"}` | 401, **identical body** |
 | None, flag-gated | — | `E2E_TESTING_ENABLED` | route not registered | — |
 
-> **CRITICAL: the two `x-api-key` schemes share a header NAME but are DIFFERENT SECRETS IN DIFFERENT TRUST DOMAINS.** The carrier key goes to an outside vendor; `GRPC_API_KEY` is internal and shared between our own services. Reusing one as the other would hand that vendor a credential valid against every internal surface — including the mass soft-delete route. Never collapse them into one helper with a key argument: one file-level function per trust domain makes the wrong-key mistake structurally harder.
+> **CRITICAL: the two `x-api-key` schemes share a header NAME but are DIFFERENT SECRETS IN DIFFERENT TRUST DOMAINS.** The carrier key goes to an outside vendor; `INTERNAL_API_KEY` is internal and shared between our own services. Reusing one as the other would hand that vendor a credential valid against every internal surface — including the mass soft-delete route. Never collapse them into one helper with a key argument: one file-level function per trust domain makes the wrong-key mistake structurally harder.
 
 **Key comparison MUST use `crypto/subtle.ConstantTimeCompare`.** Go's `==` on strings short-circuits at the first differing byte, so the time it takes leaks how long a shared prefix the attacker guessed — enough to recover a key byte by byte given retries. A length mismatch is not hidden by any implementation; the key's *length* leaks, its *contents* do not, and that is the same trade Users makes with `timingSafeEqual`.
 
@@ -8885,7 +8885,7 @@ func CallerSub(c *gin.Context) string {
 // # A DIFFERENT key from the internal one, deliberately
 //
 // TRACKING_CARRIER_API_KEY is an EXTERNAL credential handed to a vendor;
-// GRPC_API_KEY is the INTERNAL service-to-service secret. Reusing one as the
+// INTERNAL_API_KEY is the INTERNAL service-to-service secret. Reusing one as the
 // other would give an outside party a credential that authenticates as an
 // internal service against every internal surface — including the mass
 // soft-delete route below. This lives in its own function, beside its sibling but
@@ -8895,7 +8895,7 @@ func RequireCarrierKey(expected string, log *slog.Logger) gin.HandlerFunc {
 	return apiKeyGuard(expected, log, "carrier_status_update_failed")
 }
 
-// RequireInternalKey validates GRPC_API_KEY on DELETE /v1/trackings/by-user.
+// RequireInternalKey validates INTERNAL_API_KEY on DELETE /v1/trackings/by-user.
 //
 // This is the account-deletion cascade's leg, and a mass soft-delete surface is
 // the widest blast radius this service has. Accepting the CARRIER's key here
@@ -12788,7 +12788,7 @@ Wave 1's domain package.
 - Receives **NO `x-user-id`** and must NEVER apply the reads' ownership filter: it
   identifies the tracking by `order_id` ALONE. Reusing the reads' filter here would make
   every carrier call 404 — the endpoint would look implemented and never work once.
-  `TRACKING_CARRIER_API_KEY` and `GRPC_API_KEY` are different secrets in different trust
+  `TRACKING_CARRIER_API_KEY` and `INTERNAL_API_KEY` are different secrets in different trust
   domains; never collapse them.
 - Body: `{status: string}` — a BARE STRING, deliberately not an enum type. Declaring it
   as the enum would let the framework reject an unknown value with a 422 before the
@@ -13279,7 +13279,7 @@ kinds into their bodies. Note the carrier group's auth:
 ```go
 	// Router-level, so every endpoint added to this group is authenticated by
 	// DEFAULT rather than open by default. TRACKING_CARRIER_API_KEY is an
-	// external vendor's credential and is NOT GRPC_API_KEY — reusing one as the
+	// external vendor's credential and is NOT INTERNAL_API_KEY — reusing one as the
 	// other would give that vendor a credential valid against every internal
 	// surface we have.
 	carrier := r.Group("/v1/trackings", adapterhttp.CarrierAuth(cfg.CarrierAPIKey))
@@ -13445,7 +13445,7 @@ Uses `DeletedResponse`, `FlatError` and `ValidationError` from Task 19.
 
 **Contract — `DELETE /v1/trackings/by-user` (internal):**
 
-- Authenticated by `GRPC_API_KEY` via the `x-api-key` header. Not published on the API
+- Authenticated by `INTERNAL_API_KEY` via the `x-api-key` header. Not published on the API
   Gateway; the only caller is Users' `DELETE /v1/users/me` cascade.
 - It is a **DELETE WITH A REQUIRED JSON BODY**: `{cognito_sub, user_id}`, both required
   with **min length 1**.
@@ -14008,13 +14008,13 @@ refuses a subquery over the same table an UPDATE targets — the Python's ORM em
 equivalent. Both statements run inside one `sql.Tx`; the parent's `RowsAffected` is the
 returned count.)
 
-The two handlers are thin. `InternalAuth(cfg.GRPCAPIKey)` guards `by-user` and rejects a
+The two handlers are thin. `InternalAuth(cfg.InternalAPIKey)` guards `by-user` and rejects a
 missing or wrong key with the same 401 body; the e2e route takes no credential and is
 registered conditionally:
 
 ```go
 	// Both literal segments are registered BEFORE the parameterised read route.
-	internal := r.Group("/v1/trackings", adapterhttp.InternalAuth(cfg.GRPCAPIKey))
+	internal := r.Group("/v1/trackings", adapterhttp.InternalAuth(cfg.InternalAPIKey))
 	internal.DELETE("/by-user", internalDelete.Handle)
 
 	// The whole ROUTE is the guard. With the flag off nothing is registered, and

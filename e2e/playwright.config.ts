@@ -36,7 +36,7 @@ for (const containerOnly of ["ORDERS_BASE_URL", "TRACKING_BASE_URL"]) {
 
 // CONTRACT: Do NOT `dotenv.config` `.env.local.tracking` or `.env.local.orders` — take
 // TRACKING_CARRIER_API_KEY by name instead. Tracking shares TWELVE names with
-// `.env.local.users` (DATABASE_*_URL, PORT, GRPC_API_KEY, the AWS_*/OTEL_* quartets),
+// `.env.local.users` (DATABASE_*_URL, PORT, INTERNAL_API_KEY, the AWS_*/OTEL_* quartets),
 // so loading it wholesale hands the suite Tracking's MySQL DSN as DATABASE_WRITER_URL
 // the day someone reorders the list; Orders redefines TRACKING_BASE_URL as the
 // container-internal host. A missing file is fine — only the carrier specs need the

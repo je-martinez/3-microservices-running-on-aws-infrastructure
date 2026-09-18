@@ -4,9 +4,10 @@ type: spec
 area: events-pipeline
 status: accepted
 created: 2026-06-26
-updated: 2026-09-10
+updated: 2026-09-15
 tags: [type/spec, area/events-pipeline, status/accepted, issue/JE-180, issue/JE-181]
 related:
+  - "[[2026-09-10-in-app-notifications-design]]"
   - "[[2026-08-05-email-payload-enrichment-design]]"
   - "[[money-representation]]"
   - "[[friendly-order-number]]"
@@ -961,6 +962,39 @@ The extra MongoDB write is within measurement noise — the effective ceiling (~
 Floci's own delivery cadence (see [[2026-08-29-the-emulator-was-the-ceiling-not-the-code]]), not
 a cost this feature adds.
 
+## Transport change (2026-09-15): producers now publish to SNS, not SQS directly
+
+> [!info] Shipped 2026-09-15 — In-App Notifications milestone
+> Full design: [[2026-09-10-in-app-notifications-design]]. **This pipeline's own code changed not
+> one line** — the envelope, the three producer payloads, and every handler are exactly as
+> documented above.
+
+All three producers (Users, Orders, Tracking) now publish via SNS `PublishCommand`
+(`EVENTS_QUEUE_URL` → `EVENTS_TOPIC_ARN`) instead of `SendMessageCommand` directly on the shared
+queue. The reason is a second consumer: the In-App Notifications feature needed the same domain
+events this pipeline already receives, and SQS is point-to-point — one message reaches exactly
+one of two competing consumers, so adding a second consumer to the existing queue would make
+emails and notifications each go missing at random. An SNS topic now fans the one published
+envelope out to **two** SQS queues: the existing `<id>-events` (this pipeline, unchanged) and a
+new `<id>-notifications` (consumed in-process by Users — see
+[[users-service-design#Notifications]]).
+
+**Raw message delivery is mandatory on both subscriptions**, and is exactly what keeps this
+pipeline's code untouched: without it, SNS would wrap the body in its own JSON envelope, and
+`EnvelopeSchema.parse(...)` (see [Status Machine](#status-machine)) would receive an SNS envelope
+instead of the domain envelope — breaking all three existing handlers silently. With raw
+delivery, the body this pipeline receives is byte-for-byte identical to what a producer publishes
+today. `MessageAttributes` (`type`, `source`, `traceparent`) survive raw delivery unchanged too,
+so the trace continuity this note documents in
+[Observability — tracing spans](#observability--tracing-spans) is unaffected.
+
+**Verified in practice, not merely asserted:** the pipeline consumed events over the new SNS→SQS
+topology with zero code changes on this side, and `trace_id` stayed joined across the topic —
+the same continuous-cascade property this note's tracing section already measures for the direct
+SQS path. See [[terraform-modules]] for the topic/queue/subscription/policy Terraform, and
+[[floci-sns-fanout-support]] for the Floci feasibility probe that de-risked this change before
+any code was written.
+
 ## Cross-cutting rules
 
 - **Soft delete only:** documents are never hard-deleted. See [[soft-delete]] and [[ADR-0004-soft-delete-only]].
@@ -1134,6 +1168,13 @@ flushed are lost or arrive late on the next cold invocation, attributed to the w
 
 ## Related
 
+- [[2026-09-10-in-app-notifications-design]] — the design that changed all three producers'
+  transport to SNS (see [Transport change](#transport-change-2026-09-15-producers-now-publish-to-sns-not-sqs-directly)
+  above); this pipeline's own envelope and handlers are unchanged.
+- [[users-service-design]] — the new second consumer on the notifications queue this transport
+  change exists to serve.
+- [[floci-sns-fanout-support]] — the Floci SNS probe that verified fan-out, raw delivery, and the
+  filter policy before the transport change shipped.
 - [[2026-09-09-a-rejected-message-is-not-a-retried-one]] — the lesson behind the
   [Quarantine](#quarantine--the-two-paths-a-failed-document-cannot-cover) section above: a DLQ
   only catches what the consumer keeps failing at, not what it successfully refuses.

@@ -49,6 +49,12 @@ export const routes: Routes = [
         title: 'Order detail — 3MRAI',
       },
       {
+        path: 'notifications',
+        loadComponent: () =>
+          import('./features/notifications/notifications-all').then((m) => m.NotificationsAllPage),
+        title: 'Notifications — 3MRAI',
+      },
+      {
         path: 'profile',
         loadComponent: () => import('./features/account/profile').then((m) => m.ProfilePage),
         title: 'Your profile — 3MRAI',

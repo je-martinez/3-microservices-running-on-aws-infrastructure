@@ -6,7 +6,7 @@
 // which a test can import; main() cannot, so anything decided here is observable
 // only by starting a process.
 //
-// CONTRACT: CACHE_ENABLED, METRICS_ENABLED and EVENTS_QUEUE_URL are read here
+// CONTRACT: CACHE_ENABLED, METRICS_ENABLED and EVENTS_TOPIC_ARN are read here
 // once and turned into a dependency. No use case or middleware branches on a
 // flag. See [[screaming-architecture]]
 package main
@@ -27,7 +27,7 @@ import (
 	"github.com/XSAM/otelsql"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	awscw "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
-	awssqs "github.com/aws/aws-sdk-go-v2/service/sqs"
+	awssns "github.com/aws/aws-sdk-go-v2/service/sns"
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
 	goredis "github.com/redis/go-redis/v9"
@@ -38,6 +38,7 @@ import (
 	adapterhttp "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/http"
 	adaptermysql "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/mysql"
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/notify"
+	"github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/ordershttp"
 	tracing "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/otel"
 	cache "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/redis"
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/sqs"
@@ -175,11 +176,11 @@ func run() error {
 		return err
 	}
 
-	sqsOptions := []func(*awssqs.Options){}
+	snsOptions := []func(*awssns.Options){}
 	cwOptions := []func(*awscw.Options){}
 	if cfg.AWSEndpointURL != nil {
 		endpoint := *cfg.AWSEndpointURL
-		sqsOptions = append(sqsOptions, func(o *awssqs.Options) { o.BaseEndpoint = &endpoint })
+		snsOptions = append(snsOptions, func(o *awssns.Options) { o.BaseEndpoint = &endpoint })
 		cwOptions = append(cwOptions, func(o *awscw.Options) { o.BaseEndpoint = &endpoint })
 	}
 
@@ -224,7 +225,7 @@ func run() error {
 	// logged, not fatal: grpc.NewClient is lazy, so it only returns config
 	// errors here and the six routes that resolve no user must keep serving.
 	var userResolver *grpcusers.InternalIDResolver
-	usersClient, err := grpcusers.Dial(cfg.UsersGRPCURL, cfg.GRPCAPIKey)
+	usersClient, err := grpcusers.Dial(cfg.UsersGRPCURL, cfg.InternalAPIKey)
 	if err != nil {
 		logger.Error("users_client_unavailable",
 			slog.String("app_event", "users_client_unavailable"),
@@ -237,28 +238,46 @@ func run() error {
 
 	// ── The event publisher ──────────────────────────────────────────────────
 	//
-	// The noop when EVENTS_QUEUE_URL is empty, so a runtime with no queue serves
-	// every route and emits nothing; sending to "" would fail once per
+	// The noop when EVENTS_TOPIC_ARN is empty, so a runtime with no topic serves
+	// every route and emits nothing; publishing to "" would fail once per
 	// transition forever on a best-effort path. It resolves the user itself
 	// because the pipeline's handler requires an email Tracking never persists.
 	publisher := sqs.NewNoopPublisher()
 	switch {
-	case cfg.EventsQueueURL == "":
+	case cfg.EventsTopicARN == "":
 		logger.Warn("events_publishing_disabled",
 			slog.String("app_event", "events_publishing_disabled"),
-			slog.String("reason", "EVENTS_QUEUE_URL_empty"))
+			slog.String("reason", "EVENTS_TOPIC_ARN_empty"))
 	case usersClient == nil:
 		logger.Warn("events_publishing_disabled",
 			slog.String("app_event", "events_publishing_disabled"),
 			slog.String("reason", "users_client_unavailable"))
 	default:
 		publisher = sqs.NewPublisher(
-			awssqs.NewFromConfig(awsCfg, sqsOptions...),
-			cfg.EventsQueueURL,
+			awssns.NewFromConfig(awsCfg, snsOptions...),
+			cfg.EventsTopicARN,
 			usersClient,
 			logger,
 		)
 	}
+
+	// ── The cross-service cache invalidation ─────────────────────────────────
+	//
+	// CONTRACT: The INTERNAL key, InternalAPIKey — never TrackingCarrierAPIKey. The
+	// two share a header name and nothing else, and handing an outside vendor's
+	// secret to an internal surface reaches route 6, a mass soft-delete.
+	// See [[two-api-keys-two-trust-domains]]
+	//
+	// An empty ORDERS_BASE_URL leaves it inert rather than failing the boot: a
+	// status change then clears only this service's keys, which is a stale read
+	// and not a lost delivery.
+	if cfg.OrdersBaseURL == "" {
+		logger.Warn("orders_cache_invalidation_disabled",
+			slog.String("app_event", "orders_cache_invalidation_disabled"),
+			slog.String("reason", "ORDERS_BASE_URL_empty"))
+	}
+	orderCacheInvalidator := ordershttp.NewCacheInvalidator(
+		cfg.OrdersBaseURL, cfg.InternalAPIKey, logger)
 
 	// ── Metrics consumers: middleware and ticker ─────────────────────────────
 	//
@@ -301,12 +320,16 @@ func run() error {
 			progressionStatuses,
 			notify.NewStatusEventPublisher(publisher),
 			notify.NewTrackingCacheInvalidator(gateway, logger),
+			// The SAME invalidator the carrier path uses. A TestMode transition
+			// makes Orders' cached body stale in exactly the same way, so the
+			// two must not disagree about what a transition invalidates.
+			orderCacheInvalidator,
 			nil, // the production clock: UTC, truncated to the second
 		),
 		// From config, not the constant: the E2E suite pays this interval four
 		// times per delivery spec, three specs deep. NewProgression falls back to
 		// DefaultProgressionInterval on a non-positive value.
-		time.Duration(cfg.ProgressionIntervalSeconds * float64(time.Second)),
+		time.Duration(cfg.ProgressionIntervalSeconds*float64(time.Second)),
 		logger,
 		// CONTRACT: The WORKFLOW tracer — one OpenObserve query must resolve
 		// this span the same way across every service that opens it.
@@ -321,12 +344,14 @@ func run() error {
 		CacheEnabled:      cfg.CacheEnabled,
 		E2ETestingEnabled: cfg.E2ETestingEnabled,
 		CarrierAPIKey:     cfg.TrackingCarrierAPIKey,
-		InternalAPIKey:    cfg.GRPCAPIKey,
+		InternalAPIKey:    cfg.InternalAPIKey,
 		// A typed-nil trap of the same shape as the metrics one: app.UserResolver
 		// is an interface, so a nil *InternalIDResolver assigned to it would be
 		// non-nil. Left as the zero interface when there is no client.
 		Users:     userResolverOrNil(userResolver),
 		Publisher: publisher,
+		// The cross-service sweep, on the carrier webhook's write path.
+		OrderCacheInvalidator: orderCacheInvalidator,
 		// The real TestMode progression, constructed above on the PROCESS
 		// context. The handler invokes it only after the response is written,
 		// and therefore after the creating transaction has committed.

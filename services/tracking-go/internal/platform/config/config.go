@@ -26,11 +26,11 @@ type Config struct {
 
 	Port int
 
-	// GRPCAPIKey is the INTERNAL service-to-service credential (ADR-0003),
+	// InternalAPIKey is the INTERNAL service-to-service credential (ADR-0003),
 	// shared with Users and Orders. TrackingCarrierAPIKey is the EXTERNAL key
 	// handed to a third-party carrier. They are two fields because they are two
 	// trust domains — see internal/adapter/http/auth.go.
-	GRPCAPIKey            string
+	InternalAPIKey            string
 	TrackingCarrierAPIKey string
 
 	// UsersGRPCURL may carry an http:// or https:// scheme: Orders' .NET channel
@@ -38,9 +38,19 @@ type Config struct {
 	// strips it.
 	UsersGRPCURL string
 
-	// EventsQueueURL is the one shared queue all three producers write to.
+	// OrdersBaseURL is where this service POSTs the cross-service cache
+	// invalidation on a status change, presenting InternalAPIKey.
+	//
+	// CONTRACT: Optional, and an empty value is a legal DEGRADED wiring rather
+	// than a boot failure — the invalidator goes inert and Orders' entries
+	// expire by TTL. Requiring it would trade a stale read for no deliveries at
+	// all. Peer containers dial the CONTAINER port (http://orders:8080); a host
+	// mapping is ECONNREFUSED inside the compose network. See [[env-files]]
+	OrdersBaseURL string
+
+	// EventsTopicARN is the one shared SNS topic all three producers publish to.
 	// Defaults to empty; publishing fails (loudly, at the publisher) when it is.
-	EventsQueueURL string
+	EventsTopicARN string
 
 	// AWSEndpointURL is a pointer because "unset" is meaningful: locally it is
 	// Floci, and in a deployed environment it must be absent so the SDK resolves
@@ -93,11 +103,11 @@ const (
 	defaultMetricsIntervalSeconds = 15.0
 	// The design cadence. See ProgressionIntervalSeconds.
 	defaultProgressionIntervalSeconds = 10.0
-	defaultRedisHost              = "localhost"
-	defaultRedisPort              = 6379
-	defaultCacheTimeoutMS         = 50
-	defaultDeploymentEnvironment  = "local"
-	defaultEnvironment            = "development"
+	defaultRedisHost                  = "localhost"
+	defaultRedisPort                  = 6379
+	defaultCacheTimeoutMS             = 50
+	defaultDeploymentEnvironment      = "local"
+	defaultEnvironment                = "development"
 )
 
 var validEnvironments = map[string]bool{
@@ -109,25 +119,26 @@ var validEnvironments = map[string]bool{
 // Load reads the environment and validates it.
 func Load() (Config, error) {
 	cfg := Config{
-		DatabaseWriterURL:      os.Getenv("DATABASE_WRITER_URL"),
-		DatabaseReaderURL:      os.Getenv("DATABASE_READER_URL"),
-		GRPCAPIKey:             os.Getenv("GRPC_API_KEY"),
-		TrackingCarrierAPIKey:  os.Getenv("TRACKING_CARRIER_API_KEY"),
-		Port:                   intInRange("PORT", defaultPort, 1, 65535),
-		UsersGRPCURL:           stringOr("USERS_GRPC_URL", defaultUsersGRPCURL),
-		EventsQueueURL:         os.Getenv("EVENTS_QUEUE_URL"),
-		AWSEndpointURL:         optionalString("AWS_ENDPOINT_URL"),
-		AWSRegion:              stringOr("AWS_REGION", defaultAWSRegion),
-		MetricsIntervalSeconds: floatOr("METRICS_INTERVAL_SECONDS", defaultMetricsIntervalSeconds),
+		DatabaseWriterURL:          os.Getenv("DATABASE_WRITER_URL"),
+		DatabaseReaderURL:          os.Getenv("DATABASE_READER_URL"),
+		InternalAPIKey:                 os.Getenv("INTERNAL_API_KEY"),
+		TrackingCarrierAPIKey:      os.Getenv("TRACKING_CARRIER_API_KEY"),
+		Port:                       intInRange("PORT", defaultPort, 1, 65535),
+		UsersGRPCURL:               stringOr("USERS_GRPC_URL", defaultUsersGRPCURL),
+		OrdersBaseURL:              strings.TrimSpace(os.Getenv("ORDERS_BASE_URL")),
+		EventsTopicARN:             os.Getenv("EVENTS_TOPIC_ARN"),
+		AWSEndpointURL:             optionalString("AWS_ENDPOINT_URL"),
+		AWSRegion:                  stringOr("AWS_REGION", defaultAWSRegion),
+		MetricsIntervalSeconds:     floatOr("METRICS_INTERVAL_SECONDS", defaultMetricsIntervalSeconds),
 		ProgressionIntervalSeconds: floatOr("PROGRESSION_INTERVAL_SECONDS", defaultProgressionIntervalSeconds),
-		MetricsEnabled:         Bool("METRICS_ENABLED", true),
-		E2ETestingEnabled:      Bool("E2E_TESTING_ENABLED", false),
-		RedisHost:              stringOr("REDIS_HOST", defaultRedisHost),
-		RedisPort:              intInRange("REDIS_PORT", defaultRedisPort, 1, 65535),
-		CacheEnabled:           Bool("CACHE_ENABLED", true),
-		CacheTimeoutMS:         intInRange("CACHE_TIMEOUT_MS", defaultCacheTimeoutMS, 1, 1<<31-1),
-		DeploymentEnvironment:  stringOr("DEPLOYMENT_ENVIRONMENT", defaultDeploymentEnvironment),
-		Environment:            stringOr("ENVIRONMENT", defaultEnvironment),
+		MetricsEnabled:             Bool("METRICS_ENABLED", true),
+		E2ETestingEnabled:          Bool("E2E_TESTING_ENABLED", false),
+		RedisHost:                  stringOr("REDIS_HOST", defaultRedisHost),
+		RedisPort:                  intInRange("REDIS_PORT", defaultRedisPort, 1, 65535),
+		CacheEnabled:               Bool("CACHE_ENABLED", true),
+		CacheTimeoutMS:             intInRange("CACHE_TIMEOUT_MS", defaultCacheTimeoutMS, 1, 1<<31-1),
+		DeploymentEnvironment:      stringOr("DEPLOYMENT_ENVIRONMENT", defaultDeploymentEnvironment),
+		Environment:                stringOr("ENVIRONMENT", defaultEnvironment),
 	}
 
 	required := []struct {
@@ -136,7 +147,7 @@ func Load() (Config, error) {
 	}{
 		{"DATABASE_WRITER_URL", cfg.DatabaseWriterURL},
 		{"DATABASE_READER_URL", cfg.DatabaseReaderURL},
-		{"GRPC_API_KEY", cfg.GRPCAPIKey},
+		{"INTERNAL_API_KEY", cfg.InternalAPIKey},
 		{"TRACKING_CARRIER_API_KEY", cfg.TrackingCarrierAPIKey},
 	}
 	for _, r := range required {

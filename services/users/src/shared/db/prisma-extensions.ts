@@ -158,6 +158,7 @@ export const RESULT_EXTENSIONS = {
   user: isDeletedField,
   usersCognitoData: isDeletedField,
   usersCognitoEvent: isDeletedField,
+  notification: isDeletedField,
 } as const;
 
 // CONTRACT: Keep the callback form of `defineExtension` — the soft-delete rewrite

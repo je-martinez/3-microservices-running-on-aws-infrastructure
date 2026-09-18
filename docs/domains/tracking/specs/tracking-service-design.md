@@ -4,7 +4,7 @@ type: spec
 area: tracking
 status: accepted
 created: 2026-06-26
-updated: 2026-09-10
+updated: 2026-09-18
 tags: [type/spec, area/tracking, status/accepted]
 related:
   - "[[2026-08-25-response-caching-layer-design]]"
@@ -25,7 +25,7 @@ related:
   - "[[testing]]"
   - "[[local-gateway-per-route-integrations]]"
   - "[[nginx-njs-x-user-id-injection]]"
-  - "[[grpc-api-key-authorization]]"
+  - "[[internal-api-key-authorization]]"
   - "[[user-id-vs-cognito-sub-ownership-key]]"
   - "[[two-api-keys-two-trust-domains]]"
   - "[[testmode-in-process-no-durable-scheduler]]"
@@ -154,13 +154,13 @@ means adding entries to that module's `local.routes` map, per
 | GET    | `/v1/trackings?order_ids=<csv>`     | Cognito JWT (gateway authorizer) | Returns many trackings (+ each one's `Tracking_History`), scoped to the caller. `order_ids` is a comma-separated list of order ids, e.g. `?order_ids=ord_a,ord_b,ord_c` — see [Batch read query shape](#batch-read-query-shape) for why. Filters by `order_id` **and** the caller's `cognito_sub`; ids that exist but belong to another user (or don't exist at all) are silently **omitted** from the results, never reported as an error — see [Ownership & scoping](#ownership--scoping). |
 | PUT    | `/v1/trackings/{orderId}/status`    | Custom API key (service-validated, **not** Cognito) | Simulates a third-party carrier service notifying Tracking of a delivery status change. `status` must be one of the five enum values defined in [Tracking statuses](#tracking-statuses), and is subject to the guards in [State machine & update guards](#state-machine--update-guards). See [Auth schemes](#auth-schemes) — this endpoint has **no `x-user-id`** and is identified by `order_id` alone. Path param is `{orderId}` (camelCase) — see [Gateway path params are camelCase](#gateway-path-params-are-camelcase-not-snake_case). |
 | DELETE | `/v1/trackings/e2e-cleanup`         | None — the route only **exists** under `E2E_TESTING_ENABLED` | The E2E harness's global-teardown route (JE-111). See [E2E cleanup](#e2e-cleanup-delete-v1trackingse2e-cleanup) below. |
-| DELETE | `/v1/trackings/by-user`             | Custom internal API key (`GRPC_API_KEY`, service-validated, **not** Cognito) | **Internal.** Not on the API Gateway; the only caller is Users' `DELETE /v1/users/me`. Soft-deletes every live tracking (and its history) belonging to a user, matching `cognito_sub OR user_id`. See [Account-deletion cascade (internal)](#account-deletion-cascade-internal) below. |
+| DELETE | `/v1/trackings/by-user`             | Custom internal API key (`INTERNAL_API_KEY`, service-validated, **not** Cognito) | **Internal.** Not on the API Gateway; the only caller is Users' `DELETE /v1/users/me`. Soft-deletes every live tracking (and its history) belonging to a user, matching `cognito_sub OR user_id`. See [Account-deletion cascade (internal)](#account-deletion-cascade-internal) below. |
 
 > [!warning] Several auth schemes, in both directions — now FOUR inbound, corrected 2026-08-26
 > Unlike Users/Orders, where "all endpoints require a Cognito JWT except health" was previously
 > true, Tracking has **four inbound** schemes (none for health, Cognito JWT for the reads and
 > init-tracking, a custom external key for the carrier PUT, and — as of the account-deletion
-> milestone — the internal `GRPC_API_KEY` for `DELETE /v1/trackings/by-user`) **plus one
+> milestone — the internal `INTERNAL_API_KEY` for `DELETE /v1/trackings/by-user`) **plus one
 > outbound** scheme (the same internal `x-api-key` when Tracking itself calls Users). This note
 > previously stated the internal key was something Tracking only **sends**, never validates
 > inbound; that is **no longer true** — see [Auth schemes](#auth-schemes) below for the corrected,
@@ -258,14 +258,14 @@ bulk `UPDATE`s below).
 ### Auth schemes
 
 > [!warning] Corrected 2026-08-26 — the internal key is validated inbound again
-> This section previously stated the gRPC `x-api-key`/`GRPC_API_KEY` scheme was, as of the
+> This section previously stated the gRPC `x-api-key`/`INTERNAL_API_KEY` scheme was, as of the
 > gRPC-removal rewrite, something Tracking only **sends**, never validates inbound — with the
 > inbound `x-api-key` interceptor removed entirely (see
 > [Deltas from the original design (superseded)](#deltas-from-the-original-design-superseded)).
 > The account-deletion milestone (2026-08-26) made that framing **false again**: Tracking now
-> validates `GRPC_API_KEY` **inbound**, on `DELETE /v1/trackings/by-user`, a plain REST route.
-> [[two-api-keys-two-trust-domains]] carried the same outdated claim and has been corrected there
-> too. The tables below reflect the current, actual direction of every surface.
+> validates the shared internal key **inbound**, on `DELETE /v1/trackings/by-user`, a plain REST
+> route. [[two-api-keys-two-trust-domains]] carried the same outdated claim and has been
+> corrected there too. The tables below reflect the current, actual direction of every surface.
 
 Tracking is REST-only, but its surfaces still span several trust domains — worth documenting
 explicitly, and worth being explicit about **direction**, because Tracking is now both a callee
@@ -281,7 +281,7 @@ one remaining gRPC dependency, outbound) using a key-based scheme in more than o
 | `POST /v1/trackings/init-tracking` | Cognito JWT via the gateway's JWT authorizer, identity from `x-user-id` | End user |
 | `GET /v1/trackings/{orderId}` and the batch read | Cognito JWT via the gateway's JWT authorizer, scoped by `cognito_sub` (from `x-user-id`) | End user |
 | `PUT /v1/trackings/{orderId}/status` | Custom API key (`TRACKING_CARRIER_API_KEY`), validated by the service itself | Third-party carrier / webhook |
-| `DELETE /v1/trackings/by-user` | Internal API key (`GRPC_API_KEY`), validated by the service itself. **Not** the same trust domain as the row above — see the callout below. Not on the API Gateway. | Users' `DELETE /v1/users/me`, via `CascadeClient` |
+| `DELETE /v1/trackings/by-user` | Internal API key (`INTERNAL_API_KEY`), validated by the service itself. **Not** the same trust domain as the row above — see the callout below. Not on the API Gateway. | Users' `DELETE /v1/users/me`, via `CascadeClient` |
 
 **Outbound** — the one call Tracking itself makes:
 
@@ -290,16 +290,16 @@ one remaining gRPC dependency, outbound) using a key-based scheme in more than o
 | gRPC `users.v1.Users/GetUserById` | `x-api-key` metadata entry (see [[ADR-0003-grpc-inter-service]]) | Users |
 
 > [!important] Three key-based schemes now, across three trust domains — not two
-> `TRACKING_CARRIER_API_KEY` (the PUT endpoint) and `GRPC_API_KEY` (both the outbound gRPC call
-> *and*, now, the inbound `by-user` cascade route) are **three distinct surfaces sharing two
+> `TRACKING_CARRIER_API_KEY` (the PUT endpoint) and `INTERNAL_API_KEY` (both the outbound gRPC
+> call *and*, now, the inbound `by-user` cascade route) are **three distinct surfaces sharing two
 > secrets**, and the two secrets must never collapse into one:
 >
-> - `GRPC_API_KEY` is an **internal** service-to-service secret — the same pattern
+> - `INTERNAL_API_KEY` is an **internal** service-to-service secret — the same pattern
 >   [[users-service-design]] established for inter-service calls, the same one Orders uses for
->   its own `GetUserById` call (see [[grpc-api-key-authorization]]), and now the same one Orders
->   *also* validates inbound on its own `DELETE /v1/orders/by-user` (see
->   [[orders-service-design#Account-deletion cascade (internal)]]). Every holder of `GRPC_API_KEY`
->   is one of **our own services** — Tracking both sends it (to Users) and, as of account
+>   its own `GetUserById` call (see [[internal-api-key-authorization]]), and now the same one
+>   Orders *also* validates inbound on its own `DELETE /v1/orders/by-user` (see
+>   [[orders-service-design#Account-deletion cascade (internal)]]). Every holder of
+>   `INTERNAL_API_KEY` is one of **our own services** — Tracking both sends it (to Users) and, as of account
 >   deletion, receives and validates it (from Users) on two different routes with two different
 >   transports (gRPC metadata outbound, an `x-api-key` HTTP header inbound). Sending and
 >   validating the same secret on different surfaces is not a contradiction — it is what an
@@ -613,7 +613,7 @@ a timing hope):
   no-op: a row with no owner sub is unreachable over the user-scoped reads in the first place, so
   it was never cached and there is nothing to evict.
 - **`invalidate_user`** — the account-deletion cascade leg (`DELETE /v1/trackings/by-user`,
-  `api/internal_router.py`, guarded by `InternalAuth`/`GRPC_API_KEY`). Sweeps **both** namespaces
+  `api/internal_router.py`, guarded by `InternalAuth`/`INTERNAL_API_KEY`). Sweeps **both** namespaces
   under **both** of the deleted person's identifiers — the response-entry index and the identity
   mapping — for the same raw-header reason documented in
   [[2026-08-26-cache-keys-built-from-a-raw-identity-header]]: a response key is built from
@@ -632,7 +632,7 @@ a timing hope):
 > [[orders-service-design#Account-deletion cascade (internal)]] for the sibling route.
 
 The route is guarded by `InternalAuth`/`RequireInternalKey`
-(the same `GRPC_API_KEY` comparison Tracking's outbound gRPC client already presents, now
+(the same `INTERNAL_API_KEY` comparison Tracking's outbound gRPC client already presents, now
 validated the other direction too — see [Auth schemes](#auth-schemes) above). Not on the API
 Gateway; the only caller is Users' `CascadeClient`.
 
@@ -1343,11 +1343,11 @@ the same way. See [gRPC — outbound client to Users](#grpc--outbound-client-to-
   way Orders' routes did; see [Gateway routing](#gateway-routing-existing-module-not-a-new-one).
 - [[nginx-njs-x-user-id-injection]] — where the `x-user-id` header on Tracking's two
   Cognito-authenticated REST reads comes from locally; explicitly absent on the PUT endpoint.
-- [[grpc-api-key-authorization]] — the shared `x-api-key` scheme Tracking's outbound
+- [[internal-api-key-authorization]] — the shared `x-api-key` scheme Tracking's outbound
   `GetUserById` call presents to Users, the same mechanism Orders already uses.
 - [[user-id-vs-cognito-sub-ownership-key]] — the ADR formalizing why user-scoped reads filter
   by `cognito_sub`, never `user_id`, and the incident that motivated it.
-- [[two-api-keys-two-trust-domains]] — the ADR formalizing why `GRPC_API_KEY` and
+- [[two-api-keys-two-trust-domains]] — the ADR formalizing why `INTERNAL_API_KEY` and
   `TRACKING_CARRIER_API_KEY` must never collapse into one secret.
 - [[testmode-in-process-no-durable-scheduler]] — the ADR formalizing the in-process scheduling
   choice for TestMode (a goroutine, not a durable scheduler) and its accepted

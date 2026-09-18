@@ -4,9 +4,10 @@ type: convention
 area: shared
 status: active
 created: 2026-07-17
-updated: 2026-09-04
+updated: 2026-09-15
 tags: [type/convention, area/shared, status/active]
 related:
+  - "[[2026-09-10-in-app-notifications-design]]"
   - "[[2026-08-17-web-app-foundation-design]]"
   - "[[2026-09-04-web-gateway-integration-design]]"
   - "[[web-gateway-integration-milestone]]"
@@ -30,6 +31,7 @@ related:
   - "[[2026-08-05-realtime-tracking-events-websocket-design]]"
   - "[[2026-08-05-realtime-tracking-events-websocket]]"
   - "[[2026-08-12-custom-business-metrics-cloudwatch-design]]"
+  - "[[count-only-assertions-hide-cause]]"
 ---
 
 # Testing
@@ -189,6 +191,26 @@ invisible to unit, integration, and internal E2E tests, and all three surfaced i
 the gateway URL. Gateway E2E closes that gap by testing exactly what the user hits, not a
 convenient stand-in for it.
 
+### The diagnostic: a gateway 404 body tells you whether the request ever reached the service
+
+When a new route 404s at the gateway, the **shape of the 404 body** tells you which of two very
+different problems you have, before you open a debugger:
+
+- **`{"message":"Not Found"}`** — the gateway's own body. The request **never reached the
+  service** — the route is missing from `infra/modules/api-gateway/main.tf`'s route map, or (for
+  a new top-level path) from the nginx `location` block in
+  `infra/modules/compute/nginx/nginx.conf`, which falls through to `location /` and silently
+  reaches whichever service owns the root path rather than the intended one.
+- **`{error: …}`** — the service's own error shape. The request reached the service; the 404 is
+  a real "not found," not a routing gap.
+
+**After the route is added but before the service serves it, a `401` is the GOOD answer.** It
+proves the route resolves at the gateway and reached the JWT authorizer — exactly the property a
+route-map/nginx gap would prevent. Verified on the In-App Notifications milestone
+([[2026-09-10-in-app-notifications-design]]): all three new routes answered `401` immediately
+after the Terraform route-map change, before Users had any notifications code at all, confirming
+the wiring was correct ahead of the service work that would make them useful.
+
 ## Per-service guidance
 
 This convention defines the rule; each service documents how it satisfies the three layers and
@@ -289,6 +311,18 @@ above, generalized to a connection handshake instead of a login/verify endpoint:
   asserting isolation — the only test that actually exercises the `by-cognito-sub` GSI scoping
   rather than merely asserting that *a* message arrived at all.
 
+### A second producer on the same socket needs a type-filtered wait, not a count-based one
+
+The three `/v1/notifications` endpoints ([[2026-09-10-in-app-notifications-design]]) are ordinary
+HTTP routes and take the three layers literally — unit/integration, internal E2E on Users
+directly, and gateway E2E with a real Cognito JWT, per the diagnostic above. Their WebSocket push
+(`NOTIFICATION_CREATED`) shares the **same socket** `TRACKING_STATUS_CHANGED` already uses, which
+adds a wrinkle this convention's realtime section did not need before: a wait that only counts
+frames can resolve on a mixture of both message types and assert the wrong set. The gateway E2E
+for notifications waits for frames matching `type: "NOTIFICATION_CREATED"` specifically, using
+the existing `e2e/support/ws-client.ts` harness, and prints **what** arrived on failure — never
+just how many — per [[count-only-assertions-hide-cause]].
+
 ### Ordering caveat — assert the set, never the sequence
 
 Messages are ordered per WebSocket connection (it runs over TCP), but the events-pipeline
@@ -311,7 +345,8 @@ itself works.
 > failure (`expected 5, got 4`) hid that the test helper needed to report *which* messages
 > arrived, not just how many, before the real cause was visible — see
 > [[2026-08-05-realtime-tracking-events-websocket-design#Debugging lesson — a count-only
-> assertion hides which system is wrong]]. See also
+> assertion hides which system is wrong]] — extracted as its own rule in
+> [[count-only-assertions-hide-cause]]. See also
 > [[2026-08-05-realtime-tracking-events-websocket-design#Verification results (POC, 2026-08-05)]]
 > and [[events-pipeline-design#Realtime WebSocket fan-out (second output of TRACKING_STATUS_CHANGED)]].
 > Recorded here as a concrete instance of this convention's own rule: an unexplained red test is
@@ -481,6 +516,9 @@ invalidates the catalogue cache.
 
 ## Related
 
+- [[2026-09-10-in-app-notifications-design]] — the three `/v1/notifications` endpoints tested at
+  all three layers, and the type-filtered WebSocket wait needed because the push shares the
+  tracking socket.
 - [[2026-08-17-web-app-foundation-design]] — D9, the phase-1 web verification the `web-tokyo` /
   `web-tegucigalpa` Playwright projects implement.
 - [[2026-09-04-web-gateway-integration-design]] — phase 2's adapted three-layer treatment for a
@@ -499,6 +537,9 @@ invalidates the catalogue cache.
 - [[local-dev]]
 - [[2026-07-17-testing-layers-and-e2e-gateway-design]]
 - [[2026-07-17-testing-layers-and-e2e-gateway]] — the implementation plan for the design above.
+- [[2026-09-11-plans-locate-tests-by-name-not-by-importer]] — a rename task's plan must locate
+  affected tests by grepping for who references the symbol, never by matching a filename to the
+  source file's name, or it silently omits the suite that enforces the contract.
 - [[events-pipeline-design]] — where the adapted three-layer treatment for a non-HTTP,
   SQS-triggered component is implemented.
 - [[2026-08-03-events-pipeline-milestone-design]] — full detail on the adapted layers and the
@@ -532,3 +573,7 @@ invalidates the catalogue cache.
   and compare fresh page loads, not two opens in the same warm session.
 - [[headed-browser-consent]] — ask before opening any headed browser window for a frontend
   check, and which monitor to target when the user accepts.
+- [[count-only-assertions-hide-cause]] — a count-only assertion cannot distinguish a broken
+  system from a wrong expectation; assert or log WHAT arrived, not just how many. Includes the
+  sharper case where a count-based WAIT on a multi-type channel can resolve on the wrong
+  mixture, not just report it poorly.

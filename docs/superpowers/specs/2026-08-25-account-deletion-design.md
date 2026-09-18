@@ -4,7 +4,7 @@ type: spec
 area: users
 status: active
 created: 2026-08-25
-updated: 2026-08-26
+updated: 2026-09-18
 tags:
   - type/spec
   - area/users
@@ -209,12 +209,12 @@ service's own predicate, independent of what Users sent.
   deleted (reads already filter `deletedAt`, so this comes for free); `502` a cascade leg
   failed.
 - `DELETE /v1/orders/by-user` — **internal**. Not exposed on the API Gateway. Authenticated
-  with the shared `GRPC_API_KEY`, compared in constant time (`hmac.compare_digest` or
+  with the shared `INTERNAL_API_KEY`, compared in constant time (`hmac.compare_digest` or
   equivalent), mirroring how Tracking already guards its carrier key. Body is **camelCase**
   (`{ cognitoSub, userId }`), matching every other Orders HTTP DTO. Responses: `200` with
   per-table counts; `400 cognito_sub_required` / `400 user_id_required` (see
   [Empty-identity guards](#empty-identity-guards-four-layers) above); `401` invalid/missing
-  `GRPC_API_KEY`.
+  `INTERNAL_API_KEY`.
 - `DELETE /v1/trackings/by-user` — **internal**, same auth. Body is **snake_case**
   (`{ cognito_sub, user_id }`), matching Tracking's wire convention. Cascades to
   `tracking_history` through the FK, children before parents, mirroring `soft_delete_by_tag`.

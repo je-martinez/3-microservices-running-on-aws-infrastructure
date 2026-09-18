@@ -1,5 +1,5 @@
 using Amazon.CloudWatch;
-using Amazon.SQS;
+using Amazon.SimpleNotificationService;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Orders.Api.BackgroundServices;
@@ -50,14 +50,14 @@ builder.Services.AddOpenTelemetry()
         .AddAspNetCoreInstrumentation()
         .AddHttpClientInstrumentation()
         .AddEntityFrameworkCoreInstrumentation()
-        // What makes SqsEventPublisher's SendMessageAsync produce a CLIENT span.
+        // What makes SnsEventPublisher's PublishAsync produce a CLIENT span.
         .AddAWSInstrumentation()
         // CONTRACT: Do NOT create an ActivitySource without registering it here — .NET drops
         // unregistered sources silently; the Activity is built but never exported to OpenObserve.
         // Register the source in the SAME change that creates one.
         .AddSource(WorkflowTracer.ActivitySourceName)
-        // SQS publish span; its context travels as the message traceparent.
-        .AddSource(SqsEventPublisher.ActivitySourceName)
+        // SNS publish span; its context travels as the message traceparent.
+        .AddSource(SnsEventPublisher.ActivitySourceName)
         // CloudWatch PutMetricData span.
         .AddSource(CloudWatchMetricsPublisher.ActivitySourceName)
         // Redis cache.get / cache.set spans.
@@ -113,6 +113,8 @@ builder.Services.AddScoped(sp => new CartReadService(
     sp.GetRequiredService<ILogger<CartReadService>>(),
     assetsBaseUrl));
 builder.Services.AddScoped<CartWriteService>();
+builder.Services.AddScoped<InvalidateOrderCacheService>();
+builder.Services.AddScoped<DeleteOrdersByUserService>();
 
 // Write side (write replica in prod; same MySQL locally).
 var writerCs = builder.Configuration["DATABASE_WRITER_URL"]!;
@@ -137,7 +139,7 @@ if (cacheEnabled)
 {
     // REDIS_HOST is the Floci backing-container name on the Docker network, never
     // "localhost" — inside this container localhost is orders itself. Same
-    // fail-fast-with-a-generation-escape shape as EVENTS_QUEUE_URL below.
+    // fail-fast-with-a-generation-escape shape as EVENTS_TOPIC_ARN below.
     var redisHost = builder.Configuration["REDIS_HOST"]
         ?? (isDocumentGeneration
             ? "localhost"
@@ -183,7 +185,7 @@ else
 // Users gRPC client for identity resolution. One channel per process (Singleton);
 // the adapter attaches the shared x-api-key on every call.
 var grpcAddress = builder.Configuration["USERS_GRPC_URL"]!;   // e.g. http://users:50051
-var grpcApiKey = builder.Configuration["GRPC_API_KEY"]!;
+var internalApiKey = builder.Configuration["INTERNAL_API_KEY"]!;
 builder.Services.AddSingleton(_ =>
     new Users.V1.Users.UsersClient(Grpc.Net.Client.GrpcChannel.ForAddress(grpcAddress)));
 // ONE registration, decorated inside the factory rather than layered as a second
@@ -194,7 +196,7 @@ builder.Services.AddSingleton(_ =>
 builder.Services.AddScoped<IUserDirectory>(sp =>
 {
     var grpc = new UserDirectoryGrpcClient(
-        sp.GetRequiredService<Users.V1.Users.UsersClient>(), grpcApiKey);
+        sp.GetRequiredService<Users.V1.Users.UsersClient>(), internalApiKey);
 
     // The identity cache sits IN FRONT of the response cache: every per-user key
     // carries user_id, so this resolution runs before a response key can be built —
@@ -203,21 +205,21 @@ builder.Services.AddScoped<IUserDirectory>(sp =>
     return cache is null ? grpc : new CachedUserDirectory(grpc, cache);
 });
 
-// CONTRACT: Fail fast on missing EVENTS_QUEUE_URL — a null URL boots silently and the publisher
+// CONTRACT: Fail fast on missing EVENTS_TOPIC_ARN — a null ARN boots silently and the publisher
 // swallows publish failures, so no confirmation email is ever sent.
 // WORKAROUND(local): Exempt during GetDocument.Insider — no env file at `dotnet build` time.
 // See [[env-files]]
-var eventsQueueUrl = builder.Configuration["EVENTS_QUEUE_URL"]
+var eventsTopicArn = builder.Configuration["EVENTS_TOPIC_ARN"]
     ?? (isDocumentGeneration
         ? string.Empty
         : throw new InvalidOperationException(
-            "EVENTS_QUEUE_URL is not set. It is generated into .env.local.orders by "
+            "EVENTS_TOPIC_ARN is not set. It is generated into .env.local.orders by "
             + "`make env-file`; see docs/shared/conventions/env-files.md."));
-// One SQS client per process (Singleton) — it owns an HTTP connection pool, so a
+// One SNS client per process (Singleton) — it owns an HTTP connection pool, so a
 // per-request client would build and discard one on every order.
-builder.Services.AddSingleton<IAmazonSQS>(_ =>
+builder.Services.AddSingleton<IAmazonSimpleNotificationService>(_ =>
 {
-    var config = new AmazonSQSConfig
+    var config = new AmazonSimpleNotificationServiceConfig
     {
         // Region must be set explicitly: locally there is no EC2/ECS metadata to
         // infer one from, and the SDK throws rather than defaulting.
@@ -233,16 +235,16 @@ builder.Services.AddSingleton<IAmazonSQS>(_ =>
         config.ServiceURL = endpointUrl;
     }
 
-    return new AmazonSQSClient(config);
+    return new AmazonSimpleNotificationServiceClient(config);
 });
-builder.Services.AddScoped<IEventPublisher>(sp => new SqsEventPublisher(
-    sp.GetRequiredService<IAmazonSQS>(),
-    eventsQueueUrl,
-    sp.GetRequiredService<ILogger<SqsEventPublisher>>()));
+builder.Services.AddScoped<IEventPublisher>(sp => new SnsEventPublisher(
+    sp.GetRequiredService<IAmazonSimpleNotificationService>(),
+    eventsTopicArn,
+    sp.GetRequiredService<ILogger<SnsEventPublisher>>()));
 
 // Custom business metrics -> CloudWatch (Floci locally), scraped by the OTel
 // collector into OpenObserve. One client per process (Singleton), same
-// endpoint-override pattern as the SQS client above.
+// endpoint-override pattern as the SNS client above.
 builder.Services.AddSingleton<IAmazonCloudWatch>(_ =>
 {
     var config = new AmazonCloudWatchConfig

@@ -4,7 +4,7 @@ type: spec
 area: orders
 status: accepted
 created: 2026-06-26
-updated: 2026-09-10
+updated: 2026-09-18
 tags: [type/spec, area/orders, status/accepted]
 related:
   - "[[2026-08-25-response-caching-layer-design]]"
@@ -25,7 +25,7 @@ related:
   - "[[ADR-0019-distributed-tracing-opentelemetry]]"
   - "[[clean-architecture-divergence]]"
   - "[[money-as-integer-cents]]"
-  - "[[grpc-api-key-authorization]]"
+  - "[[internal-api-key-authorization]]"
   - "[[for-update-pessimistic-locking]]"
   - "[[2026-07-14-orders-service-milestone-design]]"
   - "[[2026-07-16-orders-list-products-endpoint-design]]"
@@ -97,7 +97,7 @@ All routes are versioned under the `/v1` prefix. See [[versioning]] for the vers
 | `GET` | `/v1/cart` | The caller's active cart, fully priced and calculated. Always `200` — an empty cart (`id: null`, `items: []`) rather than `404`. See [Cart](#cart) below. |
 | `PUT` | `/v1/cart` | Full replacement of the cart's line set. `quantity: 0` removes a line; an empty resulting cart is deleted. `400` on a negative quantity, a duplicated `productId`, or missing/null `items`; `404 unknown_user` **only on a request that carries lines** (same Cognito-sub-not-found mapping `POST /v1/orders` uses) — an emptying `PUT` (`items: []`, or every line at `quantity: 0`) never resolves identity and always succeeds regardless of whether the caller is a known user. See [Cart](#cart) below. |
 | `DELETE` | `/v1/cart` | Deletes the caller's active cart and its lines. `204`, idempotent (also `204` when there was no cart). |
-| `DELETE` | `/v1/orders/by-user` | **Internal.** Explicitly **NOT on the API Gateway** — see [Account-deletion cascade (internal)](#account-deletion-cascade-internal) below. Soft-deletes every order, order line, and cart belonging to a user, matching `cognito_sub OR user_id`. Authenticated with the shared `GRPC_API_KEY`, the same secret [[grpc-api-key-authorization]] already covers — but validated **inbound** here for the first time, not merely presented outbound. |
+| `DELETE` | `/v1/orders/by-user` | **Internal.** Explicitly **NOT on the API Gateway** — see [Account-deletion cascade (internal)](#account-deletion-cascade-internal) below. Soft-deletes every order, order line, and cart belonging to a user, matching `cognito_sub OR user_id`. Authenticated with the shared `INTERNAL_API_KEY`, the same secret [[internal-api-key-authorization]] already covers — but validated **inbound** here for the first time, not merely presented outbound. |
 | `GET` | `/v1/orders/health` (gateway) | Liveness/readiness probe. **Gateway-published path is prefixed**, not the bare `/v1/health` the service serves internally — nginx rewrites the prefixed gateway path down to the service's unprefixed `/v1/health` (health-only rewrite; see [[tracking-service-design#Gateway-prefixed health path, not bare `/v1/health`]] for the full rationale, which applies identically here: an unprefixed gateway route would fall through nginx's default proxy and silently resolve to Users). Returns `200 { "status": "ok" }` when healthy. No auth required. Used by ALB/Fargate as health check target. |
 
 > [!note] Authorization check — filter in the query, not fetch-then-compare
@@ -440,25 +440,26 @@ restock, which does.
 deletes every order, order line, and cart belonging to a user. It is **not published on the API
 Gateway** — reachable only inside the compose/ECS network — and is **not** behind Cognito.
 
-### Inbound authentication — Orders validates `GRPC_API_KEY` inbound for the first time
+### Inbound authentication — Orders validates `INTERNAL_API_KEY` inbound for the first time
 
-Every previous use of `GRPC_API_KEY` in this service was **outbound**: Orders presenting it as
-`x-api-key` gRPC metadata when calling Users' `GetUserById` (see
-[[grpc-api-key-authorization]]). This route is the first time Orders sits on the **other** side
-of that same secret — validating it **inbound**, on a plain REST route rather than gRPC
-metadata. The handler reads the `x-api-key` header and compares it to `GRPC_API_KEY` using a
+Every previous use of `INTERNAL_API_KEY` in this service was **outbound**: Orders presenting it
+as `x-api-key` gRPC metadata when calling Users' `GetUserById` (see
+[[internal-api-key-authorization]]). This route is the first time Orders sits on the **other**
+side of that same secret — validating it **inbound**, on a plain REST route rather than gRPC
+metadata. The handler reads the `x-api-key` header and compares it to `INTERNAL_API_KEY` using a
 constant-time comparison, rejecting a missing or mismatched key with `401` before the request
 body is even parsed.
 
-`[[grpc-api-key-authorization]]`'s own text previously framed Orders purely as a **presenter** of
-this key; that framing is now incomplete and has been corrected there to record both directions.
+`[[internal-api-key-authorization]]`'s own text previously framed Orders purely as a
+**presenter** of this key; that framing is now incomplete and has been corrected there to record
+both directions.
 
 ### Exempted from the `x-user-id` guard, not exempted from authentication
 
 `PublicRoutes.cs` lists `DELETE /v1/orders/by-user` alongside the health check and the E2E
 cleanup route. **"Public" here means only "exempt from the `x-user-id` guard"** — it does **not**
 mean unauthenticated or externally reachable. The route is absent from the gateway and its
-handler requires the `GRPC_API_KEY` before touching anything; it carries no end-user identity by
+handler requires the `INTERNAL_API_KEY` before touching anything; it carries no end-user identity by
 design, because the subject travels in the request **body** (`{ cognitoSub, userId }`) — the
 caller is Users acting on a user's behalf, not the user's own request, so there is no end-user
 `x-user-id` to guard on in the first place.
@@ -825,7 +826,7 @@ Additional ADRs and service-local decisions:
 - [[ADR-0010-cognito-auth]] — Authentication via AWS Cognito JWT.
 - [[clean-architecture-divergence]] — Orders' 5-project Clean Architecture layering, service-local.
 - [[money-as-integer-cents]] — money stored as integer cents, not `decimal`.
-- [[grpc-api-key-authorization]] — the `x-api-key` scheme securing the Orders→Users gRPC call.
+- [[internal-api-key-authorization]] — the `x-api-key` scheme securing the Orders→Users gRPC call.
 - [[for-update-pessimistic-locking]] — tagged LINQ + interceptor for the stock row lock.
 
 ## Deltas from the original design (superseded)
@@ -838,7 +839,7 @@ spec originally said:
 - `Order`/`OrderDetails` store both `user_id` (internal) and `cognito_sub` (gateway-supplied), not `user_id` alone.
 - Architecture diverges from [[ADR-0008-screaming-arch-di]] for this service only. See [[clean-architecture-divergence]].
 - Added `GET /v1/products` (not in the original endpoint table). See [[2026-07-16-orders-list-products-endpoint-design]].
-- Added the gRPC `x-api-key` authorization scheme for the Users call. See [[grpc-api-key-authorization]].
+- Added the gRPC `x-api-key` authorization scheme for the Users call. See [[internal-api-key-authorization]].
 - Stock locking moved from raw `FOR UPDATE` SQL to tagged LINQ + an EF Core interceptor. See [[for-update-pessimistic-locking]].
 
 Full milestone design: [[2026-07-14-orders-service-milestone-design]].
@@ -872,7 +873,7 @@ Full milestone design: [[2026-07-14-orders-service-milestone-design]].
 - [[2026-08-18-distributed-tracing-spans]] — implementation plan.
 - [[clean-architecture-divergence]]
 - [[money-as-integer-cents]]
-- [[grpc-api-key-authorization]]
+- [[internal-api-key-authorization]]
 - [[for-update-pessimistic-locking]]
 - [[2026-07-14-orders-service-milestone-design]]
 - [[2026-07-16-orders-list-products-endpoint-design]]
@@ -927,3 +928,6 @@ Full milestone design: [[2026-07-14-orders-service-milestone-design]].
   alphabet, uniqueness, the collision retry, the UTC prefix trap, and the backfill. Summarized
   under [Order number](#order-number--a-customer-facing-label-not-an-identifier) above.
 - [[2026-09-07-friendly-order-number]] — the design plan behind that convention.
+- [[2026-09-18-cqrs-rule-lived-only-in-the-vault-not-in-the-file-agents-read-first]] — a
+  CQRS-violation review finding on an Orders internal endpoint (endpoint delegate querying
+  the DbContext directly); the code fix is tracked separately, this documents the rule gap.

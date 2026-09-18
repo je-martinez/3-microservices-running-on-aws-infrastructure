@@ -5,6 +5,7 @@ import { firstValueFrom } from 'rxjs';
 import { UsersApi } from '../../core/api/users-api';
 import { SessionStore } from '../../core/auth/session-store';
 import { TokenStore } from '../../core/auth/token-store';
+import { NotificationsSocket } from '../../core/notifications/notifications-socket';
 
 /**
  * The one path from "the app is signed in" to signed out.
@@ -19,6 +20,7 @@ export class SignOut {
   private readonly usersApi = inject(UsersApi);
   private readonly tokenStore = inject(TokenStore);
   private readonly sessionStore = inject(SessionStore);
+  private readonly socket = inject(NotificationsSocket);
   private readonly router = inject(Router);
 
   /**
@@ -41,6 +43,10 @@ export class SignOut {
    * request guaranteed to fail, and awaiting it only delays the redirect.
    */
   async discard(): Promise<void> {
+    // CONTRACT: Close the socket BEFORE the tokens go. It reconnects on close,
+    // and a retry armed after the clear reads no token and re-opens a handshake
+    // the authorizer rejects, on a loop, from a signed-out tab.
+    this.socket.disconnect();
     this.sessionStore.clear();
     await this.tokenStore.clear();
     await this.router.navigateByUrl('/login');

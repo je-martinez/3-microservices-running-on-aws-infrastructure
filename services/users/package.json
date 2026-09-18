@@ -27,9 +27,13 @@
     "prisma": "prisma"
   },
   "dependencies": {
+    "@aws-sdk/client-apigatewaymanagementapi": "^3.1104.0",
     "@aws-sdk/client-cloudwatch": "^3.1075.0",
     "@aws-sdk/client-cognito-identity-provider": "^3.1075.0",
+    "@aws-sdk/client-dynamodb": "^3.1075.0",
+    "@aws-sdk/client-sns": "^3.1131.0",
     "@aws-sdk/client-sqs": "^3.1075.0",
+    "@aws-sdk/lib-dynamodb": "^3.1075.0",
     "@fastify/awilix": "^8.2.0",
     "@fastify/otel": "^0.20.1",
     "@fastify/swagger": "^9.5.1",
@@ -55,6 +59,7 @@
     "nanoid": "^5.1.16",
     "pg": "^8.22.0",
     "pino": "^10.3.1",
+    "sqs-consumer": "^15.0.3",
     "zod": "^3.23.0"
   },
   "devDependencies": {

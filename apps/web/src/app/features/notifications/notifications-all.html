@@ -1,0 +1,98 @@
+<div class="bg-surface-body flex w-full flex-1 flex-col items-center px-6 py-5 md:px-12 md:py-11">
+  <div class="flex h-fit w-full max-w-260 shrink-0 flex-col items-start justify-start gap-3xl md:gap-6">
+    <div
+      class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-3xl md:flex-row md:items-end md:justify-between md:gap-0"
+    >
+      <div class="flex h-fit w-full shrink-0 flex-row items-end justify-between md:w-fit">
+        <div class="flex h-fit w-fit shrink-0 flex-col items-start justify-start gap-1 md:gap-2xs">
+          <h1 class="text-ink-primary text-display-sm font-bold tracking-tight md:text-3xl">
+            Notifications
+          </h1>
+          <p data-testid="page-sub" class="text-ink-secondary text-body-sm md:text-label">
+            {{ subtitle() }}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          class="text-brand-navy text-body-sm font-semibold whitespace-nowrap md:hidden"
+          (click)="markAllRead()"
+        >
+          Mark all read
+        </button>
+      </div>
+
+      <div class="flex h-fit w-full shrink-0 flex-row items-center justify-start gap-5 md:w-fit">
+        <div class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-2 md:gap-md">
+          @for (option of filters; track option.value) {
+            <button
+              [attr.data-testid]="'pill-' + option.value"
+              type="button"
+              class="h-control flex w-fit shrink-0 flex-row items-center justify-start rounded-full border px-3xl text-body font-semibold whitespace-nowrap md:px-4"
+              [class]="
+                store.filter() === option.value
+                  ? 'bg-brand-navy border-brand-navy text-surface-white'
+                  : 'bg-surface-white border-line-strong text-ink-secondary font-normal'
+              "
+              [attr.aria-pressed]="store.filter() === option.value"
+              (click)="setFilter(option.value)"
+            >
+              {{ option.label }}
+            </button>
+          }
+        </div>
+
+        <button
+          type="button"
+          class="text-brand-navy hidden text-body-lg font-semibold whitespace-nowrap md:block"
+          (click)="markAllRead()"
+        >
+          Mark all as read
+        </button>
+      </div>
+    </div>
+
+    @if (store.loading() && groups().length === 0) {
+      <p class="text-ink-secondary w-full py-10 text-center text-body" aria-busy="true">
+        Loading your notifications…
+      </p>
+    } @else if (store.error(); as error) {
+      <p class="text-danger-red w-full py-10 text-center text-body" role="alert">{{ error }}</p>
+    } @else {
+      <div
+        class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-3xl md:gap-6"
+      >
+        @for (group of groups(); track group.label) {
+          <section
+            class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-2 md:gap-md"
+          >
+            <h2
+              data-testid="group-label"
+              class="text-ink-muted text-micro tracking-overline font-semibold whitespace-nowrap md:text-xs md:tracking-overline-lg"
+            >
+              {{ group.label }}
+            </h2>
+            <div
+              class="border-line bg-surface-white flex h-fit w-full shrink-0 flex-col items-start justify-start gap-1 rounded-xl border p-2 md:p-md"
+            >
+              @for (row of group.rows; track row.notification.id) {
+                <app-notification-item
+                  [notification]="row.notification"
+                  [highlighted]="store.isHighlighted(row.notification.id)"
+                  [timeLabel]="row.time"
+                />
+              }
+            </div>
+          </section>
+        } @empty {
+          <p
+            data-testid="empty-state"
+            class="border-line bg-surface-white text-ink-secondary w-full rounded-xl border py-12 text-center text-body"
+          >
+            You're all caught up.
+          </p>
+        }
+      </div>
+    }
+  </div>
+</div>

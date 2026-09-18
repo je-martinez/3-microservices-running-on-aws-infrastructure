@@ -409,6 +409,11 @@ services:
         # and offering an autocomplete that always fails is worse than not
         # offering it. Turn both on together.
         NG_APP_GEOCODE_ENABLED: "true"
+        # Interpolated, not literal: it carries the api id Floci remints on
+        # every apply, so `make env-file` writes it into ./.env. Empty leaves
+        # the socket unopened — live toasts and the unread badge are then
+        # absent, and the app says so in a console warning rather than failing.
+        NG_APP_WS_URL: "${WS_URL:-}"
     networks: [3mrai-network]
     ports:
       # Host 3004 → container 80 (nginx). 3000/3001/3002 are taken by users,

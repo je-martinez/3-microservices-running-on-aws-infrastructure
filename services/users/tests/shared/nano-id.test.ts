@@ -83,4 +83,19 @@ describe("nano-id", () => {
       expect(NanoIdConfig.pattern("usr_").test("usr_V1StGXR8Z5jdHi6B-myT")).toBe(false);
     });
   });
+
+  describe("notification ids", () => {
+    it("mints an ntf_-prefixed id of the shared width", () => {
+      const id = NanoIdConfig.newNotificationId();
+      expect(id).toMatch(NanoIdConfig.pattern("ntf_"));
+      expect(id).toHaveLength(NanoIdConfig.TOTAL_LENGTH);
+    });
+
+    // CONTRACT: The Prisma extension looks a model up by NAME in MODEL_ID_PREFIXES
+    // to stamp `id`. A missing entry logs a warning and inserts a row with no id,
+    // which fails on the primary key — at runtime, not at compile time.
+    it("registers the model prefix so the extension can stamp it", () => {
+      expect(MODEL_ID_PREFIXES.Notification).toBe("ntf_");
+    });
+  });
 });

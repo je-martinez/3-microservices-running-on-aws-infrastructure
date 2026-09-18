@@ -8,7 +8,7 @@ deciders: ["Jose E. Martinez"]
 supersedes: null
 superseded-by: null
 created: 2026-07-28
-updated: 2026-07-28
+updated: 2026-09-18
 tags: [type/adr, area/orders, status/accepted]
 related:
   - "[[orders-service-design]]"
@@ -16,6 +16,7 @@ related:
   - "[[cqrs]]"
   - "[[2026-07-14-orders-service-milestone-design]]"
   - "[[2026-07-14-orders-service-milestone]]"
+  - "[[2026-09-18-cqrs-rule-lived-only-in-the-vault-not-in-the-file-agents-read-first]]"
 ---
 
 # Orders diverges from screaming architecture — Clean Architecture with class libraries
@@ -71,3 +72,6 @@ they make the same explicit tradeoff.
 - [[cqrs]]
 - [[2026-07-14-orders-service-milestone-design]]
 - [[2026-07-14-orders-service-milestone]]
+- [[2026-09-18-cqrs-rule-lived-only-in-the-vault-not-in-the-file-agents-read-first]] — clarifies
+  that "handler" in [[cqrs]] means this ADR's Infrastructure-layer service classes for Orders,
+  not an `Orders.Application` handler — relevant to how the CQRS-violation fix should be shaped.

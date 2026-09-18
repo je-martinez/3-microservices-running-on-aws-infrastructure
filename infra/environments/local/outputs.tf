@@ -141,8 +141,9 @@ output "ws_connections_gsi" {
   value       = module.ws_connections.gsi_name
 }
 
-# IN-NETWORK (floci:4566): read into the events-pipeline's environment. Not
-# host-reachable, and deliberately so — the only consumer is a Lambda container.
+# IN-NETWORK (floci:4566): read into the events-pipeline's environment and into
+# .env.local.users. Not host-reachable — both consumers are containers on
+# 3mrai-network, which is what makes this shape the correct one for them.
 output "ws_management_endpoint" {
   description = "@connections management endpoint used by the events-pipeline fan-out (Floci's undocumented /execute-api/ shape)."
   value       = module.api_gateway_ws.management_endpoint_local
@@ -161,4 +162,18 @@ output "secret_arn" {
   description = "ARN of the Secrets Manager secret holding the Aurora master credentials."
   value       = module.rds_aurora.secret_arn
   sensitive   = true
+}
+
+# The fan-out topic all three producers publish to. Read into every producer's
+# generated env file — never hardcoded, because Floci remints the ARN on recreate.
+output "events_topic_arn" {
+  description = "ARN of the SNS events topic (the publish target for Users, Orders and Tracking)."
+  value       = module.messaging.topic_arn
+}
+
+# The queue Users consumes in-process. Filtered at the subscription to the two
+# notification-producing event types.
+output "notifications_queue_url" {
+  description = "URL of the notifications SQS queue consumed by the Users service."
+  value       = module.messaging.notifications_queue_url
 }

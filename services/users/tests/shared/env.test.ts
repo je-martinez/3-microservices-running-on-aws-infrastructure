@@ -9,10 +9,13 @@ const base = {
   AWS_ENDPOINT_URL: "http://ministack:4566",
   AWS_REGION: "us-east-1",
   WEBHOOK_SECRET: "s3cret",
-  GRPC_API_KEY: "local-dev-grpc-key",
+  INTERNAL_API_KEY: "local-dev-internal-key",
   ORDERS_BASE_URL: "http://orders:8080",
   TRACKING_BASE_URL: "http://tracking:8000",
-  EVENTS_QUEUE_URL: "http://localhost:4566/000000000000/3mrai-local-events",
+  EVENTS_TOPIC_ARN: "arn:aws:sns:us-east-1:000000000000:3mrai-local-events-topic",
+  NOTIFICATIONS_QUEUE_URL: "http://localhost:4566/000000000000/3mrai-local-notifications",
+  WS_MANAGEMENT_ENDPOINT: "http://floci:4566/execute-api/abc123/$default",
+  WS_CONNECTIONS_TABLE: "3mrai-local-realtime-ws-connections",
   REDIS_HOST: "floci-valkey-cache-3mrai-local-cache-redis",
   REDIS_PORT: "6379",
 };
@@ -69,27 +72,27 @@ describe("parseEnv", () => {
     expect(() => parseEnv(without)).toThrow();
   });
 
-  it("parses GRPC_PORT and GRPC_API_KEY", () => {
+  it("parses GRPC_PORT and INTERNAL_API_KEY", () => {
     const env = parseEnv({
       ...base,
       GRPC_PORT: "50051",
-      GRPC_API_KEY: "local-dev-grpc-key",
+      INTERNAL_API_KEY: "local-dev-internal-key",
     });
     expect(env.GRPC_PORT).toBe(50051);
-    expect(env.GRPC_API_KEY).toBe("local-dev-grpc-key");
+    expect(env.INTERNAL_API_KEY).toBe("local-dev-internal-key");
   });
 
   it("defaults GRPC_PORT to 50051 when absent", () => {
     expect(parseEnv(base).GRPC_PORT).toBe(50051);
   });
 
-  it("requires GRPC_API_KEY", () => {
-    const { GRPC_API_KEY: _omit, ...without } = base;
+  it("requires INTERNAL_API_KEY", () => {
+    const { INTERNAL_API_KEY: _omit, ...without } = base;
     expect(() => parseEnv(without)).toThrow();
   });
 
-  it("requires EVENTS_QUEUE_URL", () => {
-    const { EVENTS_QUEUE_URL: _omit, ...without } = base;
+  it("requires EVENTS_TOPIC_ARN", () => {
+    const { EVENTS_TOPIC_ARN: _omit, ...without } = base;
     expect(() => parseEnv(without)).toThrow();
   });
 
@@ -106,12 +109,14 @@ describe("parseEnv", () => {
     expect(() => parseEnv(without)).toThrow();
   });
 
-  it("rejects a non-URL EVENTS_QUEUE_URL", () => {
-    expect(() => parseEnv({ ...base, EVENTS_QUEUE_URL: "not-a-url" })).toThrow();
+  it("rejects a non-URL NOTIFICATIONS_QUEUE_URL", () => {
+    expect(() => parseEnv({ ...base, NOTIFICATIONS_QUEUE_URL: "not-a-url" })).toThrow();
   });
 
-  it("parses EVENTS_QUEUE_URL", () => {
-    expect(parseEnv(base).EVENTS_QUEUE_URL).toBe("http://localhost:4566/000000000000/3mrai-local-events");
+  it("parses EVENTS_TOPIC_ARN", () => {
+    expect(parseEnv(base).EVENTS_TOPIC_ARN).toBe(
+      "arn:aws:sns:us-east-1:000000000000:3mrai-local-events-topic",
+    );
   });
 
   // REDIS_* has NO default on purpose (see the schema comment): the endpoint the
@@ -136,5 +141,60 @@ describe("parseEnv", () => {
 
   it("rejects a non-numeric REDIS_PORT", () => {
     expect(() => parseEnv({ ...base, REDIS_PORT: "not-a-port" })).toThrow();
+  });
+});
+
+describe("notification env vars", () => {
+  // The base of a valid environment, mirroring vitest.config.ts's test.env.
+  function baseEnv(): Record<string, string> {
+    return {
+      DATABASE_WRITER_URL: "postgres://user:pass@localhost:5432/users",
+      DATABASE_READER_URL: "postgres://user:pass@localhost:5432/users",
+      COGNITO_USER_POOL_ID: "us-east-1_dummy",
+      COGNITO_CLIENT_ID: "dummy_client",
+      AWS_ENDPOINT_URL: "http://localhost:4566",
+      AWS_REGION: "us-east-1",
+      WEBHOOK_SECRET: "test-webhook-secret",
+      INTERNAL_API_KEY: "test-grpc-key",
+      ORDERS_BASE_URL: "http://localhost:8080",
+      TRACKING_BASE_URL: "http://localhost:8000",
+      REDIS_HOST: "localhost",
+      REDIS_PORT: "6379",
+      EVENTS_TOPIC_ARN: "arn:aws:sns:us-east-1:000000000000:3mrai-local-events-topic",
+      NOTIFICATIONS_QUEUE_URL: "http://localhost:4566/000000000000/3mrai-local-notifications",
+      WS_MANAGEMENT_ENDPOINT: "http://floci:4566/execute-api/abc123/$default",
+      WS_CONNECTIONS_TABLE: "3mrai-local-realtime-ws-connections",
+      WS_CONNECTIONS_GSI: "by-cognito-sub",
+    };
+  }
+
+  it("parses the five notification vars", () => {
+    const env = parseEnv(baseEnv());
+    expect(env.EVENTS_TOPIC_ARN).toContain("arn:aws:sns");
+    expect(env.NOTIFICATIONS_QUEUE_URL).toContain("notifications");
+    expect(env.WS_MANAGEMENT_ENDPOINT).toContain("execute-api");
+    expect(env.WS_CONNECTIONS_TABLE).toContain("ws-connections");
+    expect(env.WS_CONNECTIONS_GSI).toBe("by-cognito-sub");
+  });
+
+  // CONTRACT: Required with no default. A missing value must fail at BOOT with a
+  // named Zod error — a defaulted topic ARN publishes into the void and every
+  // notification is silently lost. See [[ADR-0014-env-validation-zod]]
+  it.each([
+    "EVENTS_TOPIC_ARN",
+    "NOTIFICATIONS_QUEUE_URL",
+    "WS_MANAGEMENT_ENDPOINT",
+    "WS_CONNECTIONS_TABLE",
+  ])("fails to boot without %s", (key) => {
+    const source = baseEnv();
+    delete source[key];
+    expect(() => parseEnv(source)).toThrow(new RegExp(key));
+  });
+
+  // The one that MAY default: the GSI name is a Terraform constant, not a minted id.
+  it("defaults WS_CONNECTIONS_GSI to by-cognito-sub", () => {
+    const source = baseEnv();
+    delete source.WS_CONNECTIONS_GSI;
+    expect(parseEnv(source).WS_CONNECTIONS_GSI).toBe("by-cognito-sub");
   });
 });

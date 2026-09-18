@@ -4,9 +4,11 @@ type: spec
 area: infra
 status: active
 created: 2026-06-26
-updated: 2026-08-09
+updated: 2026-09-15
 tags: [type/spec, area/infra, status/active]
 related:
+  - "[[2026-09-10-in-app-notifications-design]]"
+  - "[[floci-sns-fanout-support]]"
   - ADR-0001-terraform-cloudposse-naming
   - "[[ADR-0017-floci-local]]"
   - "[[local-dev-floci]]"
@@ -57,7 +59,7 @@ The real module inventory under `infra/modules/`:
 | `infra/modules/cognito` | Cognito User Pool (+ `custom:app_user_id` attribute), App Client, and the repo's first Lambda (Pre-Token-Generation V2 — see [[cognito-pre-token-lambda]]) |
 | `infra/modules/rds-aurora` | Aurora cluster (writer + reader endpoints), engine-agnostic — serves both Aurora Postgres (users) and Aurora MySQL (orders, tracking); see [[rds-aurora-engine-switchable-floci]] |
 | `infra/modules/docdb` | DocumentDB cluster + instance + subnet group, plus the awscli fallback for Floci (`manage_cluster_via_provider = false`); backs the events-pipeline's event store — see [[events-pipeline-design]] |
-| `infra/modules/messaging` | SQS main queue + DLQ + redrive-allow policy for the events-pipeline; see [[events-pipeline-design]] |
+| `infra/modules/messaging` | SQS main queue + DLQ + redrive-allow policy for the events-pipeline, plus (2026-09-15) the SNS fan-out topic and the notifications queue/subscriptions — see [[events-pipeline-design]] and [SNS fan-out and the notifications queue](#sns-fan-out-and-the-notifications-queue-2026-09-15) below |
 | `infra/modules/lambda` | packages and deploys the events-pipeline Lambda (IAM exec role, log group, SQS event source mapping with `ReportBatchItemFailures`); see [[events-pipeline-design]] |
 | `infra/modules/db-app-user` | engine-parameterized least-privilege DB app-user (Terraform, phase 2) — see [[two-phase-terraform-apply]] |
 | `infra/modules/tf-backend` | create-once bootstrap: the remote-state S3 bucket + versioning, the state-lock DynamoDB table, and the `execution_log` DynamoDB table every awscli-fallback `local-exec` script records its run to — see [[terraform-remote-state-backend]] |
@@ -133,6 +135,55 @@ Floci. Several decisions layered on top of that initial composition:
   injects `x-user-id` via njs — both are Floci-only workarounds for gaps in the emulator; see
   [[local-gateway-per-route-integrations]] and [[nginx-njs-x-user-id-injection]].
 
+### SNS fan-out and the notifications queue (2026-09-15)
+
+> [!info] Shipped 2026-09-15 — In-App Notifications milestone
+> Full design: [[2026-09-10-in-app-notifications-design]]. De-risked first by a throwaway Floci
+> probe: [[floci-sns-fanout-support]] (all four assertions held — fan-out, raw delivery,
+> `MessageAttributes` survival, and filter-policy enforcement — so the design shipped unchanged).
+
+`infra/modules/messaging` gained an SNS topic and a second SQS queue, so the three producers
+(Users, Orders, Tracking) can feed **two** independent consumers — the existing events-pipeline
+Lambda and the new in-process Users consumer — from one publish call. SQS alone could not do
+this: it is point-to-point, so a second consumer on the existing `<id>-events` queue would steal
+roughly half of every message type from whichever consumer lost the race.
+
+| Resource | Notes |
+|---|---|
+| `aws_sns_topic.events` (`<id>-events-topic`) | The single publish target for all three producers, replacing their direct `SendMessageCommand` calls. |
+| `aws_sqs_queue.notifications` (`<id>-notifications`) | Consumed in-process by Users (see [[users-service-design#The sqs-consumer — started in server.ts, never in buildApp()]]). **Its DLQ target is the SHARED `dlq`** — a poison message is a poison message whichever consumer choked on it, and a second DLQ only doubles the places an operator has to triage. |
+| `aws_sns_topic_subscription.events_queue` | Subscribes the existing `<id>-events` queue, `raw_message_delivery = true`, no filter — every event still reaches the pipeline unchanged. |
+| `aws_sns_topic_subscription.notifications_queue` | Subscribes `<id>-notifications`, `raw_message_delivery = true`, plus `filter_policy_scope = "MessageAttributes"` and a `filter_policy` on `type` admitting exactly `USER_CREATED`, `ORDER_CREATED`, `TRACKING_STATUS_CHANGED`. |
+| `aws_sqs_queue_policy.main_from_sns` / `notifications_from_sns` | One per queue, each naming the topic's ARN in an `AllowSnsDelivery` statement. |
+
+> [!warning] Both queues need a policy, or SNS delivery is silently dropped
+> A queue with no policy naming the topic simply never receives the message — the publish still
+> reports success at the publisher, and nothing appears at the consumer. This is not a permission
+> **error**, it is silent delivery loss, which is why both policies exist even though the
+> notifications queue is brand new and might otherwise seem to need only the filter.
+
+**Raw message delivery on both subscriptions is the load-bearing detail**, not an optional
+tuning knob: without it, SNS wraps the body in its own JSON envelope, and the events-pipeline's
+`EnvelopeSchema` would receive an SNS envelope instead of the domain envelope it expects —
+breaking all three existing handlers silently. With raw delivery the body is byte-for-byte what
+producers publish today, so the pipeline's own code needed zero changes (see
+[[events-pipeline-design#Transport change (2026-09-15): producers now publish to SNS, not SQS directly]]).
+`MessageAttributes` (`type`, `source`, `traceparent`) survive raw delivery on both subscriptions
+too — the filter policy depends on the first, and distributed tracing continuity depends on the
+second (see [[ADR-0019-distributed-tracing-opentelemetry]]).
+
+**No new Lambda-owning module.** The consumer for the notifications queue lives **inside Users**,
+an existing long-running process, not a new Lambda — so unlike `dynamodb`/`api-gateway-ws` (added
+for the realtime WebSocket feature), this change needed no new compute module, only the two new
+resources above plus the existing `messaging` module's outputs.
+
+> [!warning] `sns` must be declared in the local provider's `endpoints` block
+> `infra/environments/local/providers.tf` must declare `sns = "http://localhost:4566"` alongside
+> every other Floci-routed service — an undeclared service sends the call to real AWS, which
+> rejects the test credentials with `InvalidClientTokenId` rather than reaching Floci at all. This
+> is the same class of trap the provider file's own CONTRACT comment already documents for
+> `events`/EventBridge (the provider's SNS service key is simply `sns`, no alias to get wrong).
+
 ## Naming Convention
 
 Every module instantiation passes a `context` object sourced from the root
@@ -163,6 +214,11 @@ Resource names are derived via `module.label.id` (e.g. `3mrai-prod-users`). Tags
 
 ## Related
 
+- [[2026-09-10-in-app-notifications-design]] — the design behind the SNS fan-out topic and the
+  notifications queue documented above.
+- [[floci-sns-fanout-support]] — the Floci probe that verified SNS fan-out, raw delivery, and the
+  filter policy before this change shipped.
+- [[users-service-design]] — the in-process consumer for the new `<id>-notifications` queue.
 - [[ADR-0001-terraform-cloudposse-naming]]
 - [[ADR-0017-floci-local]]
 - [[local-dev-floci]]

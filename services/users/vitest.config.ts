@@ -24,11 +24,18 @@ export default defineConfig({
       COGNITO_CLIENT_ID: "dummy_client",
       AWS_ENDPOINT_URL: "http://localhost:4566",
       AWS_REGION: "us-east-1",
-      EVENTS_QUEUE_URL: "http://localhost:4566/000000000000/3mrai-local-events",
+      EVENTS_TOPIC_ARN: "arn:aws:sns:us-east-1:000000000000:3mrai-local-events-topic",
+      NOTIFICATIONS_QUEUE_URL: "http://localhost:4566/000000000000/3mrai-local-notifications",
+      // Required by the env schema, so the whole suite fails to import without
+      // them. No socket is opened here: the realtime clients are built lazily by
+      // the Awilix SINGLETON and no unit test resolves them.
+      WS_MANAGEMENT_ENDPOINT: "http://localhost:4566/execute-api/test/$default",
+      WS_CONNECTIONS_TABLE: "3mrai-test-ws-connections",
+      WS_CONNECTIONS_GSI: "by-cognito-sub",
       NODE_ENV: "test",
       WEBHOOK_SECRET: "test-webhook-secret",
       GRPC_PORT: "50051",
-      GRPC_API_KEY: "test-grpc-key",
+      INTERNAL_API_KEY: "test-grpc-key",
       // The account-deletion cascade's downstream services. Present so the env
       // schema validates; no test reaches these hosts — CascadeClient takes an
       // injected fetch.

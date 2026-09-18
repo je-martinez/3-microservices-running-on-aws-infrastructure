@@ -86,7 +86,7 @@ func NewCarrierHandler(uc StatusTransitioner, log *slog.Logger, tracer trace.Tra
 // CONTRACT: Keep the guard on the group, never per route, so every endpoint
 // added here is authenticated by default. This surface mutates delivery state
 // behind no Cognito authorizer, so a forgotten per-route guard ships an open
-// mutation endpoint. The key is TRACKING_CARRIER_API_KEY, never GRPC_API_KEY.
+// mutation endpoint. The key is TRACKING_CARRIER_API_KEY, never INTERNAL_API_KEY.
 // See [[two-api-keys-two-trust-domains]]
 func RegisterCarrierRoutes(router *gin.Engine, handler *CarrierHandler, carrierAPIKey string) {
 	carrier := router.Group(carrierPrefix, RequireCarrierKey(carrierAPIKey, handler.log))

@@ -207,7 +207,7 @@ why a dropped `Register*` call fails a unit test at the commit that dropped it
 rather than a gateway E2E hours later. Never move composition back into `main.go`.
 
 **Flags are decided in the composition root and nowhere else.** `CACHE_ENABLED`,
-`METRICS_ENABLED` and `EVENTS_QUEUE_URL` are each read exactly once, in `main.go`,
+`METRICS_ENABLED` and `EVENTS_TOPIC_ARN` are each read exactly once, in `main.go`,
 and turned into a **dependency**: a null gateway, a nil publisher, a noop
 publisher. No use case and no middleware branches on a flag.
 
@@ -237,11 +237,11 @@ you add or change a route, add it to this table in the same change.
 | 3 | `GET /v1/trackings/{order_id}` | Cognito JWT → `x-user-id`, scoped by `cognito_sub` | the end user | 401, 404, 422 |
 | 4 | `GET /v1/trackings?order_ids=<csv>` | Cognito JWT → `x-user-id`, scoped by `cognito_sub` | the end user | 400, 401, 422 — **no 404 by design** |
 | 5 | `PUT /v1/trackings/{order_id}/status` | `TRACKING_CARRIER_API_KEY` in `x-api-key`, validated by this service | an external shipping carrier | 400, 401, 404, 422 |
-| 6 | `DELETE /v1/trackings/by-user` | `GRPC_API_KEY` in `x-api-key`, validated by this service | Users' account-deletion cascade | 401, 422, 500 |
+| 6 | `DELETE /v1/trackings/by-user` | `INTERNAL_API_KEY` in `x-api-key`, validated by this service | Users' account-deletion cascade | 401, 422, 500 |
 | 7 | `DELETE /v1/trackings/e2e-cleanup` | **none** — the route only EXISTS under `E2E_TESTING_ENABLED` | the E2E harness's global teardown | — (200 only) |
 
 Plus one **outbound** surface: `users.v1.Users/GetUserById` over gRPC, presenting
-`GRPC_API_KEY`. Tracking **serves no gRPC** — the only gRPC here is this client.
+`INTERNAL_API_KEY`. Tracking **serves no gRPC** — the only gRPC here is this client.
 
 Route-by-route notes that are not visible in the table:
 
@@ -326,13 +326,13 @@ layers**, load-test scenarios where relevant, and observability. See the root
 |---|---|---|---|---|
 | Cognito JWT (verified at the gateway) | `x-user-id` (the JWT **sub**) | — | end user | 2, 3, 4 |
 | Carrier API key | `x-api-key` | `TRACKING_CARRIER_API_KEY` | **external** vendor | 5 |
-| Internal API key | `x-api-key` | `GRPC_API_KEY` | **internal** services | 6 |
+| Internal API key | `x-api-key` | `INTERNAL_API_KEY` | **internal** services | 6 |
 | None | — | — | — | 1, 7 |
 
 > **The two `x-api-key` schemes are DIFFERENT SECRETS in DIFFERENT TRUST DOMAINS.
 > They share a header name and nothing else. Never collapse them.**
 >
-> `GRPC_API_KEY` is internal, shared only with Users and Orders. The carrier key is
+> `INTERNAL_API_KEY` is internal, shared only with Users and Orders. The carrier key is
 > handed to an **outside vendor**. Reusing one as the other would give that vendor a
 > credential that authenticates as an internal service against **every internal
 > surface we have** — including route 6, a mass soft-delete, which is the widest
@@ -746,10 +746,15 @@ Other implementation rules:
 
 ### `TRACKING_STATUS_CHANGED` — the third producer
 
-Tracking publishes to the shared SQS events queue (`EVENTS_QUEUE_URL`) on **every**
-status transition, consumed by the events-pipeline Lambda, which emails the user
-and pushes over WebSocket. See `internal/adapter/sqs/` and
-`internal/adapter/notify/`.
+Tracking publishes to the shared SNS events topic (`EVENTS_TOPIC_ARN`) on **every**
+status transition. The topic fans the message out to the events-pipeline queue —
+with `raw_message_delivery`, so the consumer receives the envelope byte-for-byte
+and needs no change — and the Lambda emails the user and pushes over WebSocket.
+See `internal/adapter/sqs/` and `internal/adapter/notify/`.
+
+The adapter package is named `sqs` although it publishes to SNS:
+`cmd/server/wiring_reachability_test.go` pins its import path, so a rename means
+editing that inventory in the same change. The `CONTRACT` on `NewPublisher` says so.
 
 - **Best-effort, never fails the write.** A publish failure is logged with a
   machine-readable `reason` and swallowed — a notification must not break the write

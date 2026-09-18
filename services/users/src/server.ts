@@ -14,14 +14,20 @@ await app.listen({ port: env.PORT, host: "0.0.0.0" }).catch((err) => {
   process.exit(1);
 });
 
-// CONTRACT: Start the metrics poller here, NOT in buildApp() — the test suite calls
-// buildApp too, and a live timer in every run would hit the database outside any
-// test's control. The SCOPED `userQueryService` resolves safely from the root
+// CONTRACT: Start the metrics poller and the notifications consumer here, NOT in
+// buildApp() — the test suite calls buildApp too, and a live timer or a live SQS
+// long-poll in every run would hit the database and DELETE real messages outside
+// any test's control. The SCOPED `userQueryService` resolves safely from the root
 // container because its only dependency is a root singleton.
 const businessMetricsPoller = app.diContainer.resolve("businessMetricsPoller");
 businessMetricsPoller.start();
+
+const notificationConsumer = app.diContainer.resolve("notificationConsumer");
+notificationConsumer.start();
+
 process.on("SIGTERM", () => {
   businessMetricsPoller.stop();
+  notificationConsumer.stop();
 });
 
 const userQueryService = app.diContainer.resolve("userQueryService");

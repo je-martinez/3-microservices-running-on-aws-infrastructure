@@ -1,24 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { context, trace, SpanKind, SpanStatusCode } from "@opentelemetry/api";
-import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
-import { SqsEventPublisher } from "#shared/messaging/event-publisher";
+import { PublishCommand, type SNSClient } from "@aws-sdk/client-sns";
+import { SnsEventPublisher } from "#shared/messaging/event-publisher";
 import { appLogger } from "#shared/logging/app-logger";
 import { hashEmail } from "#shared/logging/email-hash";
 import { logContext } from "#shared/logging/log-context";
 import { NanoIdConfig } from "#shared/id/nano-id";
 import { testSpanExporter } from "../../setup-tracing.ts";
 
-const QUEUE_URL = "http://localhost:4566/000000000000/events";
+const TOPIC_ARN = "arn:aws:sns:us-east-1:000000000000:3mrai-local-events-topic";
 
-// A hand-rolled double instead of vi.mock("@aws-sdk/client-sqs"): the real
-// SendMessageCommand must stay real so the assertions below inspect the command
-// the publisher actually built, not a stub of our own making.
+// A hand-rolled double instead of vi.mock("@aws-sdk/client-sns"): the real
+// PublishCommand must stay real so the assertions below inspect the command the
+// publisher actually built, not a stub of our own making.
 function fakeClient(send = vi.fn(async () => ({ MessageId: "m1" }))) {
-  return { send } as unknown as SQSClient & { send: ReturnType<typeof vi.fn> };
+  return { send } as unknown as SNSClient & { send: ReturnType<typeof vi.fn> };
 }
 
-function sentCommand(client: ReturnType<typeof fakeClient>): SendMessageCommand {
-  return client.send.mock.calls[0]![0] as SendMessageCommand;
+function sentCommand(client: ReturnType<typeof fakeClient>): PublishCommand {
+  return client.send.mock.calls[0]![0] as PublishCommand;
 }
 
 const CREATED_AT = new Date("2026-01-15T10:30:00.000Z");
@@ -40,9 +40,9 @@ const RESET_PAYLOAD = {
   cognitoSub: "a1b2-c3d4",
 };
 
-describe("SqsEventPublisher", () => {
-  // The SQS hop is where the trace cascade breaks invisibly: nothing carries context
-  // across a queue, so wrong attributes start a fresh, disconnected trace with no
+describe("SnsEventPublisher", () => {
+  // The SNS hop is where the trace cascade breaks invisibly: nothing carries context
+  // across a topic, so wrong attributes start a fresh, disconnected trace with no
   // error anywhere. The real W3C propagator is registered in tests/setup-tracing.ts.
 
   // WARNING: These observe what `traceparentAttributes()` writes; in production that
@@ -59,15 +59,15 @@ describe("SqsEventPublisher", () => {
     });
 
     function publishedSpan() {
-      return testSpanExporter.getFinishedSpans().find((s) => s.name.startsWith("sqs.publish"))!;
+      return testSpanExporter.getFinishedSpans().find((s) => s.name.startsWith("sns.publish"))!;
     }
 
-    async function publishInsideSpan(publish: (publisher: SqsEventPublisher) => Promise<void>) {
+    async function publishInsideSpan(publish: (publisher: SnsEventPublisher) => Promise<void>) {
       const client = fakeClient();
       const span = tracer.startSpan("test-span");
 
       await context.with(trace.setSpan(context.active(), span), () =>
-        publish(new SqsEventPublisher(client, QUEUE_URL)),
+        publish(new SnsEventPublisher(client, TOPIC_ARN)),
       );
       span.end();
 
@@ -113,7 +113,7 @@ describe("SqsEventPublisher", () => {
       // No context.with. The publisher opens its own span, so the message still
       // carries a valid traceparent naming a root publish span and the pipeline's work
       // joins THAT trace instead of starting an orphan.
-      await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
+      await new SnsEventPublisher(client, TOPIC_ARN).publishUserCreated(PAYLOAD);
 
       const traceparent = sentCommand(client).input.MessageAttributes!.traceparent;
       const span = publishedSpan();
@@ -131,7 +131,7 @@ describe("SqsEventPublisher", () => {
     it("does the same on the password-reset publish outside a caller span", async () => {
       const client = fakeClient();
 
-      await new SqsEventPublisher(client, QUEUE_URL).publishPasswordResetRequested(RESET_PAYLOAD);
+      await new SnsEventPublisher(client, TOPIC_ARN).publishPasswordResetRequested(RESET_PAYLOAD);
 
       const span = publishedSpan();
       expect(sentCommand(client).input.MessageAttributes!.traceparent!.StringValue).toBe(
@@ -142,7 +142,7 @@ describe("SqsEventPublisher", () => {
     it("never puts the trace context in the envelope body — that is a Zod-validated domain contract", async () => {
       const { client } = await publishInsideSpan((publisher) => publisher.publishUserCreated(PAYLOAD));
 
-      const raw = sentCommand(client).input.MessageBody!;
+      const raw = sentCommand(client).input.Message!;
       // Scanned on the RAW string, not the parsed object: the rule is that the
       // pipeline's EnvelopeSchema never sees these keys at any depth.
       expect(raw).not.toContain("traceparent");
@@ -161,10 +161,10 @@ describe("SqsEventPublisher", () => {
       const request_id = NanoIdConfig.newRequestId();
 
       await logContext.run({ request_id }, () =>
-        new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD),
+        new SnsEventPublisher(client, TOPIC_ARN).publishUserCreated(PAYLOAD),
       );
 
-      const body = JSON.parse(sentCommand(client).input.MessageBody!);
+      const body = JSON.parse(sentCommand(client).input.Message!);
       expect(body.request_id).toBe(request_id);
     });
 
@@ -174,9 +174,9 @@ describe("SqsEventPublisher", () => {
       // without retry and its email is lost.
       const client = fakeClient();
 
-      await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
+      await new SnsEventPublisher(client, TOPIC_ARN).publishUserCreated(PAYLOAD);
 
-      const body = JSON.parse(sentCommand(client).input.MessageBody!);
+      const body = JSON.parse(sentCommand(client).input.Message!);
       expect("request_id" in body).toBe(false);
     });
   });
@@ -190,10 +190,10 @@ describe("SqsEventPublisher", () => {
       const client = fakeClient();
 
       await logContext.run({ run_id: "run_abc" }, () =>
-        new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD),
+        new SnsEventPublisher(client, TOPIC_ARN).publishUserCreated(PAYLOAD),
       );
 
-      const body = JSON.parse(sentCommand(client).input.MessageBody!);
+      const body = JSON.parse(sentCommand(client).input.Message!);
       expect(body.run_id).toBe("run_abc");
     });
 
@@ -201,10 +201,10 @@ describe("SqsEventPublisher", () => {
       const client = fakeClient();
 
       await logContext.run({ run_id: "run_abc" }, () =>
-        new SqsEventPublisher(client, QUEUE_URL).publishPasswordResetRequested(RESET_PAYLOAD),
+        new SnsEventPublisher(client, TOPIC_ARN).publishPasswordResetRequested(RESET_PAYLOAD),
       );
 
-      const body = JSON.parse(sentCommand(client).input.MessageBody!);
+      const body = JSON.parse(sentCommand(client).input.Message!);
       expect(body.run_id).toBe("run_abc");
     });
 
@@ -215,26 +215,26 @@ describe("SqsEventPublisher", () => {
       // there and the message's email is lost.
       const client = fakeClient();
 
-      await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
+      await new SnsEventPublisher(client, TOPIC_ARN).publishUserCreated(PAYLOAD);
 
-      const body = JSON.parse(sentCommand(client).input.MessageBody!);
+      const body = JSON.parse(sentCommand(client).input.Message!);
       expect("run_id" in body).toBe(false);
     });
   });
 
-  it("sends exactly one SendMessageCommand to the configured queue URL", async () => {
+  it("sends exactly one PublishCommand to the configured topic ARN", async () => {
     const client = fakeClient();
-    await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
+    await new SnsEventPublisher(client, TOPIC_ARN).publishUserCreated(PAYLOAD);
 
     expect(client.send).toHaveBeenCalledOnce();
     const command = sentCommand(client);
-    expect(command).toBeInstanceOf(SendMessageCommand);
-    expect(command.input.QueueUrl).toBe(QUEUE_URL);
+    expect(command).toBeInstanceOf(PublishCommand);
+    expect(command.input.TopicArn).toBe(TOPIC_ARN);
   });
 
-  it("sets type and source as SQS message attributes so the queue is inspectable without deserializing", async () => {
+  it("sets type and source as message attributes so a queue is inspectable without deserializing", async () => {
     const client = fakeClient();
-    await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
+    await new SnsEventPublisher(client, TOPIC_ARN).publishUserCreated(PAYLOAD);
 
     const attributes = sentCommand(client).input.MessageAttributes!;
     expect(attributes.type).toEqual({ DataType: "String", StringValue: "USER_CREATED" });
@@ -243,9 +243,9 @@ describe("SqsEventPublisher", () => {
 
   it("builds the snake_case envelope the pipeline validates, with order_id present and null", async () => {
     const client = fakeClient();
-    await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
+    await new SnsEventPublisher(client, TOPIC_ARN).publishUserCreated(PAYLOAD);
 
-    const body = JSON.parse(sentCommand(client).input.MessageBody!);
+    const body = JSON.parse(sentCommand(client).input.Message!);
     expect(body.type).toBe("USER_CREATED");
     expect(body.source).toBe("users");
     expect(body.user_id).toBe("usr_1");
@@ -257,9 +257,9 @@ describe("SqsEventPublisher", () => {
 
   it("carries everything the welcome email renders: email, fullName, userId and createdAt", async () => {
     const client = fakeClient();
-    await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
+    await new SnsEventPublisher(client, TOPIC_ARN).publishUserCreated(PAYLOAD);
 
-    const body = JSON.parse(sentCommand(client).input.MessageBody!);
+    const body = JSON.parse(sentCommand(client).input.Message!);
     // The WHOLE payload, so both a missing field (blank row in the email) and a
     // stray extra one (an unannounced wire change) fail here.
     expect(body.payload).toEqual({
@@ -272,9 +272,9 @@ describe("SqsEventPublisher", () => {
 
   it("keeps the payload camelCase — the casing of the field it joins, not the envelope's", async () => {
     const client = fakeClient();
-    await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
+    await new SnsEventPublisher(client, TOPIC_ARN).publishUserCreated(PAYLOAD);
 
-    const body = JSON.parse(sentCommand(client).input.MessageBody!);
+    const body = JSON.parse(sentCommand(client).input.Message!);
     // This payload has always been camelCase (`fullName`), while the envelope
     // around it is snake_case. New fields follow the payload so it stays
     // internally consistent; the snake_case forms must NOT appear.
@@ -285,18 +285,18 @@ describe("SqsEventPublisher", () => {
 
   it("serializes createdAt as an ISO-8601 string, not a raw Date or an epoch number", async () => {
     const client = fakeClient();
-    await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
+    await new SnsEventPublisher(client, TOPIC_ARN).publishUserCreated(PAYLOAD);
 
-    const body = JSON.parse(sentCommand(client).input.MessageBody!);
+    const body = JSON.parse(sentCommand(client).input.Message!);
     expect(typeof body.payload.createdAt).toBe("string");
     expect(body.payload.createdAt).toBe(CREATED_AT.toISOString());
   });
 
   it("puts the same usr_ id in the payload as on the envelope, so 'Account ID' matches the subject", async () => {
     const client = fakeClient();
-    await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
+    await new SnsEventPublisher(client, TOPIC_ARN).publishUserCreated(PAYLOAD);
 
-    const body = JSON.parse(sentCommand(client).input.MessageBody!);
+    const body = JSON.parse(sentCommand(client).input.Message!);
     // The renderer reads the payload, never the envelope — but the two must
     // still agree, or the email prints an id for a different account.
     expect(body.payload.userId).toBe(body.user_id);
@@ -305,9 +305,9 @@ describe("SqsEventPublisher", () => {
 
   it("stamps the author block naming WHO originated the event, not just who it is about", async () => {
     const client = fakeClient();
-    await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
+    await new SnsEventPublisher(client, TOPIC_ARN).publishUserCreated(PAYLOAD);
 
-    const body = JSON.parse(sentCommand(client).input.MessageBody!);
+    const body = JSON.parse(sentCommand(client).input.Message!);
     // The whole object, so a stray extra key fails here rather than reaching
     // the consumer. `actor` is the same semantic AuditActor value the audit
     // columns carry for this write path.
@@ -320,9 +320,9 @@ describe("SqsEventPublisher", () => {
 
   it("does not duplicate the producing service inside author — the root source owns it", async () => {
     const client = fakeClient();
-    await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
+    await new SnsEventPublisher(client, TOPIC_ARN).publishUserCreated(PAYLOAD);
 
-    const body = JSON.parse(sentCommand(client).input.MessageBody!);
+    const body = JSON.parse(sentCommand(client).input.Message!);
     // AuthorSchema has no `source`. Two copies of a per-publisher constant
     // carry no information and can only drift; the root one stays.
     expect(body.author).not.toHaveProperty("source");
@@ -332,13 +332,13 @@ describe("SqsEventPublisher", () => {
   it("OMITS cognito_sub from the serialized author when the caller supplied none", async () => {
     const client = fakeClient();
     const { cognitoSub: _omitted, ...withoutSub } = PAYLOAD;
-    await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(withoutSub);
+    await new SnsEventPublisher(client, TOPIC_ARN).publishUserCreated(withoutSub);
 
     // Read back off the SERIALIZED body, not the object: the rule is about the
     // JSON on the wire. `"cognito_sub": null` would satisfy a `?.toBeFalsy()`
     // assertion and violate the contract, so the key's ABSENCE is what is
     // pinned.
-    const raw = sentCommand(client).input.MessageBody!;
+    const raw = sentCommand(client).input.Message!;
     const body = JSON.parse(raw);
     expect(Object.keys(body.author)).toEqual(["actor", "user_id"]);
     expect(raw).not.toContain("cognito_sub");
@@ -346,9 +346,9 @@ describe("SqsEventPublisher", () => {
 
   it("keeps the author's user_id as the real id, never the actor label", async () => {
     const client = fakeClient();
-    await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
+    await new SnsEventPublisher(client, TOPIC_ARN).publishUserCreated(PAYLOAD);
 
-    const body = JSON.parse(sentCommand(client).input.MessageBody!);
+    const body = JSON.parse(sentCommand(client).input.Message!);
     // The subject and the author coincide on a self-registration; the point is
     // that `author.user_id` is an id, not the `users_api:register` label — a
     // consumer joining on it must get a joinable value.
@@ -358,9 +358,9 @@ describe("SqsEventPublisher", () => {
 
   it("names the payload's id field `userId`, not the seam's bare `id`", async () => {
     const client = fakeClient();
-    await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
+    await new SnsEventPublisher(client, TOPIC_ARN).publishUserCreated(PAYLOAD);
 
-    const body = JSON.parse(sentCommand(client).input.MessageBody!);
+    const body = JSON.parse(sentCommand(client).input.Message!);
     // The id DOES travel now (the email prints it), but under an unambiguous
     // name: a bare `id` inside a payload would read as the event's own id.
     expect(body.payload).not.toHaveProperty("id");
@@ -369,31 +369,31 @@ describe("SqsEventPublisher", () => {
 
   it("generates the event_id itself, prefixed evt_, so the caller's signature stays unchanged", async () => {
     const client = fakeClient();
-    await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
+    await new SnsEventPublisher(client, TOPIC_ARN).publishUserCreated(PAYLOAD);
 
-    const body = JSON.parse(sentCommand(client).input.MessageBody!);
+    const body = JSON.parse(sentCommand(client).input.Message!);
     expect(body.event_id).toMatch(/^evt_.+/);
   });
 
   it("generates a distinct event_id per publish (it is the pipeline's idempotency key)", async () => {
     const client = fakeClient();
-    const publisher = new SqsEventPublisher(client, QUEUE_URL);
+    const publisher = new SnsEventPublisher(client, TOPIC_ARN);
     await publisher.publishUserCreated(PAYLOAD);
     await publisher.publishUserCreated(PAYLOAD);
 
-    const first = JSON.parse((client.send.mock.calls[0]![0] as SendMessageCommand).input.MessageBody!);
-    const second = JSON.parse((client.send.mock.calls[1]![0] as SendMessageCommand).input.MessageBody!);
+    const first = JSON.parse((client.send.mock.calls[0]![0] as PublishCommand).input.Message!);
+    const second = JSON.parse((client.send.mock.calls[1]![0] as PublishCommand).input.Message!);
     expect(first.event_id).not.toBe(second.event_id);
   });
 
-  it("swallows a send failure so a queue outage cannot fail an otherwise successful registration", async () => {
+  it("swallows a publish failure so a topic outage cannot fail an otherwise successful registration", async () => {
     const client = fakeClient(
       vi.fn(async () => {
-        throw new Error("queue unreachable");
+        throw new Error("topic unreachable");
       }),
     );
 
-    await expect(new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD)).resolves.toBeUndefined();
+    await expect(new SnsEventPublisher(client, TOPIC_ARN).publishUserCreated(PAYLOAD)).resolves.toBeUndefined();
   });
 
   it("reports the swallowed failure as an alertable *_failed error log", async () => {
@@ -415,10 +415,10 @@ describe("SqsEventPublisher", () => {
     expect(fields.email_hash).toBe(hashEmail("a@example.com"));
   });
   // The PRODUCER span this publisher creates for itself. The AWS SDK's
-  // auto-instrumentation already emits `<queue> send`, but every event in the
-  // system goes to the SAME queue, so that name distinguishes nothing — it says
+  // auto-instrumentation already emits `<topic> publish`, but every event in the
+  // system goes to the SAME topic, so that name distinguishes nothing — it says
   // where, never what. These spans are named after the EVENT TYPE, matching
-  // Orders' `sqs.publish order_created`.
+  // Orders' `sns.publish order_created`.
   describe("publish span", () => {
     const tracer = trace.getTracer("test");
 
@@ -429,31 +429,31 @@ describe("SqsEventPublisher", () => {
     function publishSpans() {
       return testSpanExporter
         .getFinishedSpans()
-        .filter((s) => s.name.startsWith("sqs.publish"));
+        .filter((s) => s.name.startsWith("sns.publish"));
     }
 
     it("names the USER_CREATED publish after the event type, as a PRODUCER", async () => {
       const client = fakeClient();
-      await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
+      await new SnsEventPublisher(client, TOPIC_ARN).publishUserCreated(PAYLOAD);
 
       const spans = publishSpans();
       expect(spans).toHaveLength(1);
-      expect(spans[0]!.name).toBe("sqs.publish user_created");
+      expect(spans[0]!.name).toBe("sns.publish user_created");
       expect(spans[0]!.kind).toBe(SpanKind.PRODUCER);
       expect(spans[0]!.attributes.event_type).toBe("user_created");
-      expect(spans[0]!.attributes["messaging.system"]).toBe("aws_sqs");
+      expect(spans[0]!.attributes["messaging.system"]).toBe("aws_sns");
       expect(spans[0]!.status.code).toBe(SpanStatusCode.OK);
     });
 
     it("names the password-reset publish after ITS event type, not a shared generic one", async () => {
       const client = fakeClient();
-      await new SqsEventPublisher(client, QUEUE_URL).publishPasswordResetRequested(RESET_PAYLOAD);
+      await new SnsEventPublisher(client, TOPIC_ARN).publishPasswordResetRequested(RESET_PAYLOAD);
 
       const spans = publishSpans();
       expect(spans).toHaveLength(1);
-      // The whole point of owning this span: two different events on one queue
+      // The whole point of owning this span: two different events on one topic
       // must read as two different nodes.
-      expect(spans[0]!.name).toBe("sqs.publish password_reset_requested");
+      expect(spans[0]!.name).toBe("sns.publish password_reset_requested");
       expect(spans[0]!.kind).toBe(SpanKind.PRODUCER);
     });
 
@@ -462,7 +462,7 @@ describe("SqsEventPublisher", () => {
       const parent = tracer.startSpan("register");
 
       await context.with(trace.setSpan(context.active(), parent), () =>
-        new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD),
+        new SnsEventPublisher(client, TOPIC_ARN).publishUserCreated(PAYLOAD),
       );
       parent.end();
 
@@ -482,7 +482,7 @@ describe("SqsEventPublisher", () => {
       const workflow = tracer.startSpan("register");
 
       await context.with(trace.setSpan(context.active(), workflow), () =>
-        new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD),
+        new SnsEventPublisher(client, TOPIC_ARN).publishUserCreated(PAYLOAD),
       );
       workflow.end();
 
@@ -503,7 +503,7 @@ describe("SqsEventPublisher", () => {
       const workflow = tracer.startSpan("password_reset_requested");
 
       await context.with(trace.setSpan(context.active(), workflow), () =>
-        new SqsEventPublisher(client, QUEUE_URL).publishPasswordResetRequested(RESET_PAYLOAD),
+        new SnsEventPublisher(client, TOPIC_ARN).publishPasswordResetRequested(RESET_PAYLOAD),
       );
       workflow.end();
 
@@ -518,12 +518,12 @@ describe("SqsEventPublisher", () => {
     it("comes out ERROR when the send fails, even though the publisher swallows it", async () => {
       const client = fakeClient(
         vi.fn(async () => {
-          throw new Error("queue unreachable");
+          throw new Error("topic unreachable");
         }),
       );
       const spy = vi.spyOn(appLogger, "error").mockImplementation((() => {}) as never);
       try {
-        await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
+        await new SnsEventPublisher(client, TOPIC_ARN).publishUserCreated(PAYLOAD);
       } finally {
         spy.mockRestore();
       }
@@ -532,7 +532,7 @@ describe("SqsEventPublisher", () => {
       // A failed send must not render as a healthy hop. The publisher returns
       // normally by design, so the span is the ONLY place this stays visible.
       expect(span.status.code).toBe(SpanStatusCode.ERROR);
-      expect(span.status.message).toBe("queue unreachable");
+      expect(span.status.message).toBe("topic unreachable");
       expect(span.events.some((e) => e.name === "exception")).toBe(true);
       expect(span.ended).toBe(true);
     });
@@ -550,12 +550,12 @@ describe("SqsEventPublisher", () => {
     it("emits the success line INSIDE the publish span, so its span_id matches", async () => {
       const client = fakeClient();
       const { fields, activeSpanId } = await captureInfoLog(() =>
-        new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD),
+        new SnsEventPublisher(client, TOPIC_ARN).publishUserCreated(PAYLOAD),
       );
 
       const publish = testSpanExporter
         .getFinishedSpans()
-        .find((s) => s.name === "sqs.publish user_created")!;
+        .find((s) => s.name === "sns.publish user_created")!;
       // Read at the log CALL SITE, which is what the Pino formatter reads to
       // stamp span_id on the emitted line (shared/logging/logger.ts). Asserting
       // the field on a captured line would only prove the formatter ran.
@@ -568,12 +568,12 @@ describe("SqsEventPublisher", () => {
     it("emits one for the password-reset publish as well", async () => {
       const client = fakeClient();
       const { fields, activeSpanId } = await captureInfoLog(() =>
-        new SqsEventPublisher(client, QUEUE_URL).publishPasswordResetRequested(RESET_PAYLOAD),
+        new SnsEventPublisher(client, TOPIC_ARN).publishPasswordResetRequested(RESET_PAYLOAD),
       );
 
       const publish = testSpanExporter
         .getFinishedSpans()
-        .find((s) => s.name === "sqs.publish password_reset_requested")!;
+        .find((s) => s.name === "sns.publish password_reset_requested")!;
       expect(activeSpanId).toBe(publish.spanContext().spanId);
       expect(fields.app_event).toBe("password_reset_requested_published");
       expect(fields.user_id).toBe("usr_1");
@@ -582,7 +582,7 @@ describe("SqsEventPublisher", () => {
     it("carries no PII: the hash identifies the recipient, never the address", async () => {
       const client = fakeClient();
       const { fields, message } = await captureInfoLog(() =>
-        new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD),
+        new SnsEventPublisher(client, TOPIC_ARN).publishUserCreated(PAYLOAD),
       );
 
       const emitted = JSON.stringify(fields) + message;
@@ -594,7 +594,7 @@ describe("SqsEventPublisher", () => {
     it("never logs the reset code — it is the live credential the event exists to deliver", async () => {
       const client = fakeClient();
       const { fields, message } = await captureInfoLog(() =>
-        new SqsEventPublisher(client, QUEUE_URL).publishPasswordResetRequested(RESET_PAYLOAD),
+        new SnsEventPublisher(client, TOPIC_ARN).publishPasswordResetRequested(RESET_PAYLOAD),
       );
 
       expect(JSON.stringify(fields) + message).not.toContain("123456");
@@ -603,7 +603,7 @@ describe("SqsEventPublisher", () => {
     it("emits the FAILURE line inside the publish span too, so a red span's logs answer", async () => {
       const client = fakeClient(
         vi.fn(async () => {
-          throw new Error("queue unreachable");
+          throw new Error("topic unreachable");
         }),
       );
       let activeSpanId: string | undefined;
@@ -612,14 +612,14 @@ describe("SqsEventPublisher", () => {
       }) as never);
 
       try {
-        await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
+        await new SnsEventPublisher(client, TOPIC_ARN).publishUserCreated(PAYLOAD);
       } finally {
         spy.mockRestore();
       }
 
       const publish = testSpanExporter
         .getFinishedSpans()
-        .find((s) => s.name === "sqs.publish user_created")!;
+        .find((s) => s.name === "sns.publish user_created")!;
       // An operator looking at a red publish span goes straight to its logs.
       // If the catch sat outside the span scope that lookup would come back
       // empty — the Orders fix in the same commit.
@@ -634,7 +634,7 @@ describe("SqsEventPublisher", () => {
 async function captureFailureLog(): Promise<{ fields: Record<string, any>; message: string }> {
   const client = fakeClient(
     vi.fn(async () => {
-      throw new Error("queue unreachable");
+      throw new Error("topic unreachable");
     }),
   );
   const calls: Array<[Record<string, any>, string]> = [];
@@ -643,7 +643,7 @@ async function captureFailureLog(): Promise<{ fields: Record<string, any>; messa
   }) as never);
 
   try {
-    await new SqsEventPublisher(client, QUEUE_URL).publishUserCreated(PAYLOAD);
+    await new SnsEventPublisher(client, TOPIC_ARN).publishUserCreated(PAYLOAD);
   } finally {
     // mockRestore() clears the spy's own call history in vitest 2, so the calls
     // are captured into `calls` above rather than read back off the spy.

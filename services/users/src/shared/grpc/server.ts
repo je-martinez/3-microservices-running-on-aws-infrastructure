@@ -32,7 +32,7 @@ export function buildGrpcServer(deps: GrpcServerDeps): grpc.Server {
   };
 
   const server = new grpc.Server({
-    interceptors: [makeApiKeyInterceptor(env.GRPC_API_KEY)],
+    interceptors: [makeApiKeyInterceptor(env.INTERNAL_API_KEY)],
   });
 
   server.addService(proto.users.v1.Users.service, {

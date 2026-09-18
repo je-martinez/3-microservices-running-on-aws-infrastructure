@@ -46,7 +46,7 @@ public static class NanoIdConfig
     /// <summary>The correlation id carried on every request — see <see cref="RequestId"/>.</summary>
     public const string RequestPrefix = "req_";
 
-    /// <summary>The SQS envelope's idempotency key — see <c>SqsEventPublisher</c>.</summary>
+    /// <summary>The event envelope's idempotency key — see <c>SnsEventPublisher</c>.</summary>
     public const string EventPrefix = "evt_";
 
     /// <summary>

@@ -1,12 +1,14 @@
 import { Component, computed, inject, signal, ChangeDetectionStrategy } from '@angular/core';
+import { Router } from '@angular/router';
+
+import { NotificationsStore } from '../../core/notifications/notifications-store';
 import { OverlayStore } from '../../core/overlay/overlay-store';
-import { NOTIFICATIONS } from '../../fixtures/notifications.fixture';
 import { NotificationItem } from '../../shared/ui/notification-item';
 
 /**
  * Design: `Notifications Panel` (`LWQ8g`) — ONE component (spec D8) for the
  * Unread (`mSssa`) / Read (`YZIGp`) pair, whose Tabs switch a local `activeTab`
- * signal filtering `NOTIFICATIONS` by each item's `read` flag.
+ * signal filtering the store's held rows by each item's `readAt`.
  *
  * CONTRACT: Keep this panel at `z-50`. Its frames carry no Scrim rectangle, so
  * `hasScrim` is false for 'notifications' and nothing else lifts it above
@@ -37,18 +39,43 @@ import { NotificationItem } from '../../shared/ui/notification-item';
 })
 export class NotificationsPanel {
   protected readonly overlay = inject(OverlayStore);
+  protected readonly store = inject(NotificationsStore);
+  private readonly router = inject(Router);
 
   protected readonly activeTab = signal<'unread' | 'read'>('unread');
 
-  // Phase 1 has no notifications store — read/unread derives from the fixture.
-  protected readonly unread = computed(() => NOTIFICATIONS.filter((n) => !n.read));
-  protected readonly read = computed(() => NOTIFICATIONS.filter((n) => n.read));
+  /**
+   * CONTRACT: Split the HELD rows locally, never re-request per tab. One `filter`
+   * serves these two tabs and the All screen's three pills, so a re-requesting
+   * tab moves the pill on the other surface.
+   * See [[2026-09-10-in-app-notifications-design]]
+   */
+  protected readonly unread = computed(() =>
+    this.store.items().filter((item) => item.readAt === null),
+  );
+  protected readonly read = computed(() =>
+    this.store.items().filter((item) => item.readAt !== null),
+  );
 
   protected readonly visibleNotifications = computed(() =>
     this.activeTab() === 'unread' ? this.unread() : this.read(),
   );
 
+  /** Reads the newest page on every open, so a panel left mounted cannot stale. */
+  constructor() {
+    void this.store.load('all');
+  }
+
   protected markAllRead(): void {
-    // No-op in Phase 1: the button matches the design, with no store to persist to.
+    void this.store.markAllRead();
+  }
+
+  /**
+   * CONTRACT: Close the overlay AND navigate. Closing alone leaves the reader on
+   * the same page with the panel gone, which reads as the link doing nothing.
+   */
+  protected viewAll(): void {
+    this.overlay.close();
+    void this.router.navigateByUrl('/notifications');
   }
 }

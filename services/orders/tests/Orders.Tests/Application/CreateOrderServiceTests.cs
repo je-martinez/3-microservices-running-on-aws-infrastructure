@@ -110,8 +110,8 @@ public class CreateOrderServiceTests : IAsyncLifetime
         }
     }
 
-    // Records what order creation handed the publisher. The real SqsEventPublisher is
-    // covered by SqsEventPublisherTests; what this pins is the SEAM — that the values the
+    // Records what order creation handed the publisher. The real SnsEventPublisher is
+    // covered by SnsEventPublisherTests; what this pins is the SEAM — that the values the
     // service resolved actually reach it.
     private sealed class SpyPublisher : IEventPublisher
     {

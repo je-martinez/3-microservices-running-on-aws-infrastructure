@@ -13,14 +13,14 @@ import { makeUser } from "../support/chance-factory.js";
 // shortcut: the cascade routes match `cognito_sub OR user_id`, and on the direct path
 // a service records whatever `x-user-id` carried as its ownership key.
 
-const INTERNAL_KEY = process.env.GRPC_API_KEY;
+const INTERNAL_KEY = process.env.INTERNAL_API_KEY;
 
 // `.env.local.users` supplies it via playwright.config.ts. Failing here with the
 // reason beats every internal-route case failing with an unexplained 401.
 function internalKey(): string {
   if (!INTERNAL_KEY) {
     throw new Error(
-      "GRPC_API_KEY is not set — run `make env-file` from the repo root so " +
+      "INTERNAL_API_KEY is not set — run `make env-file` from the repo root so " +
         ".env.local.users exists, then re-run.",
     );
   }
@@ -190,7 +190,7 @@ test("DELETE /v1/trackings/by-user rejects the CARRIER key — the two credentia
 
   // CONTRACT: Assert with the REAL carrier key, not a random string. Tracking holds two
   // inbound keys under the same header name, and the failure guarded here is a handler
-  // wired to `carrier_api_key` instead of `grpc_api_key` — only a genuine carrier key
+  // wired to `carrier_api_key` instead of `internal_api_key` — only a genuine carrier key
   // exposes it, and accepting one would let an outside vendor erase a user's entire
   // delivery history.
   const res = await tracking.delete("/v1/trackings/by-user", {

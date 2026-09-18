@@ -20,7 +20,7 @@ const url = `${ordersBaseUrl}/v1/orders/e2e-cleanup`;
 // anyway so this caller stays correct if the route is ever hardened; its absence is
 // explicitly not an error.
 const headers = {};
-if (process.env.GRPC_API_KEY) headers["x-api-key"] = process.env.GRPC_API_KEY;
+if (process.env.INTERNAL_API_KEY) headers["x-api-key"] = process.env.INTERNAL_API_KEY;
 
 // Fails the whole command on any problem, so `pnpm run load` stops rather than
 // generating traffic against a catalogue it could not verify. A setup step that

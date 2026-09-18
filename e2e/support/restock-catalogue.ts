@@ -39,7 +39,7 @@ export async function restockCatalogue(): Promise<OrdersCleanupResult> {
   // and keeps this caller correct if the route is ever hardened; its ABSENCE is
   // explicitly not an error, so an internal-only run without the var still works.
   const headers: Record<string, string> = {};
-  if (process.env.GRPC_API_KEY) headers["x-api-key"] = process.env.GRPC_API_KEY;
+  if (process.env.INTERNAL_API_KEY) headers["x-api-key"] = process.env.INTERNAL_API_KEY;
 
   let res: Response;
   try {

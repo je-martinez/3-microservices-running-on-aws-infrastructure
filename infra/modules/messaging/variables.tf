@@ -37,3 +37,38 @@ variable "message_retention_seconds" {
   type        = number
   default     = 345600 # 4 days
 }
+
+variable "notification_event_types" {
+  description = <<-EOT
+    Event types the notifications subscription accepts, matched on the `type`
+    message attribute. Exactly the three that produce a notification: a WELCOME row
+    from USER_CREATED, the ORDER_STATUS/PLACED row from ORDER_CREATED, and the four
+    transition ORDER_STATUS rows from TRACKING_STATUS_CHANGED.
+
+    ORDER_CREATED is admitted because it is the "order placed" trigger: PLACED is
+    the status a tracking row is CREATED in, never a transition, so it is never
+    emitted as a TRACKING_STATUS_CHANGED and a tracking-only policy would deliver
+    no order-placed notification at all.
+
+    AUTH_OTP_REQUESTED and PASSWORD_RESET_REQUESTED produce no notification and
+    stay out. Adding a type here plus a copy variant is all a future change needs
+    — the `type` column is a plain string, not a constrained enum.
+  EOT
+  type        = list(string)
+  default     = ["USER_CREATED", "ORDER_CREATED", "TRACKING_STATUS_CHANGED"]
+}
+
+variable "notifications_visibility_timeout_seconds" {
+  description = <<-EOT
+    Visibility timeout for the notifications queue. Lower than the events queue's
+    180 because its consumer is an in-process handler doing one INSERT and one
+    best-effort WebSocket push, not a Lambda with a 30s timeout to multiply out.
+
+    60 leaves ample headroom over the handler's real cost while keeping redelivery
+    of a genuinely stuck message within a minute. The duplicate that redelivery
+    produces is an ACCEPTED outcome here: there is no idempotency key, by
+    decision. See [[2026-09-10-in-app-notifications-design]]
+  EOT
+  type        = number
+  default     = 60
+}

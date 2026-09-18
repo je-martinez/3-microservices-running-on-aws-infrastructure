@@ -4,9 +4,10 @@ type: spec
 area: shared
 status: active
 created: 2026-08-17
-updated: 2026-08-18
+updated: 2026-09-15
 tags: [type/spec, area/shared, status/active]
 related:
+  - "[[2026-09-10-in-app-notifications-design]]"
   - "[[web-app-foundation-milestone]]"
   - "[[email-templates]]"
   - "[[package-manager]]"
@@ -276,6 +277,80 @@ The layer that applies is a Playwright spec walking every route and asserting ea
 mounts without console errors, in the existing `e2e/` project. Component unit tests arrive in
 phase 2 with the logic they would test.
 
+### D10 — The app's first WebSocket client connects behind `authGuard`, disconnects before tokens clear
+
+> [!info] Shipped 2026-09-15 — In-App Notifications milestone
+> Full design: [[2026-09-10-in-app-notifications-design]]. `apps/web/src` had zero references to
+> `wss://` before this milestone — this is the first WebSocket code in the app.
+
+`NotificationsSocket` connects from `AppLayout`'s constructor — the layout behind `authGuard`,
+and its **only** caller — and disconnects on `SignOut`'s teardown path, in a fixed order relative
+to clearing tokens.
+
+**Why `AppLayout`, not a shared root-level service init.** Opening the socket anywhere reachable
+before authentication would handshake with no token, and the socket's own reconnect-with-backoff
+logic would then keep re-arming that same rejected handshake against the authorizer, on a loop,
+from a page the user is not even signed into. Gating the connection behind the same guard that
+protects every authenticated route makes "authenticated boot" the only trigger, by construction.
+
+**Why disconnect happens BEFORE the tokens are cleared, not after.** `SignOut.discard()` closes
+the socket first, then clears the session and tokens. Reversing that order leaves the socket's
+own reconnect timer live for one more tick with no token behind it — the same failure shape as
+opening it too early, arrived at from the other end of the session's lifecycle: a doomed
+handshake retried against the authorizer from a tab that has already signed out.
+
+The client reconnects with exponential backoff (base 1s, capped) rather than a fixed interval —
+an uncapped doubling effectively stops retrying within an hour of an overnight tab, and an
+uncapped-down loop against a token the authorizer keeps rejecting is a self-inflicted load
+pattern against that same authorizer.
+
+### D11 — Notifications NgRx store, with a client-only arrival highlight
+
+`NotificationsStore` (an `@ngrx/signals` store, per [D-state](#) — this app's existing state
+pattern) holds the notification list, the server-reported `unreadCount` and `windowTotal`, the
+active filter, and one thing with no server-side counterpart: a `highlighted` set of ids.
+
+**`unreadCount` always comes from the server** — a list response, a mark-read response, or a
+socket frame — never derived by counting `items` or incrementing locally. The list is capped at
+50 while the count is not, so any local derivation understates the badge the moment the cap
+starts truncating the list.
+
+**The arrival highlight is what reconciles two contradictory pieces of the design:** the frame
+shows unread rows with active dots *and* a working "Mark all as read" button on the same screen,
+which literally contradicts "entering the screen marks everything read." The approved resolution
+sends the mark-as-read `PATCH` on entering, same as the design calls for, while the client
+remembers which ids were unread at that moment and keeps their dot and highlight background for
+the rest of the visit — cleared on leaving, so a reload renders them read like any other row.
+This costs the backend nothing: the server has no notion of "read but still highlighted," the
+highlight is a pure client-side rendering decision layered on top of an already-consistent
+server state.
+
+### D12 — Two new design tokens: `brand-navy-light` and `neutral-bg`
+
+> [!warning] Corrects this spec's own D6 token count and the plan's proposed hex — read before touching either token
+> This design's original investigation (and the implementation plan that followed it) both
+> guessed wrong about which token was missing and what value to give it. The corrected facts,
+> verified against the live `.pen` and `apps/web/src/styles.css`:
+>
+> - `GetVariables()` returns **32** variables as of this pass, not 30 (D6 above, written earlier
+>   in this app's history, recorded 26 at its own time — token count has grown across several
+>   milestones, and each addition is documented where it happened, not backfilled here).
+> - **`brand-navy-light` already existed** at `#EDF0F6`, referenced by both welcome copy variants.
+>   It needed no `.pen` change at all — only `apps/web/src/styles.css` and `DESIGN.md` were behind
+>   the `.pen`, not the `.pen` itself. The plan's proposed value, `#EEF1F6`, would have been a
+>   **different, wrong colour** had it shipped.
+> - **`neutral-bg` was the one genuine gap**: `PLACED`'s bubble tint was a literal `#E5E7EB` in
+>   **six** nodes across the status-variant sheet, both All screens, and the read-state panel —
+>   not the "all eleven variants" originally assumed, and not a single node either. `#E5E7EB` is
+>   also `border-color`'s existing value, but `neutral-bg` was added as its **own** named role
+>   rather than reusing `border-color` — a border colour and a bubble tint are different design
+>   decisions sharing a coincidental value today, and one variable for both would mean a future
+>   border-colour change silently retints every notification bubble along with it.
+
+Both tokens are documented in full, with their values and Tailwind utilities, in
+`apps/web/DESIGN.md` (the generated source of truth per D6) — not restated here to avoid a second
+place that can drift from the `.pen`.
+
 ## Architecture
 
 ### `apps/web/` layout
@@ -426,6 +501,8 @@ infrastructure.
 
 ## Related
 
+- [[2026-09-10-in-app-notifications-design]] — the app's first WebSocket client (D10), the
+  notifications NgRx store and arrival highlight (D11), and the two new design tokens (D12).
 - [[web-app-foundation-milestone]] — the milestone-level map: task sequence, phases, dependency graph
 - [[email-templates]] — the precedent: a `.pen` distilled into a design system consumed by code
 - [[product-catalogue-image-categories-design]] — first spec mined from `web-app.pen`

@@ -113,8 +113,8 @@ func jsonKindOfValue(v any) string {
 func TestEnvelopePayloadMatchesTheConsumerZodTypes(t *testing.T) {
 	zodFields := loadZodPayloadSchema(t)
 
-	client := &fakeSQS{}
-	p := sqs.NewPublisher(client, "https://sqs/queue",
+	client := &fakeSNS{}
+	p := sqs.NewPublisher(client, testTopicARN,
 		stubResolver{user: grpcusers.ResolvedUser{
 			InternalID: "usr_abc", Email: "person@example.com", FullName: "Ada Lovelace"}},
 		quietLog())
@@ -204,8 +204,8 @@ func TestFullEnvelopeMatchesTheRootSchemaTypes(t *testing.T) {
 				t.Fatalf("parsed zero fields out of %s", schema.open)
 			}
 
-			client := &fakeSQS{}
-			p := sqs.NewPublisher(client, "https://sqs/queue",
+			client := &fakeSNS{}
+			p := sqs.NewPublisher(client, testTopicARN,
 				stubResolver{user: grpcusers.ResolvedUser{Email: "person@example.com"}}, quietLog())
 			p.PublishTrackingStatusChanged(t.Context(), fullInput())
 			target := schema.object(t, decodeEnvelope(t, client.last()))
@@ -254,8 +254,8 @@ func TestNoEnvelopeFieldIsEverNull(t *testing.T) {
 		"address with a null field": func(in *sqs.StatusChanged) { in.ShippingAddress = json.RawMessage(`{"line2": null}`) },
 	} {
 		t.Run(name, func(t *testing.T) {
-			client := &fakeSQS{}
-			p := sqs.NewPublisher(client, "q",
+			client := &fakeSNS{}
+			p := sqs.NewPublisher(client, testTopicARN,
 				stubResolver{user: grpcusers.ResolvedUser{Email: "a@b.com"}}, quietLog())
 			in := fullInput()
 			mutate(&in)

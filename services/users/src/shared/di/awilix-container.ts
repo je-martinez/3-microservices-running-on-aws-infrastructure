@@ -1,5 +1,6 @@
 import { CloudWatchClient } from "@aws-sdk/client-cloudwatch";
 import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
+import { SNSClient } from "@aws-sdk/client-sns";
 import { SQSClient } from "@aws-sdk/client-sqs";
 import { diContainer } from "@fastify/awilix";
 import { asValue, asFunction, asClass, Lifetime } from "awilix";
@@ -7,7 +8,7 @@ import { env, type Env } from "../config/env.ts";
 import { db, type Db } from "../db/prisma.ts";
 // `NoopEventPublisher` stays imported and exported from that module — it is
 // still registered by tests that must not emit.
-import { SqsEventPublisher, type EventPublisher } from "../messaging/event-publisher.ts";
+import { SnsEventPublisher, type EventPublisher } from "../messaging/event-publisher.ts";
 import { MetricsPublisher } from "../metrics/cloudwatch-metrics.ts";
 import { BusinessMetricsPoller } from "../metrics/business-metrics.ts";
 import { CognitoAuthProvider } from "../auth/cognito-auth-provider.ts";
@@ -32,6 +33,10 @@ import { UserQueryService } from "#features/users/queries/get-me";
 import { E2eCleanupCommand } from "#features/users/http/e2e-cleanup";
 import { E2eIdentityQuery } from "#features/users/http/e2e-identity";
 import { CaptureCognitoIdentityCommand } from "#features/users/webhooks/capture-cognito-identity";
+import { CreateNotificationCommand } from "#features/notifications/commands/create-notification";
+import { NotificationConsumer } from "#features/notifications/messaging/notification-consumer";
+import { NotificationQueryService } from "#features/notifications/queries/list-notifications";
+import { MarkNotificationsReadCommand } from "#features/notifications/commands/mark-notifications-read";
 
 // Type-safe resolution for `app.diContainer.cradle.<x>` / `request.diScope.resolve('<x>')`.
 // `Cradle` holds app-scoped singletons (db clients, auth, events, env, service classes).
@@ -40,6 +45,7 @@ declare module "@fastify/awilix" {
     env: Env;
     db: Db;
     cognitoClient: CognitoIdentityProviderClient;
+    snsClient: SNSClient;
     sqsClient: SQSClient;
     cloudwatchClient: CloudWatchClient;
     auth: AuthProvider;
@@ -66,6 +72,10 @@ declare module "@fastify/awilix" {
     e2eCleanupCommand: E2eCleanupCommand;
     e2eIdentityQuery: E2eIdentityQuery;
     captureCognitoIdentityCommand: CaptureCognitoIdentityCommand;
+    createNotificationCommand: CreateNotificationCommand;
+    notificationConsumer: NotificationConsumer;
+    notificationQueryService: NotificationQueryService;
+    markNotificationsReadCommand: MarkNotificationsReadCommand;
   }
 
   // Per-request registrations, made in routes.ts's `onRequest` hook. `currentActor` is
@@ -106,10 +116,20 @@ export function registerSingletons(): void {
         new CascadeClient({
           ordersBaseUrl: cradleEnv.ORDERS_BASE_URL,
           trackingBaseUrl: cradleEnv.TRACKING_BASE_URL,
-          apiKey: cradleEnv.GRPC_API_KEY,
+          apiKey: cradleEnv.INTERNAL_API_KEY,
         }),
       { lifetime: Lifetime.SINGLETON },
     ),
+    snsClient: asFunction(
+      ({ env: cradleEnv }: { env: Env }) =>
+        new SNSClient({
+          region: cradleEnv.AWS_REGION,
+          endpoint: cradleEnv.AWS_ENDPOINT_URL,
+        }),
+      { lifetime: Lifetime.SINGLETON },
+    ),
+    // Publishing goes to the topic; this client stays because the notifications
+    // consumer receives from a queue.
     sqsClient: asFunction(
       ({ env: cradleEnv }: { env: Env }) =>
         new SQSClient({
@@ -119,8 +139,8 @@ export function registerSingletons(): void {
       { lifetime: Lifetime.SINGLETON },
     ),
     events: asFunction(
-      ({ sqsClient, env: cradleEnv }: { sqsClient: SQSClient; env: Env }) =>
-        new SqsEventPublisher(sqsClient, cradleEnv.EVENTS_QUEUE_URL),
+      ({ snsClient, env: cradleEnv }: { snsClient: SNSClient; env: Env }) =>
+        new SnsEventPublisher(snsClient, cradleEnv.EVENTS_TOPIC_ARN),
       { lifetime: Lifetime.SINGLETON },
     ),
     cloudwatchClient: asFunction(
@@ -163,6 +183,11 @@ export function registerSingletons(): void {
     // asClass is correct here, unlike metricsPublisher above — every name this
     // constructor destructures IS a registered cradle key.
     cacheGateway: asClass(CacheGateway, { lifetime: Lifetime.SINGLETON }),
+    // SINGLETON because it owns one long-poll loop: a second instance would mean
+    // two consumers competing for the same queue. Registered here but NEVER
+    // started here — `server.ts` starts it, so the test suite's buildApp() never
+    // opens a live poll against a real queue.
+    notificationConsumer: asClass(NotificationConsumer, { lifetime: Lifetime.SINGLETON }),
   });
 }
 
@@ -187,6 +212,14 @@ export function registerServices(): void {
     e2eCleanupCommand: asClass(E2eCleanupCommand, { lifetime: Lifetime.SCOPED }),
     e2eIdentityQuery: asClass(E2eIdentityQuery, { lifetime: Lifetime.SCOPED }),
     captureCognitoIdentityCommand: asClass(CaptureCognitoIdentityCommand, { lifetime: Lifetime.SCOPED }),
+    // SCOPED like every other command, and resolved by the consumer per message.
+    createNotificationCommand: asClass(CreateNotificationCommand, { lifetime: Lifetime.SCOPED }),
+    // The read/write pair behind the three notification routes. SCOPED so each
+    // request resolves its own against that request's `currentUser`.
+    notificationQueryService: asClass(NotificationQueryService, { lifetime: Lifetime.SCOPED }),
+    markNotificationsReadCommand: asClass(MarkNotificationsReadCommand, {
+      lifetime: Lifetime.SCOPED,
+    }),
   });
 }
 

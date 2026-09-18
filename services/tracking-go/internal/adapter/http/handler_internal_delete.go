@@ -40,7 +40,7 @@ type internalDeleteRequest struct {
 // InternalDeleteHandler serves DELETE /v1/trackings/by-user, the Tracking leg of
 // the account-deletion cascade.
 //
-// WARNING: Guarded by RequireInternalKey (GRPC_API_KEY), never the carrier key.
+// WARNING: Guarded by RequireInternalKey (INTERNAL_API_KEY), never the carrier key.
 // Accepting a vendor's credential on a mass soft-delete lets it erase a user's
 // delivery history. See [[two-api-keys-two-trust-domains]]
 type InternalDeleteHandler struct {
@@ -72,7 +72,7 @@ func NewInternalDeleteHandler(uc *app.DeleteByUser, log *slog.Logger, tracer tra
 // CONTRACT: Apply the guard HERE, in the call that mounts the route — that is
 // why this seam exists rather than two lines in main.go. A route mounted in one
 // place and guarded in another is a route mounted without its guard, on the
-// widest blast radius this service has. internalAPIKey is GRPC_API_KEY, NEVER
+// widest blast radius this service has. internalAPIKey is INTERNAL_API_KEY, NEVER
 // TRACKING_CARRIER_API_KEY. See [[two-api-keys-two-trust-domains]]
 //
 // The `by-user` literal coexists with the :order_id wildcard only because these

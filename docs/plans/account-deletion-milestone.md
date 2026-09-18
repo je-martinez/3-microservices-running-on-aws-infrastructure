@@ -4,7 +4,7 @@ type: plan
 area: shared
 status: draft
 created: 2026-08-25
-updated: 2026-08-26
+updated: 2026-09-18
 tags:
   - type/plan
   - area/shared
@@ -23,6 +23,7 @@ related:
   - "[[2026-08-25-response-caching-layer-design]]"
   - "[[response-caching-layer-milestone]]"
   - "[[2026-08-26-cache-keys-built-from-a-raw-identity-header]]"
+  - "[[internal-api-key-authorization]]"
 ---
 
 # Account Deletion Milestone
@@ -42,7 +43,7 @@ task sequence and blocking dependencies. The detailed step-by-step plan lives in
 
 **Goal:** let a user delete their own account via `DELETE /v1/users/me`, with a synchronous HTTP
 cascade to two new **internal** routes — `DELETE /v1/orders/by-user` and
-`DELETE /v1/trackings/by-user` — guarded by the shared `GRPC_API_KEY`. A partial unique index on
+`DELETE /v1/trackings/by-user` — guarded by the shared `INTERNAL_API_KEY`. A partial unique index on
 `users.email` (`WHERE deleted_at IS NULL`) frees the address for re-registration while the old
 row is preserved intact, and Cognito `AdminDeleteUser` is the last step, freeing the identity
 itself.

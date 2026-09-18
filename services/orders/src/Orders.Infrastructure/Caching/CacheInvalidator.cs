@@ -37,6 +37,25 @@ public class CacheInvalidator : ICacheInvalidator
     public Task InvalidateProductsAsync(CancellationToken ct) =>
         Guarded("products", () => _cache.InvalidateAsync(new[] { CacheKeys.Products }, ct));
 
+    public Task InvalidateOrderTrackingAsync(
+        string cognitoSub, string? userId, CancellationToken ct) =>
+        // CONTRACT: Sweep the index rather than naming the order's own keys. my-orders
+        // carries no order id at all, so it is unreachable by name from an order-scoped
+        // event, and the t0/t1 suffix doubles every other key. The cost is the owner's cart
+        // entry going too — a 60s re-read, against a list that would otherwise show the
+        // previous delivery status for two minutes.
+        // CONTRACT: Leave the catalogue and the identity mapping alone. A delivery status
+        // moves no stock and deletes no user; taking the shared products key here would
+        // cold-start it for everyone on the most frequent event in the system.
+        // See [[x-cache-response-header]]
+        Guarded("order_tracking", async () =>
+        {
+            foreach (var identity in Identities(cognitoSub, userId))
+            {
+                await _cache.InvalidateUserKeysAsync(identity, ct);
+            }
+        });
+
     public Task InvalidateDeletedUserAsync(
         string cognitoSub, string? userId, CancellationToken ct) =>
         // CONTRACT: Sweep BOTH identities. Keys are built from whatever the client put in

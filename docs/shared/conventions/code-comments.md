@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-08-27
-updated: 2026-09-10
+updated: 2026-09-11
 tags:
   - type/convention
   - area/shared
@@ -417,3 +417,6 @@ baseline shrinks monotonically.
 - [[logging-context]]
 - [[testing]]
 - [[angular-component-authoring]]
+- [[2026-09-11-plans-locate-tests-by-name-not-by-importer]] — comment density and block-length
+  limits are properties of the file, not of an individual plan-dictated block; run the linter on
+  the whole file after applying a plan's comments, not just on the new block.

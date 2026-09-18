@@ -107,3 +107,55 @@ model UsersCognitoEvent {
   @@map("users_cognito_events")
   @@index([deletedAt])
 }
+
+// One in-app notification, rendered at write time.
+//
+// CONTRACT: `title`/`body` store RENDERED COPY, deliberately. Copy therefore lives
+// in two places — the pipeline's email templates and this service's copy map — and
+// a copy change leaves stored rows with the old text. That is the intended
+// reading: rendered copy is a historical fact, like a sent email.
+// `metadata` is what keeps presentation DERIVED rather than baked into the text:
+// without `status`/`order_id` the web could only print the string, with no icon,
+// no tint and no "View order" CTA.
+// See [[2026-09-10-in-app-notifications-design]]
+model Notification {
+  id String @id
+  // CONTRACT: No foreign key to User.id, unlike the sibling tables. A
+  // TRACKING_STATUS_CHANGED can arrive for a user row that does not exist yet or
+  // is soft-deleted, and an FK would turn that into an insert failure retried to
+  // the DLQ. The row is stored; the GET filters by the authenticated user and
+  // simply never serves it.
+  userId String @map("user_id")
+  // "WELCOME" | "ORDER_STATUS". A column, not a `metadata` key: it drives the
+  // toast eyebrow and the CTA and is needed on every row — structure, not detail.
+  // Deliberately a plain String, not an enum, so a new variant needs no migration.
+  type  String
+  title String
+  body  String
+  // { status?, order_id?, order_number?, occurred_at }
+  // CONTRACT: `occurred_at` lives here and is therefore NOT indexable. Acceptable
+  // because ordering is by `createdAt` and the list caps at 50. Ordering by
+  // `occurred_at` would require promoting it to a column.
+  metadata Json
+  // A timestamp, not an isRead boolean — the same shape as deletedAt, and it
+  // answers "when" as well as "whether".
+  readAt DateTime? @map("read_at") @db.Timestamptz(6)
+
+  // CONTRACT: `createdBy` is NON-NULLABLE here, unlike the sibling tables. The
+  // consumer runs OUTSIDE any request, so the AsyncLocalStorage actor the
+  // cross-cutting extension reads is undefined and would stamp null — the
+  // consumer passes the actor explicitly instead.
+  // See [[audit-fields]]
+  createdBy String    @map("created_by")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedBy String?   @map("updated_by")
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedBy String?   @map("deleted_by")
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@map("notifications")
+  // Serves both the filtered list and the unread count: every query is scoped to
+  // one user and then split on read/unread.
+  @@index([userId, readAt])
+  @@index([deletedAt])
+}
