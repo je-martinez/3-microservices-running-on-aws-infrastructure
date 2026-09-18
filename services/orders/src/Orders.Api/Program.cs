@@ -113,6 +113,8 @@ builder.Services.AddScoped(sp => new CartReadService(
     sp.GetRequiredService<ILogger<CartReadService>>(),
     assetsBaseUrl));
 builder.Services.AddScoped<CartWriteService>();
+builder.Services.AddScoped<InvalidateOrderCacheService>();
+builder.Services.AddScoped<DeleteOrdersByUserService>();
 
 // Write side (write replica in prod; same MySQL locally).
 var writerCs = builder.Configuration["DATABASE_WRITER_URL"]!;

@@ -1,11 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using Orders.Api.Identity;
-using Orders.Application.Abstractions;
-using Orders.Infrastructure.Caching;
-using Orders.Infrastructure.Carts;
-using Orders.Infrastructure.Observability;
-using Orders.Infrastructure.Persistence;
+using Orders.Infrastructure.Orders;
 
 namespace Orders.Api.Endpoints;
 
@@ -15,13 +10,6 @@ namespace Orders.Api.Endpoints;
 /// </summary>
 public static class InternalEndpoints
 {
-    /// <summary>
-    /// Binary collation pinned on the cascade's ownership predicates. Taken from
-    /// <see cref="CartWriteService"/> rather than spelled out again here, so the API and
-    /// Infrastructure halves of the same cascade cannot drift onto different collations.
-    /// </summary>
-    private const string BinaryCollation = CartWriteService.BinaryCollation;
-
     public static void MapInternalEndpoints(this WebApplication app)
     {
         app.MapDelete("/v1/orders/by-user", async (
@@ -31,21 +19,15 @@ public static class InternalEndpoints
             [FromBody] InternalDeleteByUserRequest body,
             HttpRequest http,
             IConfiguration config,
-            OrdersWriteDbContext db,
-            IWorkflowTracer tracer,
-            // The INTERFACE, never ICacheGateway: with CACHE_ENABLED=false no gateway is
-            // registered at all, and resolving one directly would make the kill switch
-            // take this route down. NoopCacheInvalidator satisfies this in that branch.
-            ICacheInvalidator cache,
-            // Injected rather than loggerFactory.CreateLogger("…literal…"): every other
-            // logging site in Orders takes ILogger<T>, and a hand-typed category string
-            // silently diverges from reality the moment this file is renamed or moved,
-            // with nothing to fail on it.
+            DeleteOrdersByUserService deletions,
             ILogger<InternalEndpointsCategory> logger,
             CancellationToken ct) =>
         {
             var provided = http.Headers[InternalApiKey.HeaderName].FirstOrDefault();
 
+            // CONTRACT: Reject before reaching the service — 401 takes precedence over the
+            // body's own 400, so an unauthenticated caller never learns which field it got
+            // wrong and never costs a DB read.
             if (!InternalApiKey.Matches(provided, config["GRPC_API_KEY"]!))
             {
                 // WARNING: Never log the API key — log client IP only on rejected attempts.
@@ -57,123 +39,12 @@ public static class InternalEndpoints
                 return Results.Unauthorized();
             }
 
-            return await tracer.TraceWorkflowAsync(
-                "internal_delete_by_user",
-                new Dictionary<string, object?>
-                {
-                    ["app_event"] = "internal_delete_by_user_started",
-                },
-                async () =>
-                {
-                    // WHY: Write triad — cascade spans four statements across three tables.
-                    logger.LogInformation(
-                        "Starting internal delete by user {app_event}",
-                        "internal_delete_by_user_started");
+            var result = await deletions.DeleteAsync(body.CognitoSub, body.UserId, ct);
 
-                    // CONTRACT: Reject empty cognitoSub or userId — the OR predicate below matches empty
-                    // strings and would soft-delete every row with a blank identity column.
-                    if (string.IsNullOrWhiteSpace(body.CognitoSub))
-                    {
-                        logger.LogWarning(
-                            "Internal delete rejected {app_event} {reason}",
-                            "internal_delete_by_user_failed", "cognito_sub_required");
-                        tracer.SetReason("cognito_sub_required");
-                        return Results.BadRequest(new { error = "cognito_sub_required" });
-                    }
-
-                    // WHY: Distinct reason codes tell Users which field it failed to send.
-                    if (string.IsNullOrWhiteSpace(body.UserId))
-                    {
-                        logger.LogWarning(
-                            "Internal delete rejected {app_event} {reason}",
-                            "internal_delete_by_user_failed", "user_id_required");
-                        tracer.SetReason("user_id_required");
-                        return Results.BadRequest(new { error = "user_id_required" });
-                    }
-
-                    var now = DateTime.UtcNow;
-
-                    int deletedDetails;
-                    int deleted;
-                    var deletedCarts = 0;
-
-                    try
-                    {
-                        // CONTRACT: Soft-delete order_details BEFORE orders — the detail predicate subqueries
-                        // parent orders; parents deleted first are hidden by the global filter and orphan lines.
-                        // WHY: Key on order_id — order_details has no index on cognito_sub or user_id.
-                        deletedDetails = await db.OrderDetails
-                            .Where(d => db.Orders
-                                .Where(o => EF.Functions.Collate(o.CognitoSub, BinaryCollation)
-                                        == EF.Functions.Collate(body.CognitoSub, BinaryCollation)
-                                    || EF.Functions.Collate(o.UserId, BinaryCollation)
-                                        == EF.Functions.Collate(body.UserId, BinaryCollation))
-                                .Select(o => o.Id)
-                                .Contains(d.OrderId) && d.DeletedAt == null)
-                            .ExecuteUpdateAsync(s => s
-                                .SetProperty(d => d.DeletedAt, now)
-                                .SetProperty(d => d.DeletedBy, AuditActor.DeleteByUser), ct);
-
-                        // CONTRACT: Collate BOTH sides with utf8mb4_bin on erasure predicates — columns are
-                        // case-insensitive (utf8mb4_0900_ai_ci) but ids use mixed-case NanoId; without binary
-                        // collation one user's erasure sweeps a neighbour's rows and returns 200 with a count.
-                        // See [[orders-service-design]]
-                        deleted = await db.Orders
-                            .Where(o => (EF.Functions.Collate(o.CognitoSub, BinaryCollation)
-                                        == EF.Functions.Collate(body.CognitoSub, BinaryCollation)
-                                    || EF.Functions.Collate(o.UserId, BinaryCollation)
-                                        == EF.Functions.Collate(body.UserId, BinaryCollation))
-                                && o.DeletedAt == null)
-                            .ExecuteUpdateAsync(s => s
-                                .SetProperty(o => o.DeletedAt, now)
-                                .SetProperty(o => o.DeletedBy, AuditActor.DeleteByUser), ct);
-
-                        // WHY: Three-arg DeleteForUserAsync ORs both identities for erasure; the two-arg
-                        // overload used by live cart routes must not widen to an older sub on shared usr_ id.
-                        await AmbientActor.RunAsync(AuditActor.DeleteByUser, async () =>
-                        {
-                            var before = await db.Carts
-                                .CountAsync(c => EF.Functions.Collate(c.CognitoSub, BinaryCollation)
-                                        == EF.Functions.Collate(body.CognitoSub, BinaryCollation)
-                                    || EF.Functions.Collate(c.UserId, BinaryCollation)
-                                        == EF.Functions.Collate(body.UserId, BinaryCollation), ct);
-                            await CartWriteService.DeleteForUserAsync(
-                                db, body.CognitoSub, body.UserId, ct);
-                            await db.SaveChangesAsync(ct);
-                            deletedCarts = before;
-                        });
-                    }
-                    catch (Exception ex)
-                    {
-                        // WARNING: Log app_event and reason on DB faults — otherwise 500s are invisible to queries.
-                        logger.LogError(
-                            ex,
-                            "Internal delete failed {app_event} {reason}",
-                            "internal_delete_by_user_failed", "db_error");
-                        tracer.SetReason("db_error");
-                        throw;
-                    }
-
-                    // CONTRACT: Invalidate AFTER commit — earlier invalidation lets a concurrent read
-                    // repopulate stale entries for their full TTL (up to an hour for identity).
-                    // FAIL-OPEN: rows are gone; a Redis fault must not turn a succeeded cascade into 500.
-                    // Pass BOTH identities — see ICacheInvalidator.InvalidateDeletedUserAsync.
-                    await cache.InvalidateDeletedUserAsync(body.CognitoSub, body.UserId, ct);
-
-                    // WHY: Log both subjects and all counts — enricher has no end-user identity here.
-                    logger.LogInformation(
-                        "Deleted orders for user {app_event} {cognito_sub} {user_id} " +
-                        "{deleted_count} {deleted_details} {deleted_carts}",
-                        "internal_delete_by_user_succeeded",
-                        body.CognitoSub,
-                        body.UserId,
-                        deleted,
-                        deletedDetails,
-                        deletedCarts);
-
-                    return Results.Ok(
-                        new InternalDeleteResponse(deleted, deletedDetails, deletedCarts));
-                });
+            return result.Reason is not null
+                ? Results.BadRequest(new { error = result.Reason })
+                : Results.Ok(new InternalDeleteResponse(
+                    result.Deleted, result.DeletedDetails, result.DeletedCarts));
         })
             .Accepts<InternalDeleteByUserRequest>("application/json")
             .WithTags("internal")
@@ -187,14 +58,15 @@ public static class InternalEndpoints
             string orderId,
             HttpRequest http,
             IConfiguration config,
-            OrdersReadDbContext db,
-            IWorkflowTracer tracer,
-            ICacheInvalidator cache,
+            InvalidateOrderCacheService invalidations,
             ILogger<InternalEndpointsCategory> logger,
             CancellationToken ct) =>
         {
             var provided = http.Headers[InternalApiKey.HeaderName].FirstOrDefault();
 
+            // CONTRACT: Reject before reaching the service — an unauthenticated caller must
+            // not even cost the owner a DB read, which on a route needing no user identity
+            // would strip the cache off any order whose id an attacker can guess.
             if (!InternalApiKey.Matches(provided, config["GRPC_API_KEY"]!))
             {
                 // WARNING: Never log the API key — log client IP only on rejected attempts.
@@ -206,56 +78,9 @@ public static class InternalEndpoints
                 return Results.Unauthorized();
             }
 
-            return await tracer.TraceWorkflowAsync(
-                "internal_invalidate_order_cache",
-                new Dictionary<string, object?>
-                {
-                    ["app_event"] = "internal_invalidate_order_cache_started",
-                    ["order_id"] = orderId,
-                },
-                async () =>
-                {
-                    // CONTRACT: Resolve the owner from the ORDER ROW, never from the
-                    // request. An owner the caller supplied could be wrong, sweeping a
-                    // stranger's keys and leaving the stale entry in place.
-                    var owner = await db.Orders
-                        // CONTRACT: A soft-deleted order's cached entries outlive its row
-                        // by their full TTL, so the global filter would 404 exactly the
-                        // order someone just watched disappear. See [[soft-delete]]
-                        .IgnoreQueryFilters()
-                        .AsNoTracking()
-                        .Where(o => o.Id == orderId)
-                        .Select(o => new { o.CognitoSub, o.UserId })
-                        .FirstOrDefaultAsync(ct);
-
-                    if (owner is null)
-                    {
-                        // An order this service cannot resolve names no owner, so there is
-                        // no key set to sweep. A 200 here would let the caller record a
-                        // success for an invalidation that did not happen.
-                        logger.LogWarning(
-                            "Order cache invalidation rejected {app_event} {reason} {order_id}",
-                            "internal_invalidate_order_cache_failed", "order_not_found", orderId);
-                        tracer.SetReason("order_not_found");
-                        return Results.NotFound(new { error = "order_not_found" });
-                    }
-
-                    // FAIL-OPEN, like every other invalidation site: a Redis fault leaves
-                    // the entries to expire by TTL and must not turn this into a 500 the
-                    // caller retries forever.
-                    await cache.InvalidateOrderTrackingAsync(owner.CognitoSub, owner.UserId, ct);
-
-                    // WHY: Log the subjects explicitly — the enricher carries no end-user
-                    // identity on a route with no end-user caller.
-                    logger.LogInformation(
-                        "Invalidated order cache {app_event} {order_id} {cognito_sub} {user_id}",
-                        "internal_invalidate_order_cache_succeeded",
-                        orderId,
-                        owner.CognitoSub,
-                        owner.UserId);
-
-                    return Results.Ok(new InternalInvalidateOrderCacheResponse(orderId));
-                });
+            return await invalidations.InvalidateAsync(orderId, ct)
+                ? Results.Ok(new InternalInvalidateOrderCacheResponse(orderId))
+                : Results.NotFound(new { error = "order_not_found" });
         })
             .WithTags("internal")
             .WithName("InternalInvalidateOrderCache")
