@@ -4,7 +4,7 @@ type: plan
 area: users
 status: active
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-09-18
 tags:
   - type/plan
   - area/users
@@ -31,7 +31,7 @@ related:
 
 **Goal:** Let a user delete their own account via `DELETE /v1/users/me`, cascading a soft delete to their orders and tracking data, and freeing their email address so they can register again.
 
-**Architecture:** Users exposes one authenticated endpoint. It calls two new **internal** HTTP routes — `DELETE /v1/orders/by-user` and `DELETE /v1/trackings/by-user` — guarded by the shared `GRPC_API_KEY`, then soft-deletes its own row and deletes the Cognito user. A partial unique index on `users.email` (`WHERE deleted_at IS NULL`) is what makes re-registration with the same address possible while the old row is preserved intact.
+**Architecture:** Users exposes one authenticated endpoint. It calls two new **internal** HTTP routes — `DELETE /v1/orders/by-user` and `DELETE /v1/trackings/by-user` — guarded by the shared `INTERNAL_API_KEY`, then soft-deletes its own row and deletes the Cognito user. A partial unique index on `users.email` (`WHERE deleted_at IS NULL`) is what makes re-registration with the same address possible while the old row is preserved intact.
 
 **Tech Stack:** Fastify + Prisma 7.8 + Postgres (Users) · .NET 10 Minimal APIs + EF Core + MySQL (Orders) · FastAPI + SQLAlchemy + MySQL (Tracking) · Terraform (API Gateway) · Vitest / xUnit+Testcontainers / pytest · Playwright (E2E).
 
@@ -75,7 +75,7 @@ related:
 - Tests: `tests/Orders.Tests/Api/InternalDeleteByUserTests.cs`.
 
 **Tracking** (`services/tracking/`)
-- Create `src/shared/http/internal_auth.py` — inbound key check against `grpc_api_key`.
+- Create `src/shared/http/internal_auth.py` — inbound key check against `internal_api_key`.
 - Create `src/features/tracking/api/internal_router.py` — the route.
 - Create `src/features/tracking/commands/delete_by_user.py` — the command.
 - Modify `src/features/tracking/domain/repository.py` — add `soft_delete_by_user`.
@@ -348,7 +348,7 @@ git commit -m "feat(users): add deleteUser to the auth port and its Cognito adap
 
 ### Task 3: Orders internal `DELETE /v1/orders/by-user`
 
-Orders has **no inbound API-key check today** — `GRPC_API_KEY` is only ever presented outbound. This task builds one.
+Orders has **no inbound API-key check today** — `INTERNAL_API_KEY` is only ever presented outbound. This task builds one.
 
 **Files:**
 - Create: `services/orders/src/Orders.Api/Identity/InternalApiKey.cs`
@@ -360,7 +360,7 @@ Orders has **no inbound API-key check today** — `GRPC_API_KEY` is only ever pr
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `DELETE /v1/orders/by-user`, header `x-api-key: <GRPC_API_KEY>`, body `{"cognitoSub": "<sub>"}`, response `200 {"deleted": N, "deletedDetails": N, "deletedCarts": N}`. Task 5's cascade client calls exactly this.
+- Produces: `DELETE /v1/orders/by-user`, header `x-api-key: <INTERNAL_API_KEY>`, body `{"cognitoSub": "<sub>"}`, response `200 {"deleted": N, "deletedDetails": N, "deletedCarts": N}`. Task 5's cascade client calls exactly this.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -378,7 +378,7 @@ namespace Orders.Tests.Api;
 
 // The internal cascade route used by Users' DELETE /v1/users/me. It is NOT on the
 // API Gateway and never sees an end-user JWT: its only credential is the shared
-// internal GRPC_API_KEY.
+// internal INTERNAL_API_KEY.
 public class InternalDeleteByUserTests : IClassFixture<OrdersE2eApiFactory>
 {
     private const string Path = "/v1/orders/by-user";
@@ -587,7 +587,7 @@ public static class InternalEndpoints
             var logger = loggerFactory.CreateLogger("Orders.Api.Endpoints.InternalEndpoints");
             var provided = http.Headers[InternalApiKey.HeaderName].FirstOrDefault();
 
-            if (!InternalApiKey.Matches(provided, config["GRPC_API_KEY"]!))
+            if (!InternalApiKey.Matches(provided, config["INTERNAL_API_KEY"]!))
             {
                 // A mass soft-delete surface is the widest blast radius in this
                 // service; failed attempts are worth seeing. NEVER log the key.
@@ -712,7 +712,7 @@ git commit -m "feat(orders): add the internal delete-by-user cascade route"
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `DELETE /v1/trackings/by-user`, header `x-api-key: <GRPC_API_KEY>`, body `{"cognito_sub": "<sub>", "user_id": "<usr_id>"}` (snake_case, matching this service's wire style), response `200 {"deleted": N}`.
+- Produces: `DELETE /v1/trackings/by-user`, header `x-api-key: <INTERNAL_API_KEY>`, body `{"cognito_sub": "<sub>", "user_id": "<usr_id>"}` (snake_case, matching this service's wire style), response `200 {"deleted": N}`.
 
 - [ ] **Step 1: Write the failing repository test**
 
@@ -900,7 +900,7 @@ Create `services/tracking/src/shared/http/internal_auth.py`:
 """Internal service-to-service key check for `DELETE /v1/trackings/by-user`.
 
 The second inbound key check in this service. Its sibling, `carrier_auth.py`,
-validates the EXTERNAL carrier key; this one validates `GRPC_API_KEY`, the INTERNAL
+validates the EXTERNAL carrier key; this one validates `INTERNAL_API_KEY`, the INTERNAL
 credential (ADR-0003) that Users, Orders and Tracking share. The two must never be
 interchanged: accepting the carrier's key here would let an outside vendor erase a
 user's delivery history.
@@ -946,7 +946,7 @@ def require_internal_key(
     x_api_key: Annotated[str | None, Header(alias=INTERNAL_API_KEY_HEADER)] = None,
 ) -> None:
     """Reject the request unless it carries the internal service key."""
-    if internal_key_matches(x_api_key, settings.grpc_api_key):
+    if internal_key_matches(x_api_key, settings.internal_api_key):
         return
 
     # A mass soft-delete surface is the widest blast radius this service has.
@@ -1226,7 +1226,7 @@ class TestInternalDeleteByUser:
         assert response.status_code in (401, 404)
 ```
 
-Add a `carrier_key` fixture and a `seeded_tracking` fixture to `tests/conftest.py` if they do not exist, following the existing `_build_app` dependency-override pattern in `tests/test_rest_e2e_cleanup.py`, and make the test app's `get_settings` override return `grpc_api_key="test-grpc-key"`.
+Add a `carrier_key` fixture and a `seeded_tracking` fixture to `tests/conftest.py` if they do not exist, following the existing `_build_app` dependency-override pattern in `tests/test_rest_e2e_cleanup.py`, and make the test app's `get_settings` override return `internal_api_key="test-grpc-key"`.
 
 - [ ] **Step 11: Run the tests**
 
@@ -1778,7 +1778,7 @@ Add the singleton in `registerSingletons()`, next to `auth`:
         new CascadeClient({
           ordersBaseUrl: cradleEnv.ORDERS_BASE_URL,
           trackingBaseUrl: cradleEnv.TRACKING_BASE_URL,
-          apiKey: cradleEnv.GRPC_API_KEY,
+          apiKey: cradleEnv.INTERNAL_API_KEY,
         }),
       { lifetime: Lifetime.SINGLETON },
     ),
@@ -1961,7 +1961,7 @@ Add to `.env.example`, near the existing `TRACKING_BASE_URL`:
 
 ```bash
 # Users -> Orders/Tracking, for the account-deletion cascade (DELETE /v1/users/me).
-# Internal routes, authenticated with GRPC_API_KEY; never exposed on the gateway.
+# Internal routes, authenticated with INTERNAL_API_KEY; never exposed on the gateway.
 ORDERS_BASE_URL=http://orders:8080
 TRACKING_BASE_URL=http://tracking:8000
 ```

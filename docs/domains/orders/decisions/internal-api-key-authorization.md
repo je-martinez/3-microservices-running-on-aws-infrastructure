@@ -45,7 +45,7 @@ A shared symmetric key, `INTERNAL_API_KEY`, identical on both Users and Orders:
   mismatched key → `UNAUTHENTICATED` (gRPC code 16); the handler never runs.
 - **Orders (client):** the generated `Grpc.Tools` client attaches `x-api-key` in the
   metadata of every call, reading `INTERNAL_API_KEY` from its own environment.
-- Local value: a `local-dev-secret`-style constant in compose env (`local-dev-grpc-key`),
+- Local value: a `local-dev-secret`-style constant in compose env (`local-dev-internal-key`),
   not exposed outside the compose network. Production value is deferred to Secrets
   Manager, same as other secrets — see [[ADR-0007-secrets-parameter-store]].
 
@@ -63,33 +63,15 @@ A shared symmetric key, `INTERNAL_API_KEY`, identical on both Users and Orders:
   undecided — not revisited here.
 
 > [!warning] Correction (2026-08-26) — Orders is no longer only a presenter of this key
-> This ADR previously framed `GRPC_API_KEY` (see the 2026-09-18 rename below) as something
-> **Orders presents outbound** and **Users alone validates inbound**. That is no longer the
-> complete picture: the account-deletion milestone added `DELETE /v1/orders/by-user`, an internal
-> REST route (not gRPC) that Orders **validates inbound**, using the same shared secret and a
-> constant-time comparison — the same mechanism, a different transport and a different direction.
-> Users remains the only **gRPC** server validating the key; Orders is now additionally an
-> **HTTP** server validating it, on a route reachable only from inside the network and absent
-> from the API Gateway. See [[orders-service-design#Account-deletion cascade (internal)]] and
+> This ADR previously framed `INTERNAL_API_KEY` as something **Orders presents outbound** and
+> **Users alone validates inbound**. That is no longer the complete picture: the account-deletion
+> milestone added `DELETE /v1/orders/by-user`, an internal REST route (not gRPC) that Orders
+> **validates inbound**, using the same shared secret and a constant-time comparison — the same
+> mechanism, a different transport and a different direction. Users remains the only **gRPC**
+> server validating the key; Orders is now additionally an **HTTP** server validating it, on a
+> route reachable only from inside the network and absent from the API Gateway. See
+> [[orders-service-design#Account-deletion cascade (internal)]] and
 > [[2026-08-25-account-deletion-design]] for the full route design.
-
-> [!warning] Renamed (2026-09-18) — `GRPC_API_KEY` → `INTERNAL_API_KEY`
-> The env var and its derived code identifiers (`grpcApiKey` in C#, `GRPCAPIKey` in Go) were
-> renamed **`GRPC_API_KEY` → `INTERNAL_API_KEY`** across all three services, config, the env
-> generator, the Makefile, `.env.example`, and the E2E/load-test helpers. `GRPC_API_KEY` named
-> a **transport** — the original, and until 2026-08-26 the only, use was gRPC metadata from
-> Orders and Tracking to Users. The 2026-08-26 correction above made that name stale: the same
-> secret is now also validated **inbound over plain REST**, on `DELETE /v1/trackings/by-user`,
-> `DELETE /v1/orders/by-user`, and `POST /v1/orders/{orderId}/cache-invalidation` — none of which
-> is gRPC. The property that actually distinguishes this credential was never the protocol; it is
-> that **every holder is one of our own services** — see [[two-api-keys-two-trust-domains]], whose
-> whole argument rests on that same distinction. `INTERNAL_API_KEY` names the property that
-> matters instead of the transport that happened to be first. This note's file was also renamed,
-> from `grpc-api-key-authorization.md` to `internal-api-key-authorization.md`, and its `id`
-> updated from `orders-grpc-api-key-authorization` to `orders-internal-api-key-authorization`.
-> Every occurrence of `GRPC_API_KEY` above and in [Consequences](#consequences) describes the name
-> as it existed **before** this rename; the current name is `INTERNAL_API_KEY` throughout the
-> vault and codebase.
 
 ## Related
 

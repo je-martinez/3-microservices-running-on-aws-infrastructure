@@ -4,7 +4,7 @@ type: spec
 area: orders
 status: draft
 created: 2026-07-14
-updated: 2026-07-14
+updated: 2026-09-18
 tags:
   - type/spec
   - area/orders
@@ -172,10 +172,10 @@ Inside the `POST /v1/orders` transaction, re-read each `Product` with a pessimis
 
 ## Inter-service gRPC authorization (API key)
 
-- A shared symmetric API key `GRPC_API_KEY` (same value in Users and Orders). Local: a `local-dev-secret`-style value in compose/`.env`, not exposed outside the compose network. Prod: Secrets Manager, deferred like other secrets (see [[ADR-0007-secrets-parameter-store]]).
+- A shared symmetric API key `INTERNAL_API_KEY` (same value in Users and Orders). Local: a `local-dev-secret`-style value in compose/`.env`, not exposed outside the compose network. Prod: Secrets Manager, deferred like other secrets (see [[ADR-0007-secrets-parameter-store]]).
 - The key travels in the gRPC **metadata** under the key **`x-api-key`** — not in the message body, not the user JWT.
-- **Users (server):** a gRPC **server interceptor** (cross-cutting, runs before any handler) extracts `x-api-key` from metadata and compares it to `GRPC_API_KEY` using a **constant-time** comparison. Missing/mismatch → `UNAUTHENTICATED` (gRPC code 16), handler not executed. Match → proceeds to `getUserByIdHandler`.
-- **Orders (client):** attaches `x-api-key` in the metadata of every gRPC call (client generated with `Grpc.Tools`), reading `GRPC_API_KEY` from its env.
+- **Users (server):** a gRPC **server interceptor** (cross-cutting, runs before any handler) extracts `x-api-key` from metadata and compares it to `INTERNAL_API_KEY` using a **constant-time** comparison. Missing/mismatch → `UNAUTHENTICATED` (gRPC code 16), handler not executed. Match → proceeds to `getUserByIdHandler`.
+- **Orders (client):** attaches `x-api-key` in the metadata of every gRPC call (client generated with `Grpc.Tools`), reading `INTERNAL_API_KEY` from its env.
 
 See [[ADR-0003-grpc-inter-service]] for the base gRPC decision and [[ADR-0010-cognito-auth]] for the Cognito auth layer this gate sits behind.
 
@@ -200,7 +200,7 @@ See [[ADR-0003-grpc-inter-service]] for the base gRPC decision and [[ADR-0010-co
 
 1. **Issue A (first item, gate) — Users gRPC server** (a Users leftover, completed here):
    - Shared `/proto/users.proto` (proto file at repo root, shared by both services): `service Users { rpc GetUserById(GetUserByIdRequest) returns (UserResponse) }`.
-   - Users: add official `@grpc/grpc-js` + `@grpc/proto-loader`; gRPC server in `shared/grpc/`, registers the **existing** `getUserByIdHandler`, starts in the bootstrap alongside Fastify on its own port (`:50051`), graceful shutdown. `getUserById` already resolves by `usr_` id OR Cognito Sub (existing `byIdOrCognitoSub` behavior — see [[2026-07-11-authenticated-identity-resolution-design]]). Includes the API-key server interceptor + `GRPC_API_KEY` env var.
+   - Users: add official `@grpc/grpc-js` + `@grpc/proto-loader`; gRPC server in `shared/grpc/`, registers the **existing** `getUserByIdHandler`, starts in the bootstrap alongside Fastify on its own port (`:50051`), graceful shutdown. `getUserById` already resolves by `usr_` id OR Cognito Sub (existing `byIdOrCognitoSub` behavior — see [[2026-07-11-authenticated-identity-resolution-design]]). Includes the API-key server interceptor + `INTERNAL_API_KEY` env var.
    - Compose/Floci: expose the Users gRPC port on the network.
    - Best practices applied: `.proto` as the contract source of truth, `loadSync` at startup, `NOT_FOUND` when the user does not exist, lifecycle tied to the process.
    - Must be merged **before** the Orders `POST` endpoint.

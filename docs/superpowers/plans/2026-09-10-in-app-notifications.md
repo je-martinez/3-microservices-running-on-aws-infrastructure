@@ -4,7 +4,7 @@ type: plan
 area: shared
 status: draft
 created: 2026-09-10
-updated: 2026-09-11
+updated: 2026-09-18
 tags:
   - type/plan
   - area/shared
@@ -1639,7 +1639,7 @@ describe("notification env vars", () => {
       AWS_ENDPOINT_URL: "http://localhost:4566",
       AWS_REGION: "us-east-1",
       WEBHOOK_SECRET: "test-webhook-secret",
-      GRPC_API_KEY: "test-grpc-key",
+      INTERNAL_API_KEY: "test-grpc-key",
       ORDERS_BASE_URL: "http://localhost:8080",
       TRACKING_BASE_URL: "http://localhost:8000",
       REDIS_HOST: "localhost",

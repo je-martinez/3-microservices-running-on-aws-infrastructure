@@ -258,7 +258,7 @@ bulk `UPDATE`s below).
 ### Auth schemes
 
 > [!warning] Corrected 2026-08-26 — the internal key is validated inbound again
-> This section previously stated the gRPC `x-api-key`/`GRPC_API_KEY` scheme was, as of the
+> This section previously stated the gRPC `x-api-key`/`INTERNAL_API_KEY` scheme was, as of the
 > gRPC-removal rewrite, something Tracking only **sends**, never validates inbound — with the
 > inbound `x-api-key` interceptor removed entirely (see
 > [Deltas from the original design (superseded)](#deltas-from-the-original-design-superseded)).
@@ -266,8 +266,6 @@ bulk `UPDATE`s below).
 > validates the shared internal key **inbound**, on `DELETE /v1/trackings/by-user`, a plain REST
 > route. [[two-api-keys-two-trust-domains]] carried the same outdated claim and has been
 > corrected there too. The tables below reflect the current, actual direction of every surface.
-> The key itself was renamed from `GRPC_API_KEY` to `INTERNAL_API_KEY` on 2026-09-18, once its
-> inbound role made "gRPC" describe the wrong thing — see [[internal-api-key-authorization]].
 
 Tracking is REST-only, but its surfaces still span several trust domains — worth documenting
 explicitly, and worth being explicit about **direction**, because Tracking is now both a callee

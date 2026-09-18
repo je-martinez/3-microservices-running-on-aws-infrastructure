@@ -4,7 +4,7 @@ type: plan
 area: shared
 status: draft
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-09-18
 tags:
   - type/plan
   - area/shared
@@ -68,7 +68,7 @@ Redis exists and Users already reaches it. This task makes Orders and Tracking a
 
 - [ ] **Step 1: Add the three vars to the Orders and Tracking generator blocks, and CACHE_ENABLED to Users**
 
-In `infra/environments/local/scripts/generate_env_files.py`, the orders block's `generated={...}` dict (starts at `:347`) gains these entries. Place them right after `"GRPC_API_KEY": GRPC_API_KEY,`:
+In `infra/environments/local/scripts/generate_env_files.py`, the orders block's `generated={...}` dict (starts at `:347`) gains these entries. Place them right after `"INTERNAL_API_KEY": INTERNAL_API_KEY,`:
 
 ```python
                 # Redis/Valkey for the response cache. REDIS_HOST is the Floci
@@ -945,7 +945,7 @@ if (cacheEnabled)
     // Decorate the gRPC directory with the identity cache. Registered AFTER the
     // IUserDirectory registration above, so this factory wins.
     builder.Services.AddScoped<IUserDirectory>(sp => new CachedUserDirectory(
-        new UserDirectoryGrpcClient(sp.GetRequiredService<Users.V1.Users.UsersClient>(), grpcApiKey),
+        new UserDirectoryGrpcClient(sp.GetRequiredService<Users.V1.Users.UsersClient>(), internalApiKey),
         sp.GetRequiredService<ICacheGateway>()));
 }
 ```
@@ -4232,7 +4232,7 @@ Produces:
               application.dependency_overrides[get_settings] = lambda: Settings(
                   database_writer_url="mysql+pymysql://unused/unused",
                   database_reader_url="mysql+pymysql://unused/unused",
-                  grpc_api_key="unused-grpc-key",
+                  internal_api_key="unused-grpc-key",
                   tracking_carrier_api_key=TEST_CARRIER_API_KEY,
                   cache_enabled=False,
               )

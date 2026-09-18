@@ -4,7 +4,7 @@ type: spec
 area: infra
 status: draft
 created: 2026-07-20
-updated: 2026-07-20
+updated: 2026-09-18
 tags:
   - type/spec
   - area/infra
@@ -62,7 +62,7 @@ Auto-generate every env file that derives from Terraform discovery, split per co
 > and different formats: `postgres://test:test@floci:${USERS_DB_PORT}/users` for Users versus an
 > ADO connection string `Server=floci;Port=${ORDERS_DB_PORT};Database=orders;` for Orders. A
 > single shared `.env.<env>.services` file cannot hold two values for one key. The other 6 keys
-> present in both services (AWS_*, GRPC_API_KEY, OTEL_*) do agree.
+> present in both services (AWS_*, INTERNAL_API_KEY, OTEL_*) do agree.
 
 ## Decisions
 

@@ -4,7 +4,7 @@ type: plan
 area: orders
 status: draft
 created: 2026-07-14
-updated: 2026-07-14
+updated: 2026-09-18
 tags:
   - type/plan
   - area/orders
@@ -38,7 +38,7 @@ Logical execution plan for the Orders Service milestone: task sequence, phases, 
 | # | Issue | Task | Deliverable | Spec note |
 |---|---|---|---|---|
 | 1 | [JE-41](https://linear.app/je-martinez/issue/JE-41) (A1) | Shared `/proto/users.proto` gRPC contract | `proto/users.proto` — `users.v1.Users.GetUserById` | [[2026-07-14-orders-service-milestone-design]] |
-| 2 | [JE-42](https://linear.app/je-martinez/issue/JE-42) (A2) | gRPC deps + env in Users | `@grpc/grpc-js`/`@grpc/proto-loader` deps, `GRPC_PORT`/`GRPC_API_KEY` env | [[2026-07-14-orders-service-milestone-design]] |
+| 2 | [JE-42](https://linear.app/je-martinez/issue/JE-42) (A2) | gRPC deps + env in Users | `@grpc/grpc-js`/`@grpc/proto-loader` deps, `GRPC_PORT`/`INTERNAL_API_KEY` env | [[2026-07-14-orders-service-milestone-design]] |
 | 3 | [JE-43](https://linear.app/je-martinez/issue/JE-43) (A3) | gRPC server + `x-api-key` interceptor | `buildGrpcServer`/`startGrpcServer`, constant-time `apiKeyMatches`, bootstrap alongside Fastify | [[2026-07-14-orders-service-milestone-design]] |
 | 4 | [JE-44](https://linear.app/je-martinez/issue/JE-44) (A4) | Expose the Users gRPC port | `users:50051` reachable on compose/Floci network | [[2026-07-14-orders-service-milestone-design]] |
 | 5 | [JE-45](https://linear.app/je-martinez/issue/JE-45) (B1) | Solution + 5 Clean Architecture projects | `Orders.sln` (Domain/Application/Infrastructure/Api/Tests) | [[2026-07-14-orders-service-milestone-design]] |

@@ -4,7 +4,7 @@ type: plan
 area: orders
 status: draft
 created: 2026-07-14
-updated: 2026-07-14
+updated: 2026-09-18
 tags: [type/plan, area/orders, status/draft]
 related: ["[[2026-07-14-orders-service-milestone-design]]", "[[orders-service-design]]", "[[users-service-design]]", "[[soft-delete]]", "[[nano-id]]", "[[audit-fields]]", "[[db-naming]]", "[[cqrs]]", "[[versioning]]", "[[ADR-0003-grpc-inter-service]]", "[[ADR-0006-read-write-replicas]]", "[[ADR-0010-cognito-auth]]"]
 propagates-to:
@@ -37,7 +37,7 @@ propagates-to:
 - **DB naming:** snake_case columns in MySQL ↔ PascalCase aliases in EF Core. See [[db-naming]].
 - **API versioning:** all HTTP endpoints under `/v1`. See [[versioning]].
 - **CQRS:** reads via read DbContext (read replica), writes via write DbContext (write replica); locally both point at the same MySQL. See [[cqrs]] and [[ADR-0006-read-write-replicas]].
-- **gRPC auth:** shared symmetric key `GRPC_API_KEY`, sent in gRPC metadata under `x-api-key`, validated server-side by a constant-time comparison in an interceptor; mismatch → `UNAUTHENTICATED`.
+- **gRPC auth:** shared symmetric key `INTERNAL_API_KEY`, sent in gRPC metadata under `x-api-key`, validated server-side by a constant-time comparison in an interceptor; mismatch → `UNAUTHENTICATED`.
 - **Implementers write only source code.** Leave work in the working tree; the main session commits. The `git commit` steps below describe the intended commit boundary for the main session — an implementer subagent stops after the tests pass.
 
 ---
@@ -98,25 +98,25 @@ git commit -m "feat(orders): add shared users.proto gRPC contract"
 
 **Files:**
 - Modify: `services/users/package.json` (add deps)
-- Modify: `services/users/src/shared/config/env.ts` (add `GRPC_PORT`, `GRPC_API_KEY`)
+- Modify: `services/users/src/shared/config/env.ts` (add `GRPC_PORT`, `INTERNAL_API_KEY`)
 - Test: `services/users/tests/shared/env.test.ts` (extend)
 
 **Interfaces:**
-- Produces: `env.GRPC_PORT` (number, default 50051) and `env.GRPC_API_KEY` (string, required) available to the gRPC bootstrap (Task A3).
+- Produces: `env.GRPC_PORT` (number, default 50051) and `env.INTERNAL_API_KEY` (string, required) available to the gRPC bootstrap (Task A3).
 
 - [ ] **Step 1: Add the failing env test**
 
 Add to `services/users/tests/shared/env.test.ts`:
 
 ```ts
-it("parses GRPC_PORT and GRPC_API_KEY", () => {
+it("parses GRPC_PORT and INTERNAL_API_KEY", () => {
   const parsed = envSchema.parse({
     ...baseValidEnv,
     GRPC_PORT: "50051",
-    GRPC_API_KEY: "local-dev-grpc-key",
+    INTERNAL_API_KEY: "local-dev-internal-key",
   });
   expect(parsed.GRPC_PORT).toBe(50051);
-  expect(parsed.GRPC_API_KEY).toBe("local-dev-grpc-key");
+  expect(parsed.INTERNAL_API_KEY).toBe("local-dev-internal-key");
 });
 ```
 
@@ -125,7 +125,7 @@ it("parses GRPC_PORT and GRPC_API_KEY", () => {
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `nvm use && cd services/users && pnpm test -- env`
-Expected: FAIL — `GRPC_PORT`/`GRPC_API_KEY` not on the parsed object (undefined).
+Expected: FAIL — `GRPC_PORT`/`INTERNAL_API_KEY` not on the parsed object (undefined).
 
 - [ ] **Step 3: Add the env fields**
 
@@ -133,7 +133,7 @@ In `services/users/src/shared/config/env.ts`, add to the Zod schema (follow the 
 
 ```ts
 GRPC_PORT: z.coerce.number().int().positive().default(50051),
-GRPC_API_KEY: z.string().min(1),
+INTERNAL_API_KEY: z.string().min(1),
 ```
 
 - [ ] **Step 4: Add the deps**
@@ -155,7 +155,7 @@ Expected: PASS.
 
 ```bash
 git add services/users/package.json services/users/pnpm-lock.yaml services/users/src/shared/config/env.ts services/users/tests/shared/env.test.ts
-git commit -m "feat(users): add gRPC deps and GRPC_PORT/GRPC_API_KEY env"
+git commit -m "feat(users): add gRPC deps and GRPC_PORT/INTERNAL_API_KEY env"
 ```
 
 ---
@@ -170,7 +170,7 @@ git commit -m "feat(users): add gRPC deps and GRPC_PORT/GRPC_API_KEY env"
 - Test: `services/users/tests/features/users/grpc/get-user-by-id.test.ts` (already exists — leave as is)
 
 **Interfaces:**
-- Consumes: `env.GRPC_PORT`, `env.GRPC_API_KEY` (Task A2); `getUserByIdHandler` from `#features/users/grpc/get-user-by-id` (exists); the container's `userQueryService` (from the existing Awilix container).
+- Consumes: `env.GRPC_PORT`, `env.INTERNAL_API_KEY` (Task A2); `getUserByIdHandler` from `#features/users/grpc/get-user-by-id` (exists); the container's `userQueryService` (from the existing Awilix container).
 - Produces: `buildGrpcServer(deps: { userQueryService }): grpc.Server` and `startGrpcServer(): Promise<grpc.Server>`; the exported `apiKeyMatches(provided: string | undefined, expected: string): boolean` constant-time comparator.
 
 - [ ] **Step 1: Write the failing interceptor test**
@@ -224,7 +224,7 @@ export function apiKeyMatches(
 }
 
 // Server interceptor: rejects the call with UNAUTHENTICATED before the handler
-// runs unless metadata `x-api-key` matches GRPC_API_KEY.
+// runs unless metadata `x-api-key` matches INTERNAL_API_KEY.
 export function makeApiKeyInterceptor(expectedKey: string) {
   return function apiKeyInterceptor(
     methodDescriptor: grpc.ServerMethodDefinition<unknown, unknown>,
@@ -300,7 +300,7 @@ export function buildGrpcServer(deps: GrpcServerDeps): grpc.Server {
   };
 
   const server = new grpc.Server({
-    interceptors: [makeApiKeyInterceptor(env.GRPC_API_KEY)],
+    interceptors: [makeApiKeyInterceptor(env.INTERNAL_API_KEY)],
   });
 
   server.addService(proto.users.v1.Users.service, {
@@ -392,7 +392,7 @@ git commit -m "feat(users): serve GetUserById over gRPC with x-api-key intercept
 - Modify: `services/users/CLAUDE.md` (document the gRPC surface as live)
 
 **Interfaces:**
-- Produces: the `users` container reachable at `users:50051` on `3mrai-network`, with `GRPC_PORT` and `GRPC_API_KEY` in its environment. Consumed by the `orders` container (Task C-infra).
+- Produces: the `users` container reachable at `users:50051` on `3mrai-network`, with `GRPC_PORT` and `INTERNAL_API_KEY` in its environment. Consumed by the `orders` container (Task C-infra).
 
 - [ ] **Step 1: Add the gRPC port and env to the users service**
 
@@ -400,7 +400,7 @@ In `docker-compose.yml`, under the `users:` service, add `"50051:50051"` to `por
 
 ```yaml
       - GRPC_PORT=50051
-      - GRPC_API_KEY=local-dev-grpc-key
+      - INTERNAL_API_KEY=local-dev-internal-key
 ```
 
 - [ ] **Step 2: Bring the service up and verify the port listens**
@@ -1897,11 +1897,11 @@ builder.Services.AddDbContext<OrdersWriteDbContext>(o =>
     o.UseMySql(writerCs, ServerVersion.AutoDetect(writerCs)));
 
 var grpcAddress = builder.Configuration["USERS_GRPC_URL"]!;   // e.g. http://users:50051
-var grpcApiKey = builder.Configuration["GRPC_API_KEY"]!;
+var internalApiKey = builder.Configuration["INTERNAL_API_KEY"]!;
 builder.Services.AddSingleton(_ =>
     new Users.V1.Users.UsersClient(Grpc.Net.Client.GrpcChannel.ForAddress(grpcAddress)));
 builder.Services.AddScoped<Orders.Application.Identity.IUserDirectory>(sp =>
-    new Orders.Infrastructure.Grpc.UserDirectoryGrpcClient(sp.GetRequiredService<Users.V1.Users.UsersClient>(), grpcApiKey));
+    new Orders.Infrastructure.Grpc.UserDirectoryGrpcClient(sp.GetRequiredService<Users.V1.Users.UsersClient>(), internalApiKey));
 builder.Services.AddScoped<Orders.Application.Abstractions.IEventPublisher, Orders.Infrastructure.Messaging.NoopEventPublisher>();
 
 var taxRate = decimal.Parse(builder.Configuration["ORDERS_TAX_RATE"] ?? "0.08");
@@ -2020,7 +2020,7 @@ In `docker-compose.yml` under `orders:`, add (mirroring the Users DB-URL comment
       - DATABASE_WRITER_URL=Server=floci;Port=<mysql-proxy-port>;Database=orders;User=test;Password=test;
       - DATABASE_READER_URL=Server=floci;Port=<mysql-proxy-port>;Database=orders;User=test;Password=test;
       - USERS_GRPC_URL=http://users:50051
-      - GRPC_API_KEY=local-dev-grpc-key
+      - INTERNAL_API_KEY=local-dev-internal-key
       - ORDERS_TAX_RATE=0.08
       - E2E_TESTING_ENABLED=true
     depends_on:
@@ -2030,7 +2030,7 @@ In `docker-compose.yml` under `orders:`, add (mirroring the Users DB-URL comment
         condition: service_started
 ```
 
-> `GRPC_API_KEY` MUST equal the value set on the `users` service in Task A4 (`local-dev-grpc-key`) — the interceptor compares them. The MySQL proxy port is whatever Floci exposes for the Aurora-MySQL cluster; verify with `docker compose exec floci ...` or the Floci skill, the same way Users found Postgres on `:7001`.
+> `INTERNAL_API_KEY` MUST equal the value set on the `users` service in Task A4 (`local-dev-internal-key`) — the interceptor compares them. The MySQL proxy port is whatever Floci exposes for the Aurora-MySQL cluster; verify with `docker compose exec floci ...` or the Floci skill, the same way Users found Postgres on `:7001`.
 
 - [ ] **Step 3: Add the orders migrate+seed to the Makefile bootstrap**
 

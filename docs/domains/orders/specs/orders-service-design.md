@@ -452,8 +452,7 @@ body is even parsed.
 
 `[[internal-api-key-authorization]]`'s own text previously framed Orders purely as a
 **presenter** of this key; that framing is now incomplete and has been corrected there to record
-both directions. The credential was also renamed from `GRPC_API_KEY` to `INTERNAL_API_KEY` once
-it started being validated over plain REST here — see the ADR's 2026-09-18 addendum.
+both directions.
 
 ### Exempted from the `x-user-id` guard, not exempted from authentication
 

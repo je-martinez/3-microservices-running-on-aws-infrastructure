@@ -33,35 +33,19 @@ domains:
   services. Tracking presents it as `x-api-key` gRPC metadata when it calls
   `users.v1.Users/GetUserById` to resolve a caller's Cognito sub to their internal `usr_` id — the
   same shared secret Orders already presents to Users for the identical call — see
-  [[internal-api-key-authorization]]. Every holder is one of **our own services** — this is the
-  property that names the credential (see the 2026-09-18 rename below), and the property this
-  whole ADR depends on never becoming true of the other key.
+  [[internal-api-key-authorization]]. Every holder is one of **our own services**.
   >
-  > **Correction (2026-08-26):** this decision originally described this key (then named
-  > `GRPC_API_KEY`) as purely **outbound** for Tracking — something it only ever sends, never
-  > validates. That stopped being true when the account-deletion milestone added
-  > `DELETE /v1/trackings/by-user`, an internal REST route Tracking itself validates the same key
-  > **inbound** on (via `RequireInternalKey`), the same secret and mechanism, a different
-  > transport and direction. Orders gained the identical inbound-validation role on its own
-  > `DELETE /v1/orders/by-user` — see [[orders-service-design#Account-deletion cascade (internal)]]
-  > and [[tracking-service-design#Account-deletion cascade (internal)]]. This key being internal
-  > and symmetric is exactly why this is not a contradiction: a service holding it can be both a
+  > **Correction (2026-08-26):** this decision originally described this key as purely
+  > **outbound** for Tracking — something it only ever sends, never validates. That stopped being
+  > true when the account-deletion milestone added `DELETE /v1/trackings/by-user`, an internal
+  > REST route Tracking itself validates the same key **inbound** on (via `RequireInternalKey`),
+  > the same secret and mechanism, a different transport and direction. Orders gained the
+  > identical inbound-validation role on its own `DELETE /v1/orders/by-user` — see
+  > [[orders-service-design#Account-deletion cascade (internal)]] and
+  > [[tracking-service-design#Account-deletion cascade (internal)]]. This key being internal and
+  > symmetric is exactly why this is not a contradiction: a service holding it can be both a
   > sender and a validator, as long as every holder is still one of our own services — the
   > property that matters for this ADR's decision below.
-  >
-  > **Renamed (2026-09-18):** `GRPC_API_KEY` → `INTERNAL_API_KEY`, everywhere in code, config, the
-  > env generator, the Makefile, `.env.example`, and the E2E/load-test helpers. The old name
-  > described a **transport** — gRPC metadata — that stopped being the only one the moment the
-  > 2026-08-26 correction above made this key an inbound REST validator too, on
-  > `DELETE /v1/trackings/by-user`, `DELETE /v1/orders/by-user`, and the new
-  > `POST /v1/orders/{orderId}/cache-invalidation`. This ADR's entire argument is that the two
-  > keys must never be confused, and a name that describes a transport rather than a trust
-  > boundary is itself an invitation to that confusion: nothing in "gRPC" says "one of our own
-  > services," which is the actual dividing line between the two keys below.
-  > `INTERNAL_API_KEY` states that dividing line directly, and `TRACKING_CARRIER_API_KEY` already
-  > named its own side of it (an externally-distributed credential) the same way — the rename
-  > brings the internal key's name into alignment with the property this ADR was always keying
-  > its decision on, rather than the protocol its first use happened to be.
 - **`TRACKING_CARRIER_API_KEY`** — an **inbound** credential, validated by Tracking itself,
   presented by an **external third-party carrier/webhook** calling
   `PUT /v1/trackings/{orderId}/status` to simulate a delivery status update. The holder is
@@ -126,8 +110,7 @@ separately, and never reused as each other**:
 - [[tracking-service-design]] — full auth-scheme table (inbound and outbound) this decision
   formalizes.
 - [[internal-api-key-authorization]] — the shared internal `x-api-key` scheme `INTERNAL_API_KEY`
-  belongs to; Tracking is a second client of it, alongside Orders. Carries the same 2026-09-18
-  rename note.
+  belongs to; Tracking is a second client of it, alongside Orders.
 - [[orders-service-design]] — Orders' inbound validation of the same key on its own
   `DELETE /v1/orders/by-user` cascade route and the newer cache-invalidation endpoint.
 - [[ADR-0003-grpc-inter-service]] — why the internal call is gRPC at all.
