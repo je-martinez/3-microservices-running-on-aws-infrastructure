@@ -21,6 +21,18 @@ public interface ICacheInvalidator
     Task InvalidateProductsAsync(CancellationToken ct);
 
     /// <summary>
+    /// Forgets the owner's cached order responses after their tracking moved
+    /// (POST /v1/orders/{orderId}/cache-invalidation).
+    /// CONTRACT: Takes the OWNER's identities, resolved from the order row — never a cache
+    /// key from the caller. Tracking owns no part of this key format, and a key it built
+    /// would become a silent no-op DELETE the first time a segment here changes.
+    /// CONTRACT: Pass BOTH identities — keys are filed under whichever id the client sent in
+    /// x-user-id, so sweeping the sub alone replays the previous delivery status on a HIT.
+    /// See [[x-cache-response-header]]
+    /// </summary>
+    Task InvalidateOrderTrackingAsync(string cognitoSub, string? userId, CancellationToken ct);
+
+    /// <summary>
     /// Forgets every response and identity entry for a deleted user (DELETE /v1/orders/by-user).
     /// CONTRACT: Pass BOTH cognitoSub and userId — keys use whichever id the client sent in x-user-id;
     /// sweeping the sub alone replays erased orders from cache (X-Cache: HIT) for up to 2 minutes.

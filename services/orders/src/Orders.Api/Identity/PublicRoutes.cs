@@ -28,5 +28,13 @@ public static class PublicRoutes
         // identity by design: the subject arrives in the body, because the caller
         // is Users acting on a user's behalf, not the user themselves.
         || (string.Equals(method, "DELETE", StringComparison.OrdinalIgnoreCase)
-            && routePath == "/v1/orders/by-user");
+            && routePath == "/v1/orders/by-user")
+        // The cross-service cache invalidation Tracking calls on a status change. Same
+        // "public" as the cascade above — off the API Gateway, and gated on the shared
+        // internal key inside the handler. Orders resolves the owner from the order row,
+        // so the caller supplies no identity.
+        // CONTRACT: Match the ROUTE PATTERN, parameter braces and all — the caller passes
+        // RoutePattern.RawText, so a concrete path here never matches and every call 401s.
+        || (string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase)
+            && routePath == "/v1/orders/{orderId}/cache-invalidation");
 }

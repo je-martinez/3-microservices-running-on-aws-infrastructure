@@ -182,6 +182,87 @@ public static class InternalEndpoints
             .Produces<InternalDeleteResponse>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status400BadRequest)
             .Produces(StatusCodes.Status401Unauthorized);
+
+        app.MapPost("/v1/orders/{orderId}/cache-invalidation", async (
+            string orderId,
+            HttpRequest http,
+            IConfiguration config,
+            OrdersReadDbContext db,
+            IWorkflowTracer tracer,
+            ICacheInvalidator cache,
+            ILogger<InternalEndpointsCategory> logger,
+            CancellationToken ct) =>
+        {
+            var provided = http.Headers[InternalApiKey.HeaderName].FirstOrDefault();
+
+            if (!InternalApiKey.Matches(provided, config["GRPC_API_KEY"]!))
+            {
+                // WARNING: Never log the API key — log client IP only on rejected attempts.
+                logger.LogWarning(
+                    "Rejected order cache invalidation {app_event} {reason} {client}",
+                    "internal_invalidate_order_cache_failed",
+                    "invalid_api_key",
+                    http.HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown");
+                return Results.Unauthorized();
+            }
+
+            return await tracer.TraceWorkflowAsync(
+                "internal_invalidate_order_cache",
+                new Dictionary<string, object?>
+                {
+                    ["app_event"] = "internal_invalidate_order_cache_started",
+                    ["order_id"] = orderId,
+                },
+                async () =>
+                {
+                    // CONTRACT: Resolve the owner from the ORDER ROW, never from the
+                    // request. An owner the caller supplied could be wrong, sweeping a
+                    // stranger's keys and leaving the stale entry in place.
+                    var owner = await db.Orders
+                        // CONTRACT: A soft-deleted order's cached entries outlive its row
+                        // by their full TTL, so the global filter would 404 exactly the
+                        // order someone just watched disappear. See [[soft-delete]]
+                        .IgnoreQueryFilters()
+                        .AsNoTracking()
+                        .Where(o => o.Id == orderId)
+                        .Select(o => new { o.CognitoSub, o.UserId })
+                        .FirstOrDefaultAsync(ct);
+
+                    if (owner is null)
+                    {
+                        // An order this service cannot resolve names no owner, so there is
+                        // no key set to sweep. A 200 here would let the caller record a
+                        // success for an invalidation that did not happen.
+                        logger.LogWarning(
+                            "Order cache invalidation rejected {app_event} {reason} {order_id}",
+                            "internal_invalidate_order_cache_failed", "order_not_found", orderId);
+                        tracer.SetReason("order_not_found");
+                        return Results.NotFound(new { error = "order_not_found" });
+                    }
+
+                    // FAIL-OPEN, like every other invalidation site: a Redis fault leaves
+                    // the entries to expire by TTL and must not turn this into a 500 the
+                    // caller retries forever.
+                    await cache.InvalidateOrderTrackingAsync(owner.CognitoSub, owner.UserId, ct);
+
+                    // WHY: Log the subjects explicitly — the enricher carries no end-user
+                    // identity on a route with no end-user caller.
+                    logger.LogInformation(
+                        "Invalidated order cache {app_event} {order_id} {cognito_sub} {user_id}",
+                        "internal_invalidate_order_cache_succeeded",
+                        orderId,
+                        owner.CognitoSub,
+                        owner.UserId);
+
+                    return Results.Ok(new InternalInvalidateOrderCacheResponse(orderId));
+                });
+        })
+            .WithTags("internal")
+            .WithName("InternalInvalidateOrderCache")
+            .WithSummary("[Internal] Forget the cached order responses for one order.")
+            .Produces<InternalInvalidateOrderCacheResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status404NotFound);
     }
 }
 
@@ -198,3 +279,11 @@ public record InternalDeleteByUserRequest(string CognitoSub, string UserId);
 
 /// <summary>Per-table deletion counts for diagnosing partial cascade failures.</summary>
 public record InternalDeleteResponse(int Deleted, int DeletedDetails, int DeletedCarts);
+
+/// <summary>Echoes the order whose cached responses were forgotten.</summary>
+/// <remarks>
+/// CONTRACT: No key list and no count. What was swept is Orders' own business, and a caller
+/// that learns the key shape starts depending on it — the coupling this route exists to
+/// prevent. See [[x-cache-response-header]]
+/// </remarks>
+public record InternalInvalidateOrderCacheResponse(string OrderId);
