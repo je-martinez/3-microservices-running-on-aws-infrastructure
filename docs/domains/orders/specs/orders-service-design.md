@@ -4,7 +4,7 @@ type: spec
 area: orders
 status: accepted
 created: 2026-06-26
-updated: 2026-09-10
+updated: 2026-09-18
 tags: [type/spec, area/orders, status/accepted]
 related:
   - "[[2026-08-25-response-caching-layer-design]]"
@@ -927,3 +927,6 @@ Full milestone design: [[2026-07-14-orders-service-milestone-design]].
   alphabet, uniqueness, the collision retry, the UTC prefix trap, and the backfill. Summarized
   under [Order number](#order-number--a-customer-facing-label-not-an-identifier) above.
 - [[2026-09-07-friendly-order-number]] — the design plan behind that convention.
+- [[2026-09-18-cqrs-rule-lived-only-in-the-vault-not-in-the-file-agents-read-first]] — a
+  CQRS-violation review finding on an Orders internal endpoint (endpoint delegate querying
+  the DbContext directly); the code fix is tracked separately, this documents the rule gap.

@@ -138,7 +138,10 @@ services/orders/
 > commands, DTOs, and exceptions. The Api wires the concrete services.
 
 ## 4. Conventions (referenced, never duplicated)
-- CQRS (read/write DbContexts): [../../docs/shared/patterns/cqrs.md](../../docs/shared/patterns/cqrs.md)
+- CQRS (read/write DbContexts, and the endpoint-stays-thin rule): [../../docs/shared/patterns/cqrs.md](../../docs/shared/patterns/cqrs.md) → [[cqrs]].
+  **A Minimal API endpoint delegate never injects a DbContext or runs a query/save
+  directly — that logic belongs in the handler (an Infrastructure-layer service class
+  here, per [[clean-architecture-divergence]]), even for internal/small routes.**
 - Soft delete only: [../../docs/shared/conventions/soft-delete.md](../../docs/shared/conventions/soft-delete.md)
 - Prefixed nano IDs (`prd_`, `ord_`, `odd_`): [../../docs/shared/conventions/nano-id.md](../../docs/shared/conventions/nano-id.md)
 - Audit fields: [../../docs/shared/conventions/audit-fields.md](../../docs/shared/conventions/audit-fields.md)
