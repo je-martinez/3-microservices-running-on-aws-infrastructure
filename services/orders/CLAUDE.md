@@ -16,7 +16,7 @@ first, every time. Cross-cutting rules are **referenced**, never duplicated.
   (`Grpc.Net.Client` + `Grpc.Tools`), generated from the shared repo-root
   `proto/users.proto` (`GrpcServices="Both"` — the client is used at runtime; the
   server stub is only for the in-process test). Every call attaches the shared
-  `x-api-key` metadata (`GRPC_API_KEY`); `NOT_FOUND` maps to a null resolution.
+  `x-api-key` metadata (`INTERNAL_API_KEY`); `NOT_FOUND` maps to a null resolution.
 - Money: stored as **integer cents** in `bigint` `_cents` columns (Stripe-style),
   mapped to `long` in C#. Dollar values are non-persisted computed properties
   (`cents / 100m`), ignored by EF. Never `decimal`/`float` for stored money; API

@@ -26,11 +26,11 @@ type Config struct {
 
 	Port int
 
-	// GRPCAPIKey is the INTERNAL service-to-service credential (ADR-0003),
+	// InternalAPIKey is the INTERNAL service-to-service credential (ADR-0003),
 	// shared with Users and Orders. TrackingCarrierAPIKey is the EXTERNAL key
 	// handed to a third-party carrier. They are two fields because they are two
 	// trust domains — see internal/adapter/http/auth.go.
-	GRPCAPIKey            string
+	InternalAPIKey            string
 	TrackingCarrierAPIKey string
 
 	// UsersGRPCURL may carry an http:// or https:// scheme: Orders' .NET channel
@@ -39,7 +39,7 @@ type Config struct {
 	UsersGRPCURL string
 
 	// OrdersBaseURL is where this service POSTs the cross-service cache
-	// invalidation on a status change, presenting GRPCAPIKey.
+	// invalidation on a status change, presenting InternalAPIKey.
 	//
 	// CONTRACT: Optional, and an empty value is a legal DEGRADED wiring rather
 	// than a boot failure — the invalidator goes inert and Orders' entries
@@ -121,7 +121,7 @@ func Load() (Config, error) {
 	cfg := Config{
 		DatabaseWriterURL:          os.Getenv("DATABASE_WRITER_URL"),
 		DatabaseReaderURL:          os.Getenv("DATABASE_READER_URL"),
-		GRPCAPIKey:                 os.Getenv("GRPC_API_KEY"),
+		InternalAPIKey:                 os.Getenv("INTERNAL_API_KEY"),
 		TrackingCarrierAPIKey:      os.Getenv("TRACKING_CARRIER_API_KEY"),
 		Port:                       intInRange("PORT", defaultPort, 1, 65535),
 		UsersGRPCURL:               stringOr("USERS_GRPC_URL", defaultUsersGRPCURL),
@@ -147,7 +147,7 @@ func Load() (Config, error) {
 	}{
 		{"DATABASE_WRITER_URL", cfg.DatabaseWriterURL},
 		{"DATABASE_READER_URL", cfg.DatabaseReaderURL},
-		{"GRPC_API_KEY", cfg.GRPCAPIKey},
+		{"INTERNAL_API_KEY", cfg.InternalAPIKey},
 		{"TRACKING_CARRIER_API_KEY", cfg.TrackingCarrierAPIKey},
 	}
 	for _, r := range required {

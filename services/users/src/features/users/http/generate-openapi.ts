@@ -23,7 +23,7 @@ process.env.AWS_REGION ??= "us-east-1";
 process.env.WEBHOOK_SECRET ??= "generate-openapi";
 // Required with no default in `env.ts`, so the eager parse above fails without
 // them. Placeholders only — this script opens no transport.
-process.env.GRPC_API_KEY ??= "generate-openapi";
+process.env.INTERNAL_API_KEY ??= "generate-openapi";
 process.env.EVENTS_TOPIC_ARN ??= "arn:aws:sns:us-east-1:000000000000:generate-openapi";
 process.env.NOTIFICATIONS_QUEUE_URL ??= "http://localhost:4566/000000000000/generate-openapi";
 process.env.WS_MANAGEMENT_ENDPOINT ??= "http://localhost:4566/execute-api/generate-openapi/$default";

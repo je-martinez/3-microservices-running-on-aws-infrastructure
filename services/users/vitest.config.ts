@@ -35,7 +35,7 @@ export default defineConfig({
       NODE_ENV: "test",
       WEBHOOK_SECRET: "test-webhook-secret",
       GRPC_PORT: "50051",
-      GRPC_API_KEY: "test-grpc-key",
+      INTERNAL_API_KEY: "test-grpc-key",
       // The account-deletion cascade's downstream services. Present so the env
       // schema validates; no test reaches these hosts — CascadeClient takes an
       // injected fetch.

@@ -121,11 +121,11 @@ export default {{
 MAILPIT_API_URL = "http://localhost:8025/api/v1"
 
 # ─── The two key-based auth schemes — KEEP THEM SEPARATE ─────────────────────
-# CONTRACT: Do NOT collapse these keys or give them the same value. The gRPC key
-# authenticates internal services; the carrier key is exposed to a third party.
-# Reuse grants that carrier access across the internal service mesh.
-# See [[tracking-service-design]], [[grpc-api-key-authorization]]
-GRPC_API_KEY = "local-dev-grpc-key"
+# CONTRACT: Do NOT collapse these keys or give them the same value. Every holder
+# of the internal key is one of our own services; the carrier key is handed to a
+# third party. Reuse grants that carrier access across the internal service mesh.
+# See [[tracking-service-design]], [[internal-api-key-authorization]]
+INTERNAL_API_KEY = "local-dev-internal-key"
 TRACKING_CARRIER_API_KEY = "local-dev-carrier-key"
 
 # WORKAROUND(local): Do NOT read this token through a Terraform output. Targeted
@@ -326,7 +326,7 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 "DATABASE_READER_URL": users_db,
                 "COGNITO_USER_POOL_ID": pool_id,
                 "COGNITO_CLIENT_ID": client_id,
-                "GRPC_API_KEY": GRPC_API_KEY,
+                "INTERNAL_API_KEY": INTERNAL_API_KEY,
                 # CONTRACT: Do NOT use host ports for the account-deletion
                 # cascade. Peer containers dial these private routes on container
                 # ports; host mappings return ECONNREFUSED inside the network.
@@ -398,7 +398,7 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # surface. Orders POSTs the caller's order here to open a
                 # tracking record, forwarding the x-user-id it received.
                 "TRACKING_BASE_URL": "http://tracking:8000",
-                "GRPC_API_KEY": GRPC_API_KEY,
+                "INTERNAL_API_KEY": INTERNAL_API_KEY,
                 # WORKAROUND(local): Do NOT use localhost or the proxy port for
                 # Redis; Orders dials itself or the wrong port and gets
                 # ECONNREFUSED. Use the backing container name and port 6379.
@@ -461,7 +461,7 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # The INTERNAL service-to-service key — the same value Users and
                 # Orders share. Tracking presents it when calling Users and when
                 # invalidating Orders' cache, and validates it on route 6.
-                "GRPC_API_KEY": GRPC_API_KEY,
+                "INTERNAL_API_KEY": INTERNAL_API_KEY,
                 # Where Tracking POSTs the cross-service cache invalidation after
                 # a status change. Tracking is read only through Orders'
                 # includeTracking response, so without this sweep the page serves
@@ -478,7 +478,7 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # The EXTERNAL carrier/webhook key, validated by the service
                 # itself on PUT /v1/trackings/{orderId}/status (a gateway route
                 # with NO Cognito authorizer). A DIFFERENT value from
-                # GRPC_API_KEY on purpose — see the trust-domain note at the top
+                # INTERNAL_API_KEY on purpose — see the trust-domain note at the top
                 # of this file before touching either.
                 "TRACKING_CARRIER_API_KEY": TRACKING_CARRIER_API_KEY,
                 # Tracking publishes TRACKING_STATUS_CHANGED here on every

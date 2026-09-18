@@ -237,11 +237,11 @@ you add or change a route, add it to this table in the same change.
 | 3 | `GET /v1/trackings/{order_id}` | Cognito JWT → `x-user-id`, scoped by `cognito_sub` | the end user | 401, 404, 422 |
 | 4 | `GET /v1/trackings?order_ids=<csv>` | Cognito JWT → `x-user-id`, scoped by `cognito_sub` | the end user | 400, 401, 422 — **no 404 by design** |
 | 5 | `PUT /v1/trackings/{order_id}/status` | `TRACKING_CARRIER_API_KEY` in `x-api-key`, validated by this service | an external shipping carrier | 400, 401, 404, 422 |
-| 6 | `DELETE /v1/trackings/by-user` | `GRPC_API_KEY` in `x-api-key`, validated by this service | Users' account-deletion cascade | 401, 422, 500 |
+| 6 | `DELETE /v1/trackings/by-user` | `INTERNAL_API_KEY` in `x-api-key`, validated by this service | Users' account-deletion cascade | 401, 422, 500 |
 | 7 | `DELETE /v1/trackings/e2e-cleanup` | **none** — the route only EXISTS under `E2E_TESTING_ENABLED` | the E2E harness's global teardown | — (200 only) |
 
 Plus one **outbound** surface: `users.v1.Users/GetUserById` over gRPC, presenting
-`GRPC_API_KEY`. Tracking **serves no gRPC** — the only gRPC here is this client.
+`INTERNAL_API_KEY`. Tracking **serves no gRPC** — the only gRPC here is this client.
 
 Route-by-route notes that are not visible in the table:
 
@@ -326,13 +326,13 @@ layers**, load-test scenarios where relevant, and observability. See the root
 |---|---|---|---|---|
 | Cognito JWT (verified at the gateway) | `x-user-id` (the JWT **sub**) | — | end user | 2, 3, 4 |
 | Carrier API key | `x-api-key` | `TRACKING_CARRIER_API_KEY` | **external** vendor | 5 |
-| Internal API key | `x-api-key` | `GRPC_API_KEY` | **internal** services | 6 |
+| Internal API key | `x-api-key` | `INTERNAL_API_KEY` | **internal** services | 6 |
 | None | — | — | — | 1, 7 |
 
 > **The two `x-api-key` schemes are DIFFERENT SECRETS in DIFFERENT TRUST DOMAINS.
 > They share a header name and nothing else. Never collapse them.**
 >
-> `GRPC_API_KEY` is internal, shared only with Users and Orders. The carrier key is
+> `INTERNAL_API_KEY` is internal, shared only with Users and Orders. The carrier key is
 > handed to an **outside vendor**. Reusing one as the other would give that vendor a
 > credential that authenticates as an internal service against **every internal
 > surface we have** — including route 6, a mass soft-delete, which is the widest

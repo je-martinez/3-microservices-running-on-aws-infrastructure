@@ -10,7 +10,7 @@ namespace Orders.Tests.Api;
 
 // The internal cascade route used by Users' DELETE /v1/users/me. It is NOT on the
 // API Gateway and never sees an end-user JWT: its only credential is the shared
-// internal GRPC_API_KEY.
+// internal INTERNAL_API_KEY.
 public class InternalDeleteByUserTests : IClassFixture<OrdersE2eApiFactory>
 {
     private const string Path = "/v1/orders/by-user";

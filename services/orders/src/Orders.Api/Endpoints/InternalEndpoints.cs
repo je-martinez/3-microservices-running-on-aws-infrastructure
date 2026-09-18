@@ -28,7 +28,7 @@ public static class InternalEndpoints
             // CONTRACT: Reject before reaching the service — 401 takes precedence over the
             // body's own 400, so an unauthenticated caller never learns which field it got
             // wrong and never costs a DB read.
-            if (!InternalApiKey.Matches(provided, config["GRPC_API_KEY"]!))
+            if (!InternalApiKey.Matches(provided, config["INTERNAL_API_KEY"]!))
             {
                 // WARNING: Never log the API key — log client IP only on rejected attempts.
                 logger.LogWarning(
@@ -67,7 +67,7 @@ public static class InternalEndpoints
             // CONTRACT: Reject before reaching the service — an unauthenticated caller must
             // not even cost the owner a DB read, which on a route needing no user identity
             // would strip the cache off any order whose id an attacker can guess.
-            if (!InternalApiKey.Matches(provided, config["GRPC_API_KEY"]!))
+            if (!InternalApiKey.Matches(provided, config["INTERNAL_API_KEY"]!))
             {
                 // WARNING: Never log the API key — log client IP only on rejected attempts.
                 logger.LogWarning(

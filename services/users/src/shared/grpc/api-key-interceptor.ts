@@ -29,7 +29,7 @@ export function extractParentContext(metadata: grpc.Metadata): Context {
 }
 
 // Server interceptor: rejects the call with UNAUTHENTICATED before the handler
-// runs unless metadata `x-api-key` matches GRPC_API_KEY. The metadata check runs
+// runs unless metadata `x-api-key` matches INTERNAL_API_KEY. The metadata check runs
 // in `onReceiveMetadata`, i.e. before the message/half-close reach the handler.
 export function makeApiKeyInterceptor(expectedKey: string): grpc.ServerInterceptor {
   return function apiKeyInterceptor(

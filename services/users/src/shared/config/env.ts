@@ -23,11 +23,11 @@ const schema = z.object({
   // development value.
   WEBHOOK_SECRET: z.string().min(1),
   // gRPC server (spec: Users GetUserById surface). Port defaults to 50051;
-  // GRPC_API_KEY is the shared symmetric key validated by the x-api-key
+  // INTERNAL_API_KEY is the shared symmetric key validated by the x-api-key
   // interceptor and is required in every environment so the surface can never
   // be deployed unguarded by omission.
   GRPC_PORT: z.coerce.number().int().positive().default(50051),
-  GRPC_API_KEY: z.string().min(1),
+  INTERNAL_API_KEY: z.string().min(1),
   // CONTRACT: Required with no default — a missing value must fail at boot with a
   // named Zod error, or DELETE /v1/users/me reaches a half-configured cascade and
   // reports success for orders it never deleted. Named to match Orders'

@@ -31,7 +31,7 @@ func minimalEnv(t *testing.T, port int) {
 	// The exactly-four required ones.
 	t.Setenv("DATABASE_WRITER_URL", "mysql+pymysql://test:test@127.0.0.1:7002/tracking")
 	t.Setenv("DATABASE_READER_URL", "mysql+pymysql://test:test@127.0.0.1:7002/tracking")
-	t.Setenv("GRPC_API_KEY", "internal-key")
+	t.Setenv("INTERNAL_API_KEY", "internal-key")
 	t.Setenv("TRACKING_CARRIER_API_KEY", "carrier-key")
 
 	t.Setenv("PORT", strconv.Itoa(port))
@@ -64,7 +64,7 @@ func TestRunFailsLoudlyOnAMissingRequiredVariable(t *testing.T) {
 	for _, missing := range []string{
 		"DATABASE_WRITER_URL",
 		"DATABASE_READER_URL",
-		"GRPC_API_KEY",
+		"INTERNAL_API_KEY",
 		"TRACKING_CARRIER_API_KEY",
 	} {
 		t.Run("without "+missing, func(t *testing.T) {

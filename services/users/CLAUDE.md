@@ -170,7 +170,7 @@ services/users/
     `E2E_TESTING_ENABLED`
   - gRPC: `GetUserById` — **live** on `:50051` (`GRPC_PORT`), served from
     `shared/grpc/server.ts` over the shared `/proto/users.proto`, guarded by a
-    constant-time `x-api-key` interceptor (`GRPC_API_KEY`). Resolves by `usr_` id
+    constant-time `x-api-key` interceptor (`INTERNAL_API_KEY`). Resolves by `usr_` id
     OR Cognito sub; returns `NOT_FOUND` when the user does not exist.
 - Error contract: typed auth errors (`shared/auth/auth-errors.ts`) mapped by a global
   `setErrorHandler` in `routes.ts`.

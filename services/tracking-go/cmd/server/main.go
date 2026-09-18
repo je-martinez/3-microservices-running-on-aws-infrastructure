@@ -225,7 +225,7 @@ func run() error {
 	// logged, not fatal: grpc.NewClient is lazy, so it only returns config
 	// errors here and the six routes that resolve no user must keep serving.
 	var userResolver *grpcusers.InternalIDResolver
-	usersClient, err := grpcusers.Dial(cfg.UsersGRPCURL, cfg.GRPCAPIKey)
+	usersClient, err := grpcusers.Dial(cfg.UsersGRPCURL, cfg.InternalAPIKey)
 	if err != nil {
 		logger.Error("users_client_unavailable",
 			slog.String("app_event", "users_client_unavailable"),
@@ -263,7 +263,7 @@ func run() error {
 
 	// ── The cross-service cache invalidation ─────────────────────────────────
 	//
-	// CONTRACT: The INTERNAL key, GRPCAPIKey — never TrackingCarrierAPIKey. The
+	// CONTRACT: The INTERNAL key, InternalAPIKey — never TrackingCarrierAPIKey. The
 	// two share a header name and nothing else, and handing an outside vendor's
 	// secret to an internal surface reaches route 6, a mass soft-delete.
 	// See [[two-api-keys-two-trust-domains]]
@@ -277,7 +277,7 @@ func run() error {
 			slog.String("reason", "ORDERS_BASE_URL_empty"))
 	}
 	orderCacheInvalidator := ordershttp.NewCacheInvalidator(
-		cfg.OrdersBaseURL, cfg.GRPCAPIKey, logger)
+		cfg.OrdersBaseURL, cfg.InternalAPIKey, logger)
 
 	// ── Metrics consumers: middleware and ticker ─────────────────────────────
 	//
@@ -344,7 +344,7 @@ func run() error {
 		CacheEnabled:      cfg.CacheEnabled,
 		E2ETestingEnabled: cfg.E2ETestingEnabled,
 		CarrierAPIKey:     cfg.TrackingCarrierAPIKey,
-		InternalAPIKey:    cfg.GRPCAPIKey,
+		InternalAPIKey:    cfg.InternalAPIKey,
 		// A typed-nil trap of the same shape as the metrics one: app.UserResolver
 		// is an interface, so a nil *InternalIDResolver assigned to it would be
 		// non-nil. Left as the zero interface when there is no client.

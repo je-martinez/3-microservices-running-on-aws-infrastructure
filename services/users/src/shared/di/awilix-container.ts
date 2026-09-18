@@ -116,7 +116,7 @@ export function registerSingletons(): void {
         new CascadeClient({
           ordersBaseUrl: cradleEnv.ORDERS_BASE_URL,
           trackingBaseUrl: cradleEnv.TRACKING_BASE_URL,
-          apiKey: cradleEnv.GRPC_API_KEY,
+          apiKey: cradleEnv.INTERNAL_API_KEY,
         }),
       { lifetime: Lifetime.SINGLETON },
     ),

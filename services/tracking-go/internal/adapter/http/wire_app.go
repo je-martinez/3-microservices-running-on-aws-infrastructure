@@ -44,7 +44,7 @@ type AppRouterOptions struct {
 
 	// The two keys are two TRUST DOMAINS and never interchangeable:
 	// CarrierAPIKey is TRACKING_CARRIER_API_KEY, handed to a third-party
-	// carrier; InternalAPIKey is GRPC_API_KEY, shared only with Users and
+	// carrier; InternalAPIKey is INTERNAL_API_KEY, shared only with Users and
 	// Orders. Swapping them would let a carrier mass-delete a user's history.
 	CarrierAPIKey  string
 	InternalAPIKey string

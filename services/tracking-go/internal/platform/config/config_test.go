@@ -11,7 +11,7 @@ func setRequired(t *testing.T) {
 	t.Helper()
 	t.Setenv("DATABASE_WRITER_URL", "mysql+pymysql://root:secret@db:3306/tracking")
 	t.Setenv("DATABASE_READER_URL", "mysql+pymysql://root:secret@db:3306/tracking")
-	t.Setenv("GRPC_API_KEY", "internal-key")
+	t.Setenv("INTERNAL_API_KEY", "internal-key")
 	t.Setenv("TRACKING_CARRIER_API_KEY", "carrier-key")
 }
 
@@ -89,7 +89,7 @@ func TestLoadRequiresTheFourRequiredVariables(t *testing.T) {
 	for _, missing := range []string{
 		"DATABASE_WRITER_URL",
 		"DATABASE_READER_URL",
-		"GRPC_API_KEY",
+		"INTERNAL_API_KEY",
 		"TRACKING_CARRIER_API_KEY",
 	} {
 		t.Run("missing_"+missing, func(t *testing.T) {

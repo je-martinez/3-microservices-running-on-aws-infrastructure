@@ -185,7 +185,7 @@ else
 // Users gRPC client for identity resolution. One channel per process (Singleton);
 // the adapter attaches the shared x-api-key on every call.
 var grpcAddress = builder.Configuration["USERS_GRPC_URL"]!;   // e.g. http://users:50051
-var grpcApiKey = builder.Configuration["GRPC_API_KEY"]!;
+var internalApiKey = builder.Configuration["INTERNAL_API_KEY"]!;
 builder.Services.AddSingleton(_ =>
     new Users.V1.Users.UsersClient(Grpc.Net.Client.GrpcChannel.ForAddress(grpcAddress)));
 // ONE registration, decorated inside the factory rather than layered as a second
@@ -196,7 +196,7 @@ builder.Services.AddSingleton(_ =>
 builder.Services.AddScoped<IUserDirectory>(sp =>
 {
     var grpc = new UserDirectoryGrpcClient(
-        sp.GetRequiredService<Users.V1.Users.UsersClient>(), grpcApiKey);
+        sp.GetRequiredService<Users.V1.Users.UsersClient>(), internalApiKey);
 
     // The identity cache sits IN FRONT of the response cache: every per-user key
     // carries user_id, so this resolution runs before a response key can be built —

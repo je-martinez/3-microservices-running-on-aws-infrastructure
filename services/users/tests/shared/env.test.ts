@@ -9,7 +9,7 @@ const base = {
   AWS_ENDPOINT_URL: "http://ministack:4566",
   AWS_REGION: "us-east-1",
   WEBHOOK_SECRET: "s3cret",
-  GRPC_API_KEY: "local-dev-grpc-key",
+  INTERNAL_API_KEY: "local-dev-grpc-key",
   ORDERS_BASE_URL: "http://orders:8080",
   TRACKING_BASE_URL: "http://tracking:8000",
   EVENTS_TOPIC_ARN: "arn:aws:sns:us-east-1:000000000000:3mrai-local-events-topic",
@@ -72,22 +72,22 @@ describe("parseEnv", () => {
     expect(() => parseEnv(without)).toThrow();
   });
 
-  it("parses GRPC_PORT and GRPC_API_KEY", () => {
+  it("parses GRPC_PORT and INTERNAL_API_KEY", () => {
     const env = parseEnv({
       ...base,
       GRPC_PORT: "50051",
-      GRPC_API_KEY: "local-dev-grpc-key",
+      INTERNAL_API_KEY: "local-dev-grpc-key",
     });
     expect(env.GRPC_PORT).toBe(50051);
-    expect(env.GRPC_API_KEY).toBe("local-dev-grpc-key");
+    expect(env.INTERNAL_API_KEY).toBe("local-dev-grpc-key");
   });
 
   it("defaults GRPC_PORT to 50051 when absent", () => {
     expect(parseEnv(base).GRPC_PORT).toBe(50051);
   });
 
-  it("requires GRPC_API_KEY", () => {
-    const { GRPC_API_KEY: _omit, ...without } = base;
+  it("requires INTERNAL_API_KEY", () => {
+    const { INTERNAL_API_KEY: _omit, ...without } = base;
     expect(() => parseEnv(without)).toThrow();
   });
 
@@ -155,7 +155,7 @@ describe("notification env vars", () => {
       AWS_ENDPOINT_URL: "http://localhost:4566",
       AWS_REGION: "us-east-1",
       WEBHOOK_SECRET: "test-webhook-secret",
-      GRPC_API_KEY: "test-grpc-key",
+      INTERNAL_API_KEY: "test-grpc-key",
       ORDERS_BASE_URL: "http://localhost:8080",
       TRACKING_BASE_URL: "http://localhost:8000",
       REDIS_HOST: "localhost",

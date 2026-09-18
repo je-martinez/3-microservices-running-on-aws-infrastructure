@@ -6,7 +6,7 @@
 // CONTRACT: Read the key from the environment, NEVER hardcode it. An inlined key both
 // commits a credential and keeps passing after the generated one changes, asserting
 // against its own stale copy. `make env-file` writes the real value.
-// CONTRACT: Do NOT substitute GRPC_API_KEY. It shares the `x-api-key` header spelling
+// CONTRACT: Do NOT substitute INTERNAL_API_KEY. It shares the `x-api-key` header spelling
 // but is a separate secret in a separate trust domain. See [[env-files]]
 export function carrierApiKey(): string {
   const key = process.env.TRACKING_CARRIER_API_KEY;

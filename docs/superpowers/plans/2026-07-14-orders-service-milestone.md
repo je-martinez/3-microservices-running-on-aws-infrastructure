@@ -11,7 +11,7 @@ propagates-to:
   - "[[orders-service-design]]"
   - "[[clean-architecture-divergence]]"
   - "[[money-as-integer-cents]]"
-  - "[[grpc-api-key-authorization]]"
+  - "[[internal-api-key-authorization]]"
   - "[[domains/orders/testing/index]]"
 ---
 

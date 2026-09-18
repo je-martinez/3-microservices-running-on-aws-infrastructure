@@ -50,7 +50,7 @@ type CacheInvalidator struct {
 
 // NewCacheInvalidator wires the client with the production timeout.
 //
-// CONTRACT: apiKey is GRPC_API_KEY, the INTERNAL credential. Passing
+// CONTRACT: apiKey is INTERNAL_API_KEY, the INTERNAL credential. Passing
 // TRACKING_CARRIER_API_KEY hands an outside vendor's secret to an internal
 // surface, which is the widest blast radius this service has.
 // See [[two-api-keys-two-trust-domains]]

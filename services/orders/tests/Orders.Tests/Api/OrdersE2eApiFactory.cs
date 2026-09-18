@@ -91,7 +91,7 @@ public abstract class OrdersE2eApiFactoryBase : WebApplicationFactory<Program>, 
         builder.UseSetting("DATABASE_READER_URL", cs);
         builder.UseSetting("DATABASE_WRITER_URL", cs);
         builder.UseSetting("USERS_GRPC_URL", "http://localhost:50051");
-        builder.UseSetting("GRPC_API_KEY", "test-key");
+        builder.UseSetting("INTERNAL_API_KEY", "test-key");
         builder.UseSetting("TRACKING_BASE_URL", "http://localhost:8000");
         builder.UseSetting("E2E_TESTING_ENABLED", E2eTestingEnabled ? "true" : "false");
         // Well-formed placeholder so the SNS client can be constructed. Nothing is

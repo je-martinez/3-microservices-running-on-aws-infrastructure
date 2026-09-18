@@ -57,7 +57,7 @@ func CallerSub(c *gin.Context) string {
 // front of an endpoint that mutates delivery state.
 //
 // CONTRACT: Do NOT merge this with RequireInternalKey. The carrier key is an
-// EXTERNAL credential handed to a vendor; GRPC_API_KEY is internal. Reusing one
+// EXTERNAL credential handed to a vendor; INTERNAL_API_KEY is internal. Reusing one
 // as the other lets an outside party authenticate against every internal
 // surface, including the mass soft-delete below.
 // See [[two-api-keys-two-trust-domains]]
@@ -65,7 +65,7 @@ func RequireCarrierKey(expected string, log *slog.Logger) gin.HandlerFunc {
 	return apiKeyGuard(expected, log, "carrier_status_update_failed")
 }
 
-// RequireInternalKey validates GRPC_API_KEY on DELETE /v1/trackings/by-user.
+// RequireInternalKey validates INTERNAL_API_KEY on DELETE /v1/trackings/by-user.
 //
 // This is the account-deletion cascade's leg, and a mass soft-delete surface is
 // the widest blast radius this service has. Accepting the CARRIER's key here
