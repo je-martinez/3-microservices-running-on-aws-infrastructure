@@ -4,9 +4,12 @@ type: convention
 area: shared
 status: active
 created: 2026-07-17
-updated: 2026-09-15
+updated: 2026-09-19
 tags: [type/convention, area/shared, status/active]
 related:
+  - "[[2026-09-19-users-nestjs-migration-design]]"
+  - "[[2026-09-19-test-local-app-interceptor-hides-composition-root-omission]]"
+  - "[[cqrs]]"
   - "[[2026-09-10-in-app-notifications-design]]"
   - "[[2026-08-17-web-app-foundation-design]]"
   - "[[2026-09-04-web-gateway-integration-design]]"
@@ -41,8 +44,9 @@ related:
 Every HTTP endpoint MUST have all three test layers before it is considered done:
 
 1. **Unit / integration** — the endpoint's logic tested in isolation. Orders uses xUnit with
-   Testcontainers-MySQL through the in-process `WebApplicationFactory`; Users uses vitest with a
-   mocked container; Tracking uses `go test` against a **live** MySQL rather than mocks —
+   Testcontainers-MySQL through the in-process `WebApplicationFactory`; Users uses Vitest with
+   Nest's `Test.createTestingModule()` and dispatches through the real `CommandBus` /
+   `QueryBus` (never `handler.execute()` directly — see [Users CQRS unit tests](#users-cqrs-unit-tests--bus-dispatch-required) below); Tracking uses `go test` against a **live** MySQL rather than mocks —
    specifically the **shared local `tracking` database** (Floci grants the `test` user no
    `CREATE DATABASE` privilege, so a throwaway per-run database is not an option), which means
    any fixture touching the schema must restore it exactly as found. `make test` alone silently
@@ -210,6 +214,27 @@ route-map/nginx gap would prevent. Verified on the In-App Notifications mileston
 ([[2026-09-10-in-app-notifications-design]]): all three new routes answered `401` immediately
 after the Terraform route-map change, before Users had any notifications code at all, confirming
 the wiring was correct ahead of the service work that would make them useful.
+
+## Users CQRS unit tests — bus dispatch required
+
+After the NestJS migration ([[2026-09-19-users-nestjs-migration-design]]), Users' layer-1
+tests must go through the real `CommandBus` / `QueryBus`. Calling `handler.execute()`
+directly skips `WorkflowInterceptor`'s wrap (which is installed in
+`onApplicationBootstrap`, not by Nest's HTTP interceptor pipeline — see [[cqrs]]) and
+cannot prove production observability behaviour.
+
+**Mutation-test the span / `reason` / `app_event` assertions.** Three vacuous-test traps
+were caught that way during the CQRS work: a test-local OTel provider that was a silent
+no-op (the global OTel API accepts only the first registration per process), a db stub
+returning `null` unconditionally that forced tests down a branch where they asserted
+nothing, and a generic interceptor that clobbered a specific `reason` already stamped on
+the span. A green suite is not evidence; mutate the production assertion target and confirm
+the test goes red.
+
+**A test that registers `APP_INTERCEPTOR` locally cannot detect that `app.module.ts`
+omitted it.** Handler modules that wire `WorkflowInterceptor` for isolation still leave the
+composition root unproven — boot-the-whole-app smoke exists for that gap (see
+[[2026-09-19-test-local-app-interceptor-hides-composition-root-omission]]).
 
 ## Per-service guidance
 
@@ -516,6 +541,11 @@ invalidates the catalogue cache.
 
 ## Related
 
+- [[2026-09-19-users-nestjs-migration-design]] — Users Nest migration; bus-dispatch and
+  mutation-testing requirements above.
+- [[2026-09-19-test-local-app-interceptor-hides-composition-root-omission]] — composition-root
+  smoke vs test-local `APP_INTERCEPTOR`.
+- [[cqrs]] — `@nestjs/cqrs` does not run `APP_INTERCEPTOR`; `bus.execute()` is the pipeline.
 - [[2026-09-10-in-app-notifications-design]] — the three `/v1/notifications` endpoints tested at
   all three layers, and the type-filtered WebSocket wait needed because the push shares the
   tracking socket.

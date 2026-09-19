@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-08-14
-updated: 2026-08-27
+updated: 2026-09-19
 tags: [type/convention, area/shared, status/active]
 related:
   - "[[versioning]]"
@@ -12,6 +12,8 @@ related:
   - "[[mcp-servers]]"
   - "[[openapi-autogen]]"
   - "[[local-dev]]"
+  - "[[2026-09-19-users-nestjs-migration-design]]"
+  - "[[users-service-design]]"
 ---
 
 # OpenAPI specs
@@ -26,11 +28,11 @@ the contract imported into Apidog (Users, Tracking) / Datadog (Orders); see [[mc
 changes, and nothing catches it until a consumer builds against it. This reasoning is
 recorded in full in [[openapi-autogen]] (Users' ADR) — reference it, don't restate it.
 
-## Per-service generator (all three, verified 2026-08-14)
+## Per-service generator (Users updated 2026-09-19; Orders/Tracking verified 2026-08-14)
 
 | Service | Stack | Command | Mechanism |
 |---|---|---|---|
-| Users | Fastify + Zod | `pnpm generate:openapi` | `@fastify/swagger` + `fastify-type-provider-zod`; entrypoint `src/features/users/http/generate-openapi.ts` |
+| Users | NestJS 12 + Zod | `pnpm generate:openapi` | Nest document builder + Zod's native **`z.toJSONSchema`**; entrypoint `src/shared/openapi/generate-openapi.ts`. **Do not use `zod-to-json-schema`** — it returns `{}` for Zod v4 schemas (this package imports `zod/v4`). Acceptance is a **diff against the committed `openapi.yaml`** (named `$refs`, zero orphans), not "the generator builds". |
 | Orders | .NET Minimal APIs | `dotnet build` (no separate step) | `Microsoft.Extensions.ApiDescription.Server` emits JSON at build time, then the `ConvertOpenApiToYaml` MSBuild target runs `tools/openapi-json-to-yaml.cs` to re-serialize as YAML 3.1 |
 | Tracking | Go + Gin | `go run ./cmd/genopenapi` | Hand-written spec builder (`internal/openapi`) walking the Go route table, serialized with `yaml.v3` |
 
@@ -121,4 +123,6 @@ incomplete change — same standing as the three-layer testing rule in [[testing
   and the `e2e-cleanup` mechanism behind the `e2e` tag.
 - [[mcp-servers]] — Apidog/Datadog, the consumers this generated contract is imported into.
 - [[openapi-autogen]] — Users' ADR with the full drift-vs-generation rationale.
+- [[users-service-design]] — Users' Nest OpenAPI surface after the migration.
+- [[2026-09-19-users-nestjs-migration-design]] — `z.toJSONSchema` lock-in for Zod v4.
 - [[local-dev]] — why Tracking's generator runs inside a container rather than a local `.venv`.

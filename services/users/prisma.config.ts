@@ -3,7 +3,7 @@ import path from "node:path";
 import { defineConfig } from "prisma/config";
 
 // CLI-only configuration (migrate/generate); the app's own env validation lives in
-// src/shared/config/env.ts. The writer URL is used because migrations run DDL.
+// src/config/env.schema.ts. The writer URL is used because migrations run DDL.
 //
 // CONTRACT: Read process.env directly, NOT prisma/config's `env()` helper. `env()`
 // throws PrismaConfigEnvError while this module is evaluated, before Prisma knows

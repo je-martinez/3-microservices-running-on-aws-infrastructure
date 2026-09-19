@@ -1,25 +1,13 @@
-# Users service — Fastify + Node 24 (pinned via repo .nvmrc), pnpm via corepack.
-# Build context: REPO ROOT (pnpm-lock.yaml and pnpm-workspace.yaml live there).
-# Multi-stage: deps stage installs the users package closure (full, including
-# devDependencies — reused as-is by `make migrate`, see below); builder stage
-# generates the Prisma client and compiles TypeScript (tsc) to dist/; prod-deps
-# stage prunes devDependencies out of a copy of deps' node_modules; runtime
-# stage copies only the compiled output + the PRUNED node_modules and runs
-# plain `node` against dist/ (production — no --experimental-strip-types, no
-# dev conditions).
+# Users NestJS service — Node 24 (repo .nvmrc), pnpm via corepack.
+# Build context is the REPO ROOT: the lockfile and workspace yaml live there.
 #
-# Flow: prisma generate (deps stage, src/generated/prisma/*.ts) → tsc build
-# (builder stage, src -> dist, including dist/generated/prisma/*.js) → prune
-# devDependencies (prod-deps stage) → run dist/server.js (runtime stage).
-# generate MUST run before build: the generated Prisma client under
-# src/generated is tsc's input.
+# CONTRACT: `prisma generate` runs in `deps`, BEFORE the build — the generated
+# client under src/generated is tsc's input. See [[users-service-design]]
 #
-# IMPORTANT: `make migrate` rebuilds and reuses the `deps` stage directly (via
-# `docker build --target deps`) to run `prisma migrate deploy` inside the
-# compose network — it needs the prisma CLI + prisma/ + prisma.config.ts, all
-# only present in `deps`'s full (unpruned) node_modules. Do not prune `deps`
-# itself; prune only happens in the separate `prod-deps` stage below, which
-# `runtime` copies from instead.
+# CONTRACT: Do NOT prune `deps`. `make migrate` reuses that stage directly
+# (docker build --target deps) to run `prisma migrate deploy` inside the compose
+# network, which needs the prisma CLI and prisma.config.ts from its unpruned
+# node_modules. Pruning happens only in `prod-deps`, which `runtime` copies from.
 
 FROM node:24-alpine AS base
 ENV PNPM_HOME="/pnpm"
@@ -54,35 +42,50 @@ FROM deps AS builder
 WORKDIR /app/services/users
 COPY services/users/src ./src
 COPY services/users/tsconfig.json ./
-# Regenerate AFTER copying src, not before.
-#
-# `deps` already generated the client into src/generated/prisma, but the COPY
-# above lands the HOST's src/ on top of it — and src/generated/ is gitignored,
-# so what arrives is whatever that developer's working tree happens to hold: a
-# stale client, or nothing at all. A stale one is the dangerous case, because it
-# type-checks against an older schema and fails the build with errors that name
-# columns the schema does have (this cost a session to diagnose: `authType` did
-# not exist on the copied client while being present in schema.prisma).
-#
-# CI and fresh clones never saw it — with no generated/ on disk, the COPY brings
-# nothing and deps' client survives — which is exactly why it stayed hidden.
-# Regenerating here makes the client a function of the schema alone, on every
-# machine.
+# CONTRACT: Regenerate AFTER copying src, not before. src/generated/ is
+# gitignored, so the COPY lands whatever the developer's tree holds on top of
+# deps' client — a stale one type-checks against an older schema and fails the
+# build naming columns the schema DOES have. Fresh clones never see it.
+RUN node node_modules/prisma/build/index.js generate --schema=./prisma/schema.prisma
+
+# ── builder stage: compile TypeScript (tsc) to dist/ ──────────────────────────
+FROM deps AS builder
+WORKDIR /app/services/users
+COPY services/users/src ./src
+COPY services/users/tsconfig.json ./
+# CONTRACT: Regenerate AFTER copying src. src/generated/ is gitignored, so the
+# COPY lands whatever the developer's tree holds on top of deps' client, and a
+# stale one fails the build naming columns the schema DOES have.
+RUN node node_modules/prisma/build/index.js generate --schema=./prisma/schema.prisma
+
+# ── builder stage: compile TypeScript (tsc) to dist/ ──────────────────────────
+FROM deps AS builder
+WORKDIR /app/services/users
+COPY services/users/src ./src
+COPY services/users/tsconfig.json ./
+# CONTRACT: Regenerate AFTER copying src, not before. src/generated/ is
+# gitignored, so the COPY lands whatever the developer's tree holds on top of
+# deps' client — a stale one type-checks against an older schema and fails the
+# build naming columns the schema DOES have. Fresh clones never see it.
+RUN node node_modules/prisma/build/index.js generate --schema=./prisma/schema.prisma
+
+# ── builder stage: compile TypeScript (tsc) to dist/ ──────────────────────────
+FROM deps AS builder
+WORKDIR /app/services/users
+COPY services/users/src ./src
+COPY services/users/tsconfig.json ./
+# CONTRACT: Regenerate AFTER copying src. src/generated/ is gitignored, so the
+# COPY lands whatever the developer's tree holds on top of deps' client, and a
+# stale one fails the build naming columns the schema DOES have.
 RUN node node_modules/prisma/build/index.js generate --schema=./prisma/schema.prisma
 RUN node_modules/.bin/tsc -p tsconfig.json
 
 # ── prod-deps stage: prune devDependencies (prisma CLI, typescript, @types/*, tsx, vitest, eslint) ──
 FROM deps AS prod-deps
-# `pnpm deploy` (not `pnpm prune`: in this pnpm version, `prune` on a
-# filter-installed workspace subset prompts to reinstall the modules
-# directory "from scratch" and — with no TTY to confirm — silently no-ops,
-# leaving devDependencies in place). `deploy` instead assembles a
-# self-contained, production-only copy of @3mrai/users into a target
-# directory by cloning packages straight from the local pnpm content-store
-# (already populated by `deps`'s install above — no network needed), which
-# reliably excludes devDependencies while keeping @prisma/client's runtime
-# deps. Runs from a copy of `deps` (this stage is `FROM deps`), so `deps`
-# itself stays full/unpruned for `make migrate` (see the header comment above).
+# CONTRACT: `pnpm deploy`, NOT `pnpm prune`. On a filter-installed workspace
+# subset, `prune` prompts to reinstall node_modules from scratch and — with no
+# TTY to confirm — silently no-ops, shipping devDependencies to production.
+# `deploy` clones from the local content store, so it needs no network.
 RUN pnpm --filter @3mrai/users deploy --prod --config.ignore-scripts=false /tmp/deploy
 
 # ── runtime stage: assemble the final image, run the compiled build ──────────
@@ -96,23 +99,19 @@ COPY --from=builder /app/services/users/package.json ./services/users/package.js
 # self-contained node_modules (no separate root + subpackage split), so this
 # is the only node_modules copy runtime needs.
 COPY --from=prod-deps /tmp/deploy/node_modules ./node_modules
-# Shared gRPC contract: the gRPC server (dist/shared/grpc/server.js) loads
-# proto/users.proto at runtime via a path resolved five levels up from its own
-# dir → /app/proto/users.proto. It is NOT part of dist/, so copy it explicitly,
-# else the container crashes at boot with ENOENT '/app/proto/users.proto'.
+# Shared gRPC contract: the gRPC server loads proto/users.proto at runtime via a
+# path resolved five levels up from its own dir → /app/proto/users.proto. It is
+# NOT part of dist/, so copy it explicitly, else the container crashes at boot
+# with ENOENT '/app/proto/users.proto'.
 COPY proto/users.proto /app/proto/users.proto
 WORKDIR /app/services/users
 EXPOSE 3000
-# Plain `node` against the compiled build — no --experimental-strip-types, no
-# --conditions=development. The package.json "imports" (#shared/*, #features/*)
-# fall back to their "default" condition when no matching condition is active,
-# resolving to ./dist/shared/*.js and ./dist/features/*.js (verified: node
-# dist/server.js starts and listens without --conditions).
-# --import loads the OTel bootstrap in its OWN module graph, before the app's
-# graph is resolved. This service is ESM ("type": "module"), where every static
-# import is hoisted and resolved before any module body runs — so importing the
-# SDK "first" inside server.ts still left @grpc/grpc-js loaded by the time
-# sdk.start() ran, and the gRPC server went uninstrumented (no server spans, so
-# a trace from Orders could never continue into this service). --import is
-# OpenTelemetry's supported answer for ESM.
-CMD ["node", "--import", "./dist/shared/observability/tracing.js", "dist/server.js"]
+# Plain `node` against the compiled build: the package.json "imports" fall back
+# to their "default" condition, resolving to ./dist/**.
+#
+# CONTRACT: --import loads the OTel bootstrap in its OWN module graph. This is
+# ESM, where static imports are hoisted before any module body runs, so
+# importing the SDK "first" inside main.ts still leaves @grpc/grpc-js loaded
+# before sdk.start() patches it and the gRPC server comes out uninstrumented.
+# See [[ADR-0019-distributed-tracing-opentelemetry]]
+CMD ["node", "--import", "./dist/shared/observability/tracing.js", "dist/main.js"]

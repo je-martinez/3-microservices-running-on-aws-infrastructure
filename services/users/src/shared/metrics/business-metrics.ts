@@ -1,5 +1,5 @@
 import type { Db } from "../db/prisma.ts";
-import type { Env } from "../config/env.ts";
+import type { Env } from "#config/env.schema";
 import { trace } from "@opentelemetry/api";
 import { appLogger } from "../logging/app-logger.ts";
 import { withWorkflowSpan } from "../observability/workflow-tracing.ts";
