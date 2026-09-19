@@ -141,6 +141,8 @@ services/tracking-go/
 │   ├── app/             — use cases; each declares its OWN ports
 │   ├── adapter/         — http, mysql, redis, sqs, cloudwatch, grpcusers,
 │   │                      notify, otel
+│   ├── bus/             — CQRS dispatch: Handler/Middleware/Wrap + behaviors
+│   ├── outbox/          — the outbox poller (claim, publish, delete)
 │   ├── platform/        — config, logging
 │   └── openapi/         — the spec builder + the equivalence gate
 └── migrations/          — golang-migrate SQL
@@ -756,9 +758,12 @@ The adapter package is named `sqs` although it publishes to SNS:
 `cmd/server/wiring_reachability_test.go` pins its import path, so a rename means
 editing that inventory in the same change. The `CONTRACT` on `NewPublisher` says so.
 
-- **Best-effort, never fails the write.** A publish failure is logged with a
-  machine-readable `reason` and swallowed — a notification must not break the write
-  that caused it. A nil publisher is a legal, documented, degraded wiring.
+- **The PUBLISH is best-effort; the RECORD of it is not.** A publish failure is
+  logged with a machine-readable `reason` and never fails a request. But under the
+  outbox (§11b) the *outbox row* is written inside the transition's own transaction,
+  and a failure **there** does fail the transition — otherwise a committed status
+  change is announced to nobody. A nil publisher is still a legal, documented,
+  degraded wiring.
 - **`author.actor` is the actor the use case already received**, never a constant
   the publisher picks. `UpdateStatus` takes `actor audit.Actor` and threads it
   through. Hardcoding it would relabel every automatic progression as a carrier
@@ -783,6 +788,71 @@ editing that inventory in the same change. The `CONTRACT` on `NewPublisher` says
 > serializing a zero value into the slot.
 
 The same rule governs logs: **unknown context fields are omitted, never null**.
+
+## 11b. The transactional outbox and its poller
+
+A status transition writes the business rows **and one `outbox` row in ONE
+transaction** (`migrations/000003_add_outbox`); the poller publishes to SNS after the
+commit. That atomicity is the whole point: a write and a publish as two independent
+operations leave a window where a process dying between them loses the email and the
+WebSocket push, with nothing recording that a notification was owed.
+
+> ### The INLINE publisher and the OUTBOX are MUTUALLY EXCLUSIVE — never both
+>
+> With both wired every transition is published **twice**, once by `UpdateStatus` and
+> once by the poller, and the customer receives **two emails for one status change**.
+> `cmd/server/main.go` therefore passes the outbox writer to the router and **nil** as
+> the inline publisher; `internal/adapter/http/wire_app.go`'s `inlineStatusPublisher`
+> picks between them from that single field. Do not "restore" the inline publish.
+
+**`oagudo/outbox` v1.0.1 is used for the WRITE side only, and that is deliberate.**
+Its unmanaged mode (`Writer.Unmanaged().Store(ctx, tx, msg)`) takes the transaction
+the caller already owns, exactly as the design spec describes — verified against the
+source. Its **`Reader` is NOT used**: `reader.go`'s claim is a plain
+`SELECT ... LIMIT n` with **no row locking anywhere in the module** (`grep -r "SKIP
+LOCKED"` returns nothing), and its README's own answer for multiple instances is
+"ensure your consumers are idempotent" or "run a single replica". This service runs
+several tasks and feeds a consumer that sends **customer email**, so the claim in
+`internal/outbox/poller.go` is ours.
+
+### The poller's decisions, and what each one prevents
+
+| Decision | Value | Why |
+|---|---|---|
+| Placement | **in-process**, one per task, started in `main.go` | No separate binary, image or scaling story. Every instance polls, which is *why* the claim must use `SKIP LOCKED`. |
+| Interval | **5s** (`DefaultInterval`) | The message becomes a status email and a toast, so this interval **is** the delay a customer perceives. |
+| Batch | **20** (`DefaultBatchSize`) | The claim's rows stay locked for the cycle; an unbounded batch holds locks across hundreds of SNS calls. |
+| Retry | exponential, **500ms → 5min**, capped | Uncapped doubling reaches days, and a row scheduled past its own discard threshold is retained forever without another attempt. |
+| Poison row | discarded at **12 attempts**, logged `ERROR` + `app_event=outbox_message_discarded` + `order_id` | The claim is ordered by `created_at`, so an unbounded retry re-reads the poison row **first** every cycle and spends the batch budget on it. The log line is the only record that a notification was lost. |
+
+- **`SELECT ... FOR UPDATE SKIP LOCKED`, and the claim transaction is committed
+  *after* publishing.** Committing before the publish releases the locks and another
+  poller republishes the same rows — measured: 24 deliveries for 12 messages.
+- **`UTC_TIMESTAMP(3)`, with the precision argument.** The column is fsp 3 and bare
+  `UTC_TIMESTAMP()` is fsp 0, so a row scheduled at `...:59.058` reads as *later*
+  than "now" for the rest of that second and its retry is never claimed again. The
+  same trap as the `DATETIME` fsp-0 rounding in §10, one precision up.
+- **Delivery is at-least-once.** A crash between the SNS call and the commit
+  republishes the row; the pipeline dedupes on its `event_id` unique index, which is
+  why at-least-once is the safe direction to fail in.
+- **The trace survives the hop.** The `traceparent` is injected into the row's
+  `metadata` at write time and extracted onto the publish context, so the publish span
+  is a child of the request's. Nothing ambient connects them — the two run on
+  different contexts in different goroutines.
+- **The payload is the fully resolved transition**, captured at write time, never an
+  id for the poller to re-read: the row may have advanced by then, and
+  `previous_status` cannot be recovered at all.
+
+### `internal/outbox`'s tests need a real MySQL, like `internal/adapter/mysql`'s
+
+`FOR UPDATE SKIP LOCKED` is InnoDB behaviour a mock does not have, so a mocked test
+reports exactly-once for an implementation with no locking. `make test-db` runs them;
+they build their own throwaway schema from the migration.
+
+> **A poller test killed mid-transaction leaves its row locks held server-side**, and
+> the next run then blocks for the full lock-wait timeout. Symptom: a suite that ran in
+> 3s hanging for 600s. Check `information_schema.innodb_trx` and `KILL` the stale
+> thread id.
 
 ### PII — what must never be logged
 

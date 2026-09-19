@@ -1,6 +1,5 @@
 import type { Logger } from "pino";
 import { appLogger } from "../logging/app-logger.ts";
-import { env } from "../config/env.ts";
 
 /**
  * The shape of Prisma's `query` event (`Prisma.QueryEvent`), restated locally so
@@ -23,10 +22,10 @@ export interface QueryEventEmitter {
 
 /**
  * Emit SQL only outside production, matching Tracking's `echo_sql`. The statements are
- * useful locally but high-volume. Derived from the Zod-validated `NODE_ENV` rather
- * than a new env var, so nothing has to learn another key.
+ * useful locally but high-volume. Derived from `NODE_ENV` (schema default
+ * "development") rather than a new env var, so nothing has to learn another key.
  */
-export const echoSql: boolean = env.NODE_ENV !== "production";
+export const echoSql: boolean = (process.env.NODE_ENV ?? "development") !== "production";
 
 /**
  * Route Prisma's statements through the service's OWN Pino logger.

@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
 using Orders.Api.Identity;
+using Orders.Application.Messaging;
 using Orders.Infrastructure.Orders;
+using Wolverine;
 
 namespace Orders.Api.Endpoints;
 
@@ -54,11 +56,14 @@ public static class InternalEndpoints
             .Produces(StatusCodes.Status400BadRequest)
             .Produces(StatusCodes.Status401Unauthorized);
 
+        // CONTRACT: Dispatch through the bus, never by resolving the handler and calling it.
+        // The span, the app_event and both flow log lines come from the pipeline wrapped around
+        // the handler, so a direct call sweeps the cache UNINSTRUMENTED. See [[cqrs]]
         app.MapPost("/v1/orders/{orderId}/cache-invalidation", async (
             string orderId,
             HttpRequest http,
             IConfiguration config,
-            InvalidateOrderCacheService invalidations,
+            IMessageBus bus,
             ILogger<InternalEndpointsCategory> logger,
             CancellationToken ct) =>
         {
@@ -78,9 +83,15 @@ public static class InternalEndpoints
                 return Results.Unauthorized();
             }
 
-            return await invalidations.InvalidateAsync(orderId, ct)
+            var result = await bus.InvokeAsync<InvalidateOrderCacheResult>(
+                new InvalidateOrderCache(orderId), ct);
+
+            // CONTRACT: Map the RETURNED reason, do not catch for it. "No such order" reaches
+            // here as a value, which is what keeps its span OK while its log line still says
+            // _failed. See [[logging-context]]
+            return result.Invalidated
                 ? Results.Ok(new InternalInvalidateOrderCacheResponse(orderId))
-                : Results.NotFound(new { error = "order_not_found" });
+                : Results.NotFound(new { error = result.FailureReason });
         })
             .WithTags("internal")
             .WithName("InternalInvalidateOrderCache")

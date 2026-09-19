@@ -8,8 +8,10 @@ using Orders.Api.Identity;
 using Orders.Api.Logging;
 using Orders.Api.Middleware;
 using Orders.Application.Abstractions;
+using Orders.Application.Messaging;
 using Orders.Application.Identity;
 using Orders.Application.Tracking;
+using Orders.Infrastructure.Bus;
 using Orders.Infrastructure.Caching;
 using Orders.Infrastructure.Carts;
 using Orders.Infrastructure.Config;
@@ -20,12 +22,14 @@ using Orders.Infrastructure.Messaging;
 using Orders.Infrastructure.Metrics;
 using Orders.Infrastructure.Observability;
 using Orders.Infrastructure.Orders;
+using Orders.Infrastructure.Orders.Handlers;
 using Orders.Infrastructure.Persistence;
 using Orders.Infrastructure.Tracking;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Serilog;
 using StackExchange.Redis;
+using Wolverine;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -342,6 +346,45 @@ builder.Services.AddScoped(sp => new CreateOrderService(
     sp.GetRequiredService<ICacheInvalidator>(),
     assetsBaseUrl,
     sp.GetRequiredService<ILogger<CreateOrderService>>()));
+
+// CQRS dispatch bus. The four behaviors are registered ONCE here, in the pipeline order the
+// design commits to: tracing -> app_event -> logging -> validation -> handler. Wolverine's
+// model is Russian-doll, so registration order IS the nesting order — the first registered
+// wraps the rest, and its Finally runs last.
+// CONTRACT: ONE type per ForMessagesOfType<T>() call. A second AddMiddleware on that same
+// filter is silently DROPPED — no error, no warning, and the behavior simply never runs. Only
+// the tracing step needs the filter (it binds IFlowMessage, which a global registration cannot
+// resolve); the three inside it bind FlowScope, which tracing's Before supplies, so they
+// register globally and compose in call order.
+// See [[cqrs]] and [[logging-context]]
+builder.Host.UseWolverine(opts =>
+{
+    // The handlers live in Infrastructure (they touch a DbContext), so discovery must be
+    // pointed at that assembly — the entry assembly is Orders.Api and holds none of them.
+    opts.Discovery.IncludeAssembly(typeof(GetMyOrdersHandler).Assembly);
+
+    // CONTRACT: Opt these named types into service location, and keep the list minimal.
+    // Wolverine's codegen inline-constructs a handler's dependencies and REFUSES an 'opaque'
+    // lambda factory under the default NotAllowed policy — it throws
+    // InvalidServiceLocationException at the FIRST dispatch, not at startup, so the app boots
+    // clean and the route 500s. Two registrations here genuinely are such factories:
+    // OrderReadService takes assetsBaseUrl, a value not in the container, and AddDbContext
+    // registers DbContextOptions<T> through EF Core's own factory. Opt in per type rather than
+    // relaxing ServiceLocationPolicy globally, which would also cover services Wolverine could
+    // have injected properly. See [[cqrs]]
+    opts.CodeGeneration.AlwaysUseServiceLocationFor<OrderReadService>();
+    opts.CodeGeneration.AlwaysUseServiceLocationFor<OrdersReadDbContext>();
+
+    opts.Policies.ForMessagesOfType<IFlowMessage>().AddMiddleware(typeof(WorkflowSpanMiddleware));
+    opts.Policies.AddMiddleware(typeof(AppEventMiddleware));
+    opts.Policies.AddMiddleware(typeof(FlowLoggingMiddleware));
+    opts.Policies.AddMiddleware(typeof(FlowValidationMiddleware));
+
+    // CONTRACT: No PersistMessagesWith*, no durability and no outbox — Phase 1 is pure
+    // in-memory dispatch and touches no database. A persistence call here would have Wolverine
+    // create its own schema at startup, which is Phase 2's decision, not this one.
+    // See [[cqrs]]
+});
 
 var app = builder.Build();
 

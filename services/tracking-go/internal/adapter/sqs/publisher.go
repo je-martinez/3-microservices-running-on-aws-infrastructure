@@ -16,6 +16,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -43,6 +45,15 @@ const (
 	appEventPublishSucceeded = "tracking_status_changed_published"
 )
 
+// The two structural failures that carry no wrapped cause.
+var (
+	// ErrPublisherUnavailable means this process has no usable topic or client.
+	ErrPublisherUnavailable = errors.New("sqs: publisher unavailable")
+	// ErrNoEmailForUser means the pipeline's handler would reject the payload as a
+	// PERMANENT error, so sending it would consume the record and deliver nothing.
+	ErrNoEmailForUser = errors.New("sqs: no email for user")
+)
+
 // PublishAPI is the one SNS call this package makes, declared here by the
 // consumer so the SDK client satisfies it directly.
 type PublishAPI interface {
@@ -65,8 +76,22 @@ type UserResolver interface {
 
 // Publisher emits one transition. PublishTrackingStatusChanged NEVER returns an
 // error — that is the contract, not an implementation detail.
+//
+// CONTRACT: ONE void method. The poller's returned error comes from the separate
+// FailablePublisher; folding both in here makes every inline-path stub grow a
+// method it never calls. See [[cqrs]]
 type Publisher interface {
 	PublishTrackingStatusChanged(ctx context.Context, in StatusChanged)
+}
+
+// FailablePublisher reports whether a publish went out.
+//
+// CONTRACT: For the OUTBOX POLLER alone. Its error is what retains the row for a
+// retry, so the void form there deletes undelivered messages. Both forms log every
+// failure identically; only the return differs. See [[cqrs]]
+type FailablePublisher interface {
+	Publisher
+	TryPublishTrackingStatusChanged(ctx context.Context, in StatusChanged) error
 }
 
 type publisher struct {
@@ -82,7 +107,7 @@ type publisher struct {
 // cmd/server/wiring_reachability_test.go pins the import path and asserts the
 // composition root reaches this constructor; a rename silences that guard
 // unless its inventory moves in the same change.
-func NewPublisher(client PublishAPI, topicARN string, resolve UserResolver, log *slog.Logger) Publisher {
+func NewPublisher(client PublishAPI, topicARN string, resolve UserResolver, log *slog.Logger) FailablePublisher {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -91,35 +116,49 @@ func NewPublisher(client PublishAPI, topicARN string, resolve UserResolver, log 
 
 // PublishTrackingStatusChanged emits one transition. Never fails the caller.
 //
+// CONTRACT: Stays void. It runs AFTER a committed write, and a raised failure makes
+// the carrier retry a transition the forward-only guard rejects as 400. The poller
+// calls TryPublishTrackingStatusChanged instead. See [[cqrs]]
+//
 // INVARIANT: creation NEVER emits an event. Only status updates do. A TestMode
 // run therefore produces 5 history rows and 4 events.
 func (p *publisher) PublishTrackingStatusChanged(ctx context.Context, in StatusChanged) {
+	_ = p.TryPublishTrackingStatusChanged(ctx, in)
+}
+
+// TryPublishTrackingStatusChanged emits one transition and REPORTS whether it
+// went out.
+//
+// CONTRACT: For the OUTBOX POLLER only. Its caller retains the row and retries on
+// an error, so swallowing here deletes an undelivered message. Every failure is
+// still logged as the void path logs it; the error is additional. See [[cqrs]]
+func (p *publisher) TryPublishTrackingStatusChanged(ctx context.Context, in StatusChanged) error {
 	if p.topicARN == "" || p.client == nil || p.resolve == nil {
 		// The publisher could not be obtained or was built without a topic. In
 		// Python this reason is raised one layer up, by update_status's guard
 		// around acquiring the publisher at all; here the same condition is
 		// structural, so it is checked where it can actually be observed.
 		p.fail(ctx, "publisher_unavailable", in, "")
-		return
+		return ErrPublisherUnavailable
 	}
 
 	user, err := p.resolve.Resolve(ctx, in.UserID)
 	if err != nil {
 		p.fail(ctx, "email_resolution_failed", in, "")
-		return
+		return fmt.Errorf("sqs: resolve user for the notification: %w", err)
 	}
 	if user.Email == "" {
 		// ABORT BEFORE BUILDING ANYTHING: the handler rejects a payload without
 		// an email as a PERMANENT error, so the mail would never be sent and the
 		// record would be consumed.
 		p.fail(ctx, "no_email_for_user", in, "")
-		return
+		return ErrNoEmailForUser
 	}
 
 	body, err := json.Marshal(buildEnvelope(ctx, in, user))
 	if err != nil {
 		p.fail(ctx, "sns_publish_failed", in, HashEmail(user.Email))
-		return
+		return fmt.Errorf("sqs: encode the envelope: %w", err)
 	}
 
 	ctx, span := tracing.Tracer(tracing.TracerMessaging).Start(ctx, PublishSpanName,
@@ -146,7 +185,7 @@ func (p *publisher) PublishTrackingStatusChanged(ctx context.Context, in StatusC
 		// waterfall: the caller sees nothing, by the policy above.
 		span.SetStatus(codes.Error, "sns_publish_failed")
 		p.fail(ctx, "sns_publish_failed", in, HashEmail(user.Email))
-		return
+		return fmt.Errorf("sqs: publish to sns: %w", err)
 	}
 	span.SetStatus(codes.Ok, "")
 
@@ -160,6 +199,7 @@ func (p *publisher) PublishTrackingStatusChanged(ctx context.Context, in StatusC
 		slog.String("user_id", in.UserID),
 		slog.String("status", in.Status),
 	)
+	return nil
 }
 
 // fail logs one of the four reasons and returns. Never raises.
@@ -306,6 +346,13 @@ func buildMessageAttributes(ctx context.Context) map[string]snstypes.MessageAttr
 type noopPublisher struct{}
 
 // NewNoopPublisher returns the discarding publisher.
-func NewNoopPublisher() Publisher { return noopPublisher{} }
+func NewNoopPublisher() FailablePublisher { return noopPublisher{} }
 
 func (noopPublisher) PublishTrackingStatusChanged(context.Context, StatusChanged) {}
+
+// TryPublishTrackingStatusChanged reports success, because discarding IS this
+// publisher's whole job. Reporting a failure would make the poller retain and
+// retry every message forever against a publisher that will never send one.
+func (noopPublisher) TryPublishTrackingStatusChanged(context.Context, StatusChanged) error {
+	return nil
+}

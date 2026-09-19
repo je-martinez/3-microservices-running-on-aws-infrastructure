@@ -11,6 +11,27 @@ import { openSocket, tryOpen } from "../../support/ws-client.js";
 // generated into .env.local.debug, which playwright.config.ts loads.
 const WS_URL = process.env.WS_URL;
 
+// The frame the events pipeline pushes for a tracking transition.
+interface TrackingFrame {
+  type: "TRACKING_STATUS_CHANGED";
+  order_id: string;
+  status: string;
+  previous_status: string | null;
+  changed_at: string;
+}
+
+// CONTRACT: Filter this socket by `type` before asserting on `status` or `order_id`.
+// It is the user's single socket and Users pushes NOTIFICATION_CREATED frames onto it
+// too — those carry neither field, so an unfiltered read yields
+// `["PROCESSING", undefined, undefined, undefined]`. See [[testing]]
+function isTrackingFrame(message: unknown): message is TrackingFrame {
+  return (message as { type?: string }).type === "TRACKING_STATUS_CHANGED";
+}
+
+function trackingFrames(messages: unknown[]): TrackingFrame[] {
+  return messages.filter(isTrackingFrame);
+}
+
 // Registers a user through the gateway (getGatewayToken — the established
 // helper, see support/auth.ts) and returns both the token and a ready
 // gatewayClient for placing orders. Does NOT write a second auth path.
@@ -69,20 +90,20 @@ test.describe("realtime tracking events over websocket", () => {
     // expectation. 120s is measured: ~40s of progression, and this clock starts before
     // it (user creation, auth, catalogue, order) plus four SQS/Lambda round trips.
     // See [[testing]]
-    await socket.waitForCount(4, 120_000);
+    await socket.waitForCount(4, 120_000, isTrackingFrame);
     socket.close();
 
     // CONTRACT: Assert the SET, never the sequence — the pipeline processes SQS records
     // in batches with no cross-record ordering guarantee, so demanding order is flaky
     // whether or not the feature works. PLACED stays absent: it is the creation state,
     // never emitted, and asserting it would demand a message the system never sends.
-    const statuses = (socket.messages as Array<{ status: string }>).map((m) => m.status).sort();
+    const frames = trackingFrames(socket.messages);
+    const statuses = frames.map((m) => m.status).sort();
     expect(statuses).toEqual(
       ["DELIVERED", "OUT_FOR_DELIVERY", "PROCESSING", "SHIPPED"].sort(),
     );
 
-    for (const message of socket.messages as Array<{ type: string; order_id: string }>) {
-      expect(message.type).toBe("TRACKING_STATUS_CHANGED");
+    for (const message of frames) {
       expect(message.order_id).toBe(orderId);
     }
   });
@@ -112,7 +133,7 @@ test.describe("realtime tracking events over websocket", () => {
 
     // Four, not five — see the delivery test above: PLACED is the creation
     // state and is never emitted as a transition.
-    await aliceSocket.waitForCount(4, 120_000);
+    await aliceSocket.waitForCount(4, 120_000, isTrackingFrame);
     aliceSocket.close();
     bobSocket.close();
 
@@ -120,10 +141,17 @@ test.describe("realtime tracking events over websocket", () => {
     // (publishToUser queries the connections GSI by author.cognito_sub — see
     // functions/events-pipeline/src/handlers/tracking-status-changed.ts). If
     // the pipeline pushed to every open connection instead of the owner's,
-    // bob's socket would have received all three messages here too.
-    expect(bobSocket.messages).toHaveLength(0);
-    expect(
-      (aliceSocket.messages as Array<{ order_id: string }>).every((m) => m.order_id === orderId),
-    ).toBe(true);
+    // bob's socket would have received all four messages here too.
+
+    // CONTRACT: Scope bob's emptiness to TRACKING frames. Users pushes bob his OWN
+    // notifications here, so a non-empty `messages` is not a leak.
+    const bobTracking = trackingFrames(bobSocket.messages);
+    expect(bobTracking, `leaked to bob: ${JSON.stringify(bobTracking)}`).toHaveLength(0);
+
+    // Guards against passing vacuously: `[].every(...)` is true, so an empty filter
+    // result would satisfy the ownership check below while proving nothing.
+    const aliceTracking = trackingFrames(aliceSocket.messages);
+    expect(aliceTracking.length).toBe(4);
+    expect(aliceTracking.every((m) => m.order_id === orderId)).toBe(true);
   });
 });

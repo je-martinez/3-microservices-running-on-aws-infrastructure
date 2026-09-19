@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-09-10
+updated: 2026-09-19
 tags:
   - type/spec
   - area/shared
@@ -339,6 +339,8 @@ Specs produced through the planning phase, normalized to vault conventions.
 - [[2026-09-04-web-gateway-integration-design]] — Design for phase 2 of `apps/web/`: replacing the phase-1 fixtures with real gateway calls via same-origin nginx/`ng serve` proxying (not CORS, which neither the gateway nor nginx configures), an encrypted-IndexedDB token store with a non-extractable `CryptoKey`, a shared/deduped refresh interceptor, and a server-backed cart; per [[2026-08-17-web-app-foundation-design]], [[money-representation]], [[env-files]], [[testing]], [[git-workflow]]. Milestone plan: [[web-gateway-integration-milestone]].
 - [[2026-09-06-address-geocoding-proxy-design]] — Design for a same-origin Geoapify geocoding proxy in `apps/web/nginx.conf` (JE-252): the API key stays server-side and is appended by nginx, the proxy fails CLOSED with a 503 when the key is unset (Geoapify answers 401 and still burns a free-tier request), and `NG_APP_GEOCODE_ENABLED`/`GEOAPIFY_API_KEY` are separate build-time/runtime switches that must both be on. Selective `/geocode/`-only access logging meters the 3,000/day free tier and surfaced a stack-wide OpenObserve ingestion gap (JE-253); per [[2026-09-04-web-gateway-integration-design]], [[env-files]], [[openobserve-cloudwatch]].
 - [[2026-09-10-in-app-notifications-design]] — Design for an in-app notification inbox (bell/panel, full-page list, live toasts): SNS fan-out ahead of the shared events queue so Users can add a competing `sqs-consumer` without starving the events-pipeline Lambda (SQS is point-to-point), a Postgres `Notification` table in Users keyed by the internal `user_id` (not DynamoDB, not Cognito) storing rendered `title`/`body`/`metadata` with no idempotency key (duplicates on redelivery are an accepted outcome), Users pushing `NOTIFICATION_CREATED` over the existing WebSocket channel, and a capped (50, no pagination) three-endpoint REST surface; per [[users-service-design]], [[events-pipeline-design]], [[terraform-modules]], [[2026-08-05-realtime-tracking-events-websocket-design]], [[2026-08-17-web-app-foundation-design]].
+- [[2026-09-18-cqrs-dispatch-tracking-orders-design]] — Design for a CQRS command/query bus in Tracking (Go, hand-rolled generic `Handler[Q,R]`/`Middleware[Q,R]`/`Wrap`) and Orders (.NET, Wolverine 6.39.0), plus a per-service transactional outbox (`oagudo/outbox` for Tracking, Wolverine's durable outbox for Orders) sequenced in two phases behind a review stop point; rejects `go-mink` for Tracking (Postgres-only, no typed query bus, near-zero adoption) and records three mutation-testing-caught test-validity traps from the reverted Users work that generalize to any new pipeline layer; Users is out of scope — see [[2026-09-19-users-nestjs-migration-design]]; per [[cqrs]], [[dependency-injection]], [[orders-service-design]], [[tracking-service-design]].
+- [[2026-09-19-users-nestjs-migration-design]] — Design for migrating the Users service from Fastify+Awilix to NestJS, primarily to adopt `@nestjs/cqrs` now that the framework change removes [[2026-09-18-cqrs-dispatch-tracking-orders-design]]'s reason for rejecting it (booting a second DI container beside Awilix); builds Nest in parallel and deletes Fastify only once all 84 framework-agnostic E2E specs pass unmodified, rewrites the 663 unit/integration tests against `Test.createTestingModule()` with an explicit no-weakening rule, carries forward five measured findings from the reverted hand-rolled-bus work (routine-vs-thrown span status, specific-reason deferral against last-write-wins `setAttributes`, one-failure-one-log-line, direct-handler tests proving nothing about pipeline behavior, mutation-testing critical assertions), and resolves validation/OpenAPI generation onto a hand-rolled Zod pipe + `zod-to-json-schema` after finding both Zod↔Nest bridge libraries stop at Nest 11; per [[users-service-design]], [[cqrs]], [[dependency-injection]], [[testing]], [[logging-context]], [[ADR-0019-distributed-tracing-opentelemetry]].
 
 ---
 
@@ -356,6 +358,9 @@ what makes a lesson reusable is the shape of the mistake, not the service it hap
 - [[2026-08-27-a-producer-side-test-proves-nothing-about-what-the-consumer-accepts]] — asserting what you emit says nothing about what the other side validates.
 - [[2026-09-04-a-concurrency-test-can-fail-by-starvation]] — a non-overlap assertion made after flushing every concurrent write passes vacuously.
 - [[2026-09-04-a-retrying-url-assertion-passes-mid-redirect]] — Playwright's retrying `toHaveURL` can pass in the frame before a guard's redirect finishes.
+- [[2026-09-15-a-live-push-cascade-invalidates-exact-ui-assertions]] — under live push, assert the absence of specific rows rather than the emptiness of a set, and pick the quietest fixture that still exercises the path.
+- [[2026-09-11-plans-locate-tests-by-name-not-by-importer]] — a plan that finds "the test file for X" by filename resemblance omitted the suites that enforce the wire contract, three times in one session.
+- [[2026-09-19-test-local-app-interceptor-hides-composition-root-omission]] — 255 passing tests could not see that `app.module.ts` never registered the interceptor, because each test registered it itself.
 - [[mocks-hide-schema-bugs]] — a green mocked-Prisma suite cannot catch a wrong assumption about the real schema.
 - [[2026-08-14-counter-metrics-need-a-clock-and-a-window]] — a counter without a clock and a window is not a rate, and reads as one.
 - [[2026-08-25-reads-are-not-exempt-from-observability]] — read endpoints need the same instrumentation as writes, and an unchecked precedent carried a false claim through implementation.
@@ -374,6 +379,8 @@ what makes a lesson reusable is the shape of the mistake, not the service it hap
 - [[2026-09-10-formfield-owns-its-control-bindings-ng8022]] — `[formField]` owns a fixed set of control bindings; binding one by hand is a compile error.
 - [[2026-09-10-formfield-reads-the-raw-dom-value]] — `[formField]` on a native input reads the raw DOM value, racing a sanitising `(input)` handler.
 - [[2026-09-10-signal-forms-required-accepts-whitespace]] — Signal Forms' `required()` accepts whitespace, so it is weaker than the `.trim()` guard it replaces.
+- [[2026-09-19-esbuild-drops-decorator-metadata]] — esbuild emits no `design:paramtypes`, so Nest type-based DI injects `undefined` under `tsx` and Vitest while the `tsc` build works.
+- [[2026-09-19-nest-grpc-interceptors-silently-dropped]] — `GrpcOptions` has no `interceptors` key, so interceptors passed under `server:` vanish without a warning and a wrong `x-api-key` returned user data.
 
 ### Browser and UI defects invisible to the obvious probe
 
@@ -406,6 +413,7 @@ what makes a lesson reusable is the shape of the mistake, not the service it hap
 - [[floci-rds-apigw-limits]] — Floci's RDS/API Gateway limits found during JE-36.
 - [[floci-sqs-lambda-docdb-support]] — probe of Floci's SQS, Lambda, and DocumentDB support ahead of the events-pipeline milestone.
 - [[floci-websocket-apigw-dynamodb-support]] — probe of Floci's WebSocket API Gateway + DynamoDB support for realtime events.
+- [[floci-sns-fanout-support]] — probe of Floci's SNS fan-out, raw message delivery, and `MessageAttributes` filter policies; all four assertions held, so the notifications design stood unchanged.
 - [[floci-elasticache-two-ports-and-provider-panic]] — a real Valkey container, a provider panic on `NodeGroups[0]`, and two disagreeing ports.
 - [[floci-storage-modes-and-tmp-corruption]] — `persistent` (not the README's `hybrid`) is the correct storage mode, plus a truncated-`.tmp` corruption pattern.
 - [[floci-recreate-destroys-backing-containers]] — Floci's persisted state must be destroyed together with its backing containers, or phantom clusters report "available".
@@ -421,6 +429,15 @@ what makes a lesson reusable is the shape of the mistake, not the service it hap
 
 - [[2026-08-16-cloudwatch-lambda-log-prefix-defeats-json-parse]] — CloudWatch's Lambda log prefix defeats a JSON-anchored parse.
 - [[drawio-diagram-legibility]] — XML validity does not make a diagram legible; verify contrast and fit by rendering to PNG.
+- [[2026-09-18-cqrs-rule-lived-only-in-the-vault-not-in-the-file-agents-read-first]] — the CQRS rule was in the vault and had been since the first commit, but `services/orders/CLAUDE.md` carried a narrower version, so an agent satisfied every sentence it was told to read and still inlined an EF query in a route.
+
+### Configuration whose absent value reads as a deliberate choice
+
+- [[2026-09-15-a-falsy-default-that-means-disabled-erases-the-difference-from-unconfigured]] — `|| ""` collapsed "unconfigured" into "disabled", so the web app's entire realtime surface was silently absent for a whole milestone; an off-state has to be observable.
+
+### Decision criteria that were never argued
+
+- [[2026-09-19-the-outbox-went-to-the-service-easiest-to-fix-not-the-one-that-loses-the-most]] — the transactional outbox landed on the service where it was easiest to build correctly, not on the one whose lost event locks a user out of their account; "easiest to do well" substituted for "worst failure" with no bad decision to point at in review. Also records that `oagudo/outbox`'s `Reader` holds no row lock (so the poller is ours, and D6 of the spec is wrong about it) and that InnoDB's scan-level locking makes the poller's composite index load-bearing for `SKIP LOCKED`.
 
 ---
 

@@ -3,14 +3,14 @@ package http
 import (
 	"context"
 	"errors"
-	tracing "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/otel"
 	"log/slog"
 	nethttp "net/http"
 
 	"github.com/gin-gonic/gin"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/jemartinez/3mrai/services/tracking-go/internal/app"
+	"github.com/jemartinez/3mrai/services/tracking-go/internal/bus"
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/domain"
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/domain/audit"
 )
@@ -55,29 +55,25 @@ type carrierRequest struct {
 
 // CarrierHandler serves PUT /v1/trackings/{order_id}/status, the third-party
 // carrier webhook.
+//
+// CONTRACT: update is a PRE-WRAPPED bus handler over the one transition path. The
+// only difference between this caller and TestMode is the actor on the message.
+// See [[cqrs]]
 type CarrierHandler struct {
-	uc     StatusTransitioner
+	update bus.Handler[app.UpdateStatusCommand, domain.TrackingWithHistory]
 	log    *slog.Logger
-	tracer trace.Tracer
 }
 
-// NewCarrierHandler wires the handler. A nil logger falls back to the default so
-// a partially-wired process logs somewhere rather than panicking on the first
-// carrier callback.
-func NewCarrierHandler(uc StatusTransitioner, log *slog.Logger, tracer trace.Tracer) *CarrierHandler {
+// NewCarrierHandler wires the use case behind its bus pipeline. A nil logger falls
+// back to the default, so a partially-wired process logs rather than panicking.
+//
+// The tracer parameter is retained and IGNORED — the pipeline resolves its own, so
+// no argument is left that can arrive empty. See [[cqrs]]
+func NewCarrierHandler(uc StatusTransitioner, log *slog.Logger, _ trace.Tracer) *CarrierHandler {
 	if log == nil {
 		log = slog.Default()
 	}
-	if tracer == nil {
-		// A nil tracer silently disables this handler's workflow span, and the
-		// span is how a trace says WHICH business operation ran -- the server
-		// span from otelgin only says a request arrived. That is exactly how the
-		// four workflow spans went missing in production while their unit tests,
-		// which inject a tracer, stayed green. Defaulting here means forgetting
-		// the argument costs nothing, matching how log and hook already behave.
-		tracer = tracing.Tracer(tracing.TracerWorkflow)
-	}
-	return &CarrierHandler{uc: uc, log: log, tracer: tracer}
+	return &CarrierHandler{update: WrapUpdateStatus(uc, log), log: log}
 }
 
 // RegisterCarrierRoutes mounts the carrier surface with its key guard on the
@@ -121,36 +117,30 @@ func (h *CarrierHandler) Handle(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
-	var span trace.Span
-	if h.tracer != nil {
-		ctx, span = h.tracer.Start(ctx, "carrier_status_update")
-		defer span.End()
-		span.SetAttributes(
-			attribute.String("app_event", appEventCarrierStarted),
-			attribute.String("order_id", orderID),
-		)
-	}
 
 	requested, err := domain.ParseStatus(*payload.Status)
 	if err != nil {
-		// Rejected before anything was read, so nothing was written. The message
-		// is the domain's own and names every accepted value, so a carrier
+		// Rejected before anything was read, so nothing was written — and before the
+		// bus, so this one rejection logs here rather than through the pipeline. The
+		// message is the domain's own and names every accepted value, so a carrier
 		// integrator can fix the call from the response alone.
-		h.reject(ctx, c, span, orderID, err.Error(), reasonInvalidStatus)
+		h.logFailure(ctx, orderID, reasonInvalidStatus)
+		c.JSON(nethttp.StatusBadRequest,
+			ReasonError{Detail: err.Error(), Reason: reasonInvalidStatus})
 		return
 	}
 
 	// The ZERO actor, deliberately: the DEFAULT lives in the use case, which is
 	// also what TestMode progression calls. Naming audit.CarrierStatusUpdate here
 	// would put the default in two places.
-	updated, err := h.uc.Execute(ctx, orderID, requested, "")
+	updated, err := h.update(ctx, app.UpdateStatusCommand{
+		OrderID: orderID, Requested: requested, Actor: "",
+	})
 	switch {
 	case errors.Is(err, domain.ErrTrackingNotFound):
 		// There is no ownership dimension on this route, so a 404 genuinely means
 		// the order has no tracking — unlike the user-scoped reads, where a 404
 		// also covers "someone else's".
-		setSpanReason(span, "not_found")
-		h.logFailure(ctx, orderID, "not_found")
 		c.JSON(nethttp.StatusNotFound, FlatError{Detail: "tracking not found"})
 		return
 	case err != nil:
@@ -159,37 +149,15 @@ func (h *CarrierHandler) Handle(c *gin.Context) {
 			// The state machine's three guards, each with its own reason. The
 			// guard ORDER is load-bearing and lives in the domain: terminality is
 			// checked first, so DELIVERED -> anything reports already_delivered
-			// even when it is also backward or equal.
-			h.reject(ctx, c, span, orderID, invalid.Error(), string(invalid.Reason))
+			// even when it is also backward or equal. The pipeline carries that
+			// reason to the log and the span; the body carries it to the caller.
+			c.JSON(nethttp.StatusBadRequest,
+				ReasonError{Detail: invalid.Error(), Reason: string(invalid.Reason)})
 			return
 		}
-		setSpanReason(span, "internal_error")
-		h.log.ErrorContext(ctx, appEventCarrierFailed,
-			slog.String("app_event", appEventCarrierFailed),
-			slog.String("reason", "internal_error"),
-			slog.String("order_id", orderID),
-			// For operators only. The body below says nothing about the cause.
-			slog.String("error", err.Error()))
 		c.JSON(nethttp.StatusInternalServerError, FlatError{Detail: "internal server error"})
 		return
 	}
-
-	if span != nil {
-		span.SetAttributes(
-			attribute.String("app_event", appEventCarrierSucceeded),
-			attribute.String("tracking_id", updated.Tracking.ID),
-			attribute.String("status", string(updated.Tracking.Status)),
-		)
-	}
-	// There is NO SUCCESS severity — success is INFO plus app_event=*_succeeded.
-	// No user_id and no cognito_sub: this request carries no user identity, and
-	// the convention OMITS unknown fields rather than emitting null. No
-	// shipping_address, ever: it is PII.
-	h.log.InfoContext(ctx, appEventCarrierSucceeded,
-		slog.String("app_event", appEventCarrierSucceeded),
-		slog.String("order_id", orderID),
-		slog.String("tracking_id", updated.Tracking.ID),
-		slog.String("status", string(updated.Tracking.Status)))
 
 	// FLAT, not wrapped: only init-tracking's 201 nests the tracking under a
 	// "tracking" key. NewTrackingResponse is physically incapable of carrying
@@ -197,21 +165,14 @@ func (h *CarrierHandler) Handle(c *gin.Context) {
 	c.JSON(nethttp.StatusOK, NewTrackingResponse(updated))
 }
 
-// reject renders the 400 in Shape C: FLAT, with `reason` top-level.
+// logFailure emits *_failed for the ONE rejection that happens before dispatch:
+// an unparseable status, which the pipeline never sees.
 //
-// CONTRACT: Do NOT unify this with init-tracking's nested shape. Both are
-// already observable by shipped clients, so collapsing them silently breaks
-// whichever caller reads the field that moved. See [[openapi-specs]]
-func (h *CarrierHandler) reject(
-	ctx context.Context, c *gin.Context, span trace.Span, orderID, detail, reason string,
-) {
-	setSpanReason(span, reason)
-	h.logFailure(ctx, orderID, reason)
-	c.JSON(nethttp.StatusBadRequest, ReasonError{Detail: detail, Reason: reason})
-}
-
-// logFailure emits *_failed with the SAME token the span carries, set beside it
-// so the two cannot drift.
+// CONTRACT: Every 400 on this route shares ONE body shape (Shape C: FLAT, with
+// `reason` top-level) and ONE reason vocabulary. Do NOT unify that shape with
+// init-tracking's nested one — both are already observable by shipped clients, so
+// collapsing them silently breaks whichever caller reads the field that moved.
+// See [[openapi-specs]]
 //
 // No user_id and no cognito_sub field: this request has no user identity at all,
 // and the convention omits unknown fields rather than emitting null. The API key

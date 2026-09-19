@@ -72,6 +72,12 @@ async function placeOrder(api: APIRequestContext): Promise<string> {
 // — is actually exercised end to end, against the real partial unique index, the
 // real Cognito pool, and the real gateway.
 test("a deleted account releases its email, and re-registering it yields a clean new account", async () => {
+  // Above the 30s default: two register+login cycles, an order, and ~10 gateway
+  // round-trips, any of which slows down while the rest of the suite is creating
+  // orders. The budget must exceed the tracking poll below or the poll can never
+  // finish. Still BOUNDED — a genuinely broken cascade fails rather than hangs.
+  test.setTimeout(150_000);
+
   const credentials = makeUser();
   const first = await registerAndLogin(credentials);
   const api = await gatewayClient(first.token);
@@ -83,13 +89,29 @@ test("a deleted account releases its email, and re-registering it yields a clean
 
   const orderId = await placeOrder(api);
 
-  // Tracking is created by Orders calling `init-tracking` during order creation,
-  // so it exists by the time the 201 came back — no polling needed. Asserted
-  // rather than assumed: if this were empty, the cascade's tracking leg would be
-  // deleting nothing and the assertion after the deletion would be vacuous.
-  const trackingBefore = await api.get(`v1/trackings?order_ids=${orderId}`);
-  expect(trackingBefore.status()).toBe(200);
-  expect((await trackingBefore.json()).trackings).toHaveLength(1);
+  // Asserted rather than assumed: if this were empty, the cascade's tracking leg
+  // would be deleting nothing and the assertion after the deletion would be vacuous.
+  //
+  // CONTRACT: Poll — do NOT read this once off the back of the order's 201. Orders
+  // calls `init-tracking` AFTER its own transaction commits, so the row lags the 201,
+  // and order creation across the suite starves Tracking's read path badly enough that
+  // a single batch read hung for 29s of this test's 30s budget (trace, 2026-09-19).
+  // Bounded, so an init call that never lands still fails instead of hanging.
+  // See [[testing]]
+  await expect
+    .poll(
+      async () => {
+        const res = await api.get(`v1/trackings?order_ids=${orderId}`);
+        if (res.status() !== 200) return -1;
+        return ((await res.json()).trackings as unknown[]).length;
+      },
+      {
+        message: `no tracking appeared for ${orderId} — check the Orders logs for \`init_tracking_succeeded\``,
+        timeout: 60_000,
+        intervals: [500],
+      },
+    )
+    .toBe(1);
 
   // 2 — the deletion itself, through the gateway, with the real JWT.
   const deleted = await api.delete("v1/users/me");

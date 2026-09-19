@@ -43,6 +43,8 @@ const (
 	pkgMySQL      = modulePath + "/internal/adapter/mysql"
 	pkgApp        = modulePath + "/internal/app"
 	pkgNotify     = modulePath + "/internal/adapter/notify"
+	pkgBus        = modulePath + "/internal/bus"
+	pkgOutbox     = modulePath + "/internal/outbox"
 	pkgLogging    = modulePath + "/internal/platform/logging"
 	pkgConfig     = modulePath + "/internal/platform/config"
 	pkgMain       = modulePath + "/cmd/server"
@@ -73,8 +75,25 @@ var requiredSeams = []wiringSeam{
 	// See [[logging-context]]
 	{pkgMain, "installDriverLogging", "go-sql-driver/mysql keeps logging plain text to stderr ('[mysql] ... closing bad idle connection'), a line carrying no service_name, no severity and no trace_id — the collector cannot classify it and files it under `unclassified`, which unclassified-logs.spec.ts fails on"},
 
+	// ── CQRS dispatch: the whole observability pipeline hangs off one call ───
+	{pkgBus, "Pipeline", "no use case has a behavior pipeline: every workflow span disappears, no flow logs app_event or reason, and the routine-vs-fault span status distinction is gone — while every handler still serves correct JSON, so nothing a caller sees changes"},
+	{pkgBus, "Wrap", "Pipeline is reached but composes nothing, so the behaviors are built and discarded and the handler runs bare"},
+	{pkgHTTP, "WrapGetMyTracking", "the single read dispatches with no pipeline: no get_tracking span and no get_tracking_failed line on a 404"},
+	{pkgHTTP, "WrapListMyTrackings", "the batch read dispatches with no pipeline — and its ORDER-ID CAP goes with it, since the cap is the flow's validation layer: an over-cap request reaches the database instead of answering 400"},
+	{pkgHTTP, "WrapCreateTracking", "creation dispatches with no pipeline: no init_tracking span and no *_succeeded line carrying tracking_id and user_id"},
+	{pkgHTTP, "WrapUpdateStatus", "the carrier webhook and TestMode progression dispatch with no pipeline: no carrier_status_update span, and a rejected transition logs no reason"},
+	{pkgHTTP, "WrapDeleteByUser", "the cascade leg dispatches with no pipeline, so a 500 mid-cascade carries neither the *_started nor the *_failed line that shows how far it got"},
+	{pkgHTTP, "WrapE2ECleanup", "the teardown dispatches with no pipeline: no e2e_cleanup span and no deleted_count on the success line, which is what makes a teardown diagnosable"},
+
+	// ── The transactional outbox ────────────────────────────────────────────
+	{pkgMySQL, "NewOutboxWriter", "no transition records an outbox row, so the poller finds nothing and NO status notification is ever sent — while every write still commits and every response still looks correct"},
+	{pkgMySQL, "WithOutbox", "the outbox writer is built and handed to nothing: the repository transitions without it, so the table stays empty and the poller has nothing to publish"},
+	{pkgOutbox, "NewPoller", "nothing drains the outbox: every transition records a message that is never published, the table grows without bound, and no customer is emailed or pushed to again"},
+	{pkgNotify, "NewOutboxSNSPublisher", "the poller has no way to turn a stored message back into an SNS publish"},
+
 	// ── Metrics ─────────────────────────────────────────────────────────────
 	{pkgCloudWatch, "NewPublisher", "no custom metric is ever published; every 3MRAI dashboard panel for this service reads 'no data'"},
+	{pkgCloudWatch, "NewAsyncPublisher", "every metric publish runs synchronously on the request goroutine again: PutMetricData is a blocking round-trip Floci serializes, so reads answer in hundreds of ms (11.5s once the queue accumulates) while the handler's own duration_ms still reads 0"},
 	{pkgCloudWatch, "StartTicker", "orders_by_tracking_status_total is never published and the status dashboards go flat"},
 	{pkgMain, "selectCacheMetrics", "bug #4: the cache gateway's metrics port falls back to the noop, so cache_requests_total and cache_operation_duration_ms are computed on every request and discarded"},
 

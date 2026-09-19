@@ -4,9 +4,14 @@ type: spec
 area: users
 status: active
 created: 2026-06-26
-updated: 2026-09-15
+updated: 2026-09-19
 tags: [type/spec, area/users, status/active]
 related:
+  - "[[2026-09-19-users-nestjs-migration-design]]"
+  - "[[2026-09-19-users-nestjs-migration]]"
+  - "[[2026-09-19-esbuild-drops-decorator-metadata]]"
+  - "[[2026-09-19-nest-grpc-interceptors-silently-dropped]]"
+  - "[[2026-09-19-test-local-app-interceptor-hides-composition-root-omission]]"
   - "[[2026-09-10-in-app-notifications-design]]"
   - "[[2026-08-25-response-caching-layer-design]]"
   - "[[x-cache-response-header]]"
@@ -70,15 +75,21 @@ lookup. ORM: Prisma. It publishes `USER_CREATED` to SQS on every successful regi
 
 | Concern | Choice |
 |---|---|
-| Framework | Fastify (+ `@fastify/awilix` for DI, `@fastify/swagger` + `fastify-type-provider-zod` for the OpenAPI spec) |
+| Framework | **NestJS 12** on `@nestjs/platform-fastify` (Fastify 5 under the adapter) + `@nestjs/cqrs` (`CommandBus` / `QueryBus`) |
+| DI | Nest providers — `@Inject(TOKEN)` only for interfaces / type aliases; by-type everywhere else. See [[dependency-injection]]. Decorator metadata requires SWC (`unplugin-swc` in Vitest, `@swc-node/register` in dev) — esbuild/`tsx` drop `design:paramtypes` (see [[2026-09-19-esbuild-drops-decorator-metadata]]). |
+| Validation / OpenAPI | Zod (same schemas for validation and the committed `openapi.yaml`); hand-rolled `ZodValidationPipe`; OpenAPI via `z.toJSONSchema` + `@nestjs/swagger` (see [OpenAPI autogen](#openapi-autogen)) |
+| Config | `@nestjs/config` validating the **same** Zod env schema (`src/config/env.schema.ts`) |
+| Auth (HTTP) | Global `AuthGuard` (`APP_GUARD`) + `@Public()` decorator — replaces the hand-maintained public-routes allowlist |
 | Database | Aurora PostgreSQL |
 | Replicas | 1 write replica, 1 read replica, composed via `@prisma/extension-read-replicas` on a **single** Prisma client (see [[ADR-0006-read-write-replicas]] and [[dependency-injection]]) |
-| ORM | Prisma |
-| Auth | AWS Cognito (see [[ADR-0010-cognito-auth]]) |
+| ORM | Prisma 7 |
+| Auth (identity) | AWS Cognito (see [[ADR-0010-cognito-auth]]) |
+
+Handlers are `@CommandHandler` / `@QueryHandler` classes behind `CommandBus` / `QueryBus`. Controllers, the gRPC service, and the SQS consumer are transport only — they dispatch command/query objects, never contain domain logic. Cross-cutting workflow tracing/`app_event` logging is applied by wrapping each `@Workflow` handler's `execute` in `WorkflowInterceptor.onApplicationBootstrap` (**not** by Nest's `APP_INTERCEPTOR` pipeline on the bus — `@nestjs/cqrs` does not run it). See [[cqrs]].
 
 ## API / Endpoints
 
-All routes are versioned under `/v1` (see [[versioning]]). Source of truth: `services/users/src/features/users/http/routes.ts`, published contract: `services/users/openapi.yaml` (see [OpenAPI autogen](#openapi-autogen) below).
+All routes are versioned under `/v1` (see [[versioning]]). Source of truth: Nest controllers under `services/users/src/users/http/` and `services/users/src/notifications/http/`, published contract: `services/users/openapi.yaml` (see [OpenAPI autogen](#openapi-autogen) below).
 
 | Method | Path | Description |
 |---|---|---|
@@ -107,7 +118,7 @@ Authentication on `GET /v1/users/me`, `PATCH /v1/users/me`, and `DELETE /v1/user
 
 ## Error contract
 
-A global `app.setErrorHandler` in `routes.ts` maps typed auth-domain errors (`services/users/src/shared/auth/auth-errors.ts`, all extending `AuthError`) to their HTTP status and a stable `error` code in the body — everything else (Zod validation 400s, unexpected 500s) keeps Fastify's default handling:
+A global Nest `DomainExceptionFilter` (`APP_FILTER`) maps typed auth-domain errors (`services/users/src/shared/auth/auth-errors.ts`, all extending `AuthError`) to their HTTP status and a stable `error` code in the body. Zod validation failures are shaped by `ZodValidationPipe` to the same Fastify-compatible 400 body the E2E suite asserts (`FST_ERR_VALIDATION`). Unexpected errors remain 500s:
 
 | Error | Route | Status | `error` code |
 |---|---|---|---|
@@ -257,7 +268,7 @@ See [[2026-07-09-users-cognito-webhook-design]] for the full design.
 `POST /v1/users/otp/start`, `POST /v1/users/otp/verify`, and `POST
 /v1/users/register/passwordless` add one-time-code-by-email authentication as a second login
 path alongside password login, and as the only path for `PASSWORDLESS` users. All three routes
-are public (listed in `public-routes.ts` and in `openapi.yaml`, no JWT authorizer).
+are public (marked `@Public()` on the controller methods and documented in `openapi.yaml`, no JWT authorizer).
 
 `AuthProvider` gained two methods, implemented in `CognitoAuthProvider`:
 
@@ -389,10 +400,11 @@ credential twice and could name a **different** session than the one that authen
 request. The token must also carry the `aws.cognito.signin.user.admin` scope, which tokens
 minted by `AdminInitiateAuth` do.
 
-The route is deliberately **absent** from `shared/http/public-routes.ts`. That absence is
-what makes the `onRequest` hook `401 unauthenticated` a caller with no identity, and it is
-also why the route cannot simply be made public: that list strips the `Authorization`
-header, which is the one thing this route needs.
+The route is deliberately **not** marked `@Public()`. That absence is what makes the
+global `AuthGuard` answer `401 unauthenticated` for a caller with no identity, and it is
+also why the route cannot simply be made public: a `@Public()` path would skip the
+identity requirement that proves a session exists to revoke. The access token still comes
+from the `Authorization` header — see above.
 
 ### The idempotency contract — `204`, not `401`, for a dead session
 
@@ -413,8 +425,8 @@ without reaching Cognito.
 The access token is a credential and never reaches a log line or a span attribute — not raw,
 not truncated, not hashed, since a hash of a bearer credential is still a handle to it. This
 flow consequently carries **no identifying attribute of its own**; the caller's identity
-reaches the trace through the log context and the parent HTTP span. `SignOutCommand` is
-wrapped in `withWorkflowSpan("sign_out", …)` and emits
+reaches the trace through the log context and the parent HTTP span. `SignOutCommand` is a
+`@Workflow("sign_out")` handler and emits
 `sign_out_started`/`sign_out_succeeded`/`sign_out_failed` (`reason: "cognito_error"`), per
 [[logging-context]].
 
@@ -501,7 +513,7 @@ flow that is deliberately alert-worthy despite being swallowed.
 `GET /v1/users/me` is the only cached route in this service. Key `users:me:v1:{sub}:{user_id}`
 (both identity components — see [[2026-08-25-response-caching-layer-design#Cache keys and TTLs]]),
 5-minute TTL. `CACHE_ENABLED` (env, see [[env-files]]) is the kill switch: with it `false` the
-gateway registered in the Awilix cradle simply no-ops on every call, so nothing 500s and no
+`CacheGateway` registered in Nest simply no-ops on every call, so nothing 500s and no
 `X-Cache` header is ever emitted — the same "invisible, not a permanent BYPASS" contract every
 service follows.
 
@@ -512,26 +524,12 @@ over the network (gRPC/DB) before they can build a response key. Users needs no 
 the authenticated query already returns the row `GET /v1/users/me` serves, so there is nothing to
 cache in front of it.
 
-### `preHandler`/`onSend` — the service's first hook pair of this kind, and the `@fastify/otel` trap
+### `MeCacheInterceptor` — Nest port of the Fastify `preHandler`/`onSend` pair
 
-`registerMeCacheHooks` (`services/users/src/features/users/http/cache-hooks.ts`) adds a
-`preHandler` + `onSend` pair scoped to `GET /v1/users/me` only (checked by both method and route
-URL, so the `PATCH`s on the same path never see the hook). Before this, Users registered only two
-global hooks — `onRequest` and `onResponse` (`http/routes.ts`) — so this is the **first**
-`preHandler`/`onSend` pair in the service.
-
-That ordering is load-bearing, not incidental: **`@fastify/otel` nulls
-`request.opentelemetry().span` inside `onSend`**, which runs *before* `onResponse` — where the
-existing `getHttpServerSpan`/`withHttpServerSpan` helpers
-(`services/users/src/shared/observability/request-span.ts`) were written to restore the request's
-real HTTP-server span in exactly the hook that loses it. The `onSend` cache-write path therefore
-attaches its `cache.set` span via `withHttpServerSpan(req, …)` — **never** `trace.getActiveSpan()`,
-which resolves to the hook's own transient span (or nothing) at that point in the chain, per the
-helper's own header comment. Getting this wrong does not error; it silently drops the span from
-the waterfall, which is a harder failure to notice than a crash. `withHttpServerSpan` is not
-awaited on the `cache.set` call — `CacheGateway.set` swallows its own failures by contract, so
-holding the response open for a Redis round trip would hand back the latency the cache exists to
-remove.
+`MeCacheInterceptor` (`services/users/src/shared/cache/me-cache.interceptor.ts`) applies only to
+`GET /v1/users/me`. It preserves the HIT/MISS/BYPASS header contract and the load-bearing
+`@fastify/otel` span-restore path (`withHttpServerSpan`) that the Fastify `onSend` hook needed —
+Nest still runs on the Fastify adapter, so the same span-nulling timing applies.
 
 ### The cached value is the serialized body, not the entity
 
@@ -546,17 +544,16 @@ preserves key order, so the two responses are byte-identical.
 
 > [!warning] Corrected against the implementation, 2026-08-26
 > An earlier version of [[2026-08-25-response-caching-layer-design]] stated Users needs no
-> identity resolution to build its cache key. **The code contradicts that.**
-> `cache-hooks.ts:74-86` `await`s `currentUser.resolve()` **before** consulting the cache — on a
-> **hit** as well as a miss — because `currentActor` (the Awilix-resolved caller) is the raw
-> `x-user-id` header value, which may be a Cognito `sub` **or** a `usr_` id (see
-> `findByIdOrCognitoSub` under [Identity resolution](#identity-resolution)). The key needs the
-> *resolved* `row.id`, and `resolve()` is the only place that becomes known — so it must run
-> first, unconditionally. `resolve()` caches its own promise, so a MISS's subsequent handler call
-> reuses the same lookup rather than paying it twice. When the row cannot be found (a valid token
-> whose user no longer exists), there is no key to build and the request bypasses the cache
-> silently, falling through to the handler's own `404` — which is never cached, since only `200`s
-> populate the cache. Trust the code over the spec here.
+> identity resolution to build its cache key. **The code contradicts that.** The cache
+> interceptor `await`s `CurrentUser.resolve()` **before** consulting the cache — on a
+> **hit** as well as a miss — because the raw `x-user-id` header value may be a Cognito `sub`
+> **or** a `usr_` id (see `findByIdOrCognitoSub` under [Identity resolution](#identity-resolution)).
+> The key needs the *resolved* `row.id`, and `resolve()` is the only place that becomes known —
+> so it must run first, unconditionally. `resolve()` caches its own promise, so a MISS's
+> subsequent handler call reuses the same lookup rather than paying it twice. When the row
+> cannot be found (a valid token whose user no longer exists), there is no key to build and the
+> request bypasses the cache silently, falling through to the handler's own `404` — which is
+> never cached, since only `200`s populate the cache. Trust the code over the spec here.
 
 ### Invalidation
 
@@ -565,15 +562,14 @@ Every write that can change the cached body invalidates `users:me:v1:{sub}:{user
 
 | Call site | Why |
 |---|---|
-| `PATCH /v1/users/me` (`routes.ts`) | The profile itself changed. |
-| `PATCH /v1/users/me/password` (`routes.ts`) | Clears `mustChangePassword`, which is part of the cached `UserSchema` body — see [Password reset](#password-reset). |
+| `PATCH /v1/users/me` | The profile itself changed. |
+| `PATCH /v1/users/me/password` | Clears `mustChangePassword`, which is part of the cached `UserSchema` body — see [Password reset](#password-reset). |
 | `ConfirmPasswordResetCommand` | Same reason: clears `mustChangePassword` via the Redis-code flow. Invalidation is skipped when the user cannot be resolved — no sub, no cached entry. |
 | `DeleteAccountCommand` | Drops the deleted user's cached profile after the Postgres soft-delete; a failure here is logged and swallowed — the entry still expires on its own TTL, and a 500 for an otherwise-successful deletion would be strictly worse. |
 | `E2eCleanupCommand` | Sweeps the cached profile for every row the harness soft-deletes, keyed off the rows read **before** deletion (a row with no `cognitoSub` was never cached and is skipped). |
 
-Every call site guards on the gateway being resolvable at all (`resolveGateway`'s
-try/catch around the Awilix cradle lookup) — a container built with no `cacheGateway` registered
-(most of the unit-test suite) must turn a profile write into its normal `200`, not a `500` from an
+Every call site guards on the gateway being resolvable at all — a test module built with no
+`CacheGateway` registered must turn a profile write into its normal `200`, not a `500` from an
 unrelated resolution error.
 
 ## Events
@@ -634,18 +630,16 @@ out to **two** SQS queues — the existing `<id>-events` (unchanged, consumed by
 a new `<id>-notifications` (consumed here). See [[terraform-modules]] for the topology and
 [[events-pipeline-design]] for why the pipeline's own code needs zero changes.
 
-### The `sqs-consumer` — started in `server.ts`, never in `buildApp()`
+### The SQS consumer — started in `main.ts`, never on module init
 
-[sqs-consumer](https://www.npmjs.com/package/sqs-consumer) runs inside the Users process,
-sharing the Awilix container, Prisma client, and logger with the HTTP surface.
+[sqs-consumer](https://www.npmjs.com/package/sqs-consumer) runs inside the Users process as a
+plain Nest injectable, sharing Prisma, the logger, and DI providers with the HTTP surface.
 
-> [!warning] CONTRACT — start in `server.ts`, not `buildApp()`
-> `buildApp()` is also called by the test suite. A live SQS long-poll started there would open a
-> real connection — and **consume and delete real messages** — on every Vitest run, outside any
-> test's control. This is the same contract `server.ts` already carries for the
-> `BusinessMetricsPoller` (see [Metrics](#metrics) below): the consumer is constructed in the
-> Awilix container but only **started** in `server.ts`, and stopped on `SIGTERM` beside the
-> poller.
+> [!warning] CONTRACT — start in `main.ts`, not `onModuleInit` / testing-module compile
+> `Test.createTestingModule()` compiles feature modules. A live SQS long-poll started on
+> module init would open a real connection — and **consume and delete real messages** — on
+> every Vitest run. The consumer is constructed as a provider but only **started** from
+> `main.ts` after Nest boots, and stopped on `SIGTERM` beside the `BusinessMetricsPoller`.
 
 Consumer behaviour:
 
@@ -739,14 +733,22 @@ request (`POST /v1/users/password/forgot`).** `POST /v1/users/password/forgot` a
 (see [Password reset](#password-reset)) — so counting at the request step would count resets that
 never actually happened, for emails that don't even belong to an account.
 
-**The `BusinessMetricsPoller` is started in `server.ts`, never in `buildApp()`.** `buildApp()` is
-also called by the test suite; a live periodic timer started there would hit the database from
-outside any test's control on every test run. `server.ts` runs only for the real process, so the
-poller only ever ticks there.
+**The `BusinessMetricsPoller` is started in `main.ts`, never on module init.** Compiling a
+testing module must not start a live periodic timer against the database. `main.ts` runs only
+for the real process, so the poller only ever ticks there.
 
 ## OpenAPI autogen
 
-`services/users/openapi.yaml` is **generated**, not hand-maintained: it is built from the Fastify route Zod schemas (`http/schemas.ts`) via `@fastify/swagger` + `fastify-type-provider-zod`, running `pnpm generate:openapi`. It is the artifact imported into Apidog (see `docs/infrastructure/runbooks/mcp-servers.md`). Any route or schema change requires regenerating and committing `openapi.yaml` in the same change. See [[2026-07-10-users-openapi-autogen-design]] for the generator design (including orphan-component pruning for the `*Input` schema variants).
+`services/users/openapi.yaml` is **generated**, not hand-maintained: it is built from the Zod
+route schemas via Nest's document builder + Zod's native `z.toJSONSchema` (entrypoint
+`src/shared/openapi/generate-openapi.ts`), running `pnpm generate:openapi`.
+`zod-to-json-schema` returns `{}` for Zod v4 schemas — do not reintroduce it; see
+[[openapi-specs]]. The acceptance criterion is a **diff against the committed `openapi.yaml`**
+(named `$refs`, zero orphans), not merely "the generator builds". It is the artifact imported
+into Apidog (see `docs/infrastructure/runbooks/mcp-servers.md`). Any route or schema change
+requires regenerating and committing `openapi.yaml` in the same change. See
+[[2026-07-10-users-openapi-autogen-design]] for the original generator design (orphan-component
+pruning for the `*Input` schema variants still applies).
 
 ## gRPC Methods
 
@@ -755,6 +757,10 @@ poller only ever ticks there.
 | `GetUserById` | `{ id: string }` | `User` object, including `address` (typed `Address` message — see below) |
 
 Used by Orders and Tracking services for inter-service lookups (see [[ADR-0003-grpc-inter-service]]).
+Served by `@nestjs/microservices` (`Transport.GRPC`). grpc-js interceptors (api-key + tracing)
+must live on **`channelOptions`** — Nest's `GrpcOptions` silently drops a nested `server.interceptors`
+array (see [[2026-09-19-nest-grpc-interceptors-silently-dropped]]). The JE-77
+`onReceiveHalfClose` activation for W3C context still applies ([[grpc-context-activate-at-dispatch]]).
 
 ## Change impact — editing `proto/users.proto`
 
@@ -763,7 +769,7 @@ Used by Orders and Tracking services for inter-service lookups (see [[ADR-0003-g
 
 | Consumer | File | Mechanism |
 |---|---|---|
-| Users | `services/users/src/shared/grpc/server.ts` | Loads the proto at **runtime** via `@grpc/proto-loader` — no regeneration step |
+| Users | Nest gRPC microservice options + `@GrpcMethod` controller | Loads the proto at **runtime** via `@grpc/proto-loader` — no regeneration step |
 | Orders | `services/orders/src/Orders.Infrastructure/Orders.Infrastructure.csproj` | Compiles the proto at **build time** |
 | Tracking | `services/tracking-go/internal/adapter/grpcusers/gen/` | **Committed generated stubs**, produced by `buf generate` (`services/tracking-go/buf.gen.yaml`) — must be regenerated by hand |
 | events-pipeline | `functions/events-pipeline/src/handlers/order-created.ts` | Calls the Users gRPC surface |
@@ -835,7 +841,7 @@ column is schema-free `Json?`.
 | snake_case DB ↔ PascalCase app | [[db-naming]] |
 | CQRS pattern | [[cqrs]] |
 | API versioning | [[versioning]] |
-| Dependency injection (Awilix) | [[dependency-injection]] |
+| Dependency injection (Nest providers) | [[dependency-injection]] |
 | Authentication & authorization | [[ADR-0010-cognito-auth]] |
 | Local identity header injection | [[ADR-0017-floci-local]] |
 | Structured logging context (trace/actor fields, no raw email) | [[logging-context]] |
@@ -855,19 +861,20 @@ masked email, never a plaintext one — and traces export to the backend decided
 and traces since Jaeger's removal, see the ADR's 2026-08-21 Amendment), configured entirely
 through environment variables, not code.
 
-**`request_id` is seeded at the Fastify `onRequest` hook, before the auth guard.** This is
-deliberate ordering, not incidental: the guard short-circuits a `401` with `return` rather than
-`done()`, so seeding after it would leave the `401`s — the requests people actually investigate —
-with no `request_id` at all. Full design: [[2026-08-15-request-id-correlation-design]].
+**`request_id` is seeded in `RequestContextMiddleware` via `logContext.enterWith`, before the
+auth guard.** This is deliberate ordering, not incidental: the guard short-circuits a `401`,
+so seeding after it would leave the `401`s — the requests people actually investigate — with
+no `request_id` at all. Full design: [[2026-08-15-request-id-correlation-design]].
 
-**7 auth flows carry a manual `withWorkflowSpan`-wrapped `INTERNAL` span:** `register`
-(both password and passwordless, distinguished by an `auth_type` attribute), `login`,
-`change_password`, `otp_challenge`, `otp_verify`, `password_reset_requested`,
-`password_reset_confirm`. Each span carries the same `app_event`/`reason` attributes as its flow
-log line and closes in a `finally`, mirroring the existing `withGrpcServerSpan` shape
-(`src/shared/grpc/api-key-interceptor.ts`). **Prisma now has spans too** —
-`@prisma/instrumentation` is registered before `sdk.start()`, closing the one gap where Users'
-own DB previously never appeared in the trace cascade. A verified real trace for
+**Workflow spans are owned by `WorkflowInterceptor`**, registered as an `APP_INTERCEPTOR` in
+`app.module.ts` so Nest instantiates it and its `onApplicationBootstrap` wrap of every
+`@Workflow` handler's `execute` actually runs. `@nestjs/cqrs` does not run the Nest interceptor
+pipeline on the bus — omitting that registration means **no** workflow spans and
+`RoutineFailure` reaching controllers unwrapped (a 404 becoming a 500). See
+[[2026-09-19-test-local-app-interceptor-hides-composition-root-omission]]. Auth flows still
+carry the same `app_event`/`reason` attributes and the routine-vs-thrown distinction (routine
+failures keep span status `OK`; only thrown errors set `ERROR`). **Prisma has spans too** —
+`@prisma/instrumentation` is registered before `sdk.start()`. A verified real trace for
 `POST /v1/users/register` (54 spans total) shows the resulting depth:
 ```
 POST — 209.4ms
@@ -885,7 +892,7 @@ parent-child relationship — see [[2026-08-18-distributed-tracing-spans-design#
 implementation: [[2026-08-18-distributed-tracing-spans-design]] /
 [[2026-08-18-distributed-tracing-spans]].
 
-**`delete_account` is an 8th `withWorkflowSpan`-wrapped flow, shipped 2026-08-26.** `app_event`
+**`delete_account` is an additional `@Workflow` flow, shipped 2026-08-26.** `app_event`
 values: `delete_account_started`, `delete_account_succeeded`, `delete_account_failed` (`reason`
 ∈ `not_found`, `missing_cognito_sub`, `cascade_failed_orders`, `cascade_failed_tracking`), plus
 `delete_account_cognito_orphan` — a **swallowed but alert-worthy** failure: `AdminDeleteUser`
@@ -903,18 +910,25 @@ convention/pattern notes in `shared/`) live in `docs/domains/users/decisions/`:
 
 | Decision | Note |
 |---|---|
-| Login/register error mapping (401/409 via typed domain errors + global `setErrorHandler`) | [[auth-error-mapping]] |
+| Login/register error mapping (401/409 via typed domain errors + `DomainExceptionFilter`) | [[auth-error-mapping]] |
 | Authenticated identity resolution (`findByIdOrCognitoSub`) | [[authenticated-identity-resolution]] |
 | `app_user_id` token claim via Pre-Token-Generation Lambda | [[app-user-id-token-claim]] |
 | Refresh token endpoint (`POST /v1/users/refresh`) | [[refresh-token-endpoint]] |
 | Cognito identity webhook (shared capture use case, two entry paths) | [[cognito-identity-webhook]] |
-| OpenAPI spec generated from routes (`@fastify/swagger` + Zod) | [[openapi-autogen]] |
+| OpenAPI spec generated from Zod schemas (`z.toJSONSchema` + Nest document builder) | [[openapi-autogen]], [[openapi-specs]] |
 | Passwordless OTP auth: `AuthType` enum, service-side login guard, 401-not-403 | [[passwordless-auth-type]] |
 | Password reset codes in Redis, not Postgres; `mustChangePassword` stays in Postgres | [[self-owned-password-reset-codes-in-redis]] |
 | Open gap: web-app password checklist stricter than the enforced Cognito policy | [[password-policy-checklist-gap]] |
 
 ## Related
 
+- [[2026-09-19-users-nestjs-migration-design]] — NestJS 12 + `@nestjs/cqrs` migration that
+  replaced Fastify + Awilix; decisions propagated into this note.
+- [[2026-09-19-users-nestjs-migration]] — implementation plan (DI-1/DI-2, OpenAPI, interceptor pipeline).
+- [[2026-09-19-esbuild-drops-decorator-metadata]] — SWC required for Nest type-based DI.
+- [[2026-09-19-nest-grpc-interceptors-silently-dropped]] — gRPC interceptors must be on `channelOptions`.
+- [[2026-09-19-test-local-app-interceptor-hides-composition-root-omission]] — composition-root
+  registration of `WorkflowInterceptor` is a separate claim from handler-module tests.
 - [[2026-09-10-in-app-notifications-design]] — full design for the `notifications` table, the
   three `/v1/notifications` endpoints, the in-process `sqs-consumer`, and the WebSocket push
   documented above.
@@ -922,7 +936,7 @@ convention/pattern notes in `shared/`) live in `docs/domains/users/decisions/`:
   `CascadeClient`, `AuthProvider.deleteUser`, the partial-unique-index email change, and the
   four-layer empty-identity guards.
 - [[2026-08-15-request-id-correlation-design]] — the cross-service `request_id` correlation
-  field: Users seeds it at the Fastify `onRequest` hook, before the auth guard.
+  field: Users seeds it in `RequestContextMiddleware` before the auth guard.
 - [[soft-delete]]
 - [[nano-id]]
 - [[audit-fields]]
@@ -984,8 +998,8 @@ convention/pattern notes in `shared/`) live in `docs/domains/users/decisions/`:
   the enforced Cognito policy.
 - [[redis-elasticache-replication-group-floci]] — the infra module provisioning the Redis instance
   this flow depends on.
-- [[2026-08-12-custom-business-metrics-cloudwatch-design]] — the design for the three CloudWatch
-  metrics Users publishes and the `BusinessMetricsPoller`'s start-in-`server.ts` constraint.
+- [[2026-08-12-custom-business-metrics-cloudwatch-design]] — the design for the CloudWatch
+  metrics Users publishes and the `BusinessMetricsPoller`'s start-in-`main.ts` constraint.
 - [[2026-08-25-response-caching-layer-design]] — the cross-service response-caching design:
   Users' one cached route (`GET /v1/users/me`), why it has no identity-mapping cache, and the
   50ms fail-open budget every service shares.

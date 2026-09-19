@@ -4,9 +4,15 @@ type: pattern
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-07-12
+updated: 2026-09-19
 tags: [type/pattern, area/shared, status/active, area/users]
-related: ["[[cqrs]]"]
+related:
+  - "[[cqrs]]"
+  - "[[2026-09-18-cqrs-dispatch-tracking-orders-design]]"
+  - "[[2026-09-19-users-nestjs-migration-design]]"
+  - "[[users-service-design]]"
+  - "[[2026-09-19-esbuild-drops-decorator-metadata]]"
+  - "[[audit-fields]]"
 ---
 
 # Dependency injection
@@ -21,18 +27,60 @@ All services use dependency injection (DI) to wire their components together. Co
 - The same approach wires the [[cqrs]] command/query/event handlers across every service.
 - This keeps use-cases (see [[screaming-architecture]]) decoupled from concrete infrastructure, making them easy to test and swap.
 
-## How the Users service applies it (Awilix)
+## How the Users service applies it (NestJS)
 
-The Users service ([issue JE-39](https://linear.app/issue/JE-39)) implements the DI pattern above with **`@fastify/awilix`** (built on `awilix`), replacing an earlier hand-rolled container — free functions plus an `AppDeps` bag typed with `unknown`.
+As of the 2026-09-19 NestJS migration ([[2026-09-19-users-nestjs-migration-design]]), Users
+uses **Nest providers** — not Awilix. The Fastify + Awilix cradle is deleted.
 
-- **Registration primitives.** Collaborators are registered with `asClass`, `asValue`, or `asFunction`. `Lifetime.SINGLETON` is used for infrastructure-level collaborators shared across the app — the Cognito client, `AuthProvider`, `EventPublisher`, `env`, and a **single** Prisma `db` client (`asValue(db)`). There are no separate `writer`/`reader` cradle entries: `db` is one Prisma client built by composing `.$extends(crossCuttingExtension).$extends(readReplicas({replicas:[...]}))` (`shared/db/prisma.ts`) — the `readReplicas` extension routes reads vs. writes internally, so the DI cradle only ever exposes the one composed client. `Lifetime.SCOPED` is used for use-cases (the [[cqrs]] commands and queries — `registerUserCommand`, `loginUserCommand`, `refreshTokenCommand`, `updateProfileCommand`, `userQueryService`, `e2eCleanupCommand`, `e2eIdentityQuery`, `captureCognitoIdentityCommand`), so each request gets its own instances.
-- **Two registration points.** App-scoped registration happens once against the global `diContainer` (`registerSingletons()` followed by `registerServices()`). Per-request registration happens via `request.diScope.register(...)` inside an `onRequest` hook — used for `currentActor`, the acting identity taken from the `x-user-id` header set by the API Gateway authorizer, used for identity **resolution** (`GET`/`PATCH /v1/users/me`). Audit stamping is a separate mechanism: it reads a semantic `AuditActor` enum value (e.g. `users_api:register`) from `AsyncLocalStorage` (`shared/audit/actor-context.ts` + `shared/audit/audit-actor.ts`), not from `currentActor` — the Prisma client is a process-wide singleton outside any per-request Awilix scope, so its query extension cannot reach into `request.diScope`. See [[audit-fields]] for the full stamping mechanism.
-- **Resolution in handlers.** Fastify route handlers resolve their dependencies from `request.diScope.cradle` instead of receiving an explicit `deps` bag. The old `AppDeps`-with-`unknown` interface and the `as any` casts in the wiring code are gone.
-- **Type safety.** A module augmentation declares the shape of the container: `declare module "@fastify/awilix" { interface Cradle {...}; interface RequestCradle {...} }`, so `cradle` and `diScope.cradle` resolve to fully-typed collaborators instead of `unknown`.
-- **Test pattern.** Each test builds an isolated Awilix container (`createContainer({ injectionMode: "PROXY" })`) and registers mocks with `asValue`, then passes that container into `buildApp(container)` — instead of mocking a plain `deps` object. This means tests never touch the global `diContainer`.
+- **Registration.** Feature and shared modules declare `providers` / `exports`. Infrastructure
+  collaborators (`PrismaService`, Cognito `AuthProvider`, `EventPublisher`, Redis, metrics,
+  cache) live in `@Global()` shared modules so feature modules need no import line to reach
+  them. Command/query handlers are Nest providers registered beside their module (discovered
+  by `@nestjs/cqrs` via `@CommandHandler` / `@QueryHandler`).
+- **Injection style.** Prefer **type-based** constructor injection for concrete classes
+  (`constructor(private readonly prisma: PrismaService)`). Use `@Inject(TOKEN)` **only** where
+  the type is an interface or type alias with no runtime class — today `Db`, `AuthProvider`,
+  `EventPublisher`, and Redis client tokens in `shared/tokens.ts` (or the owning module).
+- **Value import required.** An injected class must be a **value** import. `import type { Foo }`
+  erases the token at runtime; Nest fails at **bootstrap**, not at compile time, with an
+  unresolved-dependency error.
+- **Decorator metadata toolchain.** Nest type-based DI needs `design:paramtypes`. esbuild
+  (tsx, default Vitest) does not emit it; `tsc` with `emitDecoratorMetadata` does. Dev and
+  Vitest therefore run through SWC (`.swcrc` with `decoratorMetadata: true`) —
+  `unplugin-swc` for Vitest, `@swc-node/register` for `pnpm dev` / OpenAPI generation. Canary:
+  `tests/di-metadata.test.ts`. See [[2026-09-19-esbuild-drops-decorator-metadata]].
+- **Config.** `@nestjs/config` validates the same Zod env schema (`src/config/env.schema.ts`)
+  the old `env.ts` held; inject `AppConfigService` / `ConfigService` instead of importing a
+  module-level frozen object.
+- **Request identity & audit.** HTTP identity still arrives as `x-user-id`. Per-request actor
+  and log-context stores are seeded by `RequestContextMiddleware` (AsyncLocalStorage). Audit
+  stamping still reads a semantic `AuditActor` from ALS (`shared/audit/actor-context.ts`), not
+  from the Nest request scope — the Prisma client is process-wide. See [[audit-fields]].
+- **Auth.** A global `AuthGuard` (`APP_GUARD`) plus `@Public()` replaces the hand-maintained
+  public-routes allowlist. A guard sees the matched handler; middleware saw only the raw URL.
+- **Test pattern.** Each suite builds `Test.createTestingModule()` with the real
+  `CqrsModule` and overrides providers with doubles. Dispatch through `CommandBus` /
+  `QueryBus` — never `handler.execute()` directly (see [[cqrs]] / [[testing]]).
+
+## Registration strategy per stack — auto vs. manual
+
+How handlers get registered into their DI container/bus varies deliberately by language:
+
+- **Node (Users / NestJS)** — `@CommandHandler` / `@QueryHandler` metadata + Nest module
+  providers; `@nestjs/cqrs` resolves handlers via `ModuleRef`.
+- **.NET (Orders)** — Wolverine's convention-based discovery, free and automatic, per
+  [[2026-09-18-cqrs-dispatch-tracking-orders-design]] D5.
+- **Go (Tracking)** — manual wiring in `cmd/server/main.go` — type-safe dynamic registration
+  is not possible in Go without `map[reflect.Type]any` and the assertions that follow, so full
+  type safety is bought with the accepted cost of a wiring line per handler.
 
 ## Related
 
-- [[cqrs]] — the handlers wired through DI.
+- [[cqrs]] — the handlers wired through DI; Users' bus-wrapping interceptor pipeline.
 - [[screaming-architecture]] — DI connects use-case folders to infrastructure at the edges.
-- [[audit-fields]] — the `AuditActor`/`AsyncLocalStorage` mechanism that stamps writes, distinct from `currentActor`.
+- [[audit-fields]] — the `AuditActor`/`AsyncLocalStorage` mechanism that stamps writes.
+- [[users-service-design]] — current Users stack after the Nest migration.
+- [[2026-09-19-users-nestjs-migration-design]] — Awilix → Nest providers migration.
+- [[2026-09-19-esbuild-drops-decorator-metadata]] — SWC required for type-based DI.
+- [[2026-09-18-cqrs-dispatch-tracking-orders-design]] — the per-stack auto/manual registration
+  decision (D5) for Tracking (Go) and Orders (.NET).

@@ -43,6 +43,7 @@ import (
 	cache "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/redis"
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/sqs"
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/app"
+	"github.com/jemartinez/3mrai/services/tracking-go/internal/outbox"
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/platform/config"
 )
 
@@ -190,9 +191,21 @@ func run() error {
 	// middleware, ticker, gateway or use case. Off means the dependency is never
 	// constructed: a nil interface for the middleware, the noop for the cache
 	// gateway, no ticker goroutine at all. See [[logging-context]]
+	// CONTRACT: Wrap ONCE here so no consumer gets the blocking publisher. The
+	// middleware and the cache gateway publish on the request goroutine, and Floci
+	// serializes PutMetricData: wired synchronously, a read answered in ~490ms.
+	//
+	// CONTRACT: ctx, the process-lifetime context — never a request's, which is
+	// cancelled when its response is written. See [[logging-context]]
 	var cwPublisher cloudwatch.Publisher
+	var metricsFlusher *cloudwatch.AsyncPublisher
 	if cfg.MetricsEnabled {
-		cwPublisher = cloudwatch.NewPublisher(awscw.NewFromConfig(awsCfg, cwOptions...))
+		metricsFlusher = cloudwatch.NewAsyncPublisher(
+			ctx,
+			cloudwatch.NewPublisher(awscw.NewFromConfig(awsCfg, cwOptions...)),
+			cloudwatch.AsyncOptions{Log: logger},
+		)
+		cwPublisher = metricsFlusher
 	}
 
 	// ── The cache gateway ────────────────────────────────────────────────────
@@ -242,6 +255,9 @@ func run() error {
 	// every route and emits nothing; publishing to "" would fail once per
 	// transition forever on a best-effort path. It resolves the user itself
 	// because the pipeline's handler requires an email Tracking never persists.
+
+	// A sqs.FailablePublisher: the router takes the void form off it, the outbox
+	// bridge the error-returning one.
 	publisher := sqs.NewNoopPublisher()
 	switch {
 	case cfg.EventsTopicARN == "":
@@ -301,6 +317,27 @@ func run() error {
 			logger)
 	}
 
+	// ── The transactional outbox ─────────────────────────────────────────────
+	//
+	// CONTRACT: The outbox and the INLINE publisher are mutually exclusive. Both
+	// wired publishes every transition twice and the customer gets two emails, so
+	// the inline publisher is nil below. The WRITER pool: the claim locks rows and
+	// the cycle deletes. See [[cqrs]]
+	outboxWriter := adaptermysql.NewOutboxWriter(writerDB)
+
+	// It runs IN-PROCESS in every task rather than as a separate binary, so every
+	// instance polls — which is why the claim uses FOR UPDATE SKIP LOCKED.
+	//
+	// CONTRACT: ctx, the PROCESS LIFETIME context — never a request's. Cancellation
+	// is this loop's NORMAL exit, so an inherited request context stops the poller
+	// SILENTLY while transitions keep recording messages nothing drains.
+	// See [[cqrs]]
+	outboxPollerDone := outbox.NewPoller(
+		writerDB,
+		notify.NewOutboxSNSPublisher(publisher),
+		outbox.Options{Log: logger},
+	).Start(ctx)
+
 	// ── TestMode progression ─────────────────────────────────────────────────
 	//
 	// CONTRACT: Pass ctx, the PROCESS LIFETIME context — never a request's.
@@ -312,13 +349,16 @@ func run() error {
 	// CONTRACT: Do NOT add a durable scheduler — a restart mid-run loses the
 	// goroutine and the tracking stays frozen, and that is accepted.
 	// See [[testmode-in-process-no-durable-scheduler]]
-	progressionStatuses := adaptermysql.NewStatusRepository(writerDB)
+	progressionStatuses := adaptermysql.NewStatusRepository(writerDB,
+		adaptermysql.WithOutbox(outboxWriter))
 	progression := app.NewProgression(
 		ctx,
 		progressionStatuses,
 		app.NewUpdateStatus(
 			progressionStatuses,
-			notify.NewStatusEventPublisher(publisher),
+			// Nil, because the outbox above publishes this transition. The two
+			// paths must never both be wired.
+			nil,
 			notify.NewTrackingCacheInvalidator(gateway, logger),
 			// The SAME invalidator the carrier path uses. A TestMode transition
 			// makes Orders' cached body stale in exactly the same way, so the
@@ -350,6 +390,9 @@ func run() error {
 		// non-nil. Left as the zero interface when there is no client.
 		Users:     userResolverOrNil(userResolver),
 		Publisher: publisher,
+		// CONTRACT: Set this and the router leaves the INLINE publisher nil. Both
+		// wired means two publishes per transition and two customer emails.
+		Outbox: outboxWriter,
 		// The cross-service sweep, on the carrier webhook's write path.
 		OrderCacheInvalidator: orderCacheInvalidator,
 		// The real TestMode progression, constructed above on the PROCESS
@@ -393,6 +436,31 @@ func run() error {
 		}
 	})
 
+	// flushMetrics drains the buffered data and joins the flusher.
+	//
+	// CONTRACT: Call it AFTER stopTicker and srv.Shutdown — both publish, and a
+	// publish arriving after the queue closes panics on a send to a closed
+	// channel. Close bounds its own drain. See [[logging-context]]
+	flushMetrics := sync.OnceFunc(func() {
+		if metricsFlusher == nil {
+			return
+		}
+		metricsFlusher.Close()
+	})
+
+	// stopOutboxPoller joins the poller's goroutine, so the process does not exit
+	// mid-cycle with a claim transaction open — rows locked by a dead connection
+	// stay locked until InnoDB rolls it back, and every other task's poller skips
+	// them meanwhile. ctx's cancellation is what ends the loop; this only joins it.
+	stopOutboxPoller := sync.OnceFunc(func() {
+		select {
+		case <-outboxPollerDone:
+		case <-time.After(shutdownGracePeriod):
+			logger.Warn("outbox_poller_shutdown_timeout",
+				slog.String("app_event", "outbox_poller_shutdown_timeout"))
+		}
+	})
+
 	// drainProgressions joins every in-flight TestMode run and logs if the budget
 	// runs out. It takes a FRESH context: ctx is already cancelled here, so
 	// passing it makes Wait report an incomplete drain every time regardless.
@@ -406,7 +474,9 @@ func run() error {
 	case err := <-serverErr:
 		stop()
 		stopTicker()
+		stopOutboxPoller()
 		drainProgressions()
+		flushMetrics()
 		return err
 
 	case <-ctx.Done():
@@ -420,11 +490,15 @@ func run() error {
 
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			stopTicker()
+			stopOutboxPoller()
 			drainProgressions()
+			flushMetrics()
 			return err
 		}
 		stopTicker()
+		stopOutboxPoller()
 		drainProgressions()
+		flushMetrics()
 		logger.Info("http server stopped cleanly",
 			slog.String("app_event", "http_server_stopped"))
 		return nil

@@ -56,6 +56,9 @@ type PutMetricDataAPI interface {
 // Publisher emits one metric datum. Publish NEVER returns an error — that is
 // part of the contract, not an implementation detail, and every caller relies on
 // it.
+//
+// Whether Publish blocks is the IMPLEMENTATION's business: the CloudWatch-backed
+// one does, AsyncPublisher does not.
 type Publisher interface {
 	Publish(ctx context.Context, name string, value float64, dimensions [][2]string)
 }
@@ -66,6 +69,11 @@ type publisher struct {
 }
 
 // NewPublisher builds a CloudWatch-backed publisher (Floci locally).
+//
+// CONTRACT: Its Publish BLOCKS for the round-trip and Floci serializes them, so
+// wrap it in NewAsyncPublisher rather than handing it to a handler: called on the
+// request path, a read answered in ~490ms with its own duration_ms at 0.
+// See [[logging-context]]
 func NewPublisher(client PutMetricDataAPI) Publisher {
 	return &publisher{client: client, log: slog.Default()}
 }

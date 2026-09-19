@@ -206,18 +206,13 @@ services:
     develop:
       watch:
         # Users runs the compiled production build (runtime stage → node
-        # dist/server.js), NOT `tsx watch`, so a source sync would copy the .ts
+        # dist/main.js), NOT a watch process, so a source sync would copy the .ts
         # files but the process keeps running the old dist/. `rebuild` reconstructs
         # the image on a source change so the new code actually runs. Requires
         # `docker compose watch` to be active.
         - action: rebuild
           path: ./services/users/src
 
-  # Orders service (.NET Core 10 Minimal API, Clean Architecture + EF Core/MySQL).
-  # Build context is the REPO ROOT so the shared gRPC contract (proto/users.proto)
-  # is inside the build context — Grpc.Tools generates the Users client from it.
-  # Reachable as `orders` on 3mrai-network; resolves caller identity by calling
-  # the Users gRPC server at users:50051 (guarded by the shared x-api-key).
   orders:
     build:
       context: .

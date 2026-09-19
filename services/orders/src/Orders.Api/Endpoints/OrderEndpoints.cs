@@ -1,9 +1,11 @@
 using Orders.Api.Caching;
 using Orders.Api.Identity;
+using Orders.Application.Messaging;
 using Orders.Application.Orders;
 using Orders.Application.Tracking;
 using Orders.Infrastructure.Caching;
 using Orders.Infrastructure.Orders;
+using Wolverine;
 
 namespace Orders.Api.Endpoints;
 
@@ -23,15 +25,19 @@ public static class OrderEndpoints
             .Produces(StatusCodes.Status404NotFound)
             .Produces(StatusCodes.Status409Conflict);
 
+        // CONTRACT: Dispatch through the bus, never by resolving the handler and calling it.
+        // The span, the app_event and the flow log come from the pipeline wrapped around the
+        // handler, so a direct call runs the same query UNINSTRUMENTED. See [[cqrs]]
         group.MapGet("/my-orders", async (
             ICurrentCaller caller,
-            OrderReadService reads,
+            IMessageBus bus,
             ITrackingReader trackingReader,
             bool includeTracking = false,
             CancellationToken ct = default) =>
         {
             // x-user-id absence already 401'd by CallerContextMiddleware.
-            var orders = await reads.GetMyOrdersAsync(caller.CognitoSub!);
+            var orders = (await bus.InvokeAsync<GetMyOrdersResult>(
+                new GetMyOrders(caller.CognitoSub!), ct)).Orders;
 
             // Default false keeps this response byte-identical to what every existing
             // caller already receives — no tracking key, no extra round trip.

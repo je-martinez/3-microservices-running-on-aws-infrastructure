@@ -4,9 +4,9 @@ type: pattern
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-09-18
+updated: 2026-09-19
 tags: [type/pattern, area/shared, status/active]
-related: ["[[dependency-injection]]", "[[screaming-architecture]]", "[[orders-service-design]]", "[[clean-architecture-divergence]]"]
+related: ["[[dependency-injection]]", "[[screaming-architecture]]", "[[orders-service-design]]", "[[clean-architecture-divergence]]", "[[2026-09-18-cqrs-dispatch-tracking-orders-design]]", "[[2026-09-19-users-nestjs-migration-design]]", "[[users-service-design]]", "[[2026-09-19-test-local-app-interceptor-hides-composition-root-omission]]", "[[testing]]", "[[2026-09-19-the-outbox-went-to-the-service-easiest-to-fix-not-the-one-that-loses-the-most]]"]
 ---
 
 # CQRS
@@ -62,11 +62,39 @@ review.
 - The events pipeline applies the same shape: a `TYPE => TypeHandler` mapping dispatches each event type to its handler.
 - Handlers are wired through [[dependency-injection]] and live as first-class use-cases under our [[screaming-architecture]] folder layout. In services with a Clean-Architecture project split (see [[clean-architecture-divergence]]), a "handler" is the dedicated service class in the Infrastructure/use-case layer (e.g. `OrderReadService`, `CreateOrderService`) — the project name differs from the screaming-architecture default, but the endpoint-stays-thin rule is identical.
 
+## Dispatch — per service
+
+- **Users (NestJS)** — shipped. Handlers are `@CommandHandler` / `@QueryHandler` classes
+  behind `@nestjs/cqrs`'s `CommandBus` / `QueryBus`. Controllers, gRPC, and the SQS consumer
+  dispatch command/query objects only. See [[users-service-design]] and
+  [[2026-09-19-users-nestjs-migration-design]].
+
+  **CONTRACT — `@nestjs/cqrs` does NOT run `APP_INTERCEPTOR`.** Nest's enhancer pipeline wraps
+  HTTP/RPC controller methods, not bus dispatch. Cross-cutting workflow tracing /
+  `app_event` logging therefore happens by wrapping each `@Workflow` handler's `execute` inside
+  `WorkflowInterceptor.onApplicationBootstrap`. That makes `bus.execute()` the **real**
+  pipeline: tests must dispatch through the bus, never call `handler.execute()` directly, or
+  they miss the interceptor entirely. The interceptor class must also be registered as a
+  provider in `app.module.ts` — a lifecycle hook only fires if Nest instantiates the class
+  (see [[2026-09-19-test-local-app-interceptor-hides-composition-root-omission]]).
+
+- **Tracking (Go) and Orders (.NET)** — [[2026-09-18-cqrs-dispatch-tracking-orders-design]]: a
+  hand-rolled generic bus for Tracking (`internal/bus/`) and Wolverine 6.39.0 for Orders, both
+  behind a uniform `tracing -> app_event -> logging -> validation -> handler` pipeline, plus a
+  per-service transactional outbox. (Users' earlier hand-rolled Node bus plan is superseded by
+  the Nest migration above.)
+
 ## Related
 
 - [[dependency-injection]] — how command/query/event handlers get their collaborators wired.
 - [[screaming-architecture]] — handlers surface as use-case folders in the structure.
 - [[versioning]] — versioned APIs front these handlers.
 - [[orders-service-design]] — Orders' internal endpoints as the concrete example this rule was tightened for.
+- [[users-service-design]] — Users' NestJS `@nestjs/cqrs` application of this pattern.
 - [[clean-architecture-divergence]] — where "handler" lives when a service uses class-library projects instead of screaming-architecture folders.
 - [[2026-09-18-cqrs-rule-lived-only-in-the-vault-not-in-the-file-agents-read-first]] — the propagation failure that let this violation happen despite the rule already existing here.
+- [[2026-09-18-cqrs-dispatch-tracking-orders-design]] — planned bus + outbox design for Tracking and Orders.
+- [[2026-09-19-users-nestjs-migration-design]] — Users' `@nestjs/cqrs` migration.
+- [[2026-09-19-test-local-app-interceptor-hides-composition-root-omission]] — composition-root registration vs test-local `APP_INTERCEPTOR`.
+- [[testing]] — bus-dispatch tests and mutation-testing of span/`reason`/`app_event` assertions.
+- [[2026-09-19-the-outbox-went-to-the-service-easiest-to-fix-not-the-one-that-loses-the-most]] — why Tracking got the outbox first and why that order was wrong by impact; also records that `oagudo/outbox`'s `Reader` takes no row lock (the poller's `FOR UPDATE SKIP LOCKED` claim is ours) and that InnoDB's scan-level locking makes the poller's composite index load-bearing.

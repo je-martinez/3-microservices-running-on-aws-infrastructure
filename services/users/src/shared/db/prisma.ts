@@ -1,9 +1,11 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { readReplicas } from "@prisma/extension-read-replicas";
 import { PrismaClient } from "../../generated/prisma/client.ts";
-import { env } from "../config/env.ts";
+import { envSchema, type Env } from "#config/env.schema";
 import { crossCuttingExtension } from "./prisma-extensions.ts";
 import { attachSqlLogging } from "./sql-logging.ts";
+
+type PrismaConfig = Pick<Env, "DATABASE_WRITER_URL" | "DATABASE_READER_URL">;
 
 // CONTRACT: Apply `readReplicas` LAST, outermost. Extensions compose onion-style, and
 // only as the outer layer can it route every call — including the ones our own query
@@ -11,9 +13,9 @@ import { attachSqlLogging } from "./sql-logging.ts";
 // rewritten call like soft-delete's `delete` -> `update` bypasses routing entirely.
 // Reads go to the replica, writes to the primary; `$primary()` forces the primary for
 // read-your-writes.
-function buildPrismaClient() {
-  const writerAdapter = new PrismaPg({ connectionString: env.DATABASE_WRITER_URL });
-  const readerAdapter = new PrismaPg({ connectionString: env.DATABASE_READER_URL });
+export function createPrismaClient(config: PrismaConfig) {
+  const writerAdapter = new PrismaPg({ connectionString: config.DATABASE_WRITER_URL });
+  const readerAdapter = new PrismaPg({ connectionString: config.DATABASE_READER_URL });
 
   // `emit: "event"` is what makes `$on("query", …)` fire at all — the default,
   // `emit: "stdout"`, would have Prisma print the statement ITSELF, unstructured
@@ -38,6 +40,15 @@ function buildPrismaClient() {
     .$extends(readReplicas({ replicas: [replicaClient] }));
 }
 
-export type Db = ReturnType<typeof buildPrismaClient>;
+export type Db = ReturnType<typeof createPrismaClient>;
 
-export const db: Db = buildPrismaClient();
+// CONTRACT: Build the client LAZILY, and import this bridge nowhere new.
+// Parsing the environment at module-eval time kills the process on import,
+// before Nest can report which variable is missing. PrismaModule provides the
+// real client; this disappears once every consumer resolves DB from it.
+let lazyDb: Db | undefined;
+
+export function getDb(): Db {
+  lazyDb ??= createPrismaClient(envSchema.parse(process.env));
+  return lazyDb;
+}

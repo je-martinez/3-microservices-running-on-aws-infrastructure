@@ -4,9 +4,10 @@ type: spec
 area: orders
 status: accepted
 created: 2026-06-26
-updated: 2026-09-18
+updated: 2026-09-19
 tags: [type/spec, area/orders, status/accepted]
 related:
+  - "[[2026-09-18-cqrs-dispatch-tracking-orders-design]]"
   - "[[2026-08-25-response-caching-layer-design]]"
   - "[[x-cache-response-header]]"
   - "[[2026-08-25-account-deletion-design]]"
@@ -817,6 +818,11 @@ This service follows all shared conventions defined once in the vault:
   identity-mapping cache (`CachedUserDirectory`), and the `NoopCacheInvalidator` kill-switch
   binding. See [Response caching](#response-caching) above. Header contract:
   [[x-cache-response-header]].
+- [[2026-09-18-cqrs-dispatch-tracking-orders-design]] — planned CQRS dispatch design for this
+  service (Wolverine 6.39.0, migrated endpoint-by-endpoint via `WolverineFx.Http`, plus
+  Wolverine's durable outbox for `CreateOrderService.cs`'s `ORDER_CREATED` publish). Not yet
+  implemented — see the headline transactional-middleware risk it records against
+  `CartWriteService.cs`'s `BeginTransactionAsync` calls and the `ForUpdateInterceptor`.
 
 Additional ADRs and service-local decisions:
 
@@ -931,3 +937,6 @@ Full milestone design: [[2026-07-14-orders-service-milestone-design]].
 - [[2026-09-18-cqrs-rule-lived-only-in-the-vault-not-in-the-file-agents-read-first]] — a
   CQRS-violation review finding on an Orders internal endpoint (endpoint delegate querying
   the DbContext directly); the code fix is tracked separately, this documents the rule gap.
+- [[2026-09-18-cqrs-dispatch-tracking-orders-design]] — planned CQRS command/query bus
+  (Wolverine) and transactional outbox design for this service, migrated endpoint-by-endpoint;
+  not yet implemented. See [Cross-cutting rules](#cross-cutting-rules) above.

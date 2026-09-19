@@ -4,9 +4,10 @@ type: spec
 area: tracking
 status: accepted
 created: 2026-06-26
-updated: 2026-09-18
+updated: 2026-09-19
 tags: [type/spec, area/tracking, status/accepted]
 related:
+  - "[[2026-09-18-cqrs-dispatch-tracking-orders-design]]"
   - "[[2026-08-25-response-caching-layer-design]]"
   - "[[x-cache-response-header]]"
   - "[[2026-08-25-account-deletion-design]]"
@@ -1151,6 +1152,7 @@ every already-persisted tracking, not only for code going forward.
 | Structured logging context, incl. `request_id` | [[logging-context]] |
 | Distributed tracing backend | [[ADR-0019-distributed-tracing-opentelemetry]] |
 | Response caching (`X-Cache` header contract, `CACHE_ENABLED` kill switch) | [[2026-08-25-response-caching-layer-design]], [[x-cache-response-header]] |
+| CQRS dispatch (planned — bus + behavior pipeline + transactional outbox, not yet built) | [[2026-09-18-cqrs-dispatch-tracking-orders-design]] |
 
 ## Observability — workflow spans
 
@@ -1279,6 +1281,12 @@ the same way. See [gRPC — outbound client to Users](#grpc--outbound-client-to-
 
 ## Related
 
+- [[2026-09-18-cqrs-dispatch-tracking-orders-design]] — planned CQRS dispatch design for this
+  service: a hand-rolled generic `Handler[Q,R]`/`Middleware[Q,R]`/`Wrap` bus in `internal/bus/`
+  moving `tracing.WorkflowSpan(...)` out of `internal/adapter/http/handler_reads.go` and into a
+  behavior, plus a per-service transactional outbox (`oagudo/outbox`) for
+  `internal/app/update_status.go`'s SNS publish. Not yet implemented — this pointer will be
+  promoted into the sections above once it ships.
 - [[2026-08-27-tracking-go-migration-design]] — design for the completed port of this service
   from Python/FastAPI to Go/Gin (faithful layer-by-layer port, coexisting `services/tracking-go/`
   during the migration, wave-based agent team, and the four-part closing gate — three of four

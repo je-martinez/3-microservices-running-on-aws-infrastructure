@@ -43,7 +43,7 @@ const sdk = new NodeSDK({
     // it every server span is named after the bare method ("POST"), because
     // instrumentation-http names the span before Fastify has matched a route; this
     // plugin writes the route back so the span becomes "POST /v1/users/register".
-    // Registering from server.ts instead only works if it beats every route
+    // Registering from main.ts instead only works if it beats every route
     // definition, which forfeits this file's load-order guarantee.
     // See [[logging-context]]
     new FastifyOtelInstrumentation({ registerOnInitialization: true }),

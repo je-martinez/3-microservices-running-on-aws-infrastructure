@@ -6,14 +6,14 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.12" />
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.17.0" />
     <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.17.0" />
     <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.17.0" />
     <PackageReference Include="OpenTelemetry.Instrumentation.AWS" Version="1.17.0" />
     <PackageReference Include="OpenTelemetry.Instrumentation.EntityFrameworkCore" Version="1.17.0-beta.1" />
     <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.17.0" />
-    <PackageReference Include="Pomelo.EntityFrameworkCore.MySql" Version="9.0.0" />
+    <PackageReference Include="Microting.EntityFrameworkCore.MySql" Version="10.0.12" />
     <!-- OpenAPI 3.1 document generation. AddOpenApi/MapOpenApi come from
          Microsoft.AspNetCore.OpenApi (aligned to the ASP.NET Core 10 runtime).
          Microsoft.Extensions.ApiDescription.Server emits the document at BUILD
@@ -28,6 +28,14 @@
     <PackageReference Include="Serilog.AspNetCore" Version="8.0.3" />
     <PackageReference Include="Serilog.Formatting.Compact" Version="3.0.0" />
     <PackageReference Include="StackExchange.Redis" Version="2.8.24" />
+    <!-- CQRS dispatch bus. CONTRACT: WolverineFx.RuntimeCompilation is REQUIRED alongside
+         WolverineFx — core 6.39 no longer ships the Roslyn compiler, and without it the host
+         throws at STARTUP ("running in TypeLoadMode.Dynamic ... but no IAssemblyGenerator
+         (Roslyn) is registered"). The alternative is pre-generating via Wolverine's
+         `codegen write` command plus TypeLoadMode.Static, which this service does not do.
+         See [[cqrs]] -->
+    <PackageReference Include="WolverineFx" Version="6.39.0" />
+    <PackageReference Include="WolverineFx.RuntimeCompilation" Version="6.39.0" />
   </ItemGroup>
 
   <PropertyGroup>
