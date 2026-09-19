@@ -2,7 +2,6 @@ package http
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -11,11 +10,10 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	tracing "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/otel"
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/app"
+	"github.com/jemartinez/3mrai/services/tracking-go/internal/bus"
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/domain"
 )
 
@@ -73,17 +71,25 @@ type initTrackingRequest struct {
 }
 
 // InitTrackingHandler serves POST /v1/trackings/init-tracking.
+//
+// CONTRACT: create is a PRE-WRAPPED bus handler, and this handler opens no span
+// and logs no flow event of its own. The workflow span names a business
+// operation, which belongs to the use case and not to the transport in front of
+// it. See [[cqrs]]
 type InitTrackingHandler struct {
-	uc     *app.CreateTracking
+	create bus.Handler[app.CreateTrackingCommand, domain.TrackingWithHistory]
 	hook   ProgressionHook
 	log    *slog.Logger
-	tracer trace.Tracer
 }
 
-// NewInitTrackingHandler wires the handler. A nil hook becomes the no-op, so a
-// caller that has not reached Wave 2.5 cannot nil-panic on a TestMode request.
+// NewInitTrackingHandler wires the use case behind its bus pipeline. A nil hook
+// becomes the no-op, so a TestMode request cannot nil-panic.
+//
+// The tracer parameter is retained and IGNORED — the pipeline resolves its own, so
+// no argument is left that can arrive empty and silently drop the workflow span.
+// See [[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]]
 func NewInitTrackingHandler(
-	uc *app.CreateTracking, hook ProgressionHook, log *slog.Logger, tracer trace.Tracer,
+	uc *app.CreateTracking, hook ProgressionHook, log *slog.Logger, _ trace.Tracer,
 ) *InitTrackingHandler {
 	if hook == nil {
 		hook = NoopProgression{}
@@ -91,16 +97,7 @@ func NewInitTrackingHandler(
 	if log == nil {
 		log = slog.Default()
 	}
-	if tracer == nil {
-		// A nil tracer silently disables this handler's workflow span, and the
-		// span is how a trace says WHICH business operation ran -- the server
-		// span from otelgin only says a request arrived. That is exactly how the
-		// four workflow spans went missing in production while their unit tests,
-		// which inject a tracer, stayed green. Defaulting here means forgetting
-		// the argument costs nothing, matching how log and hook already behave.
-		tracer = tracing.Tracer(tracing.TracerWorkflow)
-	}
-	return &InitTrackingHandler{uc: uc, hook: hook, log: log, tracer: tracer}
+	return &InitTrackingHandler{create: WrapCreateTracking(uc, log), hook: hook, log: log}
 }
 
 // RegisterInitTracking mounts POST /v1/trackings/init-tracking beside its
@@ -133,18 +130,7 @@ func (h *InitTrackingHandler) Handle(c *gin.Context) {
 		return
 	}
 
-	ctx := c.Request.Context()
-	var span trace.Span
-	if h.tracer != nil {
-		ctx, span = h.tracer.Start(ctx, "init_tracking")
-		defer span.End()
-		span.SetAttributes(
-			attribute.String("app_event", "init_tracking_started"),
-			attribute.String("order_id", payload.OrderID),
-		)
-	}
-
-	created, err := h.uc.Execute(ctx, app.CreateTrackingInput{
+	created, err := h.create(c.Request.Context(), app.CreateTrackingCommand{
 		OrderID:     payload.OrderID,
 		OrderNumber: payload.OrderNumber,
 		CognitoSub:  cognitoSub,
@@ -154,13 +140,12 @@ func (h *InitTrackingHandler) Handle(c *gin.Context) {
 		// evaluates both, so this handler cannot tag a row on the header alone.
 		E2ESource: IsE2ESource(c),
 		E2ERunTag: E2ERunTag(E2ERunID(c)),
+		TestMode:  IsTestMode(c),
 	})
 	switch {
 	case errors.Is(err, app.ErrUnknownUser):
 		// Authenticated, but Users has no record. A 404, not a 401: the same valid
 		// token will produce the same missing record forever.
-		setSpanReason(span, reasonUnknownUser)
-		h.logFailure(ctx, payload.OrderID, reasonUnknownUser, cognitoSub)
 		c.JSON(nethttp.StatusNotFound, NestedError{Detail: NestedErrorBody{
 			Detail: err.Error(), Reason: reasonUnknownUser,
 		}})
@@ -169,8 +154,6 @@ func (h *InitTrackingHandler) Handle(c *gin.Context) {
 		// Either the pre-check found one or the unique index rejected a racing
 		// INSERT. The SAME answer for both is what keeps a lost race a 409 rather
 		// than a 500, so a retry can never duplicate a shipment.
-		setSpanReason(span, reasonAlreadyExists)
-		h.logFailure(ctx, payload.OrderID, reasonAlreadyExists, cognitoSub)
 		c.JSON(nethttp.StatusConflict, NestedError{Detail: NestedErrorBody{
 			Detail: err.Error(), Reason: reasonAlreadyExists,
 		}})
@@ -178,33 +161,10 @@ func (h *InitTrackingHandler) Handle(c *gin.Context) {
 	case err != nil:
 		// Every remaining case, a Users outage included, is a 500. Deliberately
 		// NOT folded into the 404 above: an outage must never read as "this user
-		// does not exist".
-		setSpanReason(span, reasonInternalError)
-		h.log.ErrorContext(ctx, "init_tracking_failed",
-			slog.String("app_event", "init_tracking_failed"),
-			slog.String("reason", reasonInternalError),
-			slog.String("order_id", payload.OrderID),
-			slog.String("error", err.Error()))
-		// The body says nothing about the cause: the detail above is for operators.
+		// does not exist". The pipeline already logged it with reason and error.
 		c.JSON(nethttp.StatusInternalServerError, FlatError{Detail: "internal server error"})
 		return
 	}
-
-	if span != nil {
-		span.SetAttributes(
-			attribute.String("app_event", "init_tracking_succeeded"),
-			attribute.String("tracking_id", created.Tracking.ID),
-			attribute.String("user_id", created.Tracking.UserID),
-			attribute.Bool("test_mode", IsTestMode(c)),
-		)
-	}
-	h.log.InfoContext(ctx, "init_tracking_succeeded",
-		slog.String("app_event", "init_tracking_succeeded"),
-		slog.String("order_id", payload.OrderID),
-		slog.String("tracking_id", created.Tracking.ID),
-		slog.String("user_id", created.Tracking.UserID),
-		slog.String("cognito_sub", cognitoSub),
-		slog.Bool("test_mode", IsTestMode(c)))
 
 	// The response is written — and the transaction was committed by the adapter
 	// before Execute returned — BEFORE the hook is invoked. The returned value is
@@ -280,27 +240,4 @@ func unknownField(err error) (string, bool) {
 		return "", false
 	}
 	return strings.Trim(msg[i+len(prefix):], `"`), true
-}
-
-// setSpanReason keeps the span's `reason` and the *_failed line's `reason` the
-// same token, set side by side, because they drift the moment one is updated
-// alone.
-func setSpanReason(span trace.Span, reason string) {
-	if span == nil {
-		return
-	}
-	span.SetAttributes(attribute.String("reason", reason))
-}
-
-// logFailure emits the *_failed event with its machine-readable reason.
-//
-// No user_id: on both failure paths it is unresolvable or irrelevant, and the
-// convention OMITS unknown fields rather than logging null. The shipping address
-// is never logged.
-func (h *InitTrackingHandler) logFailure(ctx context.Context, orderID, reason, cognitoSub string) {
-	h.log.WarnContext(ctx, "init_tracking_failed",
-		slog.String("app_event", "init_tracking_failed"),
-		slog.String("reason", reason),
-		slog.String("order_id", orderID),
-		slog.String("cognito_sub", cognitoSub))
 }

@@ -38,6 +38,7 @@
          one of them at runtime and the other project silently binds to an
          assembly it was not compiled against. -->
     <PackageReference Include="StackExchange.Redis" Version="2.8.24" />
+    <PackageReference Include="WolverineFx" Version="6.39.0" />
   </ItemGroup>
 
   <!-- Generate the Users gRPC stubs from the shared repo-root proto. Namespace

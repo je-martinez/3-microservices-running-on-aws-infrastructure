@@ -22,7 +22,9 @@ related:
   - "[[testing]]"
   - "[[cqrs]]"
   - "[[2026-09-18-cqrs-dispatch-tracking-orders-design]]"
+  - "[[2026-09-18-cqrs-dispatch-tracking-orders]]"
   - "[[2026-09-19-users-nestjs-migration-design]]"
+  - "[[2026-09-19-users-nestjs-migration]]"
   - "[[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]]"
   - "[[doc-propagation]]"
 ---
@@ -36,10 +38,10 @@ phases, and the blocking dependency graph. The detailed designs live in
 
 This is a **milestone plan**, not a task-by-task implementation plan — it sequences three
 independent **workstreams** and names their dependencies and stop points; it does not restate the
-specs' content. Per-workstream implementation plans (with TDD steps, task-level tables, and
-per-issue dependency graphs, matching the granularity of e.g.
-[[2026-07-14-orders-service-milestone]] or [[2026-08-27-tracking-go-migration]]) get written later,
-one per workstream, via `writing-plans`, when that workstream starts.
+specs' content. The task-by-task implementation plans live separately, and both now exist:
+[[2026-09-18-cqrs-dispatch-tracking-orders]] covers the Tracking and Orders workstreams (Phase 1,
+the review stop point, Phase 2's outbox and poller, and the Wolverine+MySQL spike gate), and
+[[2026-09-19-users-nestjs-migration]] covers Users.
 
 > [!info] Standalone handoff
 > This note is written for a session that has not seen the conversation that produced it. Every
@@ -305,7 +307,10 @@ for user review.
   three times natively.
 - [[2026-09-18-cqrs-dispatch-tracking-orders-design]] — full design for the Tracking (Go) and
   Orders (.NET/Wolverine) workstreams.
+- [[2026-09-18-cqrs-dispatch-tracking-orders]] — the task-by-task implementation plan for those two
+  workstreams.
 - [[2026-09-19-users-nestjs-migration-design]] — full design for the Users (NestJS) workstream.
+- [[2026-09-19-users-nestjs-migration]] — the task-by-task implementation plan for Users.
 - [[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]] — the lesson behind treating the
   Orders concurrent-PUT retry as its own reviewed task.
 - [[doc-propagation]] — the propagation routing table this milestone's decisions must land in at

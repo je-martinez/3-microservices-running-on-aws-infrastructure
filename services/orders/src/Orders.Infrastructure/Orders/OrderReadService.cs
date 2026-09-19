@@ -40,6 +40,25 @@ public class OrderReadService
         return order is null ? null : Map(order);
     }
 
+    /// <summary>
+    /// The caller's orders, with no instrumentation of its own.
+    /// </summary>
+    /// <remarks>
+    /// CONTRACT: Emit nothing here — the bus pipeline owns the <c>list_my_orders</c> span and
+    /// its flow log for callers that arrive through <c>GetMyOrders</c>, and a span opened here
+    /// too would nest a duplicate inside every one of them. See [[logging-context]]
+    /// </remarks>
+    public async Task<IReadOnlyList<OrderDto>> ListForCallerAsync(
+        string callerSub, CancellationToken ct = default)
+    {
+        var orders = await _db.Orders.AsNoTracking()
+            .Include(o => o.Details)
+            .Where(o => o.CognitoSub == callerSub)
+            .ToListAsync(ct);
+
+        return orders.Select(Map).ToList();
+    }
+
     // CONTRACT: No http.method/route tags — the AspNetCore span above and the EF Core spans
     // below already carry those; this adds only the flow's business name and its count. No
     // caller identity either: it is PII-adjacent and already on every log line.
@@ -50,12 +69,8 @@ public class OrderReadService
             new Dictionary<string, object?>(),
             async () =>
             {
-                var orders = await _db.Orders.AsNoTracking()
-                    .Include(o => o.Details)
-                    .Where(o => o.CognitoSub == callerSub)
-                    .ToListAsync();
+                var dtos = await ListForCallerAsync(callerSub);
 
-                var dtos = orders.Select(Map).ToList();
                 // WHY: Set from inside, so it reflects what was actually returned.
                 _tracer.SetAttribute("order_count", dtos.Count);
 
@@ -68,7 +83,7 @@ public class OrderReadService
                 _logger.LogInformation(
                     "Listed the caller's orders {app_event} {order_count}",
                     "list_my_orders_succeeded", dtos.Count);
-                return (IReadOnlyList<OrderDto>)dtos;
+                return dtos;
             });
 
     // CONTRACT: Keep this in sync with CreateOrderService's own mapping — that one maps the

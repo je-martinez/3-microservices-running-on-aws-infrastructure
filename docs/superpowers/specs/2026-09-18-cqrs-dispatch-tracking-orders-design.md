@@ -12,6 +12,8 @@ propagates-to:
   - "[[orders-service-design]]"
   - "[[tracking-service-design]]"
 related:
+  - "[[2026-09-18-cqrs-dispatch-tracking-orders]]"
+  - "[[cqrs-dispatch-all-services-milestone]]"
   - "[[cqrs]]"
   - "[[dependency-injection]]"
   - "[[screaming-architecture]]"
@@ -671,6 +673,8 @@ The behavior pipeline (D4) must reproduce current semantics exactly, not approxi
 
 ## Related
 
+- [[2026-09-18-cqrs-dispatch-tracking-orders]] — the task-by-task implementation plan executing this spec.
+- [[cqrs-dispatch-all-services-milestone]] — the milestone-level map this spec's two workstreams sit in.
 - [[cqrs]]
 - [[ADR-0002-cqrs]]
 - [[dependency-injection]]

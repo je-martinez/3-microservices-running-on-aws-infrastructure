@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Orders.Application.Messaging;
 using Orders.Infrastructure.Caching;
 using Orders.Infrastructure.Observability;
 using Orders.Infrastructure.Persistence;
@@ -37,6 +38,31 @@ public class InvalidateOrderCacheService
     }
 
     /// <summary>
+    /// Sweeps the owner's cached order responses, with no instrumentation of its own.
+    /// </summary>
+    /// <remarks>
+    /// CONTRACT: Emit nothing here — the bus pipeline owns this flow's span and both its log
+    /// lines for callers arriving through <c>InvalidateOrderCache</c>. The "not found" answer
+    /// leaves by RETURN, never by throwing: it is what the route maps to 404, and a throw
+    /// would mark the span ERROR for a normal outcome. See [[logging-context]]
+    /// </remarks>
+    public async Task<InvalidateOrderCacheResult> SweepAsync(
+        string orderId, CancellationToken ct = default)
+    {
+        var owner = await OwnerOfAsync(orderId, ct);
+        if (owner is null)
+        {
+            return InvalidateOrderCacheResult.NotFound();
+        }
+
+        // FAIL-OPEN, like every other invalidation site: a Redis fault leaves the entries to
+        // expire by TTL and must not turn this into a 500 the caller retries forever.
+        await _cache.InvalidateOrderTrackingAsync(owner.CognitoSub, owner.UserId, ct);
+
+        return InvalidateOrderCacheResult.Swept(owner.CognitoSub, owner.UserId);
+    }
+
+    /// <summary>
     /// Sweeps the owner's cached order responses. Returns false when no order carries
     /// <paramref name="orderId"/>, which the API maps to 404.
     /// </summary>
@@ -50,18 +76,7 @@ public class InvalidateOrderCacheService
             },
             async () =>
             {
-                // CONTRACT: Resolve the owner from the ORDER ROW, never from the request. An
-                // owner the caller supplied could be wrong, sweeping a stranger's keys and
-                // leaving the stale entry in place.
-                var owner = await _db.Orders
-                    // CONTRACT: A soft-deleted order's cached entries outlive its row by
-                    // their full TTL, so the global filter would 404 exactly the order
-                    // someone just watched disappear. See [[soft-delete]]
-                    .IgnoreQueryFilters()
-                    .AsNoTracking()
-                    .Where(o => o.Id == orderId)
-                    .Select(o => new { o.CognitoSub, o.UserId })
-                    .FirstOrDefaultAsync(ct);
+                var owner = await OwnerOfAsync(orderId, ct);
 
                 if (owner is null)
                 {
@@ -91,4 +106,23 @@ public class InvalidateOrderCacheService
 
                 return true;
             });
+
+    /// <summary>The order's owner, or null when no row carries that id.</summary>
+    /// <remarks>
+    /// CONTRACT: Resolve the owner from the ORDER ROW, never from the request. An owner the
+    /// caller supplied could be wrong, sweeping a stranger's keys and leaving the stale entry
+    /// in place.
+    /// CONTRACT: Keep <c>IgnoreQueryFilters</c>. A soft-deleted order's cached entries outlive
+    /// its row by their full TTL, so the global filter would 404 exactly the order someone just
+    /// watched disappear. See [[soft-delete]]
+    /// </remarks>
+    private Task<OrderOwner?> OwnerOfAsync(string orderId, CancellationToken ct) =>
+        _db.Orders
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(o => o.Id == orderId)
+            .Select(o => new OrderOwner(o.CognitoSub, o.UserId))
+            .FirstOrDefaultAsync(ct);
+
+    private sealed record OrderOwner(string CognitoSub, string UserId);
 }

@@ -28,6 +28,14 @@
     <PackageReference Include="Serilog.AspNetCore" Version="8.0.3" />
     <PackageReference Include="Serilog.Formatting.Compact" Version="3.0.0" />
     <PackageReference Include="StackExchange.Redis" Version="2.8.24" />
+    <!-- CQRS dispatch bus. CONTRACT: WolverineFx.RuntimeCompilation is REQUIRED alongside
+         WolverineFx — core 6.39 no longer ships the Roslyn compiler, and without it the host
+         throws at STARTUP ("running in TypeLoadMode.Dynamic ... but no IAssemblyGenerator
+         (Roslyn) is registered"). The alternative is pre-generating via Wolverine's
+         `codegen write` command plus TypeLoadMode.Static, which this service does not do.
+         See [[cqrs]] -->
+    <PackageReference Include="WolverineFx" Version="6.39.0" />
+    <PackageReference Include="WolverineFx.RuntimeCompilation" Version="6.39.0" />
   </ItemGroup>
 
   <PropertyGroup>

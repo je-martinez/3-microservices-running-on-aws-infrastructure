@@ -3,15 +3,14 @@ package http
 import (
 	"encoding/json"
 	"errors"
-	tracing "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/otel"
 	"log/slog"
 	nethttp "net/http"
 
 	"github.com/gin-gonic/gin"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/app"
+	"github.com/jemartinez/3mrai/services/tracking-go/internal/bus"
 )
 
 // reasonDBError names a database fault while stamping the rows.
@@ -20,6 +19,13 @@ import (
 // rather than which driver raised — the exception text carries that, and only on
 // the log line and the span, never in the body.
 const reasonDBError = "db_error"
+
+// reasonEmptyIdentity names an identity that arrived empty.
+//
+// Distinct from reasonDBError so the 422 and the 500 are separable in the logs.
+// The decode-time checks reject empties first, so this token on a line means the
+// two guards disagreed about the contract.
+const reasonEmptyIdentity = "empty_identity"
 
 // internalDeleteRequest is the body of DELETE /v1/trackings/by-user — a DELETE
 // with a required body, because the caller is Users' account-deletion cascade
@@ -44,26 +50,20 @@ type internalDeleteRequest struct {
 // Accepting a vendor's credential on a mass soft-delete lets it erase a user's
 // delivery history. See [[two-api-keys-two-trust-domains]]
 type InternalDeleteHandler struct {
-	uc     *app.DeleteByUser
+	remove bus.Handler[app.DeleteByUserCommand, int64]
 	log    *slog.Logger
-	tracer trace.Tracer
 }
 
-// NewInternalDeleteHandler wires the handler.
-func NewInternalDeleteHandler(uc *app.DeleteByUser, log *slog.Logger, tracer trace.Tracer) *InternalDeleteHandler {
+// NewInternalDeleteHandler wires the use case behind its bus pipeline.
+//
+// The tracer parameter is retained and IGNORED: the pipeline resolves its tracer
+// from the provider the composition root installed, so no argument is left that can
+// arrive empty.
+func NewInternalDeleteHandler(uc *app.DeleteByUser, log *slog.Logger, _ trace.Tracer) *InternalDeleteHandler {
 	if log == nil {
 		log = slog.Default()
 	}
-	if tracer == nil {
-		// A nil tracer silently disables this handler's workflow span, and the
-		// span is how a trace says WHICH business operation ran -- the server
-		// span from otelgin only says a request arrived. That is exactly how the
-		// four workflow spans went missing in production while their unit tests,
-		// which inject a tracer, stayed green. Defaulting here means forgetting
-		// the argument costs nothing, matching how log and hook already behave.
-		tracer = tracing.Tracer(tracing.TracerWorkflow)
-	}
-	return &InternalDeleteHandler{uc: uc, log: log, tracer: tracer}
+	return &InternalDeleteHandler{remove: WrapDeleteByUser(uc, log), log: log}
 }
 
 // RegisterInternalDelete mounts DELETE /v1/trackings/by-user BEHIND the internal
@@ -96,24 +96,9 @@ func (h *InternalDeleteHandler) Handle(c *gin.Context) {
 
 	cognitoSub, userID := *payload.CognitoSub, *payload.UserID
 
-	ctx := c.Request.Context()
-	var span trace.Span
-	if h.tracer != nil {
-		ctx, span = h.tracer.Start(ctx, "internal_delete_by_user")
-		defer span.End()
-		span.SetAttributes(
-			attribute.String("app_event", "internal_delete_by_user_started"),
-			attribute.String("cognito_sub", cognitoSub),
-			attribute.String("user_id", userID),
-		)
-	}
-
-	h.log.InfoContext(ctx, "internal_delete_by_user_started",
-		slog.String("app_event", "internal_delete_by_user_started"),
-		slog.String("cognito_sub", cognitoSub),
-		slog.String("user_id", userID))
-
-	deleted, err := h.uc.Execute(ctx, cognitoSub, userID)
+	deleted, err := h.remove(c.Request.Context(), app.DeleteByUserCommand{
+		CognitoSub: cognitoSub, UserID: userID,
+	})
 	switch {
 	case errors.Is(err, app.ErrEmptyIdentity):
 		// The field checks above already rejected empties, so reaching this is a
@@ -126,33 +111,15 @@ func (h *InternalDeleteHandler) Handle(c *gin.Context) {
 			"string_too_short"))
 		return
 	case err != nil:
-		// CONTRACT: Keep this branch. Users calls both cascade legs before
-		// touching the account, so a 500 here leaves the account alive with
-		// Orders already swept; without the branch that 500 carries no
-		// *_failed, no reason and no span attribute. The status is unchanged —
-		// the error is reported, not translated. See [[logging-context]]
-		setSpanReason(span, reasonDBError)
-		h.log.ErrorContext(ctx, "internal_delete_by_user_failed",
-			slog.String("app_event", "internal_delete_by_user_failed"),
-			slog.String("reason", reasonDBError),
-			slog.String("cognito_sub", cognitoSub),
-			slog.String("user_id", userID),
-			slog.String("error", err.Error()))
+		// CONTRACT: Keep the *_started line and the *_failed line on this flow (both
+		// are the pipeline's, selected by DeleteByUserFlow). Users calls every
+		// cascade leg before touching the account, so a 500 here leaves the account
+		// alive with Orders already swept, and those two lines are what show how far
+		// the cascade got. The status is unchanged — the error is reported, not
+		// translated. See [[logging-context]]
 		c.JSON(nethttp.StatusInternalServerError, FlatError{Detail: "internal server error"})
 		return
 	}
-
-	if span != nil {
-		span.SetAttributes(
-			attribute.String("app_event", "internal_delete_by_user_succeeded"),
-			attribute.Int64("deleted_count", deleted),
-		)
-	}
-	h.log.InfoContext(ctx, "internal_delete_by_user_succeeded",
-		slog.String("app_event", "internal_delete_by_user_succeeded"),
-		slog.String("cognito_sub", cognitoSub),
-		slog.String("user_id", userID),
-		slog.Int64("deleted_count", deleted))
 
 	c.JSON(nethttp.StatusOK, DeletedResponse{Deleted: deleted})
 }

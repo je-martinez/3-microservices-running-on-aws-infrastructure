@@ -9,11 +9,10 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"go.opentelemetry.io/otel/attribute"
 
-	tracing "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/otel"
 	cache "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/redis"
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/app"
+	"github.com/jemartinez/3mrai/services/tracking-go/internal/bus"
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/domain"
 )
 
@@ -47,10 +46,16 @@ const CacheTTLHeader = "X-Cache-TTL"
 // ReadsHandler serves the two user-scoped reads. It holds the cache gateway and
 // the enabled flag separately: the gateway decides what happens, the flag
 // decides whether an X-Cache header is stamped at all.
-// See [[x-cache-response-header]]
+//
+// CONTRACT: The two use-case fields are PRE-WRAPPED bus handlers, and this
+// handler adds no tracing, no app_event and no flow logging of its own. Those are
+// the pipeline's, because a workflow span names a business operation — a property
+// of the use case, not of the transport in front of it. What stays here is what is
+// genuinely HTTP: the header, the query string, the cache and the status code.
+// See [[cqrs]]
 type ReadsHandler struct {
-	get   *app.GetMyTracking
-	list  *app.ListMyTrackings
+	get   bus.Handler[app.GetMyTrackingQuery, domain.TrackingWithHistory]
+	list  bus.Handler[app.ListMyTrackingsQuery, []domain.TrackingWithHistory]
 	cache cache.Gateway
 	// cacheEnabled mirrors CACHE_ENABLED. See the type doc for why it is not
 	// inferred from the gateway.
@@ -58,7 +63,12 @@ type ReadsHandler struct {
 	log          *slog.Logger
 }
 
-// NewReadsHandler wires the two use cases and the cache.
+// NewReadsHandler wires the two use cases behind their bus pipelines, plus the
+// cache.
+//
+// CONTRACT: Take the use cases, not the wrapped functions. An unwrapped read
+// serves correct JSON with no span and no *_failed line at all.
+// See [[cqrs]]
 func NewReadsHandler(
 	get *app.GetMyTracking,
 	list *app.ListMyTrackings,
@@ -72,7 +82,13 @@ func NewReadsHandler(
 	if gateway == nil {
 		gateway = cache.NewNullGateway()
 	}
-	return &ReadsHandler{get: get, list: list, cache: gateway, cacheEnabled: cacheEnabled, log: log}
+	return &ReadsHandler{
+		get:          WrapGetMyTracking(get, log),
+		list:         WrapListMyTrackings(list, log),
+		cache:        gateway,
+		cacheEnabled: cacheEnabled,
+		log:          log,
+	}
 }
 
 // RegisterReads mounts both routes, batch literal before the wildcard.
@@ -109,50 +125,28 @@ func (h *ReadsHandler) GetOne(c *gin.Context) {
 		return
 	}
 
-	ctx, end := tracing.WorkflowSpan(c.Request.Context(), "get_tracking",
-		attribute.String("order_id", orderID))
-	var flowErr error
-	defer func() { end(flowErr) }()
-
 	// cognitoSub, NEVER ResolvedUserID(c). The internal usr_ id would compare a
 	// usr_ id against a column holding a sub and match nothing, answering 404
 	// for every caller including the rightful owner.
-	found, err := h.get.Execute(ctx, orderID, cognitoSub)
+	//
+	// The span, the app_event and the *_failed line are the pipeline's; what is
+	// left here is the status code, which is the one thing only HTTP knows.
+	found, err := h.get(c.Request.Context(), app.GetMyTrackingQuery{
+		OrderID: orderID, CognitoSub: cognitoSub,
+	})
 	switch {
 	case errors.Is(err, domain.ErrTrackingNotFound):
 		// 404, NEVER 403. A 403 would confirm that a tracking exists for this
 		// order id and turn the endpoint into an oracle for other people's order
 		// ids. "Not yours" and "not there" are one answer here, and the response
 		// is byte-identical for both.
-		flowErr = err
-		tracing.SetSpanAttributes(ctx,
-			attribute.String("app_event", "get_tracking_failed"),
-			attribute.String("reason", reasonTrackingNotFound))
-		h.log.WarnContext(ctx, "get_tracking_failed",
-			slog.String("app_event", "get_tracking_failed"),
-			slog.String("reason", reasonTrackingNotFound),
-			slog.String("order_id", orderID))
 		c.JSON(nethttp.StatusNotFound, FlatError{Detail: "tracking not found"})
 		return
 	case err != nil:
-		flowErr = err
-		tracing.SetSpanAttributes(ctx,
-			attribute.String("app_event", "get_tracking_failed"),
-			attribute.String("reason", reasonReadFailed))
-		h.log.ErrorContext(ctx, "get_tracking_failed",
-			slog.String("app_event", "get_tracking_failed"),
-			slog.String("reason", reasonReadFailed),
-			slog.String("order_id", orderID),
-			slog.String("error", err.Error()))
 		c.JSON(nethttp.StatusInternalServerError, FlatError{Detail: "internal server error"})
 		return
 	}
 
-	// No *_succeeded line. The middleware's `request completed` already carries
-	// the route, the status and duration_ms, and these two are the most frequent
-	// authenticated calls this service serves — a second line per read would
-	// double the stream to say nothing new. Only the failure branches log,
-	// because those are the ones the request line cannot explain.
 	result := NewTrackingResponse(found)
 	h.storeCached(c, key, keyable, result) // reached only on the 200 path
 	c.JSON(nethttp.StatusOK, result)
@@ -187,52 +181,33 @@ func (h *ReadsHandler) List(c *gin.Context) {
 	}
 	parsed := ParseOrderIDs(raw[0])
 
-	ctx, end := tracing.WorkflowSpan(c.Request.Context(), "list_trackings",
-		attribute.String("app_event", "list_trackings_started"),
-		attribute.Int("requested_count", len(parsed)))
-	var flowErr error
-	defer func() { end(flowErr) }()
-
-	// The cap counts DISTINCT NON-EMPTY ids, so it is applied AFTER parsing:
-	// `?order_ids=a,a,…` repeated 200 times is one id, not a 400.
-	if len(parsed) > MaxBatchOrderIDs {
-		flowErr = errTooManyOrderIDs
-		tracing.SetSpanAttributes(ctx,
-			attribute.String("app_event", "list_trackings_failed"),
-			attribute.String("reason", reasonTooManyOrderIDs))
-		h.log.WarnContext(ctx, "list_trackings_failed",
-			slog.String("app_event", "list_trackings_failed"),
-			slog.String("reason", reasonTooManyOrderIDs),
-			slog.Int("requested_count", len(parsed)),
-			slog.Int("max_order_ids", MaxBatchOrderIDs))
-		// Shape A — the prose message only. reasonTooManyOrderIDs stays on the
-		// log and the span.
-		c.JSON(nethttp.StatusBadRequest, FlatError{
-			Detail: fmt.Sprintf("at most %d order_ids per request", MaxBatchOrderIDs),
-		})
-		return
-	}
-
+	// CONTRACT: Look the cache up BEFORE dispatching, not inside the pipeline. A
+	// cache hit must not open a workflow span for work that never ran — a span per
+	// hit would report database latency the request never paid. An over-cap request
+	// can never be a hit: only the 200 path stores, and the cap rejects before it.
 	key, keyable := cache.TrackingListKey(cognitoSub, ResolvedUserID(c), parsed)
 	if body, served := h.serveCached(c, key, keyable); served {
 		c.Data(nethttp.StatusOK, "application/json; charset=utf-8", body)
 		return
 	}
 
-	// An empty id list never reaches the database: the use case short-circuits,
-	// because sqlc's IN (sqlc.slice()) — and a hand-built IN () alike — is
-	// invalid SQL for an empty slice.
-	found, err := h.list.Execute(ctx, parsed, cognitoSub)
-	if err != nil {
-		flowErr = err
-		tracing.SetSpanAttributes(ctx,
-			attribute.String("app_event", "list_trackings_failed"),
-			attribute.String("reason", reasonReadFailed))
-		h.log.ErrorContext(ctx, "list_trackings_failed",
-			slog.String("app_event", "list_trackings_failed"),
-			slog.String("reason", reasonReadFailed),
-			slog.Int("requested_count", len(parsed)),
-			slog.String("error", err.Error()))
+	// The cap lives in the pipeline's validation layer, which counts DISTINCT
+	// NON-EMPTY ids on the parsed slice: `?order_ids=a,a,…` repeated 200 times is
+	// one id, not a 400. An empty id list never reaches the database either — the
+	// use case short-circuits, because sqlc's IN (sqlc.slice()) renders `IN ()` for
+	// an empty slice, which MySQL rejects.
+	found, err := h.list(c.Request.Context(), app.ListMyTrackingsQuery{
+		OrderIDs: parsed, CognitoSub: cognitoSub,
+	})
+	switch {
+	case errors.Is(err, errTooManyOrderIDs):
+		// Shape A — the prose message only. reasonTooManyOrderIDs stays on the log
+		// and the span, which the pipeline already stamped.
+		c.JSON(nethttp.StatusBadRequest, FlatError{
+			Detail: fmt.Sprintf("at most %d order_ids per request", MaxBatchOrderIDs),
+		})
+		return
+	case err != nil:
 		c.JSON(nethttp.StatusInternalServerError, FlatError{Detail: "internal server error"})
 		return
 	}
@@ -243,10 +218,6 @@ func (h *ReadsHandler) List(c *gin.Context) {
 		items = append(items, NewTrackingResponse(item))
 	}
 	result := TrackingListResponse{Trackings: items}
-
-	tracing.SetSpanAttributes(ctx,
-		attribute.String("app_event", "list_trackings_succeeded"),
-		attribute.Int("found_count", len(items)))
 
 	h.storeCached(c, key, keyable, result)
 	c.JSON(nethttp.StatusOK, result)
