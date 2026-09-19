@@ -147,50 +147,16 @@
         "message": "L38: narrative-marker: 'no longer' narrates history; describe the current state and move the story to the vault"
       }
     ],
-    "services/users-nestjs/src/config/env.schema.ts": [
+    "services/users/src/config/env.schema.ts": [
       {
         "fingerprint": "6ef111637d23",
         "message": "density: 56% (47/84) exceeds 50% for typescript"
       }
     ],
-    "services/users-nestjs/src/shared/db/sql-logging.ts": [
+    "services/users/src/shared/db/sql-logging.ts": [
       {
         "fingerprint": "ed5ff8d70974",
         "message": "density: 52% (31/60) exceeds 50% for typescript"
-      }
-    ],
-    "services/users-nestjs/src/shared/logging/log-context.ts": [
-      {
-        "fingerprint": "2749a0999f18",
-        "message": "density: 59% (43/73) exceeds 50% for typescript"
-      }
-    ],
-    "services/users/Dockerfile": [
-      {
-        "fingerprint": "8bc68b1f9596",
-        "message": "L1: length: block 22 lines exceeds hard max 12; move narrative to the vault"
-      },
-      {
-        "fingerprint": "8e67d057e880",
-        "message": "L57: length: block 14 lines exceeds hard max 12; move narrative to the vault"
-      },
-      {
-        "fingerprint": "2dba76f4a0a9",
-        "message": "L76: length: block 10 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
-      },
-      {
-        "fingerprint": "3e7858ae111d",
-        "message": "L106: length: block 12 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
-      },
-      {
-        "fingerprint": "afcd6d20cd44",
-        "message": "density: 71% (84/118) exceeds 65% for dockerfile"
-      }
-    ],
-    "services/users/src/shared/db/sql-logging.ts": [
-      {
-        "fingerprint": "d28fa13f3ecd",
-        "message": "density: 51% (31/61) exceeds 50% for typescript"
       }
     ],
     "services/users/src/shared/logging/log-context.ts": [

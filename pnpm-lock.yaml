@@ -347,21 +347,36 @@ importers:
       '@aws-sdk/lib-dynamodb':
         specifier: ^3.1075.0
         version: 3.1104.0(@aws-sdk/client-dynamodb@3.1104.0)
-      '@fastify/awilix':
-        specifier: ^8.2.0
-        version: 8.2.0(awilix@13.0.5)(fastify@5.9.0)
       '@fastify/otel':
         specifier: ^0.20.1
         version: 0.20.1(@opentelemetry/api@1.9.1)
-      '@fastify/swagger':
-        specifier: ^9.5.1
-        version: 9.8.0
       '@grpc/grpc-js':
         specifier: ^1.14.4
         version: 1.14.4
       '@grpc/proto-loader':
         specifier: ^0.8.1
         version: 0.8.1
+      '@nestjs/common':
+        specifier: 12.0.3
+        version: 12.0.3(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@nestjs/config':
+        specifier: 12.0.0
+        version: 12.0.0(@nestjs/common@12.0.3(reflect-metadata@0.2.2)(rxjs@7.8.2))(rxjs@7.8.2)
+      '@nestjs/core':
+        specifier: 12.0.3
+        version: 12.0.3(@nestjs/common@12.0.3(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/microservices@12.0.3)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@nestjs/cqrs':
+        specifier: 12.0.0
+        version: 12.0.0(@nestjs/common@12.0.3(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.3)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@nestjs/microservices':
+        specifier: 12.0.3
+        version: 12.0.3(@grpc/grpc-js@1.14.4)(@nestjs/common@12.0.3(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.3)(ioredis@6.0.0)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@nestjs/platform-fastify':
+        specifier: 12.0.3
+        version: 12.0.3(@nestjs/common@12.0.3(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.3)
+      '@nestjs/swagger':
+        specifier: 12.0.1
+        version: 12.0.1(@nestjs/common@12.0.3(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.3)(reflect-metadata@0.2.2)
       '@opentelemetry/api':
         specifier: ^1.9.1
         version: 1.9.1
@@ -398,46 +413,61 @@ importers:
       '@prisma/instrumentation':
         specifier: ^7.9.1
         version: 7.9.1(@opentelemetry/api@1.9.1)
-      awilix:
-        specifier: ^13.0.5
-        version: 13.0.5
       dotenv:
         specifier: ^17.4.2
         version: 17.4.2
       fastify:
         specifier: ^5.0.0
         version: 5.9.0
-      fastify-type-provider-zod:
-        specifier: ^5.0.2
-        version: 5.1.0(@fastify/swagger@9.8.0)(fastify@5.9.0)(openapi-types@12.1.3)(zod@3.25.76)
       ioredis:
         specifier: ^6.0.0
         version: 6.0.0
       nanoid:
         specifier: ^5.1.16
         version: 5.1.16
+      nestjs-cls:
+        specifier: ^6.3.0
+        version: 6.3.0(@nestjs/common@12.0.3(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.3)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       pg:
         specifier: ^8.22.0
         version: 8.22.0
       pino:
         specifier: ^10.3.1
         version: 10.3.1
+      reflect-metadata:
+        specifier: ^0.2.2
+        version: 0.2.2
+      rxjs:
+        specifier: ^7.8.2
+        version: 7.8.2
       sqs-consumer:
         specifier: ^15.0.3
         version: 15.0.3(@aws-sdk/client-sqs@3.1102.0)
       zod:
         specifier: ^3.23.0
         version: 3.25.76
+      zod-to-json-schema:
+        specifier: ^3.25.2
+        version: 3.25.2(zod@3.25.76)
     devDependencies:
       '@eslint/js':
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.6.0(jiti@2.7.0))
+      '@nestjs/testing':
+        specifier: 12.0.3
+        version: 12.0.3(@nestjs/common@12.0.3(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@12.0.3)(@nestjs/microservices@12.0.3)
       '@opentelemetry/sdk-trace-base':
         specifier: ^2.10.0
         version: 2.10.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/sdk-trace-node':
         specifier: ^2.10.0
         version: 2.10.0(@opentelemetry/api@1.9.1)
+      '@swc-node/register':
+        specifier: ^1.12.1
+        version: 1.12.1(@swc/core@1.16.2)(@swc/types@0.1.28)(typescript@5.9.3)
+      '@swc/core':
+        specifier: ^1.7.0
+        version: 1.16.2
       '@types/node':
         specifier: ^26.0.1
         version: 26.0.1
@@ -459,6 +489,9 @@ importers:
       typescript-eslint:
         specifier: ^8.63.0
         version: 8.63.0(eslint@10.6.0(jiti@2.7.0))(typescript@5.9.3)
+      unplugin-swc:
+        specifier: ^1.5.0
+        version: 1.6.0(@swc/core@1.16.2)(esbuild@0.28.2)(rolldown@1.2.0)(rollup@4.62.2)(vite@5.4.21(@types/node@26.0.1)(lightningcss@1.32.0)(sass@1.101.0)(terser@5.49.1))(webpack@5.109.2(@swc/core@1.16.2)(esbuild@0.28.2)(lightningcss@1.32.0))
       vitest:
         specifier: ^2.0.0
         version: 2.1.9(@types/node@26.0.1)(jsdom@28.1.0)(lightningcss@1.32.0)(sass@1.101.0)(terser@5.49.1)
@@ -2075,12 +2108,6 @@ packages:
   '@fastify/ajv-compiler@4.0.5':
     resolution: {integrity: sha512-KoWKW+MhvfTRWL4qrhUwAAZoaChluo0m0vbiJlGMt2GXvL4LVPQEjt8kSpHI3IBq5Rez8fg+XeH3cneztq+C7A==}
 
-  '@fastify/awilix@8.2.0':
-    resolution: {integrity: sha512-U5yygVXY8WJajDXE3w3FdU839NXaYJusxjTrcJGB82oUOeYvDpawB749aSCEJ+XFGE8QpB42Qtr4FI4z0wfXBw==}
-    peerDependencies:
-      awilix: '>=9.0.0'
-      fastify: ^5.0.0
-
   '@fastify/cors@11.3.0':
     resolution: {integrity: sha512-ggQGua+xHv1MvePbPr0v//xLYEsCXbWspquXCJS9Ot5YoRXq8J8ZWzHnxDBVnbtXosvistXo6LtNzOJswf64Fw==}
 
@@ -2109,9 +2136,6 @@ packages:
 
   '@fastify/proxy-addr@5.1.0':
     resolution: {integrity: sha512-INS+6gh91cLUjB+PVHfu1UqcB76Sqtpyp7bnL+FYojhjygvOPA9ctiD/JDKsyD9Xgu4hUhCSJBPig/w7duNajw==}
-
-  '@fastify/swagger@9.8.0':
-    resolution: {integrity: sha512-GdRkUboXu++nChrmWM22SNDkabB529TL7cQ4RDsPDP76ro1kSW1cLIEZ9S8ZUbJKYUciHgLAgiX8SHzCnqZdnQ==}
 
   '@floating-ui/core@1.8.0':
     resolution: {integrity: sha512-0CIZ5itps/8x7BG8dEIhs53BvCUH2PCoogtakwRTut+Arm58sJooJ0AuZhLw2HJYIR5cMLNPBSS728sPho2khQ==}
@@ -5689,16 +5713,6 @@ packages:
   avvio@9.2.0:
     resolution: {integrity: sha512-2t/sy01ArdHHE0vRH5Hsay+RtCZt3dLPji7W7/MMOCEgze5b7SNDC4j5H6FnVgPkI1MTNFGzHdHrVXDDl7QSSQ==}
 
-  awilix-manager@6.4.0:
-    resolution: {integrity: sha512-8YBhrtxlhMyFwvZRT+BeLlrBNF6KSzdUTeXZBdX5B7IcjqB6xDQ8cdkfSixJEsjMBS4P3NvbodUTDAikG7rQqQ==}
-    engines: {node: '>=18'}
-    peerDependencies:
-      awilix: '>=9.0.0'
-
-  awilix@13.0.5:
-    resolution: {integrity: sha512-ORtca6suBdYA1FyTzqHEZDvEuUwo3lPDDBRm7GrzHgi6STESzJKdBtpqfTzObdMj1NGQUWX6k26E3EbQaGJX5Q==}
-    engines: {node: '>=20.0.0'}
-
   aws-jwt-verify@4.0.1:
     resolution: {integrity: sha512-kzvi71eD3w/mCpYRUY7cz6DX4bfYihGdI2yV3FYQ2JuZZenqAqDPz0gWj0ew6vlAtdEVBNb7p+Dm2TAIxpVYMA==}
     engines: {node: '>=14.0.0'}
@@ -6487,19 +6501,8 @@ packages:
   fast-wrap-ansi@0.2.2:
     resolution: {integrity: sha512-7F2Fl+TjRSenLqlU3UjSH0iyqopqoZIu7eZVpEirP2g1GtWa2G/ecEmBdgz31+Mxr+ELclgg6sokpSFIQiZ02Q==}
 
-  fastify-plugin@5.1.0:
-    resolution: {integrity: sha512-FAIDA8eovSt5qcDgcBvDuX/v0Cjz0ohGhENZ/wpc3y+oZCY2afZ9Baqql3g/lC+OHRnciQol4ww7tuthOb9idw==}
-
   fastify-plugin@6.0.0:
     resolution: {integrity: sha512-fZOty7z3O7vOliF6d8bHE3wiEh1KcNnKEQensSgTk9C1DvN6nRLS++XVd86v33Hw/8u9Un8A1zDrQ8ujcQDHEg==}
-
-  fastify-type-provider-zod@5.1.0:
-    resolution: {integrity: sha512-IdLEE16XWOkzTskK/onYQ4FLo6zB4/UXxzbZdvskprSAoNAFQoWdjfmSWjWVIDLIn/9Wa6MuKERQC8t7VxFFag==}
-    peerDependencies:
-      '@fastify/swagger': '>=9.5.1'
-      fastify: ^5.0.0
-      openapi-types: ^12.1.3
-      zod: '>=3.25.67'
 
   fastify@5.12.4:
     resolution: {integrity: sha512-zATD676fP6tBMsn+jQ7Q5/cO/Qo+149TXH0dUqUKel+1/hcZxwIbnflqtPa9EjlrvpY8eCZcL3M1UYrMc31Y7g==}
@@ -6952,10 +6955,6 @@ packages:
 
   json-schema-ref-resolver@3.0.0:
     resolution: {integrity: sha512-hOrZIVL5jyYFjzk7+y7n5JDzGlU8rfWDuYyHwGa2WA8/pcmMHezp2xsVwxrebD/Q9t8Nc5DboieySDpCp4WG4A==}
-
-  json-schema-resolver@3.0.0:
-    resolution: {integrity: sha512-HqMnbz0tz2DaEJ3ntsqtx3ezzZyDE7G56A/pPY/NGmrPu76UzsWquOpHFRAf5beTNXoH2LU5cQePVvRli1nchA==}
-    engines: {node: '>=20'}
 
   json-schema-traverse@0.4.1:
     resolution: {integrity: sha512-xbbCH5dCYU5T8LcEhhuh7HJ88HXuW3qsI3Y0zOZFKfZEHcpWiHU/Jxzk629Brsab/mMiHQti9wMP+845RPe3Vg==}
@@ -7511,9 +7510,6 @@ packages:
   onetime@7.0.0:
     resolution: {integrity: sha512-VXJjc87FScF88uafS3JllDgvAm+c/Slfz06lorj2uAY34rlUu0Nt+v8wreiImcrgAjjIHp1rXpTDlLOGw29WwQ==}
     engines: {node: '>=18'}
-
-  openapi-types@12.1.3:
-    resolution: {integrity: sha512-N4YtSYJqghVu4iek2ZUvcN/0aqH1kRDuNqzcycDxhOUpg7GdvLa2F3DgS6yBNhInhv2r/6I0Flkn7CqL8+nIcw==}
 
   optionator@0.9.4:
     resolution: {integrity: sha512-6IpQ7mKUxRcZNLIObR0hz7lxsapSSIYNZJwXPGeF0mTVqGKFIXj1DQcMoT22S3ROcLyY/rz0PWaWZ9ayWmad9g==}
@@ -10392,13 +10388,6 @@ snapshots:
       ajv-formats: 3.0.1(ajv@8.20.0)
       fast-uri: 3.1.2
 
-  '@fastify/awilix@8.2.0(awilix@13.0.5)(fastify@5.9.0)':
-    dependencies:
-      awilix: 13.0.5
-      awilix-manager: 6.4.0(awilix@13.0.5)
-      fastify: 5.9.0
-      fastify-plugin: 5.1.0
-
   '@fastify/cors@11.3.0':
     dependencies:
       fastify-plugin: 6.0.0
@@ -10443,16 +10432,6 @@ snapshots:
     dependencies:
       '@fastify/forwarded': 3.0.1
       ipaddr.js: 2.4.0
-
-  '@fastify/swagger@9.8.0':
-    dependencies:
-      fastify-plugin: 6.0.0
-      json-schema-resolver: 3.0.0
-      openapi-types: 12.1.3
-      rfdc: 1.4.1
-      yaml: 2.9.0
-    transitivePeerDependencies:
-      - supports-color
 
   '@floating-ui/core@1.8.0':
     dependencies:
@@ -12251,7 +12230,7 @@ snapshots:
       detect-libc: 2.1.2
       is-glob: 4.0.3
       node-addon-api: 7.1.1
-      picomatch: 4.0.5
+      picomatch: 4.0.7
     optionalDependencies:
       '@parcel/watcher-android-arm64': 2.6.0
       '@parcel/watcher-darwin-arm64': 2.6.0
@@ -13095,7 +13074,7 @@ snapshots:
     dependencies:
       '@types/estree': 1.0.9
       estree-walker: 2.0.2
-      picomatch: 4.0.5
+      picomatch: 4.0.7
     optionalDependencies:
       rollup: 4.62.2
 
@@ -14096,14 +14075,6 @@ snapshots:
       '@fastify/error': 4.2.0
       fastq: 1.20.1
 
-  awilix-manager@6.4.0(awilix@13.0.5):
-    dependencies:
-      awilix: 13.0.5
-
-  awilix@13.0.5:
-    dependencies:
-      fast-glob: 3.3.3
-
   aws-jwt-verify@4.0.1: {}
 
   aws-ssl-profiles@1.1.2: {}
@@ -14999,17 +14970,7 @@ snapshots:
     dependencies:
       fast-string-width: 3.0.2
 
-  fastify-plugin@5.1.0: {}
-
   fastify-plugin@6.0.0: {}
-
-  fastify-type-provider-zod@5.1.0(@fastify/swagger@9.8.0)(fastify@5.9.0)(openapi-types@12.1.3)(zod@3.25.76):
-    dependencies:
-      '@fastify/error': 4.2.0
-      '@fastify/swagger': 9.8.0
-      fastify: 5.9.0
-      openapi-types: 12.1.3
-      zod: 3.25.76
 
   fastify@5.12.4:
     dependencies:
@@ -15514,14 +15475,6 @@ snapshots:
     dependencies:
       dequal: 2.0.3
 
-  json-schema-resolver@3.0.0:
-    dependencies:
-      debug: 4.4.3
-      fast-uri: 3.1.2
-      rfdc: 1.4.1
-    transitivePeerDependencies:
-      - supports-color
-
   json-schema-traverse@0.4.1: {}
 
   json-schema-traverse@1.0.0: {}
@@ -16025,8 +15978,6 @@ snapshots:
   onetime@7.0.0:
     dependencies:
       mimic-function: 5.0.1
-
-  openapi-types@12.1.3: {}
 
   optionator@0.9.4:
     dependencies:

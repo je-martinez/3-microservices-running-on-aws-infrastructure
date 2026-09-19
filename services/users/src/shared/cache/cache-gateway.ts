@@ -1,6 +1,6 @@
 import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
 import type { RedisClient } from "./redis.ts";
-import type { Env } from "../config/env.ts";
+import type { Env } from "#config/env.schema";
 import type { MetricsPublisher } from "../metrics/cloudwatch-metrics.ts";
 import { appLogger } from "../logging/app-logger.ts";
 

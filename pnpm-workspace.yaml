@@ -1,6 +1,5 @@
 packages:
   - "services/users"
-  - "services/users-nestjs"
   - "functions/events-pipeline"
   - "functions/realtime-events"
   # Not a deployable package: Terraform zips this Lambda's bare index.mjs with

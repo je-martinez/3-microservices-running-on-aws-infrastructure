@@ -206,59 +206,13 @@ services:
     develop:
       watch:
         # Users runs the compiled production build (runtime stage → node
-        # dist/server.js), NOT `tsx watch`, so a source sync would copy the .ts
+        # dist/main.js), NOT a watch process, so a source sync would copy the .ts
         # files but the process keeps running the old dist/. `rebuild` reconstructs
         # the image on a source change so the new code actually runs. Requires
         # `docker compose watch` to be active.
         - action: rebuild
           path: ./services/users/src
 
-  # Users NestJS service — same stack surface as `users`, runs BESIDE it so
-  # gateway E2E can be pointed at the NestJS rewrite without replacing the
-  # live Fastify service. Host ports 3100/50161 map to container 3000/50051.
-  users-nestjs:
-    build:
-      context: .
-      dockerfile: services/users-nestjs/Dockerfile
-    networks: [3mrai-network]
-    ports:
-      - "3100:3000"
-      # gRPC surface (GetUserById). Reachable as `users-nestjs:50051` on the
-      # network. Guarded by the x-api-key interceptor.
-      - "50161:50051"
-    depends_on:
-      floci:
-        condition: service_healthy
-    # CONTRACT: Same generated .env.local.users as `users`. Do NOT add an
-    # `environment:` block — compose gives it precedence over env_file and
-    # would silently override the generated values. See [[env-files]]
-    env_file:
-      - .env.local.users
-    # stdout → the observability collector's fluent_forward receiver.
-    # localhost:24224 because the Docker daemon resolves fluentd-address from the
-    # HOST, not this network. fluentd-async so the service still starts when the
-    # observability profile (and thus the collector) is not running.
-    logging:
-      driver: fluentd
-      options:
-        fluentd-address: "localhost:24224"
-        fluentd-async: "true"
-        tag: "users-nestjs"
-    develop:
-      watch:
-        # Users NestJS runs the compiled production build (runtime stage → node
-        # dist/main.js), NOT a watch process, so a source sync would copy the
-        # .ts files but the process keeps running the old dist/. `rebuild`
-        # reconstructs the image on a source change so the new code actually
-        # runs. Requires `docker compose watch` to be active.
-        - action: rebuild
-          path: ./services/users-nestjs/src
-
-  # Orders service (.NET Core 10 Minimal API, Clean Architecture + EF Core/MySQL).
-  # Build context is the REPO ROOT so the shared gRPC contract (proto/users.proto)
-  # is inside the build context — Grpc.Tools generates the Users client from it.
-  # Reachable as `orders` on 3mrai-network; resolves caller identity by calling
-  # the Users gRPC server at users:50051 (guarded by the shared x-api-key).
   orders:
     build:
       context: .

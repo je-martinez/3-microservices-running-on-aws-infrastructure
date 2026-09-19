@@ -1,5 +1,5 @@
 import { z } from "zod/v4";
-import { NOTIFICATIONS_LIMIT, WINDOW_DAYS } from "../queries/list-notifications.ts";
+import { NOTIFICATIONS_LIMIT, WINDOW_DAYS } from "../domain/notification.ts";
 
 /**
  * CONTRACT: The wire shape is snake_case, unlike the domain type's camelCase. The

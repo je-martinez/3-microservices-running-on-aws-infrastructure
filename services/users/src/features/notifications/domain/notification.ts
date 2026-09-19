@@ -55,3 +55,17 @@ export function toDomain(row: NotificationRow): Notification {
     createdAt: row.createdAt,
   };
 }
+
+/**
+ * CONTRACT: A hard cap with NO pagination, by decision. `window_total` is computed
+ * separately so the count pill stays exact when the cap truncates the list.
+ * See [[2026-09-10-in-app-notifications-design]]
+ */
+export const NOTIFICATIONS_LIMIT = 50;
+
+/**
+ * CONTRACT: 90 days bounds `window_total` ONLY. The list query has NO date bound —
+ * a date-filtered list would hide an old WELCOME row the All screen shows in its
+ * EARLIER group.
+ */
+export const WINDOW_DAYS = 90 as const;

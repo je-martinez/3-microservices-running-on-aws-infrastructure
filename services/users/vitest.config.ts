@@ -1,53 +1,25 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
+import swc from "unplugin-swc";
 
 export default defineConfig({
+  // CONTRACT: Keep this plugin. Vitest's default esbuild transform drops
+  // `design:paramtypes`, so Nest's type-based DI injects `undefined` in tests
+  // while `pnpm build` (tsc) works — a failure that only ever shows up here.
+  // Options come from .swcrc. See [[dependency-injection]]
+  plugins: [swc.vite()],
   resolve: {
     alias: {
       "#shared/": fileURLToPath(new URL("./src/shared/", import.meta.url)),
       "#features/": fileURLToPath(new URL("./src/features/", import.meta.url)),
+      "#config/": fileURLToPath(new URL("./src/config/", import.meta.url)),
+      "#notifications/": fileURLToPath(new URL("./src/notifications/", import.meta.url)),
+      "#users/": fileURLToPath(new URL("./src/users/", import.meta.url)),
     },
   },
   test: {
     include: ["tests/**/*.test.ts"],
     environment: "node",
-    // Registers the in-memory tracer provider before any test module loads —
-    // a provider registered later never reaches module-scope tracers. See the
-    // comment in tests/setup-tracing.ts.
-    setupFiles: ["./tests/setup-tracing.ts"],
-    env: {
-      DATABASE_WRITER_URL: "postgres://user:pass@localhost:5432/users",
-      DATABASE_READER_URL: "postgres://user:pass@localhost:5432/users",
-      E2E_TESTING_ENABLED: "false",
-      PORT: "3000",
-      COGNITO_USER_POOL_ID: "us-east-1_dummy",
-      COGNITO_CLIENT_ID: "dummy_client",
-      AWS_ENDPOINT_URL: "http://localhost:4566",
-      AWS_REGION: "us-east-1",
-      EVENTS_TOPIC_ARN: "arn:aws:sns:us-east-1:000000000000:3mrai-local-events-topic",
-      NOTIFICATIONS_QUEUE_URL: "http://localhost:4566/000000000000/3mrai-local-notifications",
-      // Required by the env schema, so the whole suite fails to import without
-      // them. No socket is opened here: the realtime clients are built lazily by
-      // the Awilix SINGLETON and no unit test resolves them.
-      WS_MANAGEMENT_ENDPOINT: "http://localhost:4566/execute-api/test/$default",
-      WS_CONNECTIONS_TABLE: "3mrai-test-ws-connections",
-      WS_CONNECTIONS_GSI: "by-cognito-sub",
-      NODE_ENV: "test",
-      WEBHOOK_SECRET: "test-webhook-secret",
-      GRPC_PORT: "50051",
-      INTERNAL_API_KEY: "test-grpc-key",
-      // The account-deletion cascade's downstream services. Present so the env
-      // schema validates; no test reaches these hosts — CascadeClient takes an
-      // injected fetch.
-      ORDERS_BASE_URL: "http://localhost:8080",
-      TRACKING_BASE_URL: "http://localhost:8000",
-      // Required by the env schema, so the whole suite fails to import without
-      // them. No Redis is contacted here: the reset-code store is exercised
-      // against an in-memory fake, and nothing under test constructs the real
-      // ioredis client (it is built lazily by the Awilix SINGLETON).
-      REDIS_HOST: "localhost",
-      REDIS_PORT: "6379",
-      METRICS_INTERVAL_MS: "15000",
-    },
+    setupFiles: ["./tests/setup.ts"],
   },
 });
