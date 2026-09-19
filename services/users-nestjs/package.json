@@ -1,0 +1,101 @@
+{
+  "name": "@3mrai/users-nestjs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.18.0"
+  },
+  "imports": {
+    "#shared/*": {
+      "development": "./src/shared/*.ts",
+      "default": "./dist/shared/*.js"
+    },
+    "#features/*": {
+      "development": "./src/features/*.ts",
+      "default": "./dist/features/*.js"
+    },
+    "#config/*": {
+      "development": "./src/config/*.ts",
+      "default": "./dist/config/*.js"
+    },
+    "#notifications/*": {
+      "development": "./src/notifications/*.ts",
+      "default": "./dist/notifications/*.js"
+    },
+    "#users/*": {
+      "development": "./src/users/*.ts",
+      "default": "./dist/users/*.js"
+    }
+  },
+  "scripts": {
+    "dev": "node --import ./src/shared/observability/tracing.ts --import @swc-node/register/esm-register --watch src/main.ts",
+    "generate:openapi": "node --import @swc-node/register/esm-register src/shared/openapi/generate-openapi.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node --import ./dist/shared/observability/tracing.js dist/main.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "prisma": "prisma"
+  },
+  "dependencies": {
+    "@aws-sdk/client-apigatewaymanagementapi": "^3.1104.0",
+    "@aws-sdk/client-cloudwatch": "^3.1075.0",
+    "@aws-sdk/client-cognito-identity-provider": "^3.1075.0",
+    "@aws-sdk/client-dynamodb": "^3.1075.0",
+    "@aws-sdk/client-sns": "^3.1131.0",
+    "@aws-sdk/client-sqs": "^3.1075.0",
+    "@aws-sdk/lib-dynamodb": "^3.1075.0",
+    "@fastify/otel": "^0.20.1",
+    "@grpc/grpc-js": "^1.14.4",
+    "@grpc/proto-loader": "^0.8.1",
+    "@nestjs/common": "12.0.3",
+    "@nestjs/config": "12.0.0",
+    "@nestjs/core": "12.0.3",
+    "@nestjs/cqrs": "12.0.0",
+    "@nestjs/microservices": "12.0.3",
+    "@nestjs/platform-fastify": "12.0.3",
+    "@nestjs/swagger": "12.0.1",
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/auto-instrumentations-node": "^0.78.0",
+    "@opentelemetry/core": "^2.9.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.220.0",
+    "@opentelemetry/instrumentation": "^0.221.0",
+    "@opentelemetry/resources": "^2.9.0",
+    "@opentelemetry/sdk-node": "^0.220.0",
+    "@opentelemetry/semantic-conventions": "^1.43.0",
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "@prisma/extension-read-replicas": "0.5.0",
+    "@prisma/instrumentation": "^7.9.1",
+    "dotenv": "^17.4.2",
+    "fastify": "^5.0.0",
+    "ioredis": "^6.0.0",
+    "nanoid": "^5.1.16",
+    "nestjs-cls": "^6.3.0",
+    "pg": "^8.22.0",
+    "pino": "^10.3.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "sqs-consumer": "^15.0.3",
+    "zod": "^3.23.0",
+    "zod-to-json-schema": "^3.25.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@nestjs/testing": "12.0.3",
+    "@opentelemetry/sdk-trace-base": "^2.10.0",
+    "@opentelemetry/sdk-trace-node": "^2.10.0",
+    "@swc-node/register": "^1.12.1",
+    "@swc/core": "^1.7.0",
+    "@types/node": "^26.0.1",
+    "@types/pg": "^8.11.6",
+    "eslint": "^10.6.0",
+    "prisma": "^7.8.0",
+    "tsx": "^4.23.0",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.63.0",
+    "unplugin-swc": "^1.5.0",
+    "vitest": "^2.0.0"
+  }
+}

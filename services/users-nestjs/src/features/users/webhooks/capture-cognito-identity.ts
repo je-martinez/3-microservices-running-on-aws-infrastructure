@@ -1,0 +1,239 @@
+import type { Db } from "#shared/db/prisma";
+import { runAsActor } from "#shared/audit/actor-context";
+import { AuditActor } from "#shared/audit/audit-actor";
+import { MODEL_ID_PREFIXES, generateId } from "#shared/id/nano-id";
+import { deriveMessageId } from "./message-id.ts";
+import type { CognitoWebhookPayload } from "./cognito-payload.ts";
+import { hashEmail } from "#shared/logging/email-hash";
+import { appLogger } from "#shared/logging/app-logger";
+import { trace } from "@opentelemetry/api";
+import { withWorkflowSpan } from "#shared/observability/workflow-tracing";
+
+export type CaptureResult = { status: "captured" | "duplicate" };
+
+// Shape of a Prisma P2002 error under the driver-adapter transport (v7 +
+// @prisma/adapter-pg). The classic `err.meta.target` is undefined here —
+// the constraint info is nested under `meta.driverAdapterError.cause`
+// instead. All fields are read optionally since this is a best-effort probe
+// over an untyped `unknown` error.
+type PrismaP2002Error = {
+  code?: string;
+  meta?: {
+    target?: string[] | string;
+    driverAdapterError?: {
+      cause?: {
+        originalMessage?: string;
+        constraint?: { fields?: string[] };
+      };
+    };
+  };
+};
+
+// Narrow-catch guard: true only when this P2002 is the message_id unique
+// violation (spec D4 idempotency), checking both the classic `meta.target`
+// shape and the nested driver-adapter shape Prisma v7 actually produces.
+// A P2002 from any other constraint (e.g. the snapshot's own pkey) must
+// return false so the caller re-throws instead of mislabeling it duplicate.
+function isMessageIdConflict(err: unknown): boolean {
+  // A non-object throw (null/undefined/string) is never our P2002 — fall
+  // through to false so the caller re-throws it untouched.
+  if (typeof err !== "object" || err === null) return false;
+  const e = err as PrismaP2002Error;
+  if (e.code !== "P2002") return false;
+
+  const target = e.meta?.target;
+  if (Array.isArray(target) ? target.includes("message_id") : typeof target === "string" && target.includes("message_id")) {
+    return true;
+  }
+
+  const cause = e.meta?.driverAdapterError?.cause;
+  if (cause?.constraint?.fields?.includes("message_id")) return true;
+  if (cause?.originalMessage?.includes("message_id")) return true;
+
+  return false;
+}
+
+// Thrown when no `users` row matches the payload's email. Both real flows create the
+// user before capture runs, so this is an unexpected condition rather than a routine
+// outcome: the route maps it to an error response, and Cognito retries the trigger in
+// prod, so a transient race self-heals.
+export class NoMatchingUserError extends Error {
+  constructor(email: string) {
+    super(`No users row found for email ${email}`);
+    this.name = "NoMatchingUserError";
+  }
+}
+
+// The single persistence path for Cognito identity capture (spec D2). Reached
+// two ways: over HTTP from the prod Lambda shim, and in-process from register()
+// when NODE_ENV !== "production". Nothing here knows about HTTP.
+//
+// Constructor-injected from the Awilix cradle (PROXY injection mode).
+export class CaptureCognitoIdentityCommand {
+  private readonly db: Db;
+
+  constructor({ db }: { db: Db }) {
+    this.db = db;
+  }
+
+  // The payload holds a plaintext email; only its hash reaches the span, same
+  // rule as every log line ([[logging-context]]). `cognito_sub` and
+  // `trigger_source` are opaque non-PII identifiers and are what an operator
+  // actually correlates a retried trigger by. The raw payload — which the
+  // snapshot persists in full — is NOT an attribute: it is the request body,
+  // and request bodies never go on a span.
+  async execute(payload: CognitoWebhookPayload): Promise<CaptureResult> {
+    return withWorkflowSpan(
+      "cognito_webhook",
+      {
+        app_event: "cognito_webhook_started",
+        cognito_sub: payload.request.userAttributes.sub,
+        email_hash: hashEmail(payload.request.userAttributes.email),
+        trigger_source: payload.triggerSource,
+      },
+      () => this.doExecute(payload),
+    );
+  }
+
+  private async doExecute(payload: CognitoWebhookPayload): Promise<CaptureResult> {
+    const { sub, email } = payload.request.userAttributes;
+    const messageId = deriveMessageId(sub, payload.triggerSource);
+
+    // CONTRACT: Log from INSIDE the span — a line emitted after execute() returns
+    // carries a different span_id and "View logs" on the span finds nothing.
+    // WARNING: The email reaches this line only as a hash, and the raw payload never
+    // does — it is a request body. See [[logging-context]]
+    appLogger.info(
+      {
+        app_event: "cognito_webhook_started",
+        cognito_sub: sub,
+        email_hash: hashEmail(email),
+        trigger_source: payload.triggerSource,
+      },
+      "Cognito identity webhook received",
+    );
+
+    // Reserve both ids up front. The generated Prisma create-input types
+    // require `id` — these models have no `@default`, matching
+    // register.ts:38 — so the extension's auto-stamp does NOT cover a
+    // literal object-literal create like this one; omitting `id` here does
+    // not compile (TS2322).
+    const snapshotId = generateId(MODEL_ID_PREFIXES.UsersCognitoData);
+    const eventId = generateId(MODEL_ID_PREFIXES.UsersCognitoEvent);
+
+    // Audit fields (createdBy/updatedBy) are still stamped by the Prisma
+    // extension; never set those here. `runAsActor` names the actor for this
+    // non-request-bound write.
+    return runAsActor(AuditActor.IdentityCapture, async () => {
+      // No `users` row for this email is not a routine outcome (see
+      // NoMatchingUserError) — fail before writing anything, rather than
+      // persisting a partial snapshot or event.
+      const user = await this.db.user.findFirst({ where: { email } });
+      if (!user) {
+        // Same app_event the route's log line used for this branch, now emitted
+        // here so the span and the log read as one story AND share a span_id.
+        // withWorkflowSpan marks the span ERROR from the throw.
+        appLogger.error(
+          {
+            app_event: "cognito_webhook_no_match",
+            reason: "no_matching_user",
+            cognito_sub: sub,
+            email_hash: hashEmail(email),
+            trigger_source: payload.triggerSource,
+          },
+          "cognito webhook: no matching users row for confirmed identity",
+        );
+        trace
+          .getActiveSpan()
+          ?.setAttributes({ app_event: "cognito_webhook_no_match", reason: "no_matching_user" });
+        throw new NoMatchingUserError(email);
+      }
+
+      // CONTRACT: One nested write — the event nested under the upsert in BOTH
+      // branches. Prisma runs a nested write as a single transaction and inserts the
+      // parent before the child, which is what satisfies the NOT NULL FK on
+      // users_cognito_events.cognito_sub. Splitting it breaks that ordering.
+      try {
+        await this.db.usersCognitoData.upsert({
+          where: { cognitoSub: sub },
+          create: {
+            id: snapshotId,
+            userId: user.id,
+            cognitoSub: sub,
+            email,
+            clientId: payload.callerContext.clientId,
+            lastEventType: payload.triggerSource,
+            rawPayload: payload as unknown as object,
+            events: {
+              create: [
+                {
+                  id: eventId,
+                  eventType: payload.triggerSource,
+                  messageId,
+                  rawPayload: payload as unknown as object,
+                },
+              ],
+            },
+          },
+          update: {
+            email,
+            clientId: payload.callerContext.clientId,
+            lastEventType: payload.triggerSource,
+            rawPayload: payload as unknown as object,
+            events: {
+              create: [
+                {
+                  id: eventId,
+                  eventType: payload.triggerSource,
+                  messageId,
+                  rawPayload: payload as unknown as object,
+                },
+              ],
+            },
+          },
+        });
+        appLogger.info(
+          {
+            app_event: "cognito_webhook_succeeded",
+            capture_status: "captured",
+            cognito_sub: sub,
+            user_id: user.id,
+            email_hash: hashEmail(email),
+          },
+          "Cognito identity captured",
+        );
+        trace
+          .getActiveSpan()
+          ?.setAttributes({ app_event: "cognito_webhook_succeeded", capture_status: "captured" });
+        return { status: "captured" };
+      } catch (err) {
+        // P2002 on the message_id unique index = this exact event was
+        // already recorded (spec D4). Idempotent, not an error. Narrow
+        // catch: confirm it is the message_id constraint, not some other
+        // unique (e.g. the snapshot's own pkey or its cognito_sub unique
+        // index), before treating it as a duplicate — otherwise re-throw.
+        if (isMessageIdConflict(err)) {
+          // A replayed trigger is a SUCCESS, not a failure — the span status
+          // stays OK and the outcome is told apart by `capture_status` alone.
+          // Logged at INFO for the same reason, with the message_id that makes
+          // the two deliveries identifiable as the same event.
+          appLogger.info(
+            {
+              app_event: "cognito_webhook_succeeded",
+              capture_status: "duplicate",
+              cognito_sub: sub,
+              user_id: user.id,
+              message_id: messageId,
+            },
+            "Cognito identity webhook replayed (already recorded)",
+          );
+          trace
+            .getActiveSpan()
+            ?.setAttributes({ app_event: "cognito_webhook_succeeded", capture_status: "duplicate" });
+          return { status: "duplicate" };
+        }
+        throw err;
+      }
+    });
+  }
+}

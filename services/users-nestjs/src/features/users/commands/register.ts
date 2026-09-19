@@ -1,0 +1,212 @@
+import type { Db } from "#shared/db/prisma";
+import type { AuthProvider } from "#shared/auth/auth-provider";
+import type { EventPublisher } from "#shared/messaging/event-publisher";
+import type { MetricsPublisher } from "#shared/metrics/cloudwatch-metrics";
+import type { Env } from "#config/env.schema";
+import { MODEL_ID_PREFIXES, generateId } from "#shared/id/nano-id";
+import { runAsActor } from "#shared/audit/actor-context";
+import { AuditActor } from "#shared/audit/audit-actor";
+import { appLogger } from "#shared/logging/app-logger";
+import { setLogContext } from "#shared/logging/log-context";
+import { hashEmail } from "#shared/logging/email-hash";
+import { maskEmail } from "#shared/logging/email-mask";
+import { EmailAlreadyExistsError } from "#shared/auth/auth-errors";
+import { trace } from "@opentelemetry/api";
+import { withWorkflowSpan } from "#shared/observability/workflow-tracing";
+import { toDomain, type User } from "../domain/user.ts";
+import type { CaptureCognitoIdentityCommand } from "../webhooks/capture-cognito-identity.ts";
+
+export interface RegisterInput {
+  email: string;
+  password: string;
+  fullName: string;
+  address?: unknown;
+  phoneNumber?: string;
+  e2eSource: boolean;
+}
+
+// Constructor-injected from the Awilix cradle (PROXY injection mode):
+// `new RegisterUserCommand(cradle)` — property names must match cradle keys.
+export class RegisterUserCommand {
+  private readonly db: Db;
+  private readonly auth: AuthProvider;
+  private readonly events: EventPublisher;
+  private readonly metrics: MetricsPublisher;
+  private readonly env: Env;
+  private readonly captureCognitoIdentityCommand: CaptureCognitoIdentityCommand;
+
+  constructor({
+    db,
+    auth,
+    events,
+    metricsPublisher,
+    env,
+    captureCognitoIdentityCommand,
+  }: {
+    db: Db;
+    auth: AuthProvider;
+    events: EventPublisher;
+    metricsPublisher: MetricsPublisher;
+    env: Env;
+    captureCognitoIdentityCommand: CaptureCognitoIdentityCommand;
+  }) {
+    this.db = db;
+    this.auth = auth;
+    this.events = events;
+    this.metrics = metricsPublisher;
+    this.env = env;
+    this.captureCognitoIdentityCommand = captureCognitoIdentityCommand;
+  }
+
+  // The workflow span carries the same fields as this flow's log lines, so the trace
+  // and the logs tell one story. `auth_type` separates it from
+  // register-passwordless.ts's, which shares the `register` name.
+  // WARNING: Never put PII on a span attribute — no plaintext email (email_hash only),
+  // no password, no token. See [[logging-context]]
+  async execute(input: RegisterInput): Promise<User> {
+    return withWorkflowSpan(
+      "register",
+      { app_event: "register_started", auth_type: "PASSWORD", email_hash: hashEmail(input.email) },
+      () => this.doExecute(input),
+    );
+  }
+
+  private async doExecute(input: RegisterInput): Promise<User> {
+    // Only email_hash goes in the CONTEXT — context fields stick to every
+    // later line of the request, including `request completed`. The plaintext
+    // email is passed per-call-site instead, so it appears on the auth-flow
+    // lines and nowhere else. (Putting it in the context leaked it onto every
+    // request log; caught by the PII check in JE-77's acceptance criteria.)
+    setLogContext({ email_hash: hashEmail(input.email) });
+    appLogger.info(
+      { app_event: "register_started", email: maskEmail(input.email) },
+      "Starting user registration",
+    );
+
+    // CONTRACT: Reserve the id up front rather than letting the nano-id extension
+    // mint it — it is needed as both the row's `id` and the `appUserId` handed to
+    // `signUp`, which lands in Cognito before the row exists. The audit actor is NOT
+    // this id: `runAsActor(AuditActor.Register, ...)` stamps the semantic
+    // `users_api:register` value. See [[audit-fields]]
+    const id = generateId(MODEL_ID_PREFIXES.User);
+
+    // The failure branches are distinguished HERE rather than in the route's
+    // error handler: by the time an error reaches `setErrorHandler` it is just
+    // a typed error with no memory of which step produced it, and "Cognito
+    // rejected the signup" versus "the database write failed" are different
+    // operational problems. Each branch rethrows untouched, so the HTTP
+    // contract (409 email_exists, etc.) is unchanged.
+    let signUp;
+    try {
+      signUp = await this.auth.signUp(input.email, input.password, id, input.fullName);
+    } catch (err) {
+      appLogger.error(
+        {
+          err,
+          app_event: "register_failed",
+          email: maskEmail(input.email),
+          reason: err instanceof EmailAlreadyExistsError ? "duplicate_email" : "cognito_error",
+        },
+        err instanceof EmailAlreadyExistsError
+          ? "User registration failed: a user with this email already exists"
+          : "User registration failed: could not create the user in Cognito",
+      );
+      // The SAME reason string the log line above carries, same branch — a
+      // trace that disagreed with its own log would be worse than no trace.
+      trace
+        .getActiveSpan()
+        ?.setAttributes({
+          app_event: "register_failed",
+          reason: err instanceof EmailAlreadyExistsError ? "duplicate_email" : "cognito_error",
+        });
+      throw err;
+    }
+
+    const tags = input.e2eSource ? ["E2E Source"] : [];
+    let row;
+    try {
+      row = await runAsActor(AuditActor.Register, () =>
+        this.db.user.create({
+          data: {
+            id,
+            email: input.email,
+            cognitoSub: signUp.sub,
+            fullName: input.fullName,
+            address: (input.address as any) ?? null,
+            phoneNumber: input.phoneNumber ?? null,
+            tags,
+          },
+        }),
+      );
+    } catch (err) {
+      appLogger.error(
+        { err, app_event: "register_failed", email: maskEmail(input.email), reason: "database_error" },
+        "User registration failed: could not persist the user",
+      );
+      trace.getActiveSpan()?.setAttributes({ app_event: "register_failed", reason: "database_error" });
+      throw err;
+    }
+
+    // CONTRACT: Run this AFTER the user row is created — users_cognito_data.user_id
+    // is a NOT NULL FK to users.id and the command looks the user up by email.
+    // Best-effort: identity capture is a secondary snapshot, never a precondition, so
+    // a failure is logged and not propagated. Only outside production, where Cognito
+    // never invokes its Lambda triggers on the emulator.
+    if (this.env.NODE_ENV !== "production") {
+      try {
+        await this.captureCognitoIdentityCommand.execute({
+          version: "1",
+          triggerSource: "PostConfirmation_ConfirmSignUp",
+          region: this.env.AWS_REGION,
+          userPoolId: signUp.userPoolId,
+          userName: input.email,
+          callerContext: { awsSdkVersion: "local", clientId: signUp.clientId },
+          request: {
+            userAttributes: {
+              sub: signUp.sub,
+              email: signUp.email,
+              ...(signUp.emailVerified ? { email_verified: signUp.emailVerified } : {}),
+            },
+          },
+        });
+      } catch (err) {
+        appLogger.warn(
+          { err, app_event: "cognito_identity_capture_failed" },
+          "cognito identity capture failed (non-fatal)",
+        );
+      }
+    }
+
+    // CONTRACT: `fullName` and `createdAt` must travel with the event — the pipeline's
+    // payload schema rejects an envelope without the first, and the welcome email
+    // prints "Member Since" from the second and "Account ID" from `id`. `createdAt`
+    // comes off the row the `create` just returned, never a re-read. `cognitoSub` is
+    // already in hand and lands in the envelope's `author` block.
+    // See [[audit-fields]]
+    await this.events.publishUserCreated({
+      id,
+      email: input.email,
+      fullName: input.fullName,
+      createdAt: (row as any).createdAt,
+      cognitoSub: signUp.sub,
+    });
+
+    // Enrich the context so every LATER line of this request carries the id too.
+    setLogContext({ user_id: id });
+    appLogger.info(
+      { app_event: "register_succeeded", email: maskEmail(input.email), user_id: id },
+      "User registration completed",
+    );
+    trace.getActiveSpan()?.setAttributes({ app_event: "register_succeeded", user_id: id });
+
+    // Fire-and-forget: awaited so a slow CloudWatch shows up in the request's own
+    // duration rather than as an unhandled rejection after the response. The call
+    // itself never throws (see MetricsPublisher).
+    //
+    // Dimensions are exactly { Service: "users" } — the dashboards query that
+    // exact set, and a mismatch returns an EMPTY result rather than an error.
+    await this.metrics.publish("users_registered_total", 1, { Service: "users" });
+
+    return toDomain(row as any);
+  }
+}

@@ -1,0 +1,54 @@
+import { PrismaPg } from "@prisma/adapter-pg";
+import { readReplicas } from "@prisma/extension-read-replicas";
+import { PrismaClient } from "../../generated/prisma/client.ts";
+import { envSchema, type Env } from "#config/env.schema";
+import { crossCuttingExtension } from "./prisma-extensions.ts";
+import { attachSqlLogging } from "./sql-logging.ts";
+
+type PrismaConfig = Pick<Env, "DATABASE_WRITER_URL" | "DATABASE_READER_URL">;
+
+// CONTRACT: Apply `readReplicas` LAST, outermost. Extensions compose onion-style, and
+// only as the outer layer can it route every call — including the ones our own query
+// extensions make via `query(args)` — to the primary or a replica. Applied first, a
+// rewritten call like soft-delete's `delete` -> `update` bypasses routing entirely.
+// Reads go to the replica, writes to the primary; `$primary()` forces the primary for
+// read-your-writes.
+export function createPrismaClient(config: PrismaConfig) {
+  const writerAdapter = new PrismaPg({ connectionString: config.DATABASE_WRITER_URL });
+  const readerAdapter = new PrismaPg({ connectionString: config.DATABASE_READER_URL });
+
+  // `emit: "event"` is what makes `$on("query", …)` fire at all — the default,
+  // `emit: "stdout"`, would have Prisma print the statement ITSELF, unstructured
+  // and with no service_name, which is exactly the failure Tracking hit with
+  // SQLAlchemy's echo=True (see shared/db/sql-logging.ts for the full story).
+  // Declared even when echo is off: the listener is what decides, and a client
+  // built without this option could never be instrumented later.
+  const queryLog = [{ emit: "event" as const, level: "query" as const }];
+
+  const replicaClient = new PrismaClient({ adapter: readerAdapter, log: queryLog });
+  const writerClient = new PrismaClient({ adapter: writerAdapter, log: queryLog });
+
+  // BOTH clients, not just the writer. Reads are routed to the replica by the
+  // extension below, so instrumenting only the primary would log every write and
+  // silently miss every SELECT — the majority of this service's traffic, and the
+  // half most likely to be the one someone is trying to explain.
+  attachSqlLogging(writerClient);
+  attachSqlLogging(replicaClient);
+
+  return writerClient
+    .$extends(crossCuttingExtension)
+    .$extends(readReplicas({ replicas: [replicaClient] }));
+}
+
+export type Db = ReturnType<typeof createPrismaClient>;
+
+// CONTRACT: Build the client LAZILY, and import this bridge nowhere new.
+// Parsing the environment at module-eval time kills the process on import,
+// before Nest can report which variable is missing. PrismaModule provides the
+// real client; this disappears once every consumer resolves DB from it.
+let lazyDb: Db | undefined;
+
+export function getDb(): Db {
+  lazyDb ??= createPrismaClient(envSchema.parse(process.env));
+  return lazyDb;
+}
