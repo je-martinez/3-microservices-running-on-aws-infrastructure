@@ -80,13 +80,20 @@ function toOpenApiSchema(schema: ZodType): Record<string, unknown> {
 
 // Drops components nothing $refs — same behaviour as pruneOrphanComponents in
 // the Fastify generator this replaces. Unreferenced schemas are Apidog noise.
+// Iterate until stable: a component only reached from another orphan (e.g.
+// Notification via a pruned NotificationsPage) must fall too.
 function pruneOrphans(document: OpenAPIObject): OpenAPIObject {
   const schemas = document.components?.schemas;
   if (!schemas) return document;
-  const serialized = JSON.stringify(document);
-  for (const name of Object.keys(schemas)) {
-    if (serialized.split(`"#/components/schemas/${name}"`).length - 1 < 1) {
-      delete schemas[name];
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const serialized = JSON.stringify(document);
+    for (const name of Object.keys(schemas)) {
+      if (serialized.split(`"#/components/schemas/${name}"`).length - 1 < 1) {
+        delete schemas[name];
+        changed = true;
+      }
     }
   }
   return document;
@@ -117,6 +124,16 @@ export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
       Object.entries(COMPONENTS).map(([name, schema]) => [name, toOpenApiSchema(schema) as never]),
     ),
   };
+
+  // CONTRACT: NotificationsPage.items must $ref Notification — `reused: "inline"`
+  // above would embed the item schema and the pruner would drop Notification as
+  // an orphan. Match the Fastify artifact Apidog already imports.
+  const page = document.components.schemas.NotificationsPage as
+    | { properties?: { items?: { items?: unknown } } }
+    | undefined;
+  if (page?.properties?.items) {
+    page.properties.items.items = { $ref: "#/components/schemas/Notification" };
+  }
 
   return pruneOrphans(document);
 }

@@ -1,4 +1,5 @@
 import { Body, Controller, Headers, HttpCode, HttpException, HttpStatus, Post } from "@nestjs/common";
+import { ApiHeader, ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { AppConfigService } from "#config/config.module";
 import { Public } from "#shared/auth/public.decorator";
 import {
@@ -12,6 +13,7 @@ import { verifyWebhookSecret } from "#features/users/webhooks/verify-secret";
 // Cognito Lambda shim and the service itself, so the shared secret is its only
 // guard. Keep the payload OUT of ZodValidationPipe: parse manually so an invalid
 // payload answers 422 rather than the schema-validation 400.
+@ApiTags("webhooks")
 @Controller("v1/webhooks")
 export class CognitoWebhookController {
   constructor(
@@ -22,6 +24,40 @@ export class CognitoWebhookController {
   @Post("cognito")
   @Public()
   @HttpCode(200)
+  @ApiOperation({
+    operationId: "cognitoWebhook",
+    summary: "Cognito PostConfirmation trigger webhook",
+  })
+  @ApiHeader({
+    name: "x-webhook-secret",
+    required: false,
+    description:
+      "Shared secret guarding the Cognito webhook. Required in practice — a missing or wrong " +
+      "value is rejected 401 by the handler (not schema-validated to a 400).",
+  })
+  @ApiResponse({
+    status: 200,
+    schema: {
+      type: "object",
+      properties: { status: { type: "string" } },
+      required: ["status"],
+      additionalProperties: false,
+    },
+  })
+  @ApiResponse({ status: 401, schema: { $ref: "#/components/schemas/Error" } })
+  @ApiResponse({
+    status: 422,
+    schema: {
+      type: "object",
+      properties: {
+        error: { type: "string", enum: ["invalid_payload"] },
+        details: { type: "array", items: {} },
+      },
+      required: ["error", "details"],
+      additionalProperties: false,
+    },
+  })
+  @ApiResponse({ status: 500, schema: { $ref: "#/components/schemas/Error" } })
   async cognito(
     @Headers("x-webhook-secret") secret: string | string[] | undefined,
     @Body() body: unknown,

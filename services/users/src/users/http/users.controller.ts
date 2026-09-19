@@ -13,6 +13,15 @@ import {
   UseInterceptors,
 } from "@nestjs/common";
 import { CommandBus, QueryBus } from "@nestjs/cqrs";
+import { ApiBody, ApiHeader, ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
+
+const X_USER_ID = {
+  name: "x-user-id",
+  required: false,
+  description:
+    "Cognito subject forwarded by the API Gateway authorizer. Required in practice — " +
+    "a request without it resolves no current user and is answered 404 (not a 400).",
+} as const;
 import { AppConfigService } from "#config/config.module";
 import { Public } from "#shared/auth/public.decorator";
 import type { CurrentUser } from "#shared/auth/current-user";
@@ -49,6 +58,7 @@ import { CurrentUserParam } from "./current-user.decorator.ts";
 import { CurrentUserInterceptor } from "./current-user.interceptor.ts";
 import { bearerToken, serializeUser } from "./serializers.ts";
 
+@ApiTags("users")
 @Controller("v1/users")
 @UseInterceptors(CurrentUserInterceptor)
 export class UsersController {
@@ -62,6 +72,10 @@ export class UsersController {
   @Post("register")
   @Public()
   @HttpCode(201)
+  @ApiOperation({ operationId: "registerUser", summary: "Register a new user" })
+  @ApiBody({ schema: { $ref: "#/components/schemas/RegisterInput" } })
+  @ApiResponse({ status: 201, schema: { $ref: "#/components/schemas/User" } })
+  @ApiResponse({ status: 409, schema: { $ref: "#/components/schemas/Error" } })
   async register(
     @Body(new ZodValidationPipe(RegisterInputSchema))
     body: {
@@ -84,6 +98,13 @@ export class UsersController {
   @Post("register/passwordless")
   @Public()
   @HttpCode(201)
+  @ApiOperation({
+    operationId: "registerPasswordlessUser",
+    summary: "Register a new passwordless user (OTP-only login)",
+  })
+  @ApiBody({ schema: { $ref: "#/components/schemas/RegisterPasswordlessInput" } })
+  @ApiResponse({ status: 201, schema: { $ref: "#/components/schemas/User" } })
+  @ApiResponse({ status: 409, schema: { $ref: "#/components/schemas/Error" } })
   async registerPasswordless(
     @Body(new ZodValidationPipe(RegisterPasswordlessInputSchema))
     body: {
@@ -105,6 +126,10 @@ export class UsersController {
   @Post("login")
   @Public()
   @HttpCode(200)
+  @ApiOperation({ operationId: "loginUser", summary: "Log in and obtain tokens" })
+  @ApiBody({ schema: { $ref: "#/components/schemas/LoginInput" } })
+  @ApiResponse({ status: 200, schema: { $ref: "#/components/schemas/AuthTokens" } })
+  @ApiResponse({ status: 401, schema: { $ref: "#/components/schemas/Error" } })
   async login(
     @Body(new ZodValidationPipe(LoginInputSchema)) body: { email: string; password: string },
   ) {
@@ -114,6 +139,13 @@ export class UsersController {
   @Post("refresh")
   @Public()
   @HttpCode(200)
+  @ApiOperation({
+    operationId: "refreshToken",
+    summary: "Exchange a refresh token for new id/access tokens",
+  })
+  @ApiBody({ schema: { $ref: "#/components/schemas/RefreshInput" } })
+  @ApiResponse({ status: 200, schema: { $ref: "#/components/schemas/RefreshedTokens" } })
+  @ApiResponse({ status: 401, schema: { $ref: "#/components/schemas/Error" } })
   async refresh(
     @Body(new ZodValidationPipe(RefreshInputSchema)) body: { refreshToken: string },
   ) {
@@ -126,6 +158,23 @@ export class UsersController {
   // a caller with no identity. See [[users-service-design]]
   @Post("logout")
   @HttpCode(204)
+  @ApiOperation({
+    operationId: "logoutUser",
+    summary: "Revoke the caller's Cognito session",
+    description:
+      "Globally signs the caller out, invalidating the id, access and refresh tokens Cognito " +
+      "issued to them. Idempotent: an already-revoked or expired token also answers 204, because " +
+      "the session being gone is the requested outcome.",
+  })
+  @ApiHeader({
+    name: "authorization",
+    required: false,
+    description:
+      "Bearer <Cognito access token>. The same header the gateway authorizer reads; the access " +
+      "token is what authorizes the revocation, so no body is needed.",
+  })
+  @ApiResponse({ status: 204, description: "Default Response" })
+  @ApiResponse({ status: 401, schema: { $ref: "#/components/schemas/Error" } })
   async logout(@Headers("authorization") authorization: string | undefined): Promise<void> {
     const accessToken = bearerToken(authorization);
     // A caller past the guard holds an x-user-id but may still have sent no
@@ -139,6 +188,13 @@ export class UsersController {
   @Post("otp/start")
   @Public()
   @HttpCode(200)
+  @ApiOperation({
+    operationId: "startOtpChallenge",
+    summary: "Start an OTP login challenge (password or passwordless users)",
+  })
+  @ApiBody({ schema: { $ref: "#/components/schemas/OtpStartInput" } })
+  @ApiResponse({ status: 200, schema: { $ref: "#/components/schemas/OtpStartResponse" } })
+  @ApiResponse({ status: 401, schema: { $ref: "#/components/schemas/Error" } })
   async otpStart(@Body(new ZodValidationPipe(OtpStartInputSchema)) body: { email: string }) {
     return this.commandBus.execute(new StartOtpChallengeCommand(body));
   }
@@ -146,6 +202,13 @@ export class UsersController {
   @Post("otp/verify")
   @Public()
   @HttpCode(200)
+  @ApiOperation({
+    operationId: "verifyOtpChallenge",
+    summary: "Verify an OTP code and obtain tokens",
+  })
+  @ApiBody({ schema: { $ref: "#/components/schemas/OtpVerifyInput" } })
+  @ApiResponse({ status: 200, schema: { $ref: "#/components/schemas/AuthTokens" } })
+  @ApiResponse({ status: 401, schema: { $ref: "#/components/schemas/Error" } })
   async otpVerify(
     @Body(new ZodValidationPipe(OtpVerifyInputSchema))
     body: { email: string; session: string; code: string },
@@ -158,6 +221,15 @@ export class UsersController {
   @Post("password/forgot")
   @Public()
   @HttpCode(202)
+  @ApiOperation({
+    operationId: "forgotPassword",
+    summary: "Request a password reset code by email",
+    description:
+      "Always answers 202 with the same body, whether or not the email belongs to an account — " +
+      "the response deliberately does not reveal which.",
+  })
+  @ApiBody({ schema: { $ref: "#/components/schemas/ForgotPasswordInput" } })
+  @ApiResponse({ status: 202, schema: { $ref: "#/components/schemas/PasswordResetAccepted" } })
   async forgotPassword(
     @Body(new ZodValidationPipe(ForgotPasswordInputSchema)) body: { email: string },
   ) {
@@ -168,6 +240,13 @@ export class UsersController {
   @Post("password/confirm")
   @Public()
   @HttpCode(200)
+  @ApiOperation({
+    operationId: "confirmPasswordReset",
+    summary: "Confirm a password reset with the emailed code",
+  })
+  @ApiBody({ schema: { $ref: "#/components/schemas/ConfirmPasswordResetInput" } })
+  @ApiResponse({ status: 200, schema: { $ref: "#/components/schemas/PasswordResetConfirmed" } })
+  @ApiResponse({ status: 401, schema: { $ref: "#/components/schemas/Error" } })
   async confirmPassword(
     @Body(new ZodValidationPipe(ConfirmPasswordResetInputSchema))
     body: { email: string; code: string; newPassword: string },
@@ -178,6 +257,10 @@ export class UsersController {
 
   @Get("me")
   @UseInterceptors(MeCacheInterceptor)
+  @ApiOperation({ operationId: "getMe", summary: "Get the current user's profile" })
+  @ApiHeader(X_USER_ID)
+  @ApiResponse({ status: 200, schema: { $ref: "#/components/schemas/User" } })
+  @ApiResponse({ status: 404, schema: { $ref: "#/components/schemas/Error" } })
   async me(@CurrentUserParam() currentUser: CurrentUser) {
     const user = await this.queryBus.execute(new GetMeQuery(currentUser));
     // CONTRACT: The handler returns null for a routine miss; the controller —
@@ -187,6 +270,11 @@ export class UsersController {
   }
 
   @Patch("me")
+  @ApiOperation({ operationId: "updateMe", summary: "Update the current user's profile" })
+  @ApiHeader(X_USER_ID)
+  @ApiBody({ schema: { $ref: "#/components/schemas/UpdateProfileInput" } })
+  @ApiResponse({ status: 200, schema: { $ref: "#/components/schemas/User" } })
+  @ApiResponse({ status: 404, schema: { $ref: "#/components/schemas/Error" } })
   async updateMe(
     @CurrentUserParam() currentUser: CurrentUser,
     @Body(new ZodValidationPipe(UpdateProfileInputSchema))
@@ -208,6 +296,11 @@ export class UsersController {
   // must not be echoed back. See [[soft-delete]]
   @Delete("me")
   @HttpCode(204)
+  @ApiOperation({ operationId: "deleteMe", summary: "Delete the current user's account" })
+  @ApiHeader(X_USER_ID)
+  @ApiResponse({ status: 204, description: "Default Response" })
+  @ApiResponse({ status: 404, schema: { $ref: "#/components/schemas/Error" } })
+  @ApiResponse({ status: 502, schema: { $ref: "#/components/schemas/Error" } })
   async deleteMe(@CurrentUserParam() currentUser: CurrentUser): Promise<void> {
     const result = await this.commandBus.execute(new DeleteAccountCommand(currentUser));
     if (result !== "deleted") throw new NotFoundException({ error: "not_found" });
@@ -216,6 +309,17 @@ export class UsersController {
   // CONTRACT: This endpoint sets the password and clears `mustChangePassword`,
   // nothing else. Keep it separate from PATCH /v1/users/me. See [[audit-fields]]
   @Patch("me/password")
+  @ApiOperation({
+    operationId: "changeMyPassword",
+    summary: "Change the current user's password",
+    description:
+      "Sets a new password for the authenticated caller and clears mustChangePassword. " +
+      "Accepts no other user fields — use PATCH /v1/users/me for profile changes.",
+  })
+  @ApiHeader(X_USER_ID)
+  @ApiBody({ schema: { $ref: "#/components/schemas/ChangePasswordInput" } })
+  @ApiResponse({ status: 200, schema: { $ref: "#/components/schemas/User" } })
+  @ApiResponse({ status: 404, schema: { $ref: "#/components/schemas/Error" } })
   async changePassword(
     @CurrentUserParam() currentUser: CurrentUser,
     @Body(new ZodValidationPipe(ChangePasswordInputSchema)) body: { newPassword: string },

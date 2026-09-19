@@ -1,0 +1,46 @@
+# Users service — local REST Client requests (VS Code humao.rest-client).
+# Bring the stack up first: `make up` (users is published on :3000).
+# Run a request by clicking "Send Request" above it. Run Register before
+# the authenticated requests so `{{register.response.body.$.id}}` is populated.
+
+@baseUrl = http://localhost:3000
+
+### Health
+GET {{baseUrl}}/v1/health
+
+### Register a new user  (captures `id` for the authenticated requests below)
+# @name register
+POST {{baseUrl}}/v1/users/register
+Content-Type: application/json
+
+{
+  "email": "dev@example.com",
+  "password": "Passw0rd!",
+  "fullName": "Dev User",
+  "phoneNumber": "+10000000000",
+  "e2eSource": false
+}
+
+### Login  (exercises the auth endpoint; returns { idToken, accessToken })
+# @name login
+POST {{baseUrl}}/v1/users/login
+Content-Type: application/json
+
+{
+  "email": "dev@example.com",
+  "password": "Passw0rd!"
+}
+
+### Get me  (identity via x-user-id = the id returned by Register)
+GET {{baseUrl}}/v1/users/me
+x-user-id: {{register.response.body.$.id}}
+
+### Update me
+PATCH {{baseUrl}}/v1/users/me
+Content-Type: application/json
+x-user-id: {{register.response.body.$.id}}
+
+{
+  "fullName": "Dev User (edited)",
+  "phoneNumber": "+10000000001"
+}
