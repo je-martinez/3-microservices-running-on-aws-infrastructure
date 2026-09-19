@@ -11,6 +11,15 @@ import (
 	tagtype "github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/mysql/tagtype"
 )
 
+type Outbox struct {
+	ID             []byte
+	CreatedAt      time.Time
+	ScheduledAt    time.Time
+	Metadata       sql.NullString
+	Payload        []byte
+	TimesAttempted int32
+}
+
 type Tracking struct {
 	ID              string
 	UserID          string

@@ -44,6 +44,7 @@ const (
 	pkgApp        = modulePath + "/internal/app"
 	pkgNotify     = modulePath + "/internal/adapter/notify"
 	pkgBus        = modulePath + "/internal/bus"
+	pkgOutbox     = modulePath + "/internal/outbox"
 	pkgLogging    = modulePath + "/internal/platform/logging"
 	pkgConfig     = modulePath + "/internal/platform/config"
 	pkgMain       = modulePath + "/cmd/server"
@@ -83,6 +84,12 @@ var requiredSeams = []wiringSeam{
 	{pkgHTTP, "WrapUpdateStatus", "the carrier webhook and TestMode progression dispatch with no pipeline: no carrier_status_update span, and a rejected transition logs no reason"},
 	{pkgHTTP, "WrapDeleteByUser", "the cascade leg dispatches with no pipeline, so a 500 mid-cascade carries neither the *_started nor the *_failed line that shows how far it got"},
 	{pkgHTTP, "WrapE2ECleanup", "the teardown dispatches with no pipeline: no e2e_cleanup span and no deleted_count on the success line, which is what makes a teardown diagnosable"},
+
+	// ── The transactional outbox ────────────────────────────────────────────
+	{pkgMySQL, "NewOutboxWriter", "no transition records an outbox row, so the poller finds nothing and NO status notification is ever sent — while every write still commits and every response still looks correct"},
+	{pkgMySQL, "WithOutbox", "the outbox writer is built and handed to nothing: the repository transitions without it, so the table stays empty and the poller has nothing to publish"},
+	{pkgOutbox, "NewPoller", "nothing drains the outbox: every transition records a message that is never published, the table grows without bound, and no customer is emailed or pushed to again"},
+	{pkgNotify, "NewOutboxSNSPublisher", "the poller has no way to turn a stored message back into an SNS publish"},
 
 	// ── Metrics ─────────────────────────────────────────────────────────────
 	{pkgCloudWatch, "NewPublisher", "no custom metric is ever published; every 3MRAI dashboard panel for this service reads 'no data'"},

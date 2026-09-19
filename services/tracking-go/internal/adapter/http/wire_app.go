@@ -58,6 +58,17 @@ type AppRouterOptions struct {
 	Publisher sqs.Publisher
 	Hook      ProgressionHook
 
+	// Outbox makes the transition record its event in the same transaction as the
+	// business rows, for the poller to publish after the commit.
+	//
+	// CONTRACT: When this is set, the INLINE publisher is deliberately left nil —
+	// see the carrier wiring below. Wiring both means every transition is
+	// published twice: once inline and once by the poller, and the customer gets
+	// two emails for one status change. Nil here keeps the pre-outbox inline
+	// publish, which is what an environment whose migration has not run needs.
+	// See [[cqrs]]
+	Outbox *adaptermysql.OutboxWriter
+
 	// OrderCacheInvalidator sweeps ORDERS' cached order-plus-tracking bodies on
 	// a status change. Optional in the same sense as Publisher: nil leaves those
 	// entries to expire by Orders' own TTL, which is a degraded read and never a
@@ -154,8 +165,11 @@ func NewAppRouter(opts AppRouterOptions) *gin.Engine {
 	// The carrier webhook. Its own external key, declared at the group level.
 	RegisterCarrierRoutes(router, NewCarrierHandler(
 		app.NewUpdateStatus(
-			adaptermysql.NewStatusRepository(opts.WriterDB),
-			notify.NewStatusEventPublisher(opts.Publisher),
+			statusRepository(opts),
+			// CONTRACT: nil when the outbox is wired. The two publish paths are
+			// mutually exclusive, and a nil publisher is the shape this use case
+			// already documents for "announce nothing here".
+			inlineStatusPublisher(opts),
 			notify.NewTrackingCacheInvalidator(gateway, log),
 			// CONTRACT: Clearing only this service's Redis keys is not enough.
 			// Tracking is read exclusively through Orders' combined response, so
@@ -193,4 +207,28 @@ func NewAppRouter(opts AppRouterOptions) *gin.Engine {
 	}
 
 	return router
+}
+
+// statusRepository builds the transition's repository, with the outbox when one
+// is configured.
+func statusRepository(opts AppRouterOptions) *adaptermysql.StatusRepository {
+	if opts.Outbox == nil {
+		return adaptermysql.NewStatusRepository(opts.WriterDB)
+	}
+	return adaptermysql.NewStatusRepository(opts.WriterDB,
+		adaptermysql.WithOutbox(opts.Outbox))
+}
+
+// inlineStatusPublisher returns the post-commit publisher, or nil once the outbox
+// owns publishing.
+//
+// CONTRACT: Return nil whenever an outbox is wired. Returning both makes every
+// transition publish twice — inline AND from the poller — and the two are
+// indistinguishable downstream except by the duplicate email the customer
+// receives. See [[cqrs]]
+func inlineStatusPublisher(opts AppRouterOptions) app.EventPublisher {
+	if opts.Outbox != nil {
+		return nil
+	}
+	return notify.NewStatusEventPublisher(opts.Publisher)
 }

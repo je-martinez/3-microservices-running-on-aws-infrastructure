@@ -14,14 +14,58 @@ import (
 // StatusRepository is the write side of a status transition: the unscoped lookup
 // the carrier webhook needs, and the transactional advance it shares with the
 // TestMode progression. It holds a *sql.DB, not a *Queries, because
-// ApplyTransition spans three statements that are one unit of work.
+// ApplyTransition spans four statements that are one unit of work.
 type StatusRepository struct {
 	db *sql.DB
+
+	// outbox is OPTIONAL. Nil means the transition persists and announces nothing
+	// durably, which is the only shape available before migration 000003 has run.
+	outbox *OutboxWriter
+
+	// failBeforeCommit aborts the unit of work AFTER every write, outbox row
+	// included.
+	//
+	// CONTRACT: TEST SEAM, nil in production. Observing that the outbox row shares
+	// this transaction needs a rollback AFTER that row is written, and every
+	// natural failure here occurs BEFORE it. Measured: without this seam, the
+	// mutation giving the outbox write its own transaction goes undetected.
+	// See [[cqrs]]
+	failBeforeCommit func() error
+}
+
+// StatusRepositoryOption configures the repository at construction.
+//
+// CONTRACT: The outbox arrives HERE, not as an ApplyTransition parameter. The
+// method's signature is the app.StatusWriter port, shared with the TestMode
+// progression, and widening a port for one collaborator's benefit makes every
+// other implementation carry it. See [[screaming-architecture]]
+type StatusRepositoryOption func(*StatusRepository)
+
+// WithOutbox makes the transition record its event in the SAME transaction as the
+// business rows.
+//
+// CONTRACT: This is what closes the loss window. Without it the SNS publish is a
+// second, independent operation, and a process dying between the commit and the
+// publish loses the customer's email and WebSocket push with nothing recording
+// that a notification was owed. See [[cqrs]]
+func WithOutbox(writer *OutboxWriter) StatusRepositoryOption {
+	return func(r *StatusRepository) { r.outbox = writer }
+}
+
+// WithFailureBeforeCommit installs the abort seam described on failBeforeCommit.
+//
+// CONTRACT: Tests only. Production never passes this.
+func WithFailureBeforeCommit(fail func() error) StatusRepositoryOption {
+	return func(r *StatusRepository) { r.failBeforeCommit = fail }
 }
 
 // NewStatusRepository wires the repository over an open pool.
-func NewStatusRepository(db *sql.DB) *StatusRepository {
-	return &StatusRepository{db: db}
+func NewStatusRepository(db *sql.DB, opts ...StatusRepositoryOption) *StatusRepository {
+	r := &StatusRepository{db: db}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
 }
 
 // GetByOrderID finds a LIVE tracking by order_id ALONE.
@@ -68,10 +112,11 @@ func (r *StatusRepository) GetByOrderID(ctx context.Context, orderID string) (do
 	}, nil
 }
 
-// ApplyTransition advances the parent, appends the history row, and RE-READS the
-// history in ONE transaction, all stamped from the use case's single `now`.
+// ApplyTransition advances the parent, appends the history row, RE-READS the
+// history, and — when an outbox is configured — records the event to publish, all
+// in ONE transaction stamped from the use case's single `now`.
 //
-// CONTRACT: The parent UPDATE and history INSERT share a transaction.
+// CONTRACT: All four statements share a transaction.
 // tracking_history's (tracking_id, status) primary key rejects a duplicate
 // transition, and outside a transaction that leaves the parent already advanced.
 //
@@ -153,11 +198,6 @@ func (r *StatusRepository) ApplyTransition(
 		return domain.TrackingWithHistory{}, err
 	}
 
-	if err = tx.Commit(); err != nil {
-		err = fmt.Errorf("mysql: commit: %w", err)
-		return domain.TrackingWithHistory{}, err
-	}
-
 	history := make([]domain.TrackingHistory, 0, len(rows))
 	for _, row := range rows {
 		history = append(history, domain.TrackingHistory{
@@ -190,7 +230,32 @@ func (r *StatusRepository) ApplyTransition(
 	updated.UpdatedAt = now
 	updated.History = history
 
-	return domain.TrackingWithHistory{Tracking: updated, History: history}, nil
+	result = domain.TrackingWithHistory{Tracking: updated, History: history}
+
+	// CONTRACT: The outbox row goes in BEFORE the commit, and its failure fails the
+	// transition. It is written last only because it carries the re-read history —
+	// the announced timeline must contain the transition being announced. A row
+	// written after the commit, or one whose failure was swallowed, is a second
+	// independent operation again and the table stops being an outbox.
+	if r.outbox != nil {
+		if err = r.outbox.Store(ctx, tx, result, string(t.Status), actor); err != nil {
+			return domain.TrackingWithHistory{}, err
+		}
+	}
+
+	// The test seam: everything above is written, nothing is committed yet.
+	if r.failBeforeCommit != nil {
+		if err = r.failBeforeCommit(); err != nil {
+			return domain.TrackingWithHistory{}, err
+		}
+	}
+
+	if err = tx.Commit(); err != nil {
+		err = fmt.Errorf("mysql: commit: %w", err)
+		return domain.TrackingWithHistory{}, err
+	}
+
+	return result, nil
 }
 
 // nullTimePtr converts a nullable DATETIME into the domain's pointer form. nil
