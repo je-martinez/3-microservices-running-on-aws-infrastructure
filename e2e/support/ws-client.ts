@@ -3,7 +3,19 @@ import WebSocket from "ws";
 export interface CollectedSocket {
   messages: unknown[];
   close(): void;
-  waitForCount(n: number, timeoutMs: number): Promise<void>;
+  /**
+   * CONTRACT: Pass `matches` whenever the socket carries more than one message type.
+   * Several producers publish to the SAME user socket (`TRACKING_STATUS_CHANGED` from
+   * the events pipeline, `NOTIFICATION_CREATED` from Users), so an unfiltered wait is
+   * satisfied by frames the caller never asked for and the assertion after it then
+   * reads a foreign shape — `.map((m) => m.status)` on a notification yields
+   * `undefined`. See [[count-only-assertions-hide-cause]]
+   */
+  waitForCount(
+    n: number,
+    timeoutMs: number,
+    matches?: (message: unknown) => boolean,
+  ): Promise<void>;
 }
 
 /**
@@ -31,17 +43,22 @@ export async function openSocket(wsUrl: string, token: string): Promise<Collecte
   return {
     messages,
     close: () => socket.close(),
-    async waitForCount(n, timeoutMs) {
+    async waitForCount(n, timeoutMs, matches) {
       const deadline = Date.now() + timeoutMs;
-      while (messages.length < n) {
+      const matching = () => (matches ? messages.filter(matches) : messages);
+      while (matching().length < n) {
         if (Date.now() > deadline) {
-          // CONTRACT: Report WHAT arrived, never only how many. "got 3" is identical
-          // whether the fan-out dropped a message or the expectation was wrong, and
-          // the statuses name the missing transition immediately. See
-          // [[count-only-assertions-hide-cause]]
-          const detail = JSON.stringify(messages);
+          // CONTRACT: Report WHAT arrived, never only how many — and when filtering,
+          // report the ignored frames too. "got 3" is identical whether the fan-out
+          // dropped a message or the expectation was wrong, and under a filter a bare
+          // count cannot distinguish "nothing was published" from "everything published
+          // was another type". See [[count-only-assertions-hide-cause]]
+          const wanted = matching();
+          const ignored = matches ? messages.filter((m) => !matches(m)) : [];
+          const rest = matches ? `; ignored ${ignored.length}: ${JSON.stringify(ignored)}` : "";
           throw new Error(
-            `timed out waiting for ${n} messages; got ${messages.length}: ${detail}`,
+            `timed out waiting for ${n} messages; got ${wanted.length}: ` +
+              `${JSON.stringify(wanted)}${rest}`,
           );
         }
         await new Promise((r) => setTimeout(r, 250));
