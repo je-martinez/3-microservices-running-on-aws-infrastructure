@@ -24,6 +24,7 @@ related:
   - "[[2026-09-18-cqrs-rule-lived-only-in-the-vault-not-in-the-file-agents-read-first]]"
   - "[[orders-service-design]]"
   - "[[tracking-service-design]]"
+  - "[[2026-09-19-the-outbox-went-to-the-service-easiest-to-fix-not-the-one-that-loses-the-most]]"
 ---
 
 # CQRS Dispatch for Tracking and Orders

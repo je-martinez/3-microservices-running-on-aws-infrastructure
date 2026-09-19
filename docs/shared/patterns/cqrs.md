@@ -6,7 +6,7 @@ status: active
 created: 2026-06-26
 updated: 2026-09-19
 tags: [type/pattern, area/shared, status/active]
-related: ["[[dependency-injection]]", "[[screaming-architecture]]", "[[orders-service-design]]", "[[clean-architecture-divergence]]", "[[2026-09-18-cqrs-dispatch-tracking-orders-design]]", "[[2026-09-19-users-nestjs-migration-design]]", "[[users-service-design]]", "[[2026-09-19-test-local-app-interceptor-hides-composition-root-omission]]", "[[testing]]"]
+related: ["[[dependency-injection]]", "[[screaming-architecture]]", "[[orders-service-design]]", "[[clean-architecture-divergence]]", "[[2026-09-18-cqrs-dispatch-tracking-orders-design]]", "[[2026-09-19-users-nestjs-migration-design]]", "[[users-service-design]]", "[[2026-09-19-test-local-app-interceptor-hides-composition-root-omission]]", "[[testing]]", "[[2026-09-19-the-outbox-went-to-the-service-easiest-to-fix-not-the-one-that-loses-the-most]]"]
 ---
 
 # CQRS
@@ -97,3 +97,4 @@ review.
 - [[2026-09-19-users-nestjs-migration-design]] — Users' `@nestjs/cqrs` migration.
 - [[2026-09-19-test-local-app-interceptor-hides-composition-root-omission]] — composition-root registration vs test-local `APP_INTERCEPTOR`.
 - [[testing]] — bus-dispatch tests and mutation-testing of span/`reason`/`app_event` assertions.
+- [[2026-09-19-the-outbox-went-to-the-service-easiest-to-fix-not-the-one-that-loses-the-most]] — why Tracking got the outbox first and why that order was wrong by impact; also records that `oagudo/outbox`'s `Reader` takes no row lock (the poller's `FOR UPDATE SKIP LOCKED` claim is ours) and that InnoDB's scan-level locking makes the poller's composite index load-bearing.

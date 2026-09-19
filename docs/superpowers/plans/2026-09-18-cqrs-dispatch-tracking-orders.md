@@ -41,6 +41,7 @@ related:
   - "[[git-workflow]]"
   - "[[phase-c-review-flow]]"
   - "[[doc-propagation]]"
+  - "[[2026-09-19-the-outbox-went-to-the-service-easiest-to-fix-not-the-one-that-loses-the-most]]"
 ---
 
 # CQRS Dispatch — Tracking and Orders Implementation Plan

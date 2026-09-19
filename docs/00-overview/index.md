@@ -424,6 +424,10 @@ what makes a lesson reusable is the shape of the mistake, not the service it hap
 - [[2026-08-16-cloudwatch-lambda-log-prefix-defeats-json-parse]] — CloudWatch's Lambda log prefix defeats a JSON-anchored parse.
 - [[drawio-diagram-legibility]] — XML validity does not make a diagram legible; verify contrast and fit by rendering to PNG.
 
+### Decision criteria that were never argued
+
+- [[2026-09-19-the-outbox-went-to-the-service-easiest-to-fix-not-the-one-that-loses-the-most]] — the transactional outbox landed on the service where it was easiest to build correctly, not on the one whose lost event locks a user out of their account; "easiest to do well" substituted for "worst failure" with no bad decision to point at in review. Also records that `oagudo/outbox`'s `Reader` holds no row lock (so the poller is ours, and D6 of the spec is wrong about it) and that InnoDB's scan-level locking makes the poller's composite index load-bearing for `SKIP LOCKED`.
+
 ---
 
 ## Source Material

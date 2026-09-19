@@ -102,12 +102,42 @@ export default defineConfig({
     {
       name: "gateway",
       testDir: "./tests/gateway",
-      // Same split as `internal`: these three assert on delivered email.
+      // Same split as `internal`: these three assert on delivered email. The four
+      // tracking-reading specs are split out for the reason given on
+      // `gateway-tracking` below.
       testIgnore: [
         "**/otp-flow.spec.ts",
         "**/password-reset-flow.spec.ts",
         "**/delivered-emails.spec.ts",
+        "**/account-deletion.spec.ts",
+        "**/cache.spec.ts",
+        "**/tracking.spec.ts",
+        "**/tracking-flow.spec.ts",
       ],
+      use: { baseURL: process.env.API_GATEWAY_URL },
+    },
+    {
+      // CONTRACT: Keep the specs that READ a tracking in their own single-worker
+      // project. Order creation's `init-tracking` writes starve Tracking's read path —
+      // `GET /v1/trackings/{orderId}` 404s in ~400ms idle but takes 26s under the full
+      // gateway project, measured on the SERVICE PORT while `/v1/health` stayed at 2ms
+      // — and past Orders' 2s read budget `?includeTracking=true` yields `tracking:
+      // null`. The bulk's writes remain, so specs waiting on a tracking must poll.
+      //
+      // CONTRACT: Give this project NO `dependencies`, and do NOT make `gateway` depend
+      // on it for a quiet stack. Playwright CANCELS a project whose dependency failed:
+      // one failure here left 39 bulk specs unexecuted while the run still reported
+      // "22 passed". Same trap the `email` project documents below. See [[testing]]
+      name: "gateway-tracking",
+      testDir: "./tests/gateway",
+      testMatch: [
+        "**/account-deletion.spec.ts",
+        "**/cache.spec.ts",
+        "**/tracking.spec.ts",
+        "**/tracking-flow.spec.ts",
+      ],
+      fullyParallel: false,
+      workers: 1,
       use: { baseURL: process.env.API_GATEWAY_URL },
     },
     {

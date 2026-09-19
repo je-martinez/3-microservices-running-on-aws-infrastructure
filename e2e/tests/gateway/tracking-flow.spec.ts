@@ -32,6 +32,12 @@ const DELIVERY_TIMEOUT_MS = 90_000;
 // intermediate status rather than skipping straight from PLACED to DELIVERED.
 const POLL_INTERVAL_MS = 2_000;
 
+//: How long to wait for `init-tracking` to make the row readable. Sized against a
+// STARVED read, not an idle one: order creation across the suite pushes
+// `GET /v1/trackings/{orderId}` from ~400ms to 26s, so a 20s budget cannot succeed
+// under load. Bounded — an init call that never lands must still fail.
+const TRACKING_READY_TIMEOUT_MS = 60_000;
+
 //: How long to wait for the pipeline's emails once the journey is complete.
 // Locally the whole chain (producer → SQS → Lambda → SES → Mailpit) settles in a
 // few seconds; 45s is that with generous room for a cold Lambda, and bounded for
@@ -106,8 +112,12 @@ test("the full journey through the gateway: user → order → tracking → DELI
   // Summed from the poll budgets, not a magic number, so they cannot drift apart.
   // EMAIL_TIMEOUT_MS belongs in the sum because step 7's inbox wait runs AFTER the
   // progression: leave it out and a missing email aborts on Playwright's generic
-  // timeout instead of the diagnostic message waitForEmailTo raises.
-  test.setTimeout(DELIVERY_TIMEOUT_MS + EMAIL_TIMEOUT_MS + 60_000);
+  // timeout instead of the diagnostic message waitForEmailTo raises. Every poll this
+  // test runs must be a term here — a budget smaller than a poll it contains makes
+  // that poll's diagnostic message unreachable.
+  test.setTimeout(
+    TRACKING_READY_TIMEOUT_MS + DELIVERY_TIMEOUT_MS + EMAIL_TIMEOUT_MS + 60_000,
+  );
 
   // Fail here, not 90s later inside an email poll, if the inbox is missing.
   await assertMailpitReachable();
@@ -267,13 +277,17 @@ test("the full journey through the gateway: user → order → tracking → DELI
 
   // 3. TRACKING_STATUS_CHANGED → at least the DELIVERED transition.
   //
-  // CONTRACT: Match the DELIVERED subject; do NOT count five tracking emails. The
-  // contract is "a status transition produces an email for it", so a count breaks the
-  // day the progression cadence changes. DELIVERED is the one transition already
-  // proven above, so demanding it races nothing. Subject is built as the handler
-  // builds it (tracking-status-changed.ts): underscores to spaces, lowercased.
-  // See [[email-templates]]
-  const deliveredSubject = `Order ${order.id}: delivered`;
+  // CONTRACT: Match the DELIVERED subject; do NOT count five tracking emails. A count
+  // breaks the day the progression cadence changes, and DELIVERED is already proven
+  // above, so demanding it races nothing. See [[email-templates]]
+  //
+  // CONTRACT: Name the order by its formatted NUMBER, same rule as the confirmation
+  // above — `tracking-status-changed.ts` builds this subject from
+  // `order_number.formatted`, falling back to the raw id only for a pre-backfill
+  // order. Asserting the id fails against a CORRECT email and reads as a missing one:
+  // the inbox holds "Order 260919-TGV4WY: delivered", the lookup asks for
+  // "Order ord_FfLX…: delivered". See [[friendly-order-number]]
+  const deliveredSubject = `Order ${order.orderNumber?.formatted ?? order.id}: delivered`;
   const deliveredEmail = findBySubject(inbox, deliveredSubject);
   expect(
     deliveredEmail,
@@ -322,7 +336,7 @@ async function waitForTracking(
   api: Awaited<ReturnType<typeof gatewayClient>>,
   orderId: string,
 ): Promise<TrackingPayload> {
-  const deadline = Date.now() + 20_000;
+  const deadline = Date.now() + TRACKING_READY_TIMEOUT_MS;
   let lastStatus = 0;
   while (Date.now() < deadline) {
     const res = await api.get(`v1/trackings/${orderId}`);
@@ -331,7 +345,7 @@ async function waitForTracking(
     await new Promise((r) => setTimeout(r, 500));
   }
   throw new Error(
-    `No tracking for ${orderId} after 20s (last status ${lastStatus}). ` +
+    `No tracking for ${orderId} after ${TRACKING_READY_TIMEOUT_MS}ms (last status ${lastStatus}). ` +
       "The tracking is created by Orders calling POST /v1/trackings/init-tracking after its " +
       "own transaction commits — so this means that call never happened or failed. Check the " +
       "Orders logs for the init-tracking request and TRACKING_BASE_URL in .env.local.orders.",
