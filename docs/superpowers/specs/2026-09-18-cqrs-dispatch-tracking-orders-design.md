@@ -384,9 +384,15 @@ User's explicit choice over the recommended split (deferring the outbox). Each s
   construction (see Research findings), but MySQL is a lightly-travelled path for Wolverine
   (~27k downloads vs. 4.2M for Postgres) and this repo could be an early reporter on an edge
   case. The spike de-risks that exposure; it is not chasing an uncertified integration.
-- **Tracking**: `oagudo/outbox` v1.0.1 — explicit MySQL support, broker-agnostic (works with
-  the existing SNS publisher), and its "unmanaged" mode accepts a transaction the caller
-  already owns, which fits sqlc's `database/sql` usage.
+- **Tracking**: `oagudo/outbox` v1.0.1, **write side only** — `Writer.Unmanaged().Store(ctx,
+  tx, msg)` takes the `*sql.Tx` the caller already owns, which fits sqlc's `database/sql`
+  usage, and the library is broker-agnostic so the existing SNS publisher stays as-is. Its
+  `Reader` is **not** the poller: that claim is a plain `SELECT … LIMIT n` with no transaction
+  and no row lock, and the README's answer for multiple service instances is idempotent
+  consumers, broker dedup, or a single replica. Tracking runs several tasks and feeds a
+  consumer that sends customer email, so per-instance republishing is unacceptable. The poller
+  is ours — `services/tracking-go/internal/outbox/poller.go`, claiming rows with `FOR UPDATE
+  SKIP LOCKED`.
 
 #### Blast radius — only publishing handlers are touched
 

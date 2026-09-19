@@ -358,6 +358,9 @@ what makes a lesson reusable is the shape of the mistake, not the service it hap
 - [[2026-08-27-a-producer-side-test-proves-nothing-about-what-the-consumer-accepts]] — asserting what you emit says nothing about what the other side validates.
 - [[2026-09-04-a-concurrency-test-can-fail-by-starvation]] — a non-overlap assertion made after flushing every concurrent write passes vacuously.
 - [[2026-09-04-a-retrying-url-assertion-passes-mid-redirect]] — Playwright's retrying `toHaveURL` can pass in the frame before a guard's redirect finishes.
+- [[2026-09-15-a-live-push-cascade-invalidates-exact-ui-assertions]] — under live push, assert the absence of specific rows rather than the emptiness of a set, and pick the quietest fixture that still exercises the path.
+- [[2026-09-11-plans-locate-tests-by-name-not-by-importer]] — a plan that finds "the test file for X" by filename resemblance omitted the suites that enforce the wire contract, three times in one session.
+- [[2026-09-19-test-local-app-interceptor-hides-composition-root-omission]] — 255 passing tests could not see that `app.module.ts` never registered the interceptor, because each test registered it itself.
 - [[mocks-hide-schema-bugs]] — a green mocked-Prisma suite cannot catch a wrong assumption about the real schema.
 - [[2026-08-14-counter-metrics-need-a-clock-and-a-window]] — a counter without a clock and a window is not a rate, and reads as one.
 - [[2026-08-25-reads-are-not-exempt-from-observability]] — read endpoints need the same instrumentation as writes, and an unchecked precedent carried a false claim through implementation.
@@ -376,6 +379,8 @@ what makes a lesson reusable is the shape of the mistake, not the service it hap
 - [[2026-09-10-formfield-owns-its-control-bindings-ng8022]] — `[formField]` owns a fixed set of control bindings; binding one by hand is a compile error.
 - [[2026-09-10-formfield-reads-the-raw-dom-value]] — `[formField]` on a native input reads the raw DOM value, racing a sanitising `(input)` handler.
 - [[2026-09-10-signal-forms-required-accepts-whitespace]] — Signal Forms' `required()` accepts whitespace, so it is weaker than the `.trim()` guard it replaces.
+- [[2026-09-19-esbuild-drops-decorator-metadata]] — esbuild emits no `design:paramtypes`, so Nest type-based DI injects `undefined` under `tsx` and Vitest while the `tsc` build works.
+- [[2026-09-19-nest-grpc-interceptors-silently-dropped]] — `GrpcOptions` has no `interceptors` key, so interceptors passed under `server:` vanish without a warning and a wrong `x-api-key` returned user data.
 
 ### Browser and UI defects invisible to the obvious probe
 
@@ -408,6 +413,7 @@ what makes a lesson reusable is the shape of the mistake, not the service it hap
 - [[floci-rds-apigw-limits]] — Floci's RDS/API Gateway limits found during JE-36.
 - [[floci-sqs-lambda-docdb-support]] — probe of Floci's SQS, Lambda, and DocumentDB support ahead of the events-pipeline milestone.
 - [[floci-websocket-apigw-dynamodb-support]] — probe of Floci's WebSocket API Gateway + DynamoDB support for realtime events.
+- [[floci-sns-fanout-support]] — probe of Floci's SNS fan-out, raw message delivery, and `MessageAttributes` filter policies; all four assertions held, so the notifications design stood unchanged.
 - [[floci-elasticache-two-ports-and-provider-panic]] — a real Valkey container, a provider panic on `NodeGroups[0]`, and two disagreeing ports.
 - [[floci-storage-modes-and-tmp-corruption]] — `persistent` (not the README's `hybrid`) is the correct storage mode, plus a truncated-`.tmp` corruption pattern.
 - [[floci-recreate-destroys-backing-containers]] — Floci's persisted state must be destroyed together with its backing containers, or phantom clusters report "available".
@@ -423,6 +429,11 @@ what makes a lesson reusable is the shape of the mistake, not the service it hap
 
 - [[2026-08-16-cloudwatch-lambda-log-prefix-defeats-json-parse]] — CloudWatch's Lambda log prefix defeats a JSON-anchored parse.
 - [[drawio-diagram-legibility]] — XML validity does not make a diagram legible; verify contrast and fit by rendering to PNG.
+- [[2026-09-18-cqrs-rule-lived-only-in-the-vault-not-in-the-file-agents-read-first]] — the CQRS rule was in the vault and had been since the first commit, but `services/orders/CLAUDE.md` carried a narrower version, so an agent satisfied every sentence it was told to read and still inlined an EF query in a route.
+
+### Configuration whose absent value reads as a deliberate choice
+
+- [[2026-09-15-a-falsy-default-that-means-disabled-erases-the-difference-from-unconfigured]] — `|| ""` collapsed "unconfigured" into "disabled", so the web app's entire realtime surface was silently absent for a whole milestone; an off-state has to be observable.
 
 ### Decision criteria that were never argued
 
