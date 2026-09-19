@@ -191,9 +191,21 @@ func run() error {
 	// middleware, ticker, gateway or use case. Off means the dependency is never
 	// constructed: a nil interface for the middleware, the noop for the cache
 	// gateway, no ticker goroutine at all. See [[logging-context]]
+	// CONTRACT: Wrap ONCE here so no consumer gets the blocking publisher. The
+	// middleware and the cache gateway publish on the request goroutine, and Floci
+	// serializes PutMetricData: wired synchronously, a read answered in ~490ms.
+	//
+	// CONTRACT: ctx, the process-lifetime context — never a request's, which is
+	// cancelled when its response is written. See [[logging-context]]
 	var cwPublisher cloudwatch.Publisher
+	var metricsFlusher *cloudwatch.AsyncPublisher
 	if cfg.MetricsEnabled {
-		cwPublisher = cloudwatch.NewPublisher(awscw.NewFromConfig(awsCfg, cwOptions...))
+		metricsFlusher = cloudwatch.NewAsyncPublisher(
+			ctx,
+			cloudwatch.NewPublisher(awscw.NewFromConfig(awsCfg, cwOptions...)),
+			cloudwatch.AsyncOptions{Log: logger},
+		)
+		cwPublisher = metricsFlusher
 	}
 
 	// ── The cache gateway ────────────────────────────────────────────────────
@@ -424,6 +436,18 @@ func run() error {
 		}
 	})
 
+	// flushMetrics drains the buffered data and joins the flusher.
+	//
+	// CONTRACT: Call it AFTER stopTicker and srv.Shutdown — both publish, and a
+	// publish arriving after the queue closes panics on a send to a closed
+	// channel. Close bounds its own drain. See [[logging-context]]
+	flushMetrics := sync.OnceFunc(func() {
+		if metricsFlusher == nil {
+			return
+		}
+		metricsFlusher.Close()
+	})
+
 	// stopOutboxPoller joins the poller's goroutine, so the process does not exit
 	// mid-cycle with a claim transaction open — rows locked by a dead connection
 	// stay locked until InnoDB rolls it back, and every other task's poller skips
@@ -452,6 +476,7 @@ func run() error {
 		stopTicker()
 		stopOutboxPoller()
 		drainProgressions()
+		flushMetrics()
 		return err
 
 	case <-ctx.Done():
@@ -467,11 +492,13 @@ func run() error {
 			stopTicker()
 			stopOutboxPoller()
 			drainProgressions()
+			flushMetrics()
 			return err
 		}
 		stopTicker()
 		stopOutboxPoller()
 		drainProgressions()
+		flushMetrics()
 		logger.Info("http server stopped cleanly",
 			slog.String("app_event", "http_server_stopped"))
 		return nil

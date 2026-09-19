@@ -117,12 +117,13 @@ export default defineConfig({
       use: { baseURL: process.env.API_GATEWAY_URL },
     },
     {
-      // CONTRACT: Keep the specs that READ a tracking in their own single-worker
-      // project. Order creation's `init-tracking` writes starve Tracking's read path —
-      // `GET /v1/trackings/{orderId}` 404s in ~400ms idle but takes 26s under the full
-      // gateway project, measured on the SERVICE PORT while `/v1/health` stayed at 2ms
-      // — and past Orders' 2s read budget `?includeTracking=true` yields `tracking:
-      // null`. The bulk's writes remain, so specs waiting on a tracking must poll.
+      // CONTRACT: Keep the specs that READ a tracking in their own single-worker project
+      // while Tracking's read path carries a per-request floor. `GET
+      // /v1/trackings/{orderId}` 404s in ~400ms idle and 26s under the full gateway
+      // project, measured on the SERVICE PORT while `/v1/health` stayed at 2ms; past
+      // Orders' 2s budget `?includeTracking=true` yields `tracking: null`. `workers: 1`
+      // answers that FLOOR, not concurrency — 6 and 4 workers measured identically — so
+      // revisit it once Tracking stops publishing CloudWatch metrics synchronously here.
       //
       // CONTRACT: Give this project NO `dependencies`, and do NOT make `gateway` depend
       // on it for a quiet stack. Playwright CANCELS a project whose dependency failed:

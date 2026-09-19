@@ -93,6 +93,7 @@ var requiredSeams = []wiringSeam{
 
 	// ── Metrics ─────────────────────────────────────────────────────────────
 	{pkgCloudWatch, "NewPublisher", "no custom metric is ever published; every 3MRAI dashboard panel for this service reads 'no data'"},
+	{pkgCloudWatch, "NewAsyncPublisher", "every metric publish runs synchronously on the request goroutine again: PutMetricData is a blocking round-trip Floci serializes, so reads answer in hundreds of ms (11.5s once the queue accumulates) while the handler's own duration_ms still reads 0"},
 	{pkgCloudWatch, "StartTicker", "orders_by_tracking_status_total is never published and the status dashboards go flat"},
 	{pkgMain, "selectCacheMetrics", "bug #4: the cache gateway's metrics port falls back to the noop, so cache_requests_total and cache_operation_duration_ms are computed on every request and discarded"},
 
