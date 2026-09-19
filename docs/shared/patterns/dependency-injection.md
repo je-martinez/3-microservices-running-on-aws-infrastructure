@@ -4,9 +4,9 @@ type: pattern
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-07-12
+updated: 2026-09-19
 tags: [type/pattern, area/shared, status/active, area/users]
-related: ["[[cqrs]]"]
+related: ["[[cqrs]]", "[[2026-09-18-cqrs-dispatch-tracking-orders-design]]"]
 ---
 
 # Dependency injection
@@ -31,8 +31,18 @@ The Users service ([issue JE-39](https://linear.app/issue/JE-39)) implements the
 - **Type safety.** A module augmentation declares the shape of the container: `declare module "@fastify/awilix" { interface Cradle {...}; interface RequestCradle {...} }`, so `cradle` and `diScope.cradle` resolve to fully-typed collaborators instead of `unknown`.
 - **Test pattern.** Each test builds an isolated Awilix container (`createContainer({ injectionMode: "PROXY" })`) and registers mocks with `asValue`, then passes that container into `buildApp(container)` — instead of mocking a plain `deps` object. This means tests never touch the global `diContainer`.
 
+## Registration strategy per stack — auto vs. manual
+
+How handlers get registered into their DI container/bus varies deliberately by language, per
+[[2026-09-18-cqrs-dispatch-tracking-orders-design]]'s D5: **.NET** (Orders) uses Wolverine's
+convention-based discovery, free and automatic. **Go** (Tracking) uses manual wiring in
+`cmd/server/main.go` — type-safe dynamic registration is not possible in Go without
+`map[reflect.Type]any` and the assertions that follow, so full type safety is bought with the
+accepted cost of a wiring line per handler.
+
 ## Related
 
 - [[cqrs]] — the handlers wired through DI.
 - [[screaming-architecture]] — DI connects use-case folders to infrastructure at the edges.
 - [[audit-fields]] — the `AuditActor`/`AsyncLocalStorage` mechanism that stamps writes, distinct from `currentActor`.
+- [[2026-09-18-cqrs-dispatch-tracking-orders-design]] — the per-stack auto/manual registration decision (D5) summarized above, for Tracking (Go) and Orders (.NET).

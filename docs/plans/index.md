@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-09-18
+updated: 2026-09-19
 tags: [type/spec, area/shared, status/active]
 related:
   - "[[2026-09-10-in-app-notifications-design]]"
@@ -69,6 +69,9 @@ related:
   - "[[web-app-foundation-milestone]]"
   - "[[2026-09-04-web-gateway-integration-design]]"
   - "[[web-gateway-integration-milestone]]"
+  - "[[2026-09-18-cqrs-dispatch-tracking-orders-design]]"
+  - "[[2026-09-19-users-nestjs-migration-design]]"
+  - "[[cqrs-dispatch-all-services-milestone]]"
 ---
 
 # 3MRAI Plans — Index
@@ -138,6 +141,9 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[web-gateway-integration-milestone]] — logical execution plan for the Web Gateway Integration milestone: task sequence, phases, and blocking dependency graph for JE-237 through JE-245, plus JE-246 filed as a backend bug.
 - [[2026-09-10-in-app-notifications-design]] — design spec for an in-app notification inbox (bell panel, full-page list, live toasts): Postgres in Users (not DynamoDB/Cognito), SNS fan-out replacing the shared queue's point-to-point limit, a deliberately simple title/body/metadata model with no FK to `users` and no idempotency key, an in-process `sqs-consumer`, and Users pushing its own `NOTIFICATION_CREATED` WebSocket message. Corrects its own decision 2 mid-flight: `PLACED` is never emitted by Tracking, so `ORDER_CREATED` is the real trigger for the "order placed" copy variant.
 - [[2026-09-10-in-app-notifications]] — implementation plan for the notifications feature: the blocking Floci SNS fan-out POC (see [[floci-sns-fanout-support]]), the Terraform topic/queue/subscriptions, the three producers' SNS switch, the Users schema/consumer/endpoints/WebSocket push, and the web app's first WebSocket client, NgRx store, and the `brand-navy-light`/`neutral-bg` design tokens.
+- [[2026-09-18-cqrs-dispatch-tracking-orders-design]] — design spec for a CQRS command/query bus in Tracking (Go, hand-rolled generic bus) and Orders (.NET, Wolverine 6.39.0), plus a per-service transactional outbox, sequenced in two phases behind a review stop point; Users is out of scope, superseded by the NestJS migration below.
+- [[2026-09-19-users-nestjs-migration-design]] — design spec for migrating Users from Fastify+Awilix to NestJS to adopt `@nestjs/cqrs`, gated on all 84 E2E specs passing before Fastify is deleted, with five measured findings carried forward from a reverted hand-rolled-bus attempt.
+- [[cqrs-dispatch-all-services-milestone]] — logical execution plan for the CQRS Dispatch — All Services milestone: three independent workstreams (Tracking/Go, Orders/.NET/Wolverine, Users/NestJS), their internal phase dependencies, stop points, and the carry-forward observability findings that apply to all three.
 
 > [!note] No plan note for the AuditActor enum
 > [[2026-07-12-audit-actor-enum-design]] was implemented directly from the spec — there is no separate `writing-plans` plan for it.
@@ -206,3 +212,6 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-09-10-in-app-notifications-design]]
 - [[2026-09-10-in-app-notifications]]
 - [[floci-sns-fanout-support]]
+- [[2026-09-18-cqrs-dispatch-tracking-orders-design]]
+- [[2026-09-19-users-nestjs-migration-design]]
+- [[cqrs-dispatch-all-services-milestone]]
