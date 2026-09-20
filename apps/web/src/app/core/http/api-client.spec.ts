@@ -1,8 +1,10 @@
-import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
+import { WebTracerProvider } from '@opentelemetry/sdk-trace-web';
 import { firstValueFrom } from 'rxjs';
 
+import { rumPropagationInterceptor } from '../observability/rum-propagation-interceptor';
 import { ApiClient, ApiError } from './api-client';
 
 describe('ApiClient', () => {
@@ -127,5 +129,41 @@ describe('ApiClient', () => {
     expect(error).toBeInstanceOf(ApiError);
     expect(error.status).toBe(0);
     expect(error.body).toBeNull();
+  });
+});
+
+describe('ApiClient with rumPropagationInterceptor', () => {
+  let api: ApiClient;
+  let controller: HttpTestingController;
+
+  beforeAll(() => {
+    new WebTracerProvider().register();
+  });
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(withInterceptors([rumPropagationInterceptor])),
+        provideHttpClientTesting(),
+      ],
+    });
+    api = TestBed.inject(ApiClient);
+    controller = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => {
+    controller.verify();
+    TestBed.resetTestingModule();
+  });
+
+  it('carries the interceptor span traceId through to the ApiError it builds', async () => {
+    const response = firstValueFrom(api.get('/products'));
+
+    controller
+      .expectOne('/v1/products')
+      .flush({ message: 'boom' }, { status: 500, statusText: 'Internal Server Error' });
+
+    const error = (await response.catch((e: unknown) => e)) as ApiError;
+    expect(error.traceId).toMatch(/^[0-9a-f]{32}$/);
   });
 });

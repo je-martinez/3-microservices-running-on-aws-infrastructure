@@ -1,0 +1,142 @@
+{
+  "version": 8,
+  "dashboardId": "rum",
+  "title": "Web RUM",
+  "description": "Browser telemetry: Core Web Vitals, JS error volume, and browser-trace volume. Vitals cards read the level with MAX, one gauge per metric; the error and trace-volume cards SUM the count over the selected range.",
+  "role": "",
+  "owner": "3MRAI",
+  "created": "2026-09-19T00:00:00.000Z",
+  "tabs": [
+    {
+      "tabId": "vitals",
+      "name": "Web RUM",
+      "panels": [
+        {
+          "id": "card_lcp",
+          "type": "metric",
+          "title": "LCP (ms)",
+          "description": "Largest Contentful Paint, finalised at first interaction.",
+          "config": { "show_legends": false, "decimals": 0 },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT COALESCE(MAX(value), 0) AS total FROM \"web_vitals_lcp\"",
+              "customQuery": true,
+              "fields": {
+                "stream": "web_vitals_lcp",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [{ "label": "total", "alias": "total", "column": "total", "color": null, "aggregationFunction": null, "isDerived": false, "havingConditions": [] }],
+                "z": [],
+                "breakdown": [],
+                "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
+              },
+              "config": { "layer_type": "scatter", "weight_fixed": 1, "promql_legend": "" }
+            }
+          ],
+          "layout": { "x": 0, "y": 0, "w": 64, "h": 8, "i": 1 }
+        },
+        {
+          "id": "card_cls",
+          "type": "metric",
+          "title": "CLS",
+          "description": "Cumulative Layout Shift, accumulated over the tab's lifetime.",
+          "config": { "show_legends": false, "decimals": 3 },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT COALESCE(MAX(value), 0) AS total FROM \"web_vitals_cls\"",
+              "customQuery": true,
+              "fields": {
+                "stream": "web_vitals_cls",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [{ "label": "total", "alias": "total", "column": "total", "color": null, "aggregationFunction": null, "isDerived": false, "havingConditions": [] }],
+                "z": [],
+                "breakdown": [],
+                "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
+              },
+              "config": { "layer_type": "scatter", "weight_fixed": 1, "promql_legend": "" }
+            }
+          ],
+          "layout": { "x": 64, "y": 0, "w": 64, "h": 8, "i": 2 }
+        },
+        {
+          "id": "card_inp",
+          "type": "metric",
+          "title": "INP (ms)",
+          "description": "Interaction to Next Paint, only exists after interaction.",
+          "config": { "show_legends": false, "decimals": 0 },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT COALESCE(MAX(value), 0) AS total FROM \"web_vitals_inp\"",
+              "customQuery": true,
+              "fields": {
+                "stream": "web_vitals_inp",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [{ "label": "total", "alias": "total", "column": "total", "color": null, "aggregationFunction": null, "isDerived": false, "havingConditions": [] }],
+                "z": [],
+                "breakdown": [],
+                "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
+              },
+              "config": { "layer_type": "scatter", "weight_fixed": 1, "promql_legend": "" }
+            }
+          ],
+          "layout": { "x": 128, "y": 0, "w": 64, "h": 8, "i": 3 }
+        },
+        {
+          "id": "card_error_count",
+          "type": "metric",
+          "title": "JS errors",
+          "description": "Count of browser JS errors reported through RumErrorHandler, over the selected range.",
+          "config": { "show_legends": false, "decimals": 0 },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT COUNT(*) AS total FROM \"rum_logs\"",
+              "customQuery": true,
+              "fields": {
+                "stream": "rum_logs",
+                "stream_type": "logs",
+                "x": [],
+                "y": [{ "label": "total", "alias": "total", "column": "total", "color": null, "aggregationFunction": null, "isDerived": false, "havingConditions": [] }],
+                "z": [],
+                "breakdown": [],
+                "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
+              },
+              "config": { "layer_type": "scatter", "weight_fixed": 1, "promql_legend": "" }
+            }
+          ],
+          "layout": { "x": 0, "y": 8, "w": 96, "h": 8, "i": 4 }
+        },
+        {
+          "id": "card_browser_trace_volume",
+          "type": "metric",
+          "title": "Browser traces",
+          "description": "Count of distinct browser trace_ids landing in rum_traces over the selected range — page loads and navigations, one trace each.",
+          "config": { "show_legends": false, "decimals": 0 },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT COUNT(DISTINCT trace_id) AS total FROM \"rum_traces\"",
+              "customQuery": true,
+              "fields": {
+                "stream": "rum_traces",
+                "stream_type": "traces",
+                "x": [],
+                "y": [{ "label": "total", "alias": "total", "column": "total", "color": null, "aggregationFunction": null, "isDerived": false, "havingConditions": [] }],
+                "z": [],
+                "breakdown": [],
+                "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] }
+              },
+              "config": { "layer_type": "scatter", "weight_fixed": 1, "promql_legend": "" }
+            }
+          ],
+          "layout": { "x": 96, "y": 8, "w": 96, "h": 8, "i": 5 }
+        }
+      ]
+    }
+  ]
+}

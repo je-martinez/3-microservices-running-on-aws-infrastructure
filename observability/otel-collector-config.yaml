@@ -18,6 +18,16 @@ receivers:
       grpc:
         endpoint: 0.0.0.0:4317
 
+  # A SECOND OTLP receiver, port 4319, for browser RUM only. Isolation is
+  # structural rather than filter-based: a browser export can never land in the
+  # services' app_traces/metrics streams even if its resource.service.name is
+  # misconfigured, because it physically arrives on a different port.
+  # http only — a browser speaks OTLP/HTTP, never gRPC.
+  otlp/rum:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4319
+
   # Polls CloudWatch. AWS_ENDPOINT_URL redirects it to Floci locally.
   # ONE receiver, TWO signals: `logs` (ECS/RDS log groups) and `metrics` (the
   # services' custom business metrics). The same component does both — adding
@@ -726,6 +736,32 @@ exporters:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: metrics
 
+  # RUM traces — same OpenObserve instance and auth as the service traces
+  # above, its OWN stream. Encoding stays at the default (protobuf), like
+  # otlp_http/openobserve_traces.
+  otlp_http/openobserve_rum_traces:
+    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    headers:
+      Authorization: "Basic ${env:O2_BASIC_AUTH}"
+      stream-name: rum_traces
+
+  # RUM metrics (Web Vitals) — its own stream, same instance and auth.
+  otlp_http/openobserve_rum_metrics:
+    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    headers:
+      Authorization: "Basic ${env:O2_BASIC_AUTH}"
+      stream-name: rum_metrics
+
+  # RUM logs (browser JS errors) — its own stream. A stream-name header, like
+  # every log exporter above, is how OpenObserve separates them; there is no
+  # existing OTLP-logs exporter to model this one on, since the services log
+  # to OpenObserve over fluent_forward, not OTLP.
+  otlp_http/openobserve_rum_logs:
+    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    headers:
+      Authorization: "Basic ${env:O2_BASIC_AUTH}"
+      stream-name: rum_logs
+
 # Liveness surface for `make doctor`. Behind `profiles: [observability]`, so a
 # plain `docker compose up` leaves the collector down and the services' exports
 # fail with connection refused — silently, since a failed export is not a failed
@@ -843,3 +879,26 @@ service:
       # series instead of one per scrape, so batching ships real series.
       processors: [transform/collapse_metric_start_time, batch]
       exporters: [otlp_http/openobserve_metrics]
+
+    # Browser traces (document-load, navigation, the traceparent-joined HTTP
+    # spans). No transform/parse_body: OTLP arrives already structured. No
+    # filter/drop_asgi_transport_spans: that processor targets Python ASGI
+    # transport spans, which a browser SDK never emits.
+    traces/rum:
+      receivers: [otlp/rum]
+      # memory_limiter BEFORE batch, same reasoning as the traces pipeline
+      # above: limiting after the batcher has buffered spans limits nothing.
+      processors: [memory_limiter, batch]
+      exporters: [otlp_http/openobserve_rum_traces]
+
+    # Web Vitals, exported as OTLP metrics from the browser.
+    metrics/rum:
+      receivers: [otlp/rum]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_http/openobserve_rum_metrics]
+
+    # Browser JS errors, exported as OTLP logs from the browser.
+    logs/rum:
+      receivers: [otlp/rum]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_http/openobserve_rum_logs]

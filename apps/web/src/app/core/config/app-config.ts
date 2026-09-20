@@ -27,6 +27,12 @@ export interface AppConfig {
    * See [[2026-08-05-realtime-tracking-events-websocket-design]]
    */
   readonly wsUrl: string;
+  /**
+   * WHY: Off by default — the collector sits behind compose's `observability`
+   * profile, so default-on would spam failed exports on a plain `make up`.
+   * See [[2026-09-19-web-rum-integration-design]]
+   */
+  readonly rumEnabled: boolean;
 }
 
 /**
@@ -63,6 +69,7 @@ export function parseAppConfig(
     apiGatewayUrl: readString(env, 'NG_APP_API_GATEWAY_URL') || DEFAULT_API_GATEWAY_URL,
     geocodeEnabled: readString(env, 'NG_APP_GEOCODE_ENABLED') === 'true',
     wsUrl,
+    rumEnabled: readString(env, 'NG_APP_RUM_ENABLED') === 'true',
   };
 }
 
@@ -77,4 +84,5 @@ export const APP_CONFIG: AppConfig = parseAppConfig({
   NG_APP_API_GATEWAY_URL: import.meta.env.NG_APP_API_GATEWAY_URL,
   NG_APP_GEOCODE_ENABLED: import.meta.env.NG_APP_GEOCODE_ENABLED,
   NG_APP_WS_URL: import.meta.env.NG_APP_WS_URL,
+  NG_APP_RUM_ENABLED: import.meta.env.NG_APP_RUM_ENABLED,
 });
