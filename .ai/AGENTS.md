@@ -510,6 +510,14 @@ Do not assume parity with Claude Code:
 - **Five skills depending on Obsidian tooling** — `obsidian-bases`,
   `obsidian-cli`, `obsidian-markdown`, `json-canvas`, `defuddle` — excluded by
   decision.
+- **The `stripe-docs` skill** — it is a wrapper around the `stripe docs` CLI,
+  whose gated pages need `stripe login`, and its frontmatter is an
+  `allowed-tools` allowlist no target provider reads. The Stripe integration
+  *rules* do travel, via the `stripe-best-practices` skill.
+- **The Stripe MCP server** — deliberately not configured anywhere, in Claude
+  Code included. `stripe agent setup` would add it, but it reaches live Stripe
+  account data that writing the integration does not need. Use the Stripe
+  sandbox and the SDK instead; do not add that server to any provider's config.
 Note that **`scripts/validate-comments.py` IS portable and does travel** — it is a
 plain Python linter with no Claude Code dependency. Run it with the repo venv:
 `.venv/bin/python scripts/validate-comments.py --diff main`. It runs as a

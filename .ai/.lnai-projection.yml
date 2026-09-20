@@ -291,6 +291,36 @@ skills:
   # two DIFFERENT values for user_id and cognito_sub. A generic tutorial dilutes.
   golang-testing: exclude
 
+  # ─── 2026-09-19: Stripe payments milestone ─────────────────────────────────
+
+  # Stripe code lands in BOTH Users (NestJS) and Orders (.NET). Carries rules
+  # with key material attached: restricted keys over secret keys, webhook
+  # signature verification, never forward a raw card number.
+  stripe-best-practices: share
+
+  # Excluded on tooling: the skill IS the `stripe docs` CLI, gated behind
+  # `stripe login`, and its frontmatter is an `allowed-tools` allowlist no other
+  # provider reads. The integration rules travel via stripe-best-practices.
+  stripe-docs: exclude
+
+  # CONTRACT: No `mcp:` entry projects the Stripe MCP server. `stripe agent
+  # setup` would configure it; it reaches live account data the integration
+  # never needs.
+
+  # ─── 2026-09-19: two skills that had no entry and reached nobody ───────────
+
+  # Users runs @nestjs/platform-fastify with @nestjs/cqrs — NestJS is the
+  # framework, Fastify only the adapter. Module boundaries, DI and guards are
+  # decisions Fastify-level advice cannot reach, so both ship.
+  nestjs-best-practices: share
+
+  # Repo-local runbook over infra/scripts/advance_tracking.py, driving the real
+  # carrier webhook through the gateway. No Claude Code dependency; documents
+  # that a soft-deleted tracking row reads as missing and DELIVERED is terminal.
+  # WORKAROUND(provider): its `description` needs double-quoting on the COPY,
+  # same ": " hazard as floci. Never fix it in .claude/skills/.
+  advance-tracking: share
+
 subagents:
   # Implementers and the planner: safe to describe as roles.
   users-impl: role
