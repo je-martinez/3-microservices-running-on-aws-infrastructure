@@ -27,6 +27,10 @@ ARG NG_APP_API_GATEWAY_URL=/v1
 # address input rather than a field that 503s on every keystroke.
 ARG NG_APP_GEOCODE_ENABLED=false
 ARG NG_APP_WS_URL=
+# Whether the browser OpenTelemetry SDK boots. Default false: the collector sits
+# behind compose's `observability` profile, so a default-on image would export
+# into a host that does not resolve. See [[browser-rum]]
+ARG NG_APP_RUM_ENABLED=false
 
 FROM node:24-alpine AS base
 ENV PNPM_HOME="/pnpm"
@@ -63,6 +67,8 @@ ARG NG_APP_GEOCODE_ENABLED
 ENV NG_APP_GEOCODE_ENABLED=$NG_APP_GEOCODE_ENABLED
 ARG NG_APP_WS_URL
 ENV NG_APP_WS_URL=$NG_APP_WS_URL
+ARG NG_APP_RUM_ENABLED
+ENV NG_APP_RUM_ENABLED=$NG_APP_RUM_ENABLED
 # Source and build configuration. public/ holds favicon.ico (angular.json
 # `assets`), styles/tsconfig drive the compile. apps/web/design is NOT copied —
 # it is 2MB of static HTML design references for humans, excluded in
