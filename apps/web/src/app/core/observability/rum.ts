@@ -7,6 +7,7 @@ let started = false;
 let loggerProvider: LoggerProvider | undefined;
 let pageSpanAccessor: (() => Span | undefined) | undefined;
 let pageSpanStarter: ((name: string) => void) | undefined;
+let activePageRoute: string | undefined;
 
 /**
  * WHY: Exported and read-only so specs and manual checks can assert whether
@@ -29,22 +30,33 @@ export function getRumLoggerProvider(): LoggerProvider | undefined {
 }
 
 /**
- * WHY: Exported so rum-propagation-interceptor.ts (always loaded) can parent
- * its CLIENT span off the current page span WITHOUT statically importing
- * @opentelemetry/sdk-trace-web — same pattern as getRumLoggerProvider().
- * Undefined both when the flag is off and before rum-sdk.ts has started.
+ * WHY: Exported so rum-propagation-interceptor.ts (always loaded) can LINK
+ * its CLIENT span to the current page span WITHOUT statically importing
+ * @opentelemetry/sdk-trace-web. Undefined both when the flag is off and
+ * before rum-sdk.ts has started.
  */
 export function getActivePageSpan(): Span | undefined {
   return pageSpanAccessor?.();
 }
 
 /**
+ * WHY: The route PATTERN rum-navigation.ts resolved (`/orders/:orderId`), so
+ * rum-propagation-interceptor.ts tags page.route without the Router or
+ * location.pathname. Undefined before the first NavigationEnd.
+ */
+export function getActivePageRoute(): string | undefined {
+  return activePageRoute;
+}
+
+/**
  * CONTRACT: The only entry point rum-navigation.ts (Angular DI) calls on a
  * route change — it never imports rum-sdk.ts directly, so a navigation
- * before the SDK has loaded is silently dropped rather than triggering a
- * second dynamic import. See [[2026-09-19-web-rum-integration-design]]
+ * before the SDK has loaded drops the span rather than triggering a second
+ * dynamic import. The route is still recorded, so a call made in that window
+ * carries page.route. See [[2026-09-19-web-rum-integration-design]]
  */
 export function notifyPageChanged(name: string): void {
+  activePageRoute = name;
   pageSpanStarter?.(name);
 }
 

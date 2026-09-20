@@ -1,6 +1,7 @@
 import { HttpClient, HttpErrorResponse, provideHttpClient, withInterceptors } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
+import { trace } from '@opentelemetry/api';
 import { WebTracerProvider } from '@opentelemetry/sdk-trace-web';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -86,16 +87,20 @@ describe('rumPropagationInterceptor', () => {
       vi.clearAllMocks();
     });
 
+    async function withPageSpanOn(route: string): Promise<string> {
+      setRumEnabled(true);
+      initRum();
+      await vi.waitFor(() => expect(getActivePageSpan()).toBeDefined(), {
+        timeout: DYNAMIC_IMPORT_TIMEOUT,
+      });
+      notifyPageChanged(route);
+      return getActivePageSpan()!.spanContext().traceId;
+    }
+
     it(
-      'shares the page span trace with the CLIENT span it starts',
+      'gives the CLIENT span its own trace rather than the page span\'s',
       async () => {
-        setRumEnabled(true);
-        initRum();
-        await vi.waitFor(() => expect(getActivePageSpan()).toBeDefined(), {
-          timeout: DYNAMIC_IMPORT_TIMEOUT,
-        });
-        notifyPageChanged('/orders');
-        const pageTraceId = getActivePageSpan()?.spanContext().traceId;
+        const pageTraceId = await withPageSpanOn('/orders');
 
         const { http, controller } = configure();
         http.get('/v1/products').subscribe();
@@ -104,10 +109,39 @@ describe('rumPropagationInterceptor', () => {
 
         // WHY: The propagator writes traceparent as
         // `00-<traceId>-<spanId>-<flags>` — the second segment is the CLIENT
-        // span's trace id, which equals the page span's only when the page
-        // span was its parent.
+        // span's trace id, and it differing from the page span's is what
+        // makes the call its own trace instead of one row in the screen's.
         const traceparent = req.request.headers.get('traceparent');
-        expect(traceparent?.split('-')[1]).toBe(pageTraceId);
+        expect(traceparent).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/);
+        expect(traceparent?.split('-')[1]).not.toBe(pageTraceId);
+      },
+      DYNAMIC_IMPORT_TIMEOUT,
+    );
+
+    it(
+      'links the CLIENT span to the page span and tags it with the page route',
+      async () => {
+        const pageSpanContext = { traceId: '', spanId: '' };
+        // WORKAROUND(vitest): The link and attributes are only readable off
+        // the startSpan() call — OTel's SDK Span exposes attributes but keeps
+        // links private, and the interceptor's tracer is module-scoped.
+        // getTracer() returns the same instance for the same name, so
+        // spying here intercepts the interceptor's own calls.
+        const started = vi.spyOn(trace.getTracer('3mrai-web'), 'startSpan');
+
+        const pageTraceId = await withPageSpanOn('/orders/:orderId');
+        pageSpanContext.traceId = pageTraceId;
+        pageSpanContext.spanId = getActivePageSpan()!.spanContext().spanId;
+
+        const { http, controller } = configure();
+        http.get('/v1/products').subscribe();
+        controller.expectOne('/v1/products').flush({});
+
+        const options = started.mock.calls.at(-1)?.[1];
+        expect(options?.links?.[0].context.traceId).toBe(pageSpanContext.traceId);
+        expect(options?.links?.[0].context.spanId).toBe(pageSpanContext.spanId);
+        expect(options?.attributes?.['page.route']).toBe('/orders/:orderId');
+        started.mockRestore();
       },
       DYNAMIC_IMPORT_TIMEOUT,
     );

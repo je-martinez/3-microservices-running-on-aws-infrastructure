@@ -12,13 +12,14 @@ import { onCLS, onFCP, onINP, onLCP, onTTFB, type Metric } from 'web-vitals';
 
 let pageTracer: Tracer | undefined;
 let activePageSpan: Span | undefined;
+let awaitingFirstRoute = false;
 
 /**
  * CONTRACT: Returns the in-flight page span, or undefined between navigations
- * and before the SDK has started. rum-propagation-interceptor.ts parents its
- * CLIENT span off this when present, and falls back to a root span
- * otherwise — the cross-service join must never regress on a missing page
- * span. See [[2026-09-19-web-rum-integration-design]]
+ * and before the SDK has started. rum-propagation-interceptor.ts LINKS its
+ * CLIENT span to this when present and omits the link otherwise — the
+ * cross-service join rides on traceparent alone and must never regress on a
+ * missing page span. See [[2026-09-19-web-rum-integration-design]]
  */
 export function getActivePageSpan(): Span | undefined {
   return activePageSpan;
@@ -44,6 +45,16 @@ function endActivePageSpan(): void {
  * See [[2026-09-19-web-rum-integration-design]]
  */
 export function startPageSpan(name: string): void {
+  // CONTRACT: The FIRST call after startRumSdk() renames the bootstrap span
+  // rather than replacing it — Router's initial NavigationEnd describes the
+  // same page view, so a second span splits that view in two and orphans
+  // document-load's children.
+  if (awaitingFirstRoute && activePageSpan) {
+    awaitingFirstRoute = false;
+    activePageSpan.updateName(name);
+    return;
+  }
+  awaitingFirstRoute = false;
   endActivePageSpan();
   if (!pageTracer) return;
   activePageSpan = pageTracer.startSpan(name);
@@ -70,11 +81,15 @@ export function startRumSdk(): LoggerProvider {
 
   // CONTRACT: Started AFTER provider.register() — trace.getTracer() resolves
   // through the global TracerProvider, so a tracer fetched before this would
-  // be a stale reference to the no-op implementation. The initial page span
-  // covers document-load's own navigation; rum-navigation.ts starts each
-  // subsequent one from Angular Router's NavigationEnd.
+  // be a stale reference to the no-op implementation.
   pageTracer = trace.getTracer('3mrai-web-page');
+
+  // WHY: location.pathname here and the route pattern everywhere else — this
+  // runs before bootstrapApplication, with no Router to resolve a pattern
+  // from. The flag makes Router's first NavigationEnd rename this span
+  // instead of starting a second one. See rum-navigation.ts.
   startPageSpan(location.pathname);
+  awaitingFirstRoute = true;
 
   // CONTRACT: visibilitychange -> hidden and pagehide are independent
   // backstops for the same span — Angular's Router never fires for a tab

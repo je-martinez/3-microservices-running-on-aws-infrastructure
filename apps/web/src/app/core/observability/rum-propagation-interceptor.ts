@@ -1,11 +1,18 @@
 import { HttpErrorResponse, HttpEvent, HttpHandlerFn, HttpRequest } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { finalize, tap } from 'rxjs/operators';
-import { propagation, context, trace, SpanKind, SpanStatusCode } from '@opentelemetry/api';
+import {
+  propagation,
+  context,
+  trace,
+  SpanKind,
+  SpanStatusCode,
+  ROOT_CONTEXT,
+} from '@opentelemetry/api';
 
 import { gatewayPath } from '../auth/auth-interceptor';
 import { TRACE_ID_BY_RESPONSE } from '../http/api-client';
-import { getActivePageSpan } from './rum';
+import { getActivePageRoute, getActivePageSpan } from './rum';
 
 const tracer = trace.getTracer('3mrai-web');
 
@@ -15,18 +22,17 @@ const tracer = trace.getTracer('3mrai-web');
 // flag. Values match ATTR_HTTP_REQUEST_METHOD / ATTR_HTTP_ROUTE there.
 const ATTR_HTTP_REQUEST_METHOD = 'http.request.method';
 const ATTR_HTTP_ROUTE = 'http.route';
+const ATTR_PAGE_ROUTE = 'page.route';
 
 /**
  * CONTRACT: Starts a CLIENT span and injects its traceparent ONLY on a
  * gateway call (gatewayPath(...) !== null) — keeps the /otlp export from
  * tracing its own delivery. Do NOT enable XHR auto-instrumentation "for
  * completeness" — it doubles every request's spans via
- * propagateTraceHeaderCorsUrls. Parents off getActivePageSpan() via an
- * EXPLICIT parent context on startSpan, never ambient context.with() around
- * the app; with no page span (flag off, SDK not yet loaded) it parents off
- * context.active() instead — a missing page span degrades the RUM waterfall
- * grouping, never the traceparent injection the cross-service join depends
- * on. See [[2026-09-19-web-rum-integration-design]]
+ * propagateTraceHeaderCorsUrls. Each gateway call is its own trace root; the
+ * page it came from is a LINK plus a page.route attribute, never a parent.
+ * The cross-service join depends on the traceparent injected below and on
+ * nothing in that linking. See [[2026-09-19-web-rum-integration-design]]
  */
 export function rumPropagationInterceptor(
   req: HttpRequest<unknown>,
@@ -35,22 +41,37 @@ export function rumPropagationInterceptor(
   const route = gatewayPath(req.url);
   if (route === null) return next(req);
 
-  const pageSpan = getActivePageSpan();
-  const parentContext = pageSpan ? trace.setSpan(context.active(), pageSpan) : context.active();
+  const pageContext = getActivePageSpan()?.spanContext();
+  const pageRoute = getActivePageRoute();
 
   const span = tracer.startSpan(
     `${req.method} ${route}`,
     {
       kind: SpanKind.CLIENT,
+      // CONTRACT: The page span is LINKED, never made the parent. Parenting
+      // pulls every call a screen makes into one trace, so opening a single
+      // operation means paging past its neighbours — 169 backend spans across
+      // four operations for one checkout. OpenObserve indexes the link as a
+      // queryable field but draws its waterfall from parent/child alone, so
+      // this is data, not a clickable jump.
+      links: pageContext ? [{ context: pageContext }] : [],
       attributes: {
         [ATTR_HTTP_REQUEST_METHOD]: req.method,
         // WHY: The route, never req.url — the full URL can carry a query
         // string, and [[logging-context]] forbids leaking identifying values
         // through telemetry attributes.
         [ATTR_HTTP_ROUTE]: route,
+        // CONTRACT: The route PATTERN rum-navigation.ts resolved, never
+        // location.pathname — a resolved id gives this attribute one value
+        // per order, and grouping a screen's calls then matches a single
+        // visit. See routePatternOf().
+        ...(pageRoute ? { [ATTR_PAGE_ROUTE]: pageRoute } : {}),
       },
     },
-    parentContext,
+    // CONTRACT: ROOT_CONTEXT, never context.active() — an in-flight span
+    // higher up the call stack would silently re-parent this one and undo the
+    // per-call trace split.
+    ROOT_CONTEXT,
   );
   const spanContext = trace.setSpan(context.active(), span);
 

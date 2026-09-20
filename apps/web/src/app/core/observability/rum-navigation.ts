@@ -3,6 +3,7 @@ import { NavigationEnd, Router } from '@angular/router';
 import { filter } from 'rxjs/operators';
 
 import { notifyPageChanged } from './rum';
+import { routePatternOf } from './rum-route-pattern';
 
 /**
  * CONTRACT: rum-sdk.ts is not an Angular service — it is a plain module
@@ -20,7 +21,10 @@ export class RumNavigation {
 
   start(): void {
     this.router.events.pipe(filter((event) => event instanceof NavigationEnd)).subscribe(() => {
-      notifyPageChanged(location.pathname);
+      // CONTRACT: The route PATTERN, never location.pathname — the resolved
+      // URL names one page span per order id and gives page.route unbounded
+      // cardinality. See routePatternOf().
+      notifyPageChanged(routePatternOf(this.router.routerState.snapshot.root));
     });
   }
 }

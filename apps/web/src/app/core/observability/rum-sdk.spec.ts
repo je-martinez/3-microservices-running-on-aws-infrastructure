@@ -46,8 +46,21 @@ describe('startPageSpan', () => {
     vi.clearAllMocks();
   });
 
+  it('renames the bootstrap span on the first route instead of replacing it', () => {
+    startRumSdk();
+    const bootstrap = getActivePageSpan();
+    expect(bootstrap).toBeDefined();
+
+    startPageSpan('/orders/:orderId');
+
+    expect(getActivePageSpan()).toBe(bootstrap);
+  });
+
   it('ends the previous page span before starting the next one', () => {
     startRumSdk();
+    // WHY: The first call is consumed by the bootstrap rename above, so the
+    // replace behaviour this asserts only begins at the second.
+    startPageSpan('/');
     const first = getActivePageSpan();
     expect(first).toBeDefined();
 
