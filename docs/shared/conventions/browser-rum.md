@@ -94,17 +94,34 @@ checklist per trigger, and the concrete failure each rule prevents.
   `apps/web/proxy.conf.mjs` (written by
   `infra/environments/local/scripts/generate_env_files.py` — editing only nginx leaves `pnpm dev`
   broken, silently).
-- **Every browser trace is anchored to a page-scoped root span, and the join must never depend
-  on it existing.** The lazily-loaded SDK module creates the root span; a root-provided
-  `RumNavigation` service rotates it on Angular Router `NavigationEnd`; it is ended on
-  `visibilitychange → hidden` / `pagehide` as a backstop so it is bounded and never left open for
-  the tab's lifetime. `rumPropagationInterceptor` parents its CLIENT span off that page span via
-  an explicit parent context, so one trace holds the page span, the browser CLIENT spans for
-  every gateway call the page made, and the backend spans those calls reached — one waterfall,
-  browser to service. When no page span exists (the flag is off, the lazily-loaded SDK has not
-  landed yet, or the call happens between navigations), the interceptor still starts a root
-  CLIENT span and still injects `traceparent`: a missing page span degrades the waterfall, it
-  must never break the cross-service join. Anyone touching this code keeps that property.
+- **Every gateway call is its own trace root; the page it came from is a link, never a parent.**
+  `rumPropagationInterceptor` starts its CLIENT span from `ROOT_CONTEXT`, deliberately, so an
+  in-flight span higher up the call stack can never silently re-parent it. The page-scoped root
+  span still exists — the lazily-loaded SDK module creates it, a root-provided `RumNavigation`
+  service rotates it on Angular Router `NavigationEnd`, and it is ended on `visibilitychange →
+  hidden` / `pagehide` as a backstop so it is bounded and never left open for the tab's lifetime
+  — but the interceptor only attaches to it as a span `link` plus a `page.route` attribute, both
+  best-effort: present when a page span exists, silently omitted when it does not (flag off, SDK
+  not yet loaded, or the call happens between navigations). The cross-service join depends only
+  on the `traceparent` the interceptor injects, never on the link.
+- **`page.route` is the route PATTERN, never the resolved URL.** `rum-navigation.ts` resolves it
+  from Angular's Router via `routePatternOf()` — `/orders/:orderId`, not
+  `/orders/ord_JIfKhAqF5eD9bV7KRnReGpda`; the root path reads `/`. A resolved id would give the
+  attribute one distinct value per order, and grouping a screen's calls would then match a
+  single visit instead of the screen — the opposite of what the attribute is for. The first
+  `NavigationEnd` after `startRumSdk()` renames the bootstrap page span rather than starting a
+  second one, because Router's initial `NavigationEnd` describes the same page view the SDK
+  already started tracking from `location.pathname` (no Router exists yet at that point);
+  starting a second span there would split one page view in two and orphan document-load's
+  children.
+- Rejected: parenting the CLIENT span off the page span. A real checkout puts 169 backend spans
+  across four unrelated operations (`GET /notifications`, `GET /cart`, `PATCH /users/me`,
+  `POST /orders`) into one trace, so investigating a single operation means paging past its
+  neighbours — the common case. Linking keeps that same order at 83 spans, all its own. The tradeoff
+  is honest, not free: OpenObserve v0.91.1 stores and indexes `links` as a queryable field, but
+  its UI builds the waterfall from parent/child alone, so there is no clickable jump from a call
+  back to its page — grouping a screen's calls is a `page_route` filter, not a hierarchy, and the
+  page span and the calls it links are separate traces, not one waterfall.
 
 ## Known limitations — current facts, not aspirations
 

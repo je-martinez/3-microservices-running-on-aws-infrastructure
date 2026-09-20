@@ -154,15 +154,38 @@ when a 401 triggers a refresh and the cloned original is retried, that retry pas
 the chain again and gets its own `traceparent`. Correct — they are two real HTTP requests —
 and desirable in the waterfall.
 
-The interceptor's CLIENT span is parented, not root: a page-scoped root span, owned by the
-lazily-loaded SDK module and rotated by a root-provided `RumNavigation` service on Angular
-Router `NavigationEnd`, with `visibilitychange`/`pagehide` as backstops so it is bounded and
-never left open for the tab's lifetime. The interceptor parents its span off that page span via
-an explicit parent context, producing one waterfall per page: page span → browser CLIENT spans
-→ gateway/service spans, all under one `trace_id`. When no page span exists — the flag is off,
-the lazily-loaded SDK has not landed yet, or between navigations — the interceptor still starts
-a root CLIENT span and still injects `traceparent`, so a missing page span degrades the
-waterfall but never the cross-service join.
+The interceptor's CLIENT span is its own trace root, started from `ROOT_CONTEXT` rather than
+`context.active()` — deliberately, so an in-flight span higher up the call stack can never
+silently re-parent it. A page-scoped root span still exists, owned by the lazily-loaded SDK
+module and rotated by a root-provided `RumNavigation` service on Angular Router `NavigationEnd`,
+with `visibilitychange`/`pagehide` as backstops so it is bounded and never left open for the
+tab's lifetime — but the interceptor only attaches to it as a span `link` (`links: [{ context:
+pageSpanContext }]`) plus a `page.route` attribute, never as a parent. Both are best-effort: when
+no page span exists — the flag is off, the lazily-loaded SDK has not landed yet, or the call
+happens between navigations — the interceptor still starts its CLIENT span and still injects
+`traceparent`, omitting the link and the attribute. The cross-service join rides on the injected
+`traceparent` alone and never depends on the link.
+
+`page.route` is the route PATTERN `rum-navigation.ts` resolves from Angular's Router via
+`routePatternOf()` — `/orders/:orderId`, not `/orders/ord_JIfKhAqF5eD9bV7KRnReGpda`; the root
+path reads `/`. This is what makes the attribute usable for grouping: one value per screen, not
+one value per order. The first `NavigationEnd` after `startRumSdk()` renames the bootstrap page
+span rather than starting a second one — `rum-sdk.ts` starts that span before bootstrap, where
+no Router exists yet, from `location.pathname`, and Router's initial `NavigationEnd` describes
+the SAME page view; starting a second span there would split one page view in two and orphan
+document-load's children.
+
+Rejected: parenting the CLIENT span off the page span. Parenting pulls a whole screen's work
+into one trace — a real checkout puts 169 backend spans across four unrelated operations
+(`GET /notifications`, `GET /cart`, `PATCH /users/me`, `POST /orders`) into a single trace, so
+investigating one operation means paging past its neighbours, which is the common case. Linking
+instead keeps that same order at 83 spans, all its own.
+
+The cost of linking is real and is accepted rather than left implicit: verified against
+OpenObserve v0.91.1, it stores and indexes `links` as a queryable field, but its UI builds the
+waterfall from parent/child alone — there is no clickable jump from a call back to its page.
+Grouping a screen's calls is a `page_route` filter, not a hierarchy, and a page span and the
+calls it links are separate traces, not one waterfall.
 
 Rejected: injecting `traceparent` from the ambient OTel context (`context.active()`) rather
 than a span the interceptor owns. `W3CTraceContextPropagator.inject()` writes nothing unless a
@@ -261,13 +284,12 @@ flag-gated at module scope.
 Per [[2026-08-21-verify-in-the-viewer-not-the-api]], done means seen in the viewer, not an
 exporter that returns OK.
 
-- **End-to-end trace**: a real browser flow (login → catalogue → add to cart) produces one
-  trace in the OpenObserve waterfall showing the full hierarchy — the page-scoped root span as
-  parent of the browser CLIENT spans, which in turn parent the gateway span and the service
-  spans — all under the same `trace_id`. Two disconnected traces, or CLIENT spans with no
-  parent, is the classic failure and is exactly what this rules out. Verified live: 7 of 7
-  CLIENT spans parented; one `trace_id` holding the `/login` page span, its two browser CLIENT
-  children, and the Users service's spans in `app_traces`.
+- **End-to-end trace**: each gateway call is its own trace root, carrying the gateway and service
+  spans it reached under its own `trace_id`, plus a link back to the page span that made it and a
+  `page.route` attribute — not one waterfall per page. Verified live: `POST /orders` on the order
+  detail screen lands as its own trace with 83 backend spans across all four services, all under
+  the browser-minted `trace_id`; `page.route` reads `/orders/:orderId` on that parameterised
+  screen, not the resolved order id; the cross-service join is intact throughout.
 - **Vitals**: LCP, CLS and INP carry real values in `rum_metrics` after interacting — not
   merely a created, empty stream.
 - **Errors**: a deliberately triggered error appears in `rum_logs` with its stack and
