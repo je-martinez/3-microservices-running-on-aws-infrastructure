@@ -1,0 +1,591 @@
+---
+title: "Stripe Payments — Saved Cards and Real Charges"
+type: spec
+area: shared
+status: draft
+created: 2026-09-19
+updated: 2026-09-19
+tags: [type/spec, area/shared, status/draft]
+related:
+  - "[[users-service-design]]"
+  - "[[testing]]"
+  - "[[env-files]]"
+  - "[[money-representation]]"
+  - "[[money-as-integer-cents]]"
+  - "[[local-dev]]"
+  - "[[logging-context]]"
+  - "[[git-workflow]]"
+  - "[[soft-delete]]"
+  - "[[audit-fields]]"
+  - "[[openapi-specs]]"
+  - "[[angular-component-authoring]]"
+  - "[[cqrs]]"
+  - "[[nano-id]]"
+  - "[[phase-c-review-flow]]"
+  - "[[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]]"
+  - "[[skills-catalog]]"
+  - "[[code-comments]]"
+propagates-to:
+  - "[[users-service-design]]"
+  - "[[testing]]"
+  - "[[env-files]]"
+  - "[[money-representation]]"
+  - "[[local-dev]]"
+  - "[[logging-context]]"
+---
+
+# Stripe Payments — Saved Cards and Real Charges
+
+> [!info] Validated against Stripe's official agent skill
+> This spec's Stripe-specific choices (Payment Element, restricted API keys, dynamic payment
+> methods, sandbox usage, pinned versions, CSP, webhook IP allowlisting, PaymentIntents vs.
+> Checkout Sessions) were checked against Stripe's own `stripe-best-practices` agent skill,
+> installed in this repo at `.claude/skills/stripe-best-practices/` and pinned in
+> `skills-lock.json`. See "Tooling" below.
+
+## Summary
+
+This milestone turns the already-existing `NG_APP_STRIPE_ENABLED` flag from a static UI
+swap into a real integration: saved cards on Users, real charges on Orders, and a saved-card
+checkout flow on the web app. It is large enough that its implementation plan splits into
+chainable issues with dependency gates, reviewed in batches per [[phase-c-review-flow]].
+
+## Context
+
+`NG_APP_STRIPE_ENABLED` exists today in `apps/web/src/app/core/config/app-config.ts`,
+`.env.example:57`, and `docker-compose.yml:393` (default `false`), but it only swaps a static
+"Powered by Stripe" card at `apps/web/src/app/features/checkout/checkout-payment.html:259`
+for the plain card-fields branch. No code calls Stripe.
+
+Users creates users in two command handlers — `services/users/src/users/commands/register.command.ts:96`
+and `register-passwordless.command.ts:97` — and already has a precedent for storing a
+third-party snapshot: `UsersCognitoData`'s `rawPayload Json` column, reused here for Stripe.
+
+Orders (.NET) does not charge anything today; the web's `pay()` just `POST`s `/orders`. Orders
+already reaches Users over gRPC (`USERS_GRPC_URL`, `INTERNAL_API_KEY`, `proto/users.proto`,
+`rpc GetUserById` returning `UserResponse`), and knows the caller only as `cognitoSub` via
+`x-user-id` (`CallerContextMiddleware.cs`).
+
+The repo's E2E tagging mechanism — a row tagged `"E2E Source"` only when the request carries
+`x-e2e-source: true` AND the service's `E2E_TESTING_ENABLED` flag is on, both mandatory,
+documented in [[testing]] ("E2E cleanup by tag") — extends into this design rather than being
+reinvented. `docker-compose.yml` already uses `profiles:` for optional services
+(`observability`, `preview`), and this design adds one more.
+
+## Decisions
+
+### 1. Ownership split
+Users owns the Stripe customer and its payment methods; Orders owns the charge. The customer
+is created and cards are managed on Users; the PaymentIntent is created on Orders.
+
+### 2. Lazy customer creation
+`User.stripeCustomerId` starts `null` and is created on first use — first checkout with the
+flag on, or first card added — via a single idempotent `ensureStripeCustomer` helper, not
+during registration.
+
+Creating the customer synchronously inside `register.command.ts` would put a third-party
+network call on the critical path of sign-up: a Stripe outage would then block registration
+for users who may never buy anything, and with the flag off no customer should exist at all.
+The user-visible effect of lazy creation is identical — by the time a buyer pays, their
+customer exists.
+
+### 3. Full metadata is persisted
+Users gets a `stripe_payment_methods` table mirroring each card: `stripePaymentMethodId`
+(`pm_...`, unique), `userId` FK, `brand`, `last4`, `expMonth`, `expYear`, `funding`, `country`,
+`fingerprint`, `billingName`, `billingEmail`, `billingAddress` (`Json`), `isDefault`,
+`rawPayload Json` (the whole PaymentMethod object), plus the repo's standard [[audit-fields]]
+and [[soft-delete]]. `User` gains `stripeCustomerId String? @unique @map("stripe_customer_id")`
+and `stripeCustomerData Json?` (whole Customer object), mirroring `UsersCognitoData`.
+
+Hard limit: the full PAN, the CVC, and the PaymentIntent `client_secret` never reach our
+backend by Stripe's design — only `brand`, `last4`, `exp_month`, `exp_year`, `funding`,
+`country`, and `fingerprint` are available. Storing a PAN would pull the repo into full PCI
+scope. "All the metadata" means everything Stripe actually exposes; `rawPayload` is what makes
+future fields available without a migration.
+
+Corollary, stated explicitly: server-side options that accept a raw PAN (e.g.
+`payment_method_data` on PaymentIntent creation) require proving PCI compliance to Stripe
+before they can be used. This repo deliberately stays outside that scope — nothing in this
+implementation may accept or forward a raw card number, on either service.
+
+Cost accepted: a local copy can drift from Stripe (card deleted from the dashboard, expired,
+or auto-updated by the issuing bank). Mitigated by the three rules in Decision 4.
+
+### 4. Drift mitigation
+- Stripe is always authoritative; the local copy is a cache, never the authority — listing
+  reads local, but **charging validates against Stripe**.
+- A Stripe webhook (`payment_method.attached/detached/updated/automatically_updated`,
+  `customer.updated`) upserts the local copy, the same pattern `UsersCognitoData` already uses
+  for Cognito events.
+- A card deleted in Stripe is soft-deleted locally, never hard-deleted, so historical orders
+  referencing it still resolve.
+
+### 5. Orders stores a denormalized payment snapshot
+`PaymentIntentId`, `PaymentStatus`, `AmountCents`, `Currency`, `PaymentMethodId`, plus
+`CardBrand`/`CardLast4`/`CardExpMonth`/`CardExpYear`, and `PaymentRawPayload` (whole
+PaymentIntent). Denormalized deliberately — an order is a historical document and must not
+join against the user's live cards, the same reasoning as the existing
+`ShippingAddressSnapshot` and consistent with [[money-representation]]. `PaymentStatus` is
+persisted even when the charge **fails** — a declined attempt is information worth keeping.
+
+### 6. Orders gets `stripeCustomerId` over the existing gRPC
+`proto/users.proto`'s `UserResponse` gains `stripe_customer_id`; the proto file's existing
+comment convention about keeping messages in sync by hand applies. Orders does not persist
+this value. `stripeCustomerId` is **not** exposed on `GET /v1/users/me` — the browser needs
+the card list, not the customer id, so keeping it out of the public payload avoids leaking it
+to devtools for no gain.
+
+### 7. Charge-then-persist ordering
+Orders charges **before** persisting the order. Charging after persisting risks an order with
+no payment — shipped goods with no charge and no trace. Charging first risks a charge with no
+order, which is detectable and repairable: the PaymentIntent carries `metadata.order_id` and is
+refundable. The Stripe `idempotencyKey` is derived from the order id (generated before
+charging), so a client retry returns the same PaymentIntent instead of double-charging.
+
+### 8. Card errors return 402
+Declined, insufficient funds, and expired-card responses are not server faults; the frontend
+must distinguish them to ask for another card. The response carries Stripe's actionable
+message, mapped through the frontend's existing `authErrorMessage` pattern.
+
+### 9. Concurrency requirement (first-class, not an implementation detail)
+The existing stock reservation can return 409. A 409 occurring **after** a successful charge
+must trigger an automatic refund; the charge must never be left dangling. This is called out
+explicitly because a silently-dropped concurrency requirement is this repo's known review
+failure mode — see [[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]].
+
+### 10. Local webhook delivery via Stripe CLI, not a tunnel
+Chosen over Cloudflare Tunnel and ngrok. `stripe listen --forward-to` opens an **outbound**
+connection from the machine to Stripe and forwards events to localhost — no ports exposed, no
+domain, no third-party account, reusing the restricted key already injected by hand (Decision
+15). Cloudflare Tunnel and ngrok were rejected because an ephemeral URL changes on every start
+(requiring dashboard reconfiguration each time), while a stable one needs an account plus a
+domain — the opposite of minimal setup — and both expose the local stack to the internet for
+no benefit here.
+
+Added as a `stripe-cli` compose service behind `profiles: [stripe]`, following the existing
+`observability`/`preview` pattern, reaching `users` over the internal compose network.
+
+Gotcha: `stripe listen` prints its **own** signing secret (`whsec_...`), different from the
+dashboard's. Using the dashboard secret locally fails signature verification with a 400 that
+looks like a code bug.
+
+Consequence: because delivery is outbound, the webhook needs **no** public API Gateway/nginx
+route for local development. A real deployment would still need one; that is out of scope
+here (see "Out of scope").
+
+### 11. E2E does not wait on the webhook
+Users writes its own local row in the same response when a card is added — it already holds
+the PaymentMethod object Stripe returned. The webhook is reconciliation for changes
+originating **outside** the app. This keeps E2E deterministic and runnable without the
+`stripe` compose profile active.
+
+Stripe's own guidance insists fulfillment must be driven from an event handler rather than a
+success page, because a buyer may never load the return page. That concern does not apply
+here: the charge is synchronous inside `POST /v1/orders` — there is no redirect during which
+the buyer can be lost — so the webhook's role in this design stays card-state reconciliation,
+never order fulfillment. If this integration ever moves to Checkout Sessions or adds a
+delayed-notification payment method, that changes and fulfillment must move into the handler.
+
+### 12. E2E data is tagged in Stripe too
+Reusing the existing mechanism: when `x-e2e-source: true` AND `E2E_TESTING_ENABLED` are both
+set, the Stripe customer and payment method are created with `metadata.e2e_source: "true"`,
+and local rows carry the `"E2E Source"` tag. The existing `DELETE /v1/users/e2e-cleanup` is
+extended to also delete those Stripe-side customers — otherwise the Stripe test account
+accumulates garbage every run.
+
+### 13. Graceful degradation on missing key
+Each service's restricted API key (Decision 15) is injected by hand into the CUSTOM box of
+`.env.local.users` and `.env.local.orders` — never the AUTO box, which `make env-file`
+rewrites (see [[env-files]]). If `STRIPE_ENABLED=true` but the key is absent, the service must
+still boot, log a warning, and have the Stripe routes answer 503. A missing key must not take
+down the local environment.
+
+### 14. stripe-mock is deliberately excluded
+Considered and rejected. `stripe-mock` is stateless and returns fixed fixtures, so a card
+"saved" through it cannot be listed back — it structurally cannot exercise the
+save-a-card-then-switch-between-them flow that is the point of this feature. E2E runs against
+a dedicated Stripe sandbox instead (Decision 17). It could be reconsidered later, purely for
+offline contract tests that don't need round-tripped state.
+
+### 15. Restricted API keys, one per service — never a shared secret key
+Each service gets its own **restricted API key** (`rk_...`), not a secret key (`sk_...`),
+following least privilege:
+- **Users' RAK** — write access to Customers, PaymentMethods, and SetupIntents only (it creates
+  customers, attaches/detaches cards, and sets the default payment method).
+- **Orders' RAK** — write access to PaymentIntents and Refunds only (it charges and, per
+  Decision 9, refunds). It must **not** be able to manage customers or payment methods — a
+  compromised Orders key should not be able to touch a saved card.
+
+Keys are injected by hand into the CUSTOM box of the relevant `.env.local.*` file, never the
+AUTO box (Decision 13, [[env-files]]). Additional rules from Stripe's security guidance:
+- Keys are never logged nor included in error messages.
+- Separate keys per environment (local, CI, production) — no key is shared across them.
+- A pre-commit hook should catch `sk_`/`rk_` literals in source. This repo already installs a
+  pre-commit hook via `make install-comment-hook`
+  ([[code-comments]]'s enforcement mechanism); adding a key-literal check to that same hook is
+  the natural place for it rather than a new hook.
+- Each restricted key additionally gets its own **access policy** (Dashboard → API keys →
+  configure access policy), and Users' and Orders' policies are **different from each other**
+  — restricting a key's permissions (what it can call) and its access policy (who/where can
+  use it) are separate controls, and compromising one service's environment must not expose
+  the other's.
+
+**Key-compromise incident response.** Recorded here so the procedure exists before it is
+needed, not improvised during one:
+1. **Roll or delete the exposed key immediately** from the Dashboard's API keys page — even
+   before confirming it was actually used by an unauthorized party.
+2. **Review Workbench request logs** for that key for unrecognized activity.
+3. **Contact Stripe support** if anything in those logs is unrecognized.
+
+Preparation, ahead of any incident: practice rolling a key so the procedure is not learned
+live, audit source for committed keys, and rely on the same pre-commit hook above to prevent
+future check-ins — that hook is the concrete form "use pre-commit hooks" takes in this repo.
+
+### 16. Never pass `payment_method_types`
+No API call in this integration (`setupIntents.create`, `paymentIntents.create`) passes
+`payment_method_types`. Omitting it keeps dynamic payment methods enabled — Stripe evaluates
+100+ signals (currency, customer location, amount, device) to select and rank eligible methods,
+configurable from the Dashboard with no code change, and it is the natural reflex to hardcode
+`payment_method_types: ['card']` when the immediate goal is "accept cards", which is exactly
+the trap. If an explicit allowlist is ever needed, use `allowed_payment_method_types`, never
+`payment_method_types`. The Terminal/`card_present` exception does not apply — this repo has no
+in-person payment flow.
+
+**Prohibited/deprecated Stripe APIs.** Named explicitly, not left implicit, because each is the
+"obvious" thing to reach for and naming them here is cheaper than catching them in review:
+
+| API / method | Status | Use instead |
+|---|---|---|
+| Charges API | Never use | PaymentIntents (Decision 19) |
+| Sources API | Deprecated for saving cards | SetupIntents (already this design's choice) |
+| Tokens API | Outdated | SetupIntents or Checkout Sessions |
+| Card Element | Legacy | Payment Element (see Web section) |
+| `createPaymentMethod` / `createToken` (Stripe.js) | Not recommended | Confirmation Tokens, if card details must be inspected before payment |
+
+None of these has a legitimate use in this integration; if a diff introduces one, that is a
+regression against this decision, not a judgment call.
+
+### 17. Dedicated sandboxes for local dev and CI, not the shared test-mode account
+Two separate Stripe sandboxes — one for local development, one for CI — rather than the
+account's shared test-mode sandbox, per Stripe's recommendation for new integration
+development. This also gives the E2E suite stronger isolation: CI's Stripe-side state (test
+customers, payment methods) never collides with a developer's local runs. `stripe sandbox
+create` (Stripe CLI) creates a sandbox with its own test API keys and requires no registration.
+
+Scoping caveat, worth recording because it generalizes beyond tax to any Dashboard-side
+configuration: whatever is configured **inside** a sandbox — including Tax Settings and
+registrations, if this changes later — is scoped to that sandbox. It does not exist in live
+mode and does not carry over to another sandbox. Concretely: the CI sandbox does **not**
+inherit anything configured in the local-dev sandbox, or vice versa — each of the two
+sandboxes this decision creates must be configured independently.
+
+### 18. Pinned versions
+Recorded so implementation does not silently drift onto older defaults:
+- Stripe API version **`2026-08-26.dahlia`** (use the latest unless a reason is recorded here).
+- SDKs: Node.js **22.6.0** (Users), .NET **52.4.0** (Orders).
+- Both services instantiate a `StripeClient` and call methods on that instance. The
+  global/module-level API key pattern (`Stripe.setApiKey` in Node, `StripeConfiguration.ApiKey
+  = …` in .NET) is deprecated in all current SDKs and is not used here.
+
+### 19. Why PaymentIntents and not Checkout Sessions
+Stripe's own guidance routes one-time payments to the Checkout Sessions API and reserves
+PaymentIntents for off-session payments or when the caller needs to model checkout state
+independently. This integration is **off-session**: it charges a card the buyer already
+selected inside our own checkout page (Decision 5's saved-card selector), with no redirect and
+no Stripe-hosted payment form. That is precisely the case Stripe's own routing sends to the
+PaymentIntents API, so PaymentIntents is the considered choice here, not an oversight.
+
+SetupIntents remains the API for saving cards for the same reason it always was — Stripe's
+guidance confirms Setup Intents (not the deprecated Sources API) as the correct way to save a
+payment method for later use.
+
+### 20. Stripe Tax is considered and deferred — tax stays in-house
+Orders already computes tax itself: `services/orders/src/Orders.Domain/Pricing/OrderPricing.cs`
+rounds `subtotalCents * taxRate` to the nearest cent (`MidpointRounding.AwayFromZero`) exactly
+once per line, with `taxRate` read from a `Configuration` row, per
+[[money-as-integer-cents]] / [[money-representation]]. This milestone **keeps that
+calculation and does not adopt Stripe Tax / `automatic_tax`**.
+
+Rationale:
+- The existing calculation is deterministic — the E2E suite depends on that determinism — and
+  it already produces the `formatted` strings the web renders verbatim. Replacing it buys
+  nothing this milestone needs.
+- Adopting Stripe Tax is a business/compliance decision, not an engineering one: it requires a
+  head office address in Tax Settings plus an **active registration per jurisdiction** before
+  it collects anything, and nobody has made that determination for this product.
+
+> [!warning] `automatic_tax` without an active registration fails silently
+> Stripe's own guidance calls this the single most common Stripe Tax mistake: enabling
+> `automatic_tax: { enabled: true }` in a jurisdiction with no active registration returns no
+> error and calculates zero tax. The integration looks configured while collecting nothing —
+> this is a silent revenue/compliance failure, not a runtime error a test would catch. A future
+> reader must not treat "flip `automatic_tax` on" as a free upgrade over the current
+> calculation; it requires the registration work first. `automatic_tax` is also all-or-nothing
+> per object — it cannot coexist with manual tax rates on the same PaymentIntent, Invoice, or
+> Subscription.
+
+Consequences for the rest of this design:
+- Because tax is computed by Orders, the PaymentIntent `amount` (Decision 5, Orders flow) is
+  the already-tax-inclusive total Orders computed. No Stripe-side tax calculation is created
+  or linked to the PaymentIntent.
+- Stripe Tax's refund/reversal behavior (which differs by integration — simplified PaymentIntent
+  integration reverses tax automatically, custom integration does not) does not apply to
+  Decision 9's refund path, precisely because Stripe Tax is not in use here. A refund is a
+  plain PaymentIntent refund; there is no tax transaction to reverse.
+
+### 21. Card-field validation on the plain branch (client-side, mirrored server-side without the PAN)
+
+The `@else` branch at `checkout-payment.html` (shown when `stripeEnabled()` is false) has **no
+validation today**: `cardForm = form(this.cardModel)` in `checkout-payment.ts` is declared with
+no validators at all (its own comment says "nothing submits these"), `groupCardDigits` only caps
+input at 19 digits and groups in 4s, `onCardExpiryInput` accepts any 4 digits including `99 / 99`,
+and `onCardCvcInput` accepts 1-4 digits regardless of brand. There is no brand detection, so
+nothing knows Amex is 15 digits with a 4-digit CVC. This decision closes that gap.
+
+**Scope.** This applies only to the plain branch. The Stripe branch uses the **Payment
+Element**, which validates card number, expiry, and CVC itself — nothing in this decision is
+duplicated there; a future reader must not add parallel Luhn/expiry checks inside the Stripe
+path.
+
+**Validation rules**, applied client-side in Angular:
+
+| Brand | Number length(s) | CVC length | Prefix |
+|---|---|---|---|
+| Visa | 13, 16, 19 | 3 | starts with 4 |
+| Mastercard | 16 | 3 | 51-55, or 2221-2720 |
+| Amex | 15 | 4 | 34, 37 |
+| Discover | 16, 19 | 3 | 6011, 644-649, 65 |
+| Diners Club | 14, 16, 19 | 3 | 300-305, 3095, 36, 38-39 |
+| JCB | 16-19 | 3 | 3528-3589 |
+| Unknown | 12-19 (accept) | 3 or 4 | — |
+
+An unrecognised prefix is **not** rejected outright — it falls back to "unknown brand" with the
+permissive length/CVC range, because rejecting a valid card from an unlisted issuer is worse
+than accepting an unknown one in a form that charges nothing (see "Not a security control"
+below).
+
+- **Number:** length per the brand table above, AND the Luhn checksum. Length alone does not
+  catch a transposed digit (`4242 4242 4242 4241` has Visa's 16 digits and is invalid).
+- **Expiry:** month 01-12; month/year must not be in the past, compared against the **last day**
+  of the expiry month — a card expiring in the current month is still valid. Two-digit years map
+  to `2000 + YY`.
+- **CVC:** length follows the *detected* brand (3, or 4 for Amex), so it is re-validated whenever
+  the number changes brand mid-typing.
+- **Card holder:** non-empty after trim, using the same `required` + `\S` pattern already used
+  for street/city in the address form, guarding against the same "accepts a value of spaces"
+  trap.
+- The card-number grouping becomes brand-aware: Amex groups 4-6-5 (`3782 822463 10005`), not
+  4-4-4-4.
+- `canPay` additionally requires the card form to be valid on the plain branch (mirroring how it
+  requires a selected payment method on the Stripe branch).
+
+**Server-side mirror, metadata only — the PAN and CVC never leave the browser.** Orders
+re-validates on `POST /v1/orders` using only `brand`, `last4`, `expMonth`, `expYear` — never the
+full number, never the CVC. It checks: brand is a known value, expiry is not in the past,
+`last4` is exactly 4 digits. Returns 400 on failure.
+
+Rejected alternative, recorded so a later reader does not "improve" this by sending the full
+card number to Orders: doing so would contradict Decision 3 (the PAN and CVC never reach any
+backend by design) and would pull this repo into full PCI scope for no benefit — the server
+cannot validate a card number/expiry/CVC any better than the client already did; Luhn, length,
+and date comparison are the same computation wherever they run. Metadata-only re-validation
+exists so the rule is enforced in both places, not because the client's check is untrusted with
+card data it never sees the sensitive parts of anyway (the plain branch's `cardModel` holds the
+full PAN in the browser only; only `brand`/`last4`/`expMonth`/`expYear` are ever sent onward).
+
+**Not a security control.** This is UX correctness, not a security boundary — the plain branch
+charges nothing today (there is no backend call that touches the raw `cardModel`; `pay()` posts
+line items and, on the Stripe branch, a `paymentMethodId` — the plain branch's card fields are
+inert). That is exactly why client-side validation is the primary home and the server check is a
+mirror of it, not a gate guarding a real charge.
+
+## Data model
+
+**Users (Postgres, Prisma):**
+- `User.stripeCustomerId String? @unique @map("stripe_customer_id")`
+- `User.stripeCustomerData Json? @map("stripe_customer_data")`
+- New table `stripe_payment_methods`: `stripePaymentMethodId` (`pm_...`, unique), `userId` FK,
+  `brand`, `last4`, `expMonth`, `expYear`, `funding`, `country`, `fingerprint`, `billingName`,
+  `billingEmail`, `billingAddress Json`, `isDefault`, `rawPayload Json`, plus the standard
+  [[audit-fields]] and [[soft-delete]] columns. Primary key follows [[nano-id]].
+
+**Orders (Postgres, EF Core):** a payment snapshot on the order aggregate — `PaymentIntentId`,
+`PaymentStatus`, `AmountCents`, `Currency`, `PaymentMethodId`, `CardBrand`, `CardLast4`,
+`CardExpMonth`, `CardExpYear`, `PaymentRawPayload` — denormalized per Decision 5, alongside the
+existing `ShippingAddressSnapshot`.
+
+## Users HTTP surface
+
+All routes flag-guarded; not mounted when `STRIPE_ENABLED` is off.
+
+- `POST /v1/users/me/payment-methods/setup-intent` — ensures the customer exists (lazy),
+  returns a SetupIntent `client_secret` for Elements.
+- `GET /v1/users/me/payment-methods` — lists from the local copy.
+- `POST /v1/users/me/payment-methods` — confirms the tokenized `pm_...`, attaches it to the
+  customer, writes the local row in the same response.
+- `DELETE /v1/users/me/payment-methods/:id` — detaches in Stripe, soft-deletes locally.
+- `PUT /v1/users/me/payment-methods/:id/default` — sets `invoice_settings.default_payment_method`,
+  mirrors `isDefault` locally.
+- `POST /v1/users/stripe/webhook` — public, signature-verified via `STRIPE_WEBHOOK_SECRET`,
+  upserts per Decision 4.
+
+Security requirement: every route verifies the `pm_...` belongs to the caller's customer
+before acting — without that check, passing someone else's id would delete another user's
+card. Endpoints are specified in the service's `openapi.yaml` per [[openapi-specs]].
+
+## Orders flow
+
+With the flag on, `paymentMethodId` arrives in the `POST /v1/orders` body (400 if missing).
+With the flag off, the field is ignored and the endpoint behaves exactly as today. Orders
+fetches `stripe_customer_id` over gRPC (Decision 6), creates the PaymentIntent (amount = the
+total Orders already computes, `customer`, `payment_method`, `off_session: true,
+confirm: true`), then persists the order with the payment snapshot (Decision 5), charging
+before persisting (Decision 7) and refunding automatically if the stock reservation 409s after
+a successful charge (Decision 9).
+
+## Web
+
+The `@if (stripeEnabled())` branch at `checkout-payment.html:259` stops being a static card and
+becomes: a saved-card selector (radio list, brand + `···· 4242`, default preselected), an
+"Add card" action mounting the **Payment Element** against the SetupIntent `client_secret`, and
+the Payment Element shown directly when the user has no cards. `pay()` sends the selected
+`paymentMethodId` and maps a 402 to an actionable card error via the existing
+`authErrorMessage` pattern (the same shape as the current 409 mapping).
+
+The **Payment Element** is used by name, not the legacy Card Element and not the Payment
+Element restricted to card-only mode — both are traps Stripe's own guidance calls out. The
+Card Element is deliberately not used here because it is legacy and Stripe directs new
+integrations to the Payment Element. Side benefit: the Payment Element surfaces other eligible
+payment methods (per Decision 16's dynamic payment methods) with no extra code.
+
+Constraints:
+- `stripeEnabled` is read from `APP_CONFIG`, never `import.meta.env` — that contract is defined
+  in `app-config.ts`.
+- The publishable key ships as `NG_APP_STRIPE_PUBLISHABLE_KEY` and is the **only** Stripe value
+  allowed in the bundle; neither service's restricted key (Decision 15) ever does.
+- The dev-fill button does not apply to the Stripe branch — the Payment Element runs in an
+  iframe that cannot be filled from outside the frame (use test card `4242 4242 4242 4242` by
+  hand) — and stays unchanged on the plain branch.
+- `canPay` keeps requiring an address and now also a selected card.
+- `apps/web`'s nginx config carries a `Content-Security-Policy` allowing `https://*.stripe.com`
+  in `script-src`, `frame-src`, and `connect-src` — Stripe.js requires it, and a missing or
+  overly permissive CSP weakens the XSS protections Stripe.js relies on. This is a concrete
+  nginx change, tracked as its own item under Infra.
+
+Component structure and state handling follow [[angular-component-authoring]].
+
+On the plain branch (flag off), the card fields gain real validation per Decision 21: brand
+detection, Luhn, brand-aware CVC length, and expiry checks, with `canPay` requiring a valid card
+form. This is independent of the Payment Element work above — the Payment Element already
+validates its own branch.
+
+## Local webhook delivery
+
+See Decision 10. `stripe-cli` runs as a compose service behind `profiles: [stripe]`, started
+with `make stripe-up` and inspected with `make stripe-logs`, following the `observability`
+pattern in [[local-dev]]. It forwards Stripe events to Users over the internal compose
+network; no public route exists for it locally (Decision 10's consequence).
+
+## Testing
+
+All three layers per [[testing]] — a gate, not a suggestion:
+
+1. **Unit/integration** — Users via Vitest dispatching through the real CommandBus/QueryBus
+   (never `handler.execute()` directly, per [[cqrs]]), Orders via xUnit. The Stripe client is
+   mocked at this layer, where declines and the refund-after-409 path (Decision 9) are made
+   deterministic.
+2. **Internal E2E** — Playwright against `localhost:3000` (Users) and `localhost:3001`
+   (Orders), against the CI Stripe sandbox (Decision 17).
+3. **Gateway E2E** — real Cognito JWT, including the UI journey: add a card via the Payment
+   Element, switch cards, pay.
+
+Everything E2E creates is tagged both in Stripe (`metadata.e2e_source`) and locally
+(`"E2E Source"`), per Decision 12; `e2e-cleanup` removes it from both. Local development and CI
+use their own dedicated sandboxes (Decision 17), each with its own restricted keys (Decision
+15) — a developer's local runs and CI never share Stripe-side state.
+
+Load tests send neither `x-e2e-source` nor `x-test-mode`, and with the flag off by default they
+never touch Stripe — this is verified, not assumed, because a load test issuing real charges
+would be expensive.
+
+## Infra
+
+New gateway routes in `infra/modules/api-gateway/main.tf` and an nginx `location` block for the
+webhook path in `infra/modules/compute/nginx/nginx.conf` are their own implementation task, not
+a footnote: a route missing from the gateway map 404s while working on the service port, and a
+new top-level path without a `location` block silently falls through to Users. Plus the
+`stripe-cli` compose service behind `profiles: [stripe]` and the `make stripe-up` /
+`make stripe-logs` targets.
+
+Also tracked here, not as footnotes:
+- The `Content-Security-Policy` change to `apps/web`'s nginx config (Web section) allowing
+  `https://*.stripe.com` in `script-src`, `frame-src`, and `connect-src`.
+- **Webhook signature verification is mandatory** (already required by Decision 4's webhook
+  handler; restated here as a deployment gate, not an optional hardening step). For a real
+  deployment, Stripe's IP addresses should additionally be allowlisted on the public webhook
+  endpoint as defense in depth. This is a deployment-time measure only — it does not apply to
+  local delivery via `stripe listen`, which is an outbound connection from the machine to
+  Stripe and has no inbound public endpoint to allowlist (Decision 10).
+
+## Flag gate
+
+With `STRIPE_ENABLED=false` (the default), the whole repo behaves exactly as today: no mounted
+routes, no Stripe calls, no meaningful migrations triggered at runtime. This is tested, not
+assumed.
+
+## Tooling
+
+This repo installs Stripe's official agent skills as real directories under `.claude/skills/`
+(`stripe-best-practices`, `stripe-docs`), pinned in `skills-lock.json` with a `well-known`
+sourceType from `https://docs.stripe.com`, installed with:
+
+```
+pnpm dlx skills add https://docs.stripe.com --skill stripe-best-practices --skill stripe-docs --agent claude-code --copy
+```
+
+Per [[skills-catalog]], plain Agent Skills use this npx/pnpm-dlx mechanism (version-controlled,
+auditable), while `/plugin` is reserved for packages that bundle an MCP server or agents.
+Stripe's `stripe agent setup` plugin path was deliberately **not** used here because it also
+configures the Stripe MCP server, which reaches live account data and is not needed to write
+this integration.
+
+Manually installed skills do not auto-update — `pnpm dlx skills update` refreshes them.
+
+## Out of scope
+
+- A dedicated `/account` screen for managing cards outside checkout — "Elements + selector" was
+  chosen over that larger surface; deferred to a later milestone.
+- A separate `payments` microservice.
+- `stripe-mock` (Decision 14).
+- The public webhook route for a real, non-local deployment.
+
+## Related
+
+- [[users-service-design]] — target for the Users-side data model, HTTP surface, and gRPC
+  contract change.
+- [[testing]] — the three-layer gate this design's testing section follows, and the E2E
+  cleanup-by-tag mechanism it extends.
+- [[env-files]] — the AUTO/CUSTOM box convention governing where the Stripe secret keys live.
+- [[money-representation]] — the amount/currency representation the payment snapshot follows.
+- [[money-as-integer-cents]] — the ADR behind Orders' existing tax calculation that Decision 20
+  keeps in place instead of adopting Stripe Tax.
+- [[local-dev]] — the `profiles:`-gated optional-service pattern the `stripe-cli` service
+  follows.
+- [[logging-context]] — the shared logging context the new payment endpoints must emit under
+  (no plaintext card data, ever).
+- [[git-workflow]] — branch/PR flow this milestone's implementation issues follow.
+- [[soft-delete]] — the deletion pattern `stripe_payment_methods` uses.
+- [[audit-fields]] — the standard audit columns `stripe_payment_methods` includes.
+- [[openapi-specs]] — where the new Users routes are specified.
+- [[angular-component-authoring]] — the component pattern the checkout saved-card selector
+  follows.
+- [[cqrs]] — the CommandBus/QueryBus dispatch discipline Users' unit tests must exercise.
+- [[nano-id]] — the primary-key convention for the new `stripe_payment_methods` table.
+- [[phase-c-review-flow]] — how this milestone's issues chain and batch for review.
+- [[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]] — why Decision 9 is called
+  out as a first-class requirement rather than left implicit.
+- [[skills-catalog]] — the Agent Skills vs. `/plugin` installation mechanism this spec's
+  Tooling section follows for `stripe-best-practices` and `stripe-docs`.
+- [[code-comments]] — the pre-commit hook (`make install-comment-hook`) that Decision 15
+  proposes extending with a key-literal check; also the rule Decision 21's `numeric-input.ts`
+  change must follow when rewriting that file's contract comment to its final, brand-aware state.

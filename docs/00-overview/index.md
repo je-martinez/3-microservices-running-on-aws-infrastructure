@@ -97,6 +97,7 @@ related:
   - "[[2026-09-04-a-concurrency-test-can-fail-by-starvation]]"
   - "[[2026-09-04-a-build-time-env-var-absent-at-build-time-is-a-live-lookup]]"
   - "[[2026-09-06-address-geocoding-proxy-design]]"
+  - "[[2026-09-19-stripe-payments-design]]"
   - "[[web-app-foundation-milestone]]"
   - "[[2026-07-31-contextvars-lost-across-task-boundaries]]"
   - "[[2026-07-31-exit-code-should-reflect-this-steps-work]]"
