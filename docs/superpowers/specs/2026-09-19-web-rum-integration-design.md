@@ -19,6 +19,7 @@ related:
   - "[[2026-09-06-address-geocoding-proxy-design]]"
   - "[[2026-08-21-verify-in-the-viewer-not-the-api]]"
   - "[[angular-component-authoring]]"
+  - "[[2026-09-20-a-shared-stream-widens-every-scoped-count]]"
 propagates-to:
   - "[[logging-context]]"
   - "[[env-files]]"
@@ -97,26 +98,45 @@ Rejected: an absolute endpoint with CORS on the collector. It would break the sa
 contract `app-config.ts` documents ("nothing in this repo sends CORS headers") and bake an
 origin into the bundle that differs between local and prod.
 
-## Decision 3 — three RUM streams, isolated by a second OTLP receiver rather than by filters
+## Decision 3 — a second OTLP receiver identifies browser telemetry structurally; traces join the services' stream, metrics and logs stay isolated
 
-Three own streams in OpenObserve: `rum_traces`, `rum_metrics`, `rum_logs`, each with its own
-`otlp_http/openobserve_rum_*` exporter carrying its stream-name header — the pattern the
-config already repeats nine times.
+A second OTLP receiver `otlp/rum` listens on port 4319 (HTTP only — a browser speaks OTLP/HTTP,
+never gRPC); the proxy points there. The existing `otlp` receiver keeps serving the services on
+4318, untouched. The port is what makes "this came from a browser" structural rather than a
+guess about `service.name` — a browser span cannot land anywhere but through this receiver even
+if its resource attributes are wrong.
 
-Departure from house style, stated rather than left implicit: the existing config's rule is
-that pipelines sharing a receiver use exact-complement filters so every record lands in
-exactly one stream. The RUM pipelines need none of that because they separate by receiver,
-not by filter. A second OTLP receiver `otlp/rum` listens on port 4319; the proxy points there.
-The existing `otlp` receiver keeps serving the services on 4318, and the existing `traces`
-pipeline is not touched.
+The three signals do not all end up isolated the same way:
 
-Why this over one receiver filtered by `service.name`: the isolation becomes structural
-instead of depending on an attribute being set correctly — a browser cannot leak into the
-backend traces stream even if someone misnames the resource. Honest cost: one more published
-port and one more receiver in the config.
+- **`rum_metrics` and `rum_logs` are their own streams**, each with an
+  `otlp_http/openobserve_rum_*` exporter carrying its stream-name header — the pattern the
+  config already repeats nine times. Web Vitals and JS error logs share no `trace_id` with the
+  backend, so nothing is gained by merging them and structural isolation stays worth its cost:
+  neither stream can be polluted by a misnamed resource, and user-traffic volume cannot distort
+  a backend panel.
+- **Browser trace spans export to `app_traces`, the same stream the services' spans land in.**
+  OpenObserve renders a waterfall from one stream; a browser span filed in a stream of its own
+  would open as a single span while the backend chain it caused sat under the same `trace_id` in
+  `app_traces`, needing a second search in a second stream. Verified: a `POST /orders` trace
+  opens as 84 spans in one waterfall — `RUM - POST /orders` plus 83 service spans across users,
+  orders, tracking and events-pipeline. `transform/mark_rum_spans`, in the collector, marks every
+  span the `otlp/rum` receiver sees before it reaches the shared exporter: a `telemetry.source =
+  rum` attribute (what a query filters on) and a `RUM - ` prefix on the span name (what is
+  readable at a glance in a mixed waterfall). `service_name` separates them too — browser spans
+  carry `3mrai-web`, service spans carry `users` / `orders` / `tracking` / `events-pipeline` /
+  `schema-seed` / `realtime-events`.
 
-All three pipelines put `memory_limiter` before `batch`, following the comment already on the
-traces pipeline (limiting after the batcher has buffered limits nothing). No
+The cost of sharing the traces stream is real and is not hidden behind the win: isolation for
+traces is now a convention (an attribute and a `service_name` value) rather than a structural
+guarantee, the way metrics and logs keep it. Any aggregate whose scope lives in the stream's
+name rather than in its own query silently widens the moment it runs against `app_traces` — the
+RUM dashboard's browser-trace panel read 1477 instead of 55 until a `WHERE service_name =
+'3mrai-web'` filter was added to its query, a 27x inflation with nothing failing. A new panel
+over `app_traces` that means "browser only" must say so in SQL. See
+[[2026-09-20-a-shared-stream-widens-every-scoped-count]].
+
+All three RUM pipelines put `memory_limiter` before `batch`, following the comment already on
+the services' traces pipeline (limiting after the batcher has buffered limits nothing). No
 `transform/parse_body`: OTLP arrives structured, there is no JSON-in-a-string body.
 
 A RUM dashboard under `observability/dashboards/*.dashboard.json` (imported by `make
@@ -340,3 +360,6 @@ The SDK can be written in parallel but cannot be called done until the collector
   Verification section is written to.
 - [[angular-component-authoring]] — Angular conventions (`app-config.ts` access pattern,
   interceptor placement) this spec's browser-side decisions follow.
+- [[2026-09-20-a-shared-stream-widens-every-scoped-count]] — the trap Decision 3's shared
+  `app_traces` stream created: an aggregate scoped by stream name alone silently widens when a
+  second producer joins the stream.

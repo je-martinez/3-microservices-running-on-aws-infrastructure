@@ -198,7 +198,7 @@ Full convention: `../../docs/shared/conventions/browser-rum.md` → [[browser-ru
 1. **Every gateway call goes through `ApiClient`.** `rumPropagationInterceptor`
    lives on Angular's `HttpClient` chain and keys off `gatewayPath(req.url)`, so
    a raw `fetch()` produces no CLIENT span and sends no `traceparent` — the call
-   is invisible in `rum_traces` with nothing failing. The interceptor is
+   is invisible in `app_traces` with nothing failing. The interceptor is
    registered LAST (`[refreshInterceptor, authInterceptor,
    rumPropagationInterceptor]`); a new interceptor goes before it.
 2. **Never swallow an error before `ErrorHandler` sees it.** `RumErrorHandler`

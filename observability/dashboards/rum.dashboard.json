@@ -2,7 +2,7 @@
   "version": 8,
   "dashboardId": "rum",
   "title": "Web RUM",
-  "description": "Browser telemetry: Core Web Vitals, JS error volume, and browser-trace volume. Vitals cards read the level with MAX, one gauge per metric; the error and trace-volume cards SUM the count over the selected range.",
+  "description": "Browser telemetry: Core Web Vitals, JS error volume, and browser-trace volume. Vitals cards read the level with MAX, one gauge per metric; the error and trace-volume cards SUM the count over the selected range. Browser spans live in app_traces alongside the services' spans, filtered here by service_name.",
   "role": "",
   "owner": "3MRAI",
   "created": "2026-09-19T00:00:00.000Z",
@@ -115,15 +115,15 @@
           "id": "card_browser_trace_volume",
           "type": "metric",
           "title": "Browser traces",
-          "description": "Count of distinct browser trace_ids landing in rum_traces over the selected range — page loads and navigations, one trace each.",
+          "description": "Count of distinct trace_ids with a browser span, over the selected range. Browser spans share the app_traces stream with the services, so the WHERE clause is load-bearing: without it this counts every backend trace too.",
           "config": { "show_legends": false, "decimals": 0 },
           "queryType": "sql",
           "queries": [
             {
-              "query": "SELECT COUNT(DISTINCT trace_id) AS total FROM \"rum_traces\"",
+              "query": "SELECT COUNT(DISTINCT trace_id) AS total FROM \"app_traces\" WHERE service_name = '3mrai-web'",
               "customQuery": true,
               "fields": {
-                "stream": "rum_traces",
+                "stream": "app_traces",
                 "stream_type": "traces",
                 "x": [],
                 "y": [{ "label": "total", "alias": "total", "column": "total", "color": null, "aggregationFunction": null, "isDerived": false, "havingConditions": [] }],

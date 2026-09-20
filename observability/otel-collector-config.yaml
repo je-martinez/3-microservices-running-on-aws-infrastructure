@@ -18,10 +18,10 @@ receivers:
       grpc:
         endpoint: 0.0.0.0:4317
 
-  # A SECOND OTLP receiver, port 4319, for browser RUM only. Isolation is
-  # structural rather than filter-based: a browser export can never land in the
-  # services' app_traces/metrics streams even if its resource.service.name is
-  # misconfigured, because it physically arrives on a different port.
+  # A SECOND OTLP receiver, port 4319, for browser RUM only. The port is what
+  # makes "this came from a browser" structural rather than a guess about
+  # resource.service.name: traces/rum below tags and renames every span
+  # arriving here, and metrics/logs from here reach only the rum_* streams.
   # http only — a browser speaks OTLP/HTTP, never gRPC.
   otlp/rum:
     protocols:
@@ -402,6 +402,25 @@ processors:
       span:
         - 'IsMatch(name, ".* http (send|receive)$")'
 
+  # Marks browser spans, which share app_traces with the services. Two markers
+  # for two uses: `telemetry.source` is what a query filters on, the `RUM - `
+  # prefix is what makes one readable at a glance in a mixed waterfall.
+  # CONTRACT: Runs in traces/rum ONLY — the 4319 port, not the span content,
+  # is what identifies a browser span; anywhere the services' otlp receiver
+  # feeds, this relabels service spans as RUM.
+  # CONTRACT: PREPEND, never replace: the name carries the route PATTERN the
+  # interceptor resolved (`GET /orders/:orderId`), and rebuilding it here
+  # would give one span name per order id. The guard keeps a span that
+  # re-enters from stacking `RUM - RUM - `.
+  # See [[browser-rum]]
+  transform/mark_rum_spans:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          - set(attributes["telemetry.source"], "rum")
+          - set(name, Concat(["RUM -", name], " ")) where not IsMatch(name, "^RUM - ")
+
   # The nginx split — the gateway's access log gets its own stream, the same
   # shape as sql/redis/docdb. Routed rather than dropped: the gateway is the only
   # place a request that never reached a service appears (bad upstream,
@@ -717,7 +736,13 @@ exporters:
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       # Without this header OpenObserve files every span under `default`.
-      # `app-traces` leaves room for infrastructure traces on another route.
+      # CONTRACT: The BROWSER's spans land here too, via traces/rum — neither
+      # in a stream of their own nor dual-written. OpenObserve draws a
+      # waterfall from ONE stream, so a browser span filed apart renders
+      # alone and the backend spans under its trace_id (83 for one checkout
+      # POST) need a second search; dual-writing duplicates every browser span.
+      # transform/mark_rum_spans keeps them distinguishable here.
+      # See [[browser-rum]]
       # CONTRACT: Write it with an UNDERSCORE. OpenObserve normalises
       # `app-traces` to `app_traces` on ingestion, so a hyphen leaves the config
       # and the queryable stream name disagreeing. Renaming does not move spans
@@ -735,15 +760,6 @@ exporters:
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: metrics
-
-  # RUM traces — same OpenObserve instance and auth as the service traces
-  # above, its OWN stream. Encoding stays at the default (protobuf), like
-  # otlp_http/openobserve_traces.
-  otlp_http/openobserve_rum_traces:
-    endpoint: http://openobserve:5080/api/${env:O2_ORG}
-    headers:
-      Authorization: "Basic ${env:O2_BASIC_AUTH}"
-      stream-name: rum_traces
 
   # RUM metrics (Web Vitals) — its own stream, same instance and auth.
   otlp_http/openobserve_rum_metrics:
@@ -880,16 +896,22 @@ service:
       processors: [transform/collapse_metric_start_time, batch]
       exporters: [otlp_http/openobserve_metrics]
 
-    # Browser traces (document-load, navigation, the traceparent-joined HTTP
-    # spans). No transform/parse_body: OTLP arrives already structured. No
-    # filter/drop_asgi_transport_spans: that processor targets Python ASGI
-    # transport spans, which a browser SDK never emits.
+    # CONTRACT: Browser traces (document-load, navigation, the
+    # traceparent-joined HTTP spans) export to app_traces, the SAME stream as
+    # the services' spans — a browser call and the backend chain it caused
+    # share a trace_id, and one stream is what makes them one waterfall. Its
+    # own PIPELINE, not its own stream: the 4319 receiver identifies a browser
+    # span and transform/mark_rum_spans marks it on the way through.
+    # No transform/parse_body: OTLP arrives already structured. No
+    # filter/drop_asgi_transport_spans: it targets Python ASGI transport
+    # spans, which a browser SDK never emits. See [[browser-rum]]
     traces/rum:
       receivers: [otlp/rum]
       # memory_limiter BEFORE batch, same reasoning as the traces pipeline
       # above: limiting after the batcher has buffered spans limits nothing.
-      processors: [memory_limiter, batch]
-      exporters: [otlp_http/openobserve_rum_traces]
+      # mark_rum_spans BEFORE batch, so the batcher ships already-marked spans.
+      processors: [memory_limiter, transform/mark_rum_spans, batch]
+      exporters: [otlp_http/openobserve_traces]
 
     # Web Vitals, exported as OTLP metrics from the browser.
     metrics/rum:

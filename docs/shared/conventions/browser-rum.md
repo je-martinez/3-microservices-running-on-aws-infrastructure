@@ -18,6 +18,7 @@ related:
   - "[[angular-component-authoring]]"
   - "[[openobserve-runbook]]"
   - "[[2026-08-21-verify-in-the-viewer-not-the-api]]"
+  - "[[2026-09-20-a-shared-stream-widens-every-scoped-count]]"
 ---
 
 # Browser RUM — Keeping New Work Observable
@@ -36,7 +37,7 @@ checklist per trigger, and the concrete failure each rule prevents.
 - **Call it through `ApiClient`** (`apps/web/src/app/core/http/api-client.ts`). This is not
   style: `rumPropagationInterceptor` is registered on Angular's `HttpClient` chain and keys off
   `gatewayPath(req.url)`. A raw `fetch()` bypasses the interceptor entirely — no CLIENT span, no
-  `traceparent`, and the call is invisible in `rum_traces` while everything else looks healthy.
+  `traceparent`, and the call is invisible in `app_traces` while everything else looks healthy.
   Verified during this work: a probe using raw `fetch()` produced no span at all.
 - The interceptor is registered LAST: `[refreshInterceptor, authInterceptor,
   rumPropagationInterceptor]`. A new interceptor goes BEFORE it unless it has a specific reason
@@ -66,9 +67,10 @@ checklist per trigger, and the concrete failure each rule prevents.
   [[2026-08-21-verify-in-the-viewer-not-the-api]], OpenObserve returns 200 and silently drops
   records — this bit twice during this work (a stale timestamp outside the retention window; a
   truncated capture that read as a false FAIL). Query the stream.
-- What "covered" means for a new flow: its gateway calls appear in `rum_traces` as CLIENT spans;
-  a failure in it appears in `rum_logs`; and the `trace_id` is shared with the backend spans in
-  `app_traces`. One trace, browser to service.
+- What "covered" means for a new flow: its gateway calls appear in `app_traces` as CLIENT spans,
+  marked `telemetry.source = rum` and named `RUM - <method> <route>`, sharing their `trace_id`
+  with the backend spans they reached; a failure in it appears in `rum_logs`. One trace, browser
+  to service, one waterfall.
 - Allow a full export cycle before concluding anything is missing. `BatchSpanProcessor` batches,
   and it runs slower in a backgrounded tab — measure over several seconds, not one. A short
   window produces a false FAIL exactly as it produces a false PASS.
@@ -88,6 +90,15 @@ checklist per trigger, and the concrete failure each rule prevents.
   handler is incomplete.
 - **Metric names are a contract with the dashboard.** `web_vitals_*` names are queried by
   `observability/dashboards/rum.dashboard.json`. Renaming one silently empties a panel.
+- **Browser traces share `app_traces` with the services — any aggregate over it must scope
+  itself in SQL, not rely on the stream name.** Browser spans are distinguishable two ways: a
+  `telemetry.source = rum` attribute (queryable) and a `RUM - ` name prefix (readable in a mixed
+  waterfall), both applied by `transform/mark_rum_spans` in the collector; `service_name` also
+  separates them (`3mrai-web` vs. `users`/`orders`/`tracking`/`events-pipeline`/`schema-seed`/
+  `realtime-events`). A panel meaning "browser traces only" needs an explicit `WHERE
+  service_name = '3mrai-web'` (or the `telemetry.source` attribute) — see
+  [[2026-09-20-a-shared-stream-widens-every-scoped-count]] for what an unscoped `COUNT(DISTINCT
+  trace_id)` over the shared stream actually returned.
 - **The collector and the proxy have two halves each.** A new signal or path needs the collector
   pipeline (`observability/otel-collector-config.yaml`, RUM traffic arrives on its own receiver
   at port 4319) AND both proxy halves: `apps/web/nginx.conf` for the container and the GENERATED
@@ -151,3 +162,5 @@ checklist per trigger, and the concrete failure each rule prevents.
   `gen_ai_operation_name` HTTP 400 trap.
 - [[2026-08-21-verify-in-the-viewer-not-the-api]] — the verification standard behind Trigger 3's
   rule to query the stream, not trust a 200.
+- [[2026-09-20-a-shared-stream-widens-every-scoped-count]] — the trap behind the cross-cutting
+  rule that an aggregate over `app_traces` must scope itself in SQL.
