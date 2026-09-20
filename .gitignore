@@ -119,6 +119,11 @@ __pycache__/
 # run killed mid-render, so a stale directory never reaches a commit.
 functions/events-pipeline/.email-catalog-render-*/
 
+# Angular CLI build cache, written at the repo root rather than under apps/web
+# because that is where the CLI resolves it from. Machine-local and versioned by
+# CLI release (.angular/cache/<version>/), so it never belongs in a commit.
+.angular/
+
 # lnai-generated
 .ai/.lnai-manifest.json
 # end lnai-generated
