@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      tailwind = { config: { corePlugins: { preflight: false } } };
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter%3Awght%40100..900&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      *, ::before, ::after {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body style="background-color: #FFFFFF">
+    <div
+      data-pencil-name="Saved Card Row"
+      class="box-border w-[560px] h-fit flex flex-row gap-[14px] p-[16px] justify-start items-center bg-[#FFFFFF] [outline:1px_solid_#E5E7EB] [outline-offset:-0.5px] rounded-[10px]"
+    >
+      <div
+        data-pencil-name="Brand Bubble"
+        class="box-border w-[40px] shrink-0 h-[40px] flex flex-row gap-0 justify-center items-center bg-[#EDF0F6] rounded-[8px]"
+      >
+        <svg
+          data-pencil-name="Brand Icon"
+          data-icon-name="credit-card"
+          data-icon-set="lucide"
+          viewBox="0 0 13.99993896484375 14"
+          preserveAspectRatio="xMidYMid meet"
+          xmlns="http://www.w3.org/2000/svg"
+          class="box-border w-[20px] shrink-0 h-[20px]"
+        >
+          <path
+            d="M2.15674 2.35156q-0.29395 0.02734-0.58789 0.16748-0.29395 0.14014-0.50586 0.3794-0.30762 0.32129-0.43408 0.79638l-0.04102 0.1709 0 6.29932 0.04102 0.16748q0.07178 0.25293 0.18115 0.44092 0.11279 0.18799 0.29394 0.37256 0.18457 0.18115 0.37256 0.29394 0.18799 0.10938 0.44092 0.18115l0.16748 0.04102 9.83008 0 0.16748-0.04102q0.25293-0.07178 0.44092-0.18115 0.18799-0.11279 0.36914-0.29394 0.18457-0.18457 0.29394-0.37256 0.11279-0.18799 0.18457-0.44092l0.04102-0.16748 0-6.33008-0.04102-0.16748q-0.12646-0.46143-0.43408-0.76904-0.44775-0.48877-1.13476-0.56055-0.16748-0.01367-4.81592-0.01367-4.64844 0-4.82959 0.02734z m9.74463 1.20313q0.19482 0.09912 0.29394 0.29394l0.04102 0.09912 0.01367 1.30225-10.5 0 0.01367-1.30225 0.04102-0.09912q0.11279-0.24951 0.37939-0.32129 0.08545-0.02734 4.85694-0.02734l4.76123 0.01367 0.09912 0.04102z m0.34863 4.67578l-0.01367 1.82178-0.02735 0.08545q-0.12646 0.26318-0.37939 0.33496-0.08203 0.02734-4.82959 0.02734-4.74756 0-4.82959-0.02734-0.25293-0.07178-0.37939-0.33496l-0.02735-0.08545-0.01367-3.62647 10.5 0 0 1.80469z"
+            fill="#2D3748"
+          ></path>
+        </svg>
+      </div>
+      <div
+        data-pencil-name="Card Body"
+        class="box-border [flex:1_1_0] h-fit flex flex-col gap-[3px] justify-start items-start"
+      >
+        <div
+          data-pencil-name="Card Title Row"
+          class="box-border w-fit h-fit shrink-0 flex flex-row gap-[10px] justify-start items-center"
+        >
+          <div
+            data-pencil-name="Card Brand"
+            class="text-[14.5px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+          >
+            Visa ···· 4242
+          </div>
+        </div>
+        <div
+          data-pencil-name="Card Expiry"
+          class="text-[13px]/[normal] box-border text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left [white-space:nowrap]"
+        >
+          Expires 04 / 2028
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

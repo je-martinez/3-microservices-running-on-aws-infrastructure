@@ -4,7 +4,7 @@ Design source: `assets/web-app/web-app.pen`
 
 ## Design Tokens
 
-`GetVariables()` returned exactly 30 variables (read live from the `.pen`, 2026-08-18). 11 were renamed on emission into `apps/web/src/styles.css` to avoid Tailwind v4 utility stutter (e.g. `bg-body` would otherwise collide with a `bg-*` utility named `bg-bg-body`). Everything else maps straight through.
+`GetVariables()` returned exactly 32 variables (read live from the `.pen`, verified again 2026-09-19 for the Stripe payments milestone — see [[2026-09-19-stripe-payments-design]]). 11 were renamed on emission into `apps/web/src/styles.css` to avoid Tailwind v4 utility stutter (e.g. `bg-body` would otherwise collide with a `bg-*` utility named `bg-bg-body`). Everything else maps straight through. The Stripe payments milestone's six new frames (`Saved Card Row` and its consumers) use only existing tokens — no new variable was added in that pass.
 
 | `.pen` name | Value | Tailwind utility |
 |---|---|---|
@@ -55,7 +55,7 @@ Never use an arbitrary hex value (`bg-[#2D3748]`) in a component — always the 
 
 ## Reusable components
 
-20 root frames in the `.pen` are reusable components (verified live via `Get(document, …)`, 2026-08-18). Two more root frames — `Status Badge — States` (`UOHCo`) and `Tracking Status — Icons` (`hImQh`) — are variant sheets, not components themselves; they document the states of `Status Badge` and `Tracking Status Icon` below. One root frame, `Frame 800x600` (`bi8Au`), is empty scratch space and is not part of the design.
+21 root frames in the `.pen` are reusable components (20 verified live via `Get(document, …)`, 2026-08-18; `Saved Card Row` — `vPwZ1` — added for the Stripe payments milestone, 2026-09-19, see [[2026-09-19-stripe-payments-design]]). Two more root frames — `Status Badge — States` (`UOHCo`) and `Tracking Status — Icons` (`hImQh`) — are variant sheets, not components themselves; they document the states of `Status Badge` and `Tracking Status Icon` below. One root frame, `Frame 800x600` (`bi8Au`), is empty scratch space and is not part of the design.
 
 | Component | Node id | Target path | Inputs (where the design shows states) |
 |---|---|---|---|
@@ -79,6 +79,7 @@ Never use an arbitrary hex value (`bg-[#2D3748]`) in a component — always the 
 | Notification Item | `qwO6X` | `src/app/shared/ui/notification-item.ts` | — |
 | Notifications Panel | `LWQ8g` | `src/app/features/notifications/notifications-panel.ts` | mounts off `OverlayStore`; one component reads each item's `read` flag to cover the Unread (`mSssa`) / Read (`YZIGp`) pair |
 | Toast Notification | `jYz4h` | `src/app/shared/ui/toast-notification.ts` | covers `IQCEF`/`UpmOQ` |
+| Saved Card Row | `vPwZ1` | `src/app/shared/ui/saved-card-row.ts` | `card: SavedCardView`, `selected: boolean`, `isDefault: boolean`, `expired: boolean` — three states: selected+default, unselected/not-default, expired (dimmed bubble, `text-danger-red font-semibold` expiry). Shared by the checkout's `Saved Cards List` and the profile's `Cards List` — never rebuilt per surface. |
 
 Every component is `standalone: true` and uses `input()`/`output()` signals, never `@Input()`/`@Output()` decorators. Structure (flex layout, gaps, paddings) is legitimately copied from each frame's `apps/web/design/exports/<name>.html` export; arbitrary colour classes in that export (`bg-[#2D3748]`) are not — replace them with the matching token utility from the table above.
 
@@ -95,10 +96,10 @@ Every component is `standalone: true` and uses `input()`/`output()` signals, nev
 | `/register/passwordless` | `UK1Bu` / `t2OrS` | `features/auth/register-passwordless` |
 | `/password/new` | `atwtV` / `G6lEnQ` | `features/auth/set-new-password` |
 | `/` | `eK0x6` / `ffO4d` | `features/catalogue/home` |
-| `/checkout` | `DOtD2` / `P0lhqj` | `features/checkout/checkout-payment` |
+| `/checkout` | `DOtD2` / `P0lhqj` (add-card state: `wgkmW` / `V2wb9b`) | `features/checkout/checkout-payment` |
 | `/orders` | `rGwBO` / `OoNex` | `features/orders/orders-list` |
 | `/orders/:orderId` | `x7ABM` / `eq3Tk` (just-placed state: `Q4Yp0v` / `mr4Ho`) | `features/orders/order-detail` |
-| `/profile` | `hZ87b` / `nyVEI` | `features/account/profile` |
+| `/profile` | `hZ87b` / `nyVEI` (Payment methods tab: `VcB4y` / `W6IFps`; Add Card state: `wnUi1` / `WQAq0`) | `features/account/profile` |
 | `**` | — | redirect to `/` |
 
 ## Overlays are not routes
@@ -133,6 +134,22 @@ plain detail screen. Its copy names the signed-in user's email; the design's
 Both `success-bg` and `success-text` already existed as design variables — this
 frame added no tokens.
 
+The Stripe payments milestone ([[2026-09-19-stripe-payments-design]]) added three more state
+variants the same way, gated behind `STRIPE_ENABLED`:
+
+- **Checkout — Payment (add card)** (`wgkmW` / mobile `V2wb9b`) is a state of `/checkout` — the
+  Stripe branch's inline `New Card Block` shown in place of the saved-cards selector, not a
+  route of its own.
+- **Profile — Payment Methods** (`VcB4y` / mobile `W6IFps`) is a tab state of `/profile` — the
+  `Tabs` frame switches between "Delivery address" (the existing single-view profile) and
+  "Payment methods" (the new `SAVED CARDS` section) without a route change.
+- **Profile — Add Card** (`wnUi1` / mobile `WQAq0`) is a further state reached from the
+  Payment Methods tab's `Add Card Button`, also without its own route.
+
+With `STRIPE_ENABLED=false`, none of these three states are reachable — the profile has no
+"Payment methods" tab to switch to, and the checkout has no inline add-card form (spec
+Decision 22).
+
 ## Assets
 
 An export references images in three distinct ways — scanning only `<img>` tags misses the first, which is a CSS background:
@@ -147,3 +164,4 @@ An export references images in three distinct ways — scanning only `<img>` tag
 
 - [[email-templates]] — the sibling design system this one shares tokens with.
 - `docs/superpowers/specs/2026-08-17-web-app-foundation-design.md` — the design spec this document distils.
+- [[2026-09-19-stripe-payments-design]] — added `Saved Card Row` and the three add-card/Payment-methods state variants documented above; verified live via the Pencil MCP that all of its frames use only tokens already in this table.
