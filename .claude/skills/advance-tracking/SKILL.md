@@ -1,6 +1,6 @@
 ---
 name: advance-tracking
-description: Use when asked to move an order's delivery status locally — "advance order X to SHIPPED", "mark 260915C6119V delivered", "walk this order through every status", "trigger a notification for order Y". Drives the real carrier webhook through the gateway, so the whole chain fires: tracking event → SNS → notification row → WebSocket toast.
+description: 'Use when asked to move an order''s delivery status locally — "advance order X to SHIPPED", "mark 260915C6119V delivered", "walk this order through every status", "trigger a notification for order Y". Drives the real carrier webhook through the gateway, so the whole chain fires: tracking event → SNS → notification row → WebSocket toast.'
 metadata:
   area: tracking
   script: infra/scripts/advance_tracking.py

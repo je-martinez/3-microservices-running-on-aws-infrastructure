@@ -123,6 +123,7 @@ services:
       # stack). Start the stack with `make bootstrap`, which brings this up.
       - "4317:4317"     # OTLP/gRPC
       - "4318:4318"     # OTLP/HTTP
+      - "4319:4319"     # OTLP/HTTP, browser RUM only (otlp/rum receiver)
       # health_check extension — published because `make doctor` probes it from
       # the HOST to report exactly the situation described just above: services
       # configured to export traces while this container is not running.

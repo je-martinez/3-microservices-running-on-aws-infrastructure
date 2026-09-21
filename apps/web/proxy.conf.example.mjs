@@ -35,6 +35,14 @@ export default {
     changeOrigin: false,
     rewrite: (path) => path.replace(/^\/v1/, '/restapis/<api-id>/$default/_user_request_/v1'),
   },
+  // The `ng serve` twin of nginx.conf's `location /otlp/`: same target port
+  // (4319, host-published), prefix stripped the same way.
+  '/otlp': {
+    target: 'http://localhost:4319',
+    secure: false,
+    changeOrigin: false,
+    rewrite: (path) => path.replace(/^\/otlp/, ''),
+  },
   // The `ng serve` twin of nginx.conf's `location /geocode/`.
   '/geocode/': {
     target: 'https://api.geoapify.com',

@@ -52,6 +52,7 @@ These rules take precedence over default agent/skill behavior.
 - **OTel config goes in environment variables, not code** — endpoint, protocol, and disabling the metrics/logs exporters. Three silent failures in this repo came from configuring the SDK in code. A new service needs no endpoint code, only the env vars.
 - Full convention: `docs/shared/conventions/logging-context.md` → [[logging-context]]. Backend decision: [[ADR-0019-distributed-tracing-opentelemetry]] — **logs AND traces both go to OpenObserve** (`localhost:5080`). Jaeger was removed on 2026-08-21 once its reason for existing (OpenObserve rejecting trace ingest with HTTP 400) stopped reproducing; nothing listens on `:16686` any more.
 - **If OpenObserve's trace waterfall returns HTTP 400 (`code 20004`, `gen_ai_operation_name`), run `make observability-traces-schema`.** Its trace-detail endpoint queries a field from its LLM-tracing feature that this repo never emits, and the query fails when the column is absent from the stream schema. `make observability-up` seeds it automatically; a `make clean` wipes it again with the volume. Not a version bug — v0.92.2 fails identically.
+- **The browser emits telemetry too, and new work does NOT inherit it for free.** A new endpoint, screen or flow is observable only if it follows `docs/shared/conventions/browser-rum.md` → [[browser-rum]]: call the gateway through `ApiClient` (a raw `fetch()` bypasses the interceptor — no span, no `traceparent`), never swallow an error before Angular's `ErrorHandler` sees it, and verify the new surface **in the OpenObserve viewer**. The failure mode is silence: the dashboards stay green and the new surface is simply absent. `pnpm build` is part of "done" — the initial-bundle budget is a real gate that `test`/`lint`/`typecheck` do not check.
 
 ### GOLDEN RULE — the vault is the source of truth, never a private memory file
 - **When the user establishes a convention, a decision, or a durable lesson, it goes into the VAULT first** (`docs/shared/conventions/`, `docs/shared/decisions/`, `docs/lessons/`), routed through `obsidian-vault`. Writing it only to an assistant memory store is **wrong** and is the failure mode this rule exists to prevent.
@@ -181,11 +182,10 @@ The Obsidian vault lives in [`docs/`](docs/). Design and plan for it:
 - Plan: `docs/superpowers/plans/2026-06-26-3mrai-docs-vault.md`
 
 ### Structure — hybrid domain + type
-- `docs/00-overview/` — root MOC (`index.md`), `architecture.md`, `system-context.md`, `glossary.md`.
-- `docs/domains/<service>/{specs,decisions,runbooks,testing}/` — one folder per service: `users`, `orders`, `tracking`, `events-pipeline`.
-- `docs/infrastructure/{specs,decisions,runbooks}/`.
-- `docs/shared/{decisions,patterns,conventions,observability}/` — **all global ADRs live in `shared/decisions/`**.
-- Global note types at root: `docs/{lessons,retros,ideas,plans,templates}/`.
+`ls docs/` shows the layout: a folder per service under `domains/`, plus `infrastructure/`,
+`shared/`, and the global note types at root. Two rules the tree does not state:
+- **All global ADRs live in `shared/decisions/`** — never in a service folder.
+- `docs/00-overview/index.md` is the root MOC every other note is reachable from.
 
 ### Conventions
 - **Cross-cutting rules are defined once in `shared/` and referenced by `[[wikilink]]`** — never duplicated in service specs.

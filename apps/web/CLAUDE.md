@@ -187,6 +187,37 @@ unsanitised value can win — the request is built from field state, not from th
 DOM. Sanitise into the model, never by rewriting the element. See
 [[2026-09-10-formfield-reads-the-raw-dom-value]].
 
+## 2e. GOLDEN RULE — new work stays observable
+
+This app emits browser telemetry: OTel traces joined to the backend's by
+`traceparent`, Web Vitals as metrics, and JS errors as logs. **A new endpoint,
+screen or flow does NOT inherit that automatically**, and the failure mode is
+silence — the RUM dashboards stay green while the new surface is simply absent.
+Full convention: `../../docs/shared/conventions/browser-rum.md` → [[browser-rum]].
+
+1. **Every gateway call goes through `ApiClient`.** `rumPropagationInterceptor`
+   lives on Angular's `HttpClient` chain and keys off `gatewayPath(req.url)`, so
+   a raw `fetch()` produces no CLIENT span and sends no `traceparent` — the call
+   is invisible in `app_traces` with nothing failing. The interceptor is
+   registered LAST (`[refreshInterceptor, authInterceptor,
+   rumPropagationInterceptor]`); a new interceptor goes before it.
+2. **Never swallow an error before `ErrorHandler` sees it.** `RumErrorHandler`
+   only reports what reaches it. A component that catches its own `ApiError`
+   and renders a message without rethrowing deletes that failure from
+   `rum_logs`. Handle it for the user AND let it propagate.
+3. **The emitted allow-list is closed**: `message`, `stack`, `type`, `route`,
+   `trace_id`, `user_id`, plus `status`/`detail` for an `ApiError`. Never a
+   body, a token, a plaintext email, or a query string. `route` is
+   `location.pathname`, never the full URL. See [[logging-context]].
+4. **New telemetry code goes inside the `APP_CONFIG.rumEnabled` gate**, in the
+   lazily-imported SDK module — never at module scope in an always-loaded file.
+   A static OTel import re-inflates the initial bundle even with the flag off.
+5. **`pnpm build` is part of "done".** The 600 kB initial-bundle budget in
+   `angular.json` is a real gate, and `test`/`lint`/`typecheck` do not check it.
+6. **Verify in the OpenObserve viewer, never on an HTTP 200** — it returns 200
+   and silently drops records. Allow a full `BatchSpanProcessor` cycle before
+   concluding something is missing. See [[2026-08-21-verify-in-the-viewer-not-the-api]].
+
 ## 3. Folder structure
 ```
 apps/web/

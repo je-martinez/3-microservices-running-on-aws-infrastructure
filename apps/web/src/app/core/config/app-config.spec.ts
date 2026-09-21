@@ -14,10 +14,11 @@ const VALID_ENV = {
   NG_APP_API_GATEWAY_URL: '/v1',
   NG_APP_GEOCODE_ENABLED: 'true',
   NG_APP_WS_URL: 'ws://localhost:4566/ws/abc123/dev',
+  NG_APP_RUM_ENABLED: 'true',
 };
 
 describe('parseAppConfig', () => {
-  it('parses all four variables from a fully populated environment', () => {
+  it('parses all five variables from a fully populated environment', () => {
     const warn = vi.fn();
 
     expect(parseAppConfig(VALID_ENV, warn)).toEqual({
@@ -25,6 +26,7 @@ describe('parseAppConfig', () => {
       apiGatewayUrl: '/v1',
       geocodeEnabled: true,
       wsUrl: 'ws://localhost:4566/ws/abc123/dev',
+      rumEnabled: true,
     });
     expect(warn).not.toHaveBeenCalled();
   });
@@ -92,6 +94,30 @@ describe('parseAppConfig', () => {
     expect(config.geocodeEnabled).toBe(false);
   });
 
+  it('defaults rumEnabled to false when unset, without warning', () => {
+    const warn = vi.fn();
+    const withoutRum = {
+      NG_APP_STRIPE_ENABLED: VALID_ENV.NG_APP_STRIPE_ENABLED,
+      NG_APP_API_GATEWAY_URL: VALID_ENV.NG_APP_API_GATEWAY_URL,
+      NG_APP_GEOCODE_ENABLED: VALID_ENV.NG_APP_GEOCODE_ENABLED,
+      NG_APP_WS_URL: VALID_ENV.NG_APP_WS_URL,
+    };
+
+    const config = parseAppConfig(withoutRum, warn);
+
+    expect(config.rumEnabled).toBe(false);
+    // CONTRACT: Deliberate asymmetry with NG_APP_WS_URL, which warns on unset
+    // because a user-facing feature silently disappears. RUM off costs the
+    // user nothing, so no console.warn fires here.
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('reads "false" as false for rumEnabled, not as a truthy string', () => {
+    const config = parseAppConfig({ ...VALID_ENV, NG_APP_RUM_ENABLED: 'false' }, vi.fn());
+
+    expect(config.rumEnabled).toBe(false);
+  });
+
   /**
    * CONTRACT: `parseAppConfig` runs at module scope, before
    * `bootstrapApplication` — a throw here escapes the `.catch` in main.ts and
@@ -113,6 +139,7 @@ describe('parseAppConfig', () => {
       apiGatewayUrl: '/v1',
       geocodeEnabled: false,
       wsUrl: '',
+      rumEnabled: false,
     });
   });
 
