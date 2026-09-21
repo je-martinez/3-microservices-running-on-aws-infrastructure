@@ -26,6 +26,7 @@ related:
   - "[[skills-catalog]]"
   - "[[code-comments]]"
   - "[[stripe-sandbox-setup]]"
+  - "[[browser-rum]]"
 propagates-to:
   - "[[users-service-design]]"
   - "[[testing]]"
@@ -34,6 +35,7 @@ propagates-to:
   - "[[local-dev]]"
   - "[[logging-context]]"
   - "[[angular-component-authoring]]"
+  - "[[browser-rum]]"
 ---
 
 # Stripe Payments — Saved Cards and Real Charges
@@ -469,6 +471,94 @@ Rules:
   Button` (Decision 4's detach route) — this design makes no change to when a card is deleted,
   only to how an expired-but-not-yet-deleted one is displayed.
 
+### 25. Stripe calls join the logs and traces cascade
+
+Every outbound Stripe call is an outbound third-party hop, exactly like the SNS publish
+`services/users/src/shared/observability/publish-tracing.ts`'s `withPublishSpan` already
+instruments and `services/orders/src/Orders.Infrastructure/Messaging/SnsEventPublisher.cs`
+mirrors for .NET. Neither service gets this for free by adding the Stripe SDK — it is
+specified here so it is built alongside each call, not bolted on after the milestone ships.
+
+**Spans.** Every outbound Stripe call gets a CLIENT span, following `withPublishSpan`'s
+contract:
+- **Named after the OPERATION, not the SDK surface** — `stripe.payment_intent.create`,
+  `stripe.setup_intent.create`, `stripe.payment_method.attach`,
+  `stripe.payment_method.detach`, `stripe.customer.create`, `stripe.refund.create`. The same
+  reasoning `publish-tracing.ts` states for its own span name applies unchanged: the name is
+  what a waterfall renders, so it must say what happened, not merely that the SDK was called.
+- **`SpanKind.CLIENT`** (Node) / `ActivityKind.Client` (.NET) — Stripe is an outbound
+  third-party dependency, not a message producer; `PRODUCER`/`ActivityKind.Producer` stays
+  reserved for the SNS/SQS publish spans this pattern is borrowed from.
+- **Attributes that are queryable, not just readable**: `stripe.operation`,
+  `stripe.resource_type`, and the Stripe object id where one exists
+  (`stripe.payment_intent_id`, `stripe.customer_id`, `stripe.payment_method_id`). Also
+  `stripe.idempotency_key` on the charge path (Decision 7) — an idempotency-retry
+  investigation is exactly the moment this attribute is needed, and it is cheap to attach
+  always rather than reconstruct after the fact.
+- **ERROR status + a recorded exception on failure, and the span ends in a `finally`** — for
+  the exact reason `publish-tracing.ts`'s contract states: a span left open on the exception
+  path is never exported and nothing errors to say so. Unlike the SNS publisher (which
+  swallows its own send failure because the order is already committed), a Stripe call
+  failure on the charge path DOES propagate (Decision 8's 402) — the span still records it
+  before it propagates, the same as any other failing CLIENT hop.
+
+**Never on a span or in a log — extending [[logging-context]]'s prohibitions with Stripe's
+specifics:**
+- **The restricted API key or the webhook secret.** Decision 15 already says keys are never
+  logged; restated here as a span-attribute rule too, because attributes are a second surface
+  people forget when a prohibition is stated only for logs.
+- **The PAN, the CVC, or a SetupIntent/PaymentIntent `client_secret`.** The `client_secret` is
+  the one most likely to be logged by accident, because it sits on the very response object
+  the code is already holding and about to hand to the frontend — the accidental log call is
+  `logger.info({ setupIntent })`, not a deliberate leak.
+- **The full Stripe response object.** Decision 3 stores `rawPayload` in the **database**
+  deliberately; that is not a licence to log or span-attribute it. A card's
+  `last4`/`brand`/`expMonth`/`expYear` are safe to emit; nothing else from the card object is.
+- **A plaintext email on the customer-creation path** — use `email_hash` per
+  [[logging-context]], never the raw address, on the `stripe_customer_created` flow log.
+
+**Flow logs with `app_event`**, following the existing `<flow>_started` / `<flow>_succeeded` /
+`<flow>_failed` triad plus `reason` on failure ([[logging-context]] — there is no `SUCCESS`
+severity; success is `INFO` + `app_event=*_succeeded`). Named concretely, not left to be
+invented at implementation time: `stripe_customer_created`, `payment_method_attached`,
+`payment_method_detached`, `payment_method_set_default`, `payment_intent_created`,
+`payment_charged`, `payment_declined`, `payment_refunded`, `stripe_webhook_received`.
+
+**The three paths that must be observable independently, because they are the ones debugged
+without Stripe's own dashboard open:**
+- **A declined card (402, Decision 8).** A decline is a business outcome, not a server fault:
+  `app_event=payment_declined` with Stripe's `decline_code` as `reason`, at INFO/WARN — never
+  ERROR. An ERROR span/log here would put an ordinary declined-card page on the same
+  on-call dashboard as a real fault.
+- **The refund-after-409 path (Decision 9).** The highest-risk requirement in this milestone
+  (see [[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]]) must be observable
+  on its own, independently of the charge that preceded it: its own
+  `app_event=payment_refunded` line carrying `order_id` and `payment_intent_id`, so "was a
+  dangling charge actually refunded?" is answerable from the logs alone — without opening
+  Stripe's dashboard to check.
+- **The webhook (Decision 4/11).** `app_event=stripe_webhook_received` with the Stripe
+  `event.type` and `event.id` as attributes. A signature-verification failure logs as a
+  failure with `reason=signature_verification_failed`, and **never** logs the `stripe-signature`
+  header or the raw request body.
+
+**The web side inherits [[browser-rum]]'s rules — it does not get its own.** The new checkout
+and profile calls (Decisions 22–23) MUST go through `ApiClient`: a raw `fetch()` bypasses
+`rumPropagationInterceptor` entirely, producing no CLIENT span and no `traceparent`, so the
+call is invisible in `app_traces` while every dashboard stays green — exactly the failure mode
+[[browser-rum]] names ("nothing about the fact that telemetry exists makes a FUTURE endpoint
+inherit it"). A card error surfaced in the checkout or profile UI must still reach Angular's
+`ErrorHandler` (rethrow, or report deliberately) or it never reaches `rum_logs`. Redaction is
+the screen author's problem, per [[browser-rum]]'s Trigger 2: a Stripe error object must never
+be handed to the error handler wholesale — only the allow-listed fields it already documents.
+This decision does not restate [[browser-rum]]'s checklist; it points at it.
+
+**Verification is in the viewer, not the HTTP status.** Per [[browser-rum]] and
+[[2026-08-21-verify-in-the-viewer-not-the-api]], OpenObserve returns 200 and silently drops
+records — "observable" means the trace was actually seen in OpenObserve, after allowing a full
+export cycle, never inferred from a 200 response. What "covered" means for this milestone:
+placing an order with a saved card produces **one** trace spanning browser → gateway → Orders
+→ Stripe, with the Stripe hop appearing as its own named CLIENT span in that same waterfall.
+
 ## Data model
 
 **Users (Postgres, Prisma):**
@@ -615,6 +705,12 @@ Load tests send neither `x-e2e-source` nor `x-test-mode`, and with the flag off 
 never touch Stripe — this is verified, not assumed, because a load test issuing real charges
 would be expensive.
 
+**Observability verification is part of "done" for these routes**, per CLAUDE.md's rule that
+every new/changed HTTP endpoint requires observability and that reads are not exempt. A route
+is not finished when its tests are green; it is finished when Decision 25's spans and
+`app_event` lines have been seen in OpenObserve for at least the declined-card path, the
+refund-after-409 path, and the webhook — not merely coded and assumed correct.
+
 ## Infra
 
 New gateway routes in `infra/modules/api-gateway/main.tf` and an nginx `location` block for the
@@ -707,3 +803,5 @@ Manually installed skills do not auto-update — `pnpm dlx skills update` refres
   tokens these frames use already exist in `apps/web/src/styles.css`.
 - [[stripe-sandbox-setup]] — the operator-facing runbook for Decision 17's sandboxes and
   Decision 15's restricted keys.
+- [[browser-rum]] — the Trigger 1/2/3 checklist Decision 25's web-side paragraph defers to
+  rather than restating, for the new checkout and profile Stripe calls.

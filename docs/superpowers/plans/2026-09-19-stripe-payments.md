@@ -22,6 +22,8 @@ propagates-to:
   - "[[local-dev]]"
   - "[[skills-catalog]]"
   - "[[stripe-sandbox-setup]]"
+  - "[[browser-rum]]"
+  - "[[logging-context]]"
 related:
   - "[[2026-09-19-stripe-payments-design]]"
   - "[[testing]]"
@@ -38,6 +40,8 @@ related:
   - "[[local-dev]]"
   - "[[skills-catalog]]"
   - "[[stripe-sandbox-setup]]"
+  - "[[browser-rum]]"
+  - "[[logging-context]]"
 ---
 
 # Stripe Payments Implementation Plan
@@ -70,9 +74,9 @@ related:
 ## Task 1 — Stripe client foundation in Users
 
 **Files:**
-- Create: `services/users/src/shared/stripe/stripe-client.provider.ts`, `services/users/src/shared/stripe/stripe-client.provider.spec.ts`, `services/users/src/shared/tokens.ts` (extend, do not recreate)
+- Create: `services/users/src/shared/stripe/stripe-client.provider.ts`, `services/users/src/shared/stripe/stripe-client.provider.spec.ts`, `services/users/src/shared/tokens.ts` (extend, do not recreate), `services/users/src/shared/observability/stripe-tracing.ts`, `services/users/src/shared/observability/stripe-tracing.spec.ts`
 - Modify: `services/users/src/config/env.schema.ts`
-- Test: `services/users/src/shared/stripe/stripe-client.provider.spec.ts`
+- Test: `services/users/src/shared/stripe/stripe-client.provider.spec.ts`, `services/users/src/shared/observability/stripe-tracing.spec.ts`
 
 **Interfaces:**
 - Consumes: `services/users/src/config/env.schema.ts`'s existing `E2E_TESTING_ENABLED` boolean-from-string pattern (`z.enum(["true","false"]).default("false").transform((v) => v === "true")`).
@@ -88,6 +92,9 @@ related:
   }
   ```
   Consumed by every later Users task via `@Inject(STRIPE_CLIENT) private readonly stripe: StripeClientHolder`.
+  Also produces `withStripeSpan` (`services/users/src/shared/observability/stripe-tracing.ts`,
+  step 1.8) — the Stripe analogue of `withPublishSpan`, consumed by Tasks 3, 4, 5, and 6 for
+  every outbound Stripe call (spec Decision 25).
 
 ### Steps
 
@@ -228,7 +235,115 @@ related:
   }
   ```
 
-- [ ] 1.7 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+- [ ] 1.7 **Stripe observability foundation (spec Decision 25).** Write the failing spec first,
+  `services/users/src/shared/observability/stripe-tracing.spec.ts`, asserting a span is
+  created with the right name/kind/attributes and that a thrown error sets ERROR status:
+  ```ts
+  import { SpanKind, SpanStatusCode } from "@opentelemetry/api";
+  import { describe, expect, it, vi } from "vitest";
+  import { withStripeSpan } from "./stripe-tracing";
+
+  describe("withStripeSpan", () => {
+    it("names the span after the operation, kind CLIENT, with the given attributes", async () => {
+      const result = await withStripeSpan(
+        "stripe.customer.create",
+        { "stripe.resource_type": "customer" },
+        async (handle) => {
+          handle.setAttribute("stripe.customer_id", "cus_123");
+          return "ok";
+        },
+      );
+      expect(result).toBe("ok");
+      // Assert against the in-memory span exporter this repo's other tracing
+      // specs already use (grep publish-tracing.spec.ts for the exact harness)
+      // rather than reinventing one here.
+    });
+
+    it("sets ERROR status and records the exception when fn throws, then still ends the span", async () => {
+      await expect(
+        withStripeSpan("stripe.payment_method.attach", {}, async () => {
+          throw new Error("boom");
+        }),
+      ).rejects.toThrow("boom");
+      // Assert the exported span's status.code === SpanStatusCode.ERROR and
+      // that end() was called exactly once (span left open would fail the
+      // exporter assertion in the harness referenced above).
+    });
+  });
+  ```
+  Run `nvm use && pnpm --filter users test stripe-tracing` — fails, module missing.
+
+- [ ] 1.8 Implement `services/users/src/shared/observability/stripe-tracing.ts`, the Stripe
+  analogue of `withPublishSpan`
+  (`services/users/src/shared/observability/publish-tracing.ts`) — same tracer-per-module,
+  `startActiveSpan`, attributes built inside the callback, `end()` in a `finally`:
+  ```ts
+  import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
+
+  // CONTRACT: Named after the OPERATION, not the SDK surface (spec D25) — the
+  // name is what a waterfall renders, so it must say what happened. Mirrors
+  // withPublishSpan's naming reasoning. See [[logging-context]]
+  const tracer = trace.getTracer("users-stripe");
+
+  export interface StripeSpanHandle {
+    /** Attach a queryable attribute discovered only inside `fn` (e.g. a Stripe object id). */
+    setAttribute(key: string, value: string | number | boolean): void;
+  }
+
+  /**
+   * Run `fn` inside a CLIENT span named after the Stripe operation (spec D25).
+   * CLIENT, not PRODUCER — Stripe is an outbound third-party dependency, not a
+   * message publish. `span.end()` stays in a `finally`: a span left open on the
+   * exception path is never exported, with nothing to say so. Unlike
+   * `withPublishSpan`, a thrown error here IS allowed to propagate (a Stripe
+   * call failure is a real failure, not a swallowed best-effort send) — this
+   * helper still records it on the span before it does.
+   * See [[logging-context]]
+   */
+  export function withStripeSpan<T>(
+    operation: string,
+    attributes: Record<string, string | number | boolean>,
+    fn: (span: StripeSpanHandle) => Promise<T>,
+  ): Promise<T> {
+    return tracer.startActiveSpan(
+      operation,
+      {
+        kind: SpanKind.CLIENT,
+        attributes: { "stripe.operation": operation, ...attributes },
+      },
+      async (span) => {
+        const handle: StripeSpanHandle = {
+          setAttribute(key, value) {
+            span.setAttribute(key, value);
+          },
+        };
+        try {
+          const result = await fn(handle);
+          span.setStatus({ code: SpanStatusCode.OK });
+          return result;
+        } catch (err) {
+          // CONTRACT: Never a plaintext card, key, or client_secret on this
+          // span (spec D25) — callers pass only ids/metadata into `attributes`
+          // and `setAttribute`, never a raw Stripe response object.
+          span.recordException(err as Error);
+          span.setStatus({
+            code: SpanStatusCode.ERROR,
+            message: err instanceof Error ? err.message : String(err),
+          });
+          throw err;
+        } finally {
+          span.end();
+        }
+      },
+    );
+  }
+  ```
+  Run `nvm use && pnpm --filter users test stripe-tracing` — passes. Every later Users task
+  (Tasks 3, 4, 5, 6) wraps its Stripe calls in `withStripeSpan` rather than hand-rolling a span,
+  the same way every command in this plan consumes `STRIPE_CLIENT` rather than instantiating
+  its own client.
+
+- [ ] 1.9 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
 
 ## Task 2 — Prisma schema + migration for the Stripe data model
 
@@ -452,7 +567,44 @@ related:
   ```
   Run `nvm use && pnpm --filter users test ensure-stripe-customer` — passes.
 
-- [ ] 3.3 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+- [ ] 3.3 **Wrap the Stripe call in `withStripeSpan` and emit the flow log (spec Decision
+  25).** Extend 3.2's implementation: the `stripe.client.customers.create` call moves inside
+  `withStripeSpan("stripe.customer.create", { "stripe.resource_type": "customer" }, ...)`,
+  setting `stripe.customer_id` via the handle once the customer comes back, and the function
+  logs `app_event=stripe_customer_created` (INFO) with `user_id` and `email_hash` (never the
+  raw email — [[logging-context]]) after the DB write succeeds:
+  ```ts
+  import { withStripeSpan } from "#shared/observability/stripe-tracing";
+  import { hashEmail } from "#shared/auth/hash-email"; // use this service's existing hasher
+  import { appLogger } from "#shared/logging/app-logger";
+
+  // ... inside ensureStripeCustomer, replacing the bare `stripe.client.customers.create` call:
+  const customer = await withStripeSpan(
+    "stripe.customer.create",
+    { "stripe.resource_type": "customer" },
+    async (span) => {
+      const created = await stripe.client!.customers.create({ email: input.email, metadata });
+      span.setAttribute("stripe.customer_id", created.id);
+      return created;
+    },
+  );
+
+  await db.user.update({
+    where: { id: input.userId },
+    data: { stripeCustomerId: customer.id, stripeCustomerData: customer as unknown as object },
+  });
+
+  appLogger.info(
+    { app_event: "stripe_customer_created", user_id: input.userId, email_hash: hashEmail(input.email) },
+    "Stripe customer created",
+  );
+  ```
+  Add a spec assertion that the log call happens with `app_event: "stripe_customer_created"`
+  and no `email` field, using this service's existing logger-mock pattern (grep an existing
+  `appLogger` spy in another command spec before writing this assertion for real). Run
+  `nvm use && pnpm --filter users test ensure-stripe-customer` — passes.
+
+- [ ] 3.4 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
 
 ## Task 4 — Users payment-method commands/queries (CQRS)
 
@@ -802,7 +954,33 @@ related:
 
 - [ ] 4.9 Update `services/users/openapi.yaml` per [[openapi-specs]], adding all five paths under `/v1/users/me/payment-methods*` with request/response schemas matching the interfaces above.
 
-- [ ] 4.10 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+- [ ] 4.10 **Wrap each handler's Stripe call in `withStripeSpan` and emit its flow log (spec
+  Decision 25).** Extend each of 4.2–4.6's implementations, one call site each:
+  - `CreateSetupIntentHandler` — `withStripeSpan("stripe.setup_intent.create", {
+    "stripe.resource_type": "setup_intent" }, ...)` around `setupIntents.create`, then
+    `app_event=payment_intent_created` is NOT emitted here (that name is reserved for Orders'
+    PaymentIntent, Task 9) — this route logs nothing beyond the span; a SetupIntent with no
+    subsequent attach carries no useful flow event of its own.
+  - `AttachPaymentMethodHandler` — `withStripeSpan("stripe.payment_method.attach", {
+    "stripe.resource_type": "payment_method" }, ...)` around `paymentMethods.attach`, setting
+    `stripe.payment_method_id` via the handle, then `app_event=payment_method_attached` (INFO)
+    with `user_id` after the local row is written.
+  - `DetachPaymentMethodHandler` — `withStripeSpan("stripe.payment_method.detach", {
+    "stripe.resource_type": "payment_method", "stripe.payment_method_id": input.paymentMethodId
+    }, ...)` around `paymentMethods.detach`, then `app_event=payment_method_detached` (INFO)
+    with `user_id`.
+  - `SetDefaultPaymentMethodHandler` — `withStripeSpan("stripe.customer.update", {
+    "stripe.resource_type": "customer" }, ...)` around `customers.update`, then
+    `app_event=payment_method_set_default` (INFO) with `user_id`.
+  - Every one of the four failure paths logs `app_event=<flow>_failed` with `reason` **before**
+    rethrowing — do not let `withStripeSpan`'s own ERROR-status recording substitute for the
+    flow log; the span and the log carry the same `app_event`/`reason` per [[logging-context]],
+    neither replaces the other.
+  Add one spec assertion per handler (extending 4.1's, 4.4's, 4.5's, and a new one for
+  set-default) that the expected `app_event` is logged on success. Run
+  `nvm use && pnpm --filter users test` (payment-methods handlers) — passes.
+
+- [ ] 4.11 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
 
 ## Task 5 — Stripe webhook endpoint (reconciliation)
 
@@ -891,7 +1069,30 @@ related:
 
 - [ ] 5.4 Add `POST /v1/users/stripe/webhook` to `services/users/openapi.yaml` per [[openapi-specs]], documented as public/unauthenticated with a `stripe-signature` header requirement.
 
-- [ ] 5.5 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+- [ ] 5.5 **Emit `stripe_webhook_received` and log signature failures without the signature or
+  body (spec Decision 25).** Extend 5.2's `handle` method: on successful `constructEvent`, log
+  `app_event=stripe_webhook_received` (INFO) with `event.type` and `event.id` as fields, before
+  dispatching to `commandBus`. On the signature-verification catch branch (already present in
+  5.2), log `app_event=stripe_webhook_received` at WARN/ERROR with
+  `reason=signature_verification_failed` — **never** the `stripe-signature` header value or the
+  raw body, matching the `BadRequestException` message's own restraint (it already carries only
+  Stripe's error message, not the payload). Add a spec assertion that the failure-path log call
+  contains neither the literal signature string nor a `body`/`rawBody` field:
+  ```ts
+  it("logs stripe_webhook_received with reason=signature_verification_failed, never the signature or body", async () => {
+    const logSpy = vi.spyOn(appLogger, "warn");
+    // ... invoke handle() with the bad-signature fixture from 5.1 ...
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ app_event: "stripe_webhook_received", reason: "signature_verification_failed" }),
+      expect.any(String),
+    );
+    const loggedPayload = JSON.stringify(logSpy.mock.calls[0]);
+    expect(loggedPayload).not.toContain("bad-signature");
+  });
+  ```
+  Run `nvm use && pnpm --filter users test stripe-webhook.controller` — passes.
+
+- [ ] 5.6 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
 
 ## Task 6 — Extend `e2e-cleanup` to Stripe
 
@@ -899,7 +1100,7 @@ related:
 - Modify: the existing e2e-cleanup command/handler (locate via `grep -rn "e2e-cleanup" services/users/src`) and its spec.
 
 **Interfaces:**
-- Consumes: `STRIPE_CLIENT` (Task 1), `User.stripeCustomerId` (Task 2).
+- Consumes: `STRIPE_CLIENT` (Task 1), `withStripeSpan` (Task 1.8), `User.stripeCustomerId` (Task 2).
 
 ### Steps
 
@@ -907,7 +1108,7 @@ related:
 
 - [ ] 6.2 Write a failing spec asserting that, for every user row carrying `"E2E Source"` with a non-null `stripeCustomerId`, `stripe.client.customers.del(stripeCustomerId)` is called, and that a user with no `stripeCustomerId` is skipped without error (Stripe never called for it).
 
-- [ ] 6.3 Implement: extend the existing handler to, after (or alongside) its current soft-delete pass, iterate tagged rows with a `stripeCustomerId` and call `stripe.client.customers.del(...)`, guarding with `if (!this.stripe.client) return;` at the top so cleanup is a no-op when Stripe isn't configured, never a failure.
+- [ ] 6.3 Implement: extend the existing handler to, after (or alongside) its current soft-delete pass, iterate tagged rows with a `stripeCustomerId` and call `stripe.client.customers.del(...)` wrapped in `withStripeSpan("stripe.customer.delete", { "stripe.resource_type": "customer" }, ...)` (spec Decision 25 — this is still an outbound Stripe call and gets the same span treatment as every other one in this plan), guarding with `if (!this.stripe.client) return;` at the top so cleanup is a no-op when Stripe isn't configured, never a failure. No new `app_event` is introduced for this path — e2e-cleanup is test-only infrastructure, not a user-facing flow, so the span alone (for debugging a stuck CI sandbox) is sufficient per Decision 25's scope.
 
 - [ ] 6.4 Run `nvm use && pnpm --filter users test` (full suite) — confirm nothing else broke.
 
@@ -955,9 +1156,9 @@ Tasks 1–7 complete the Users side of this milestone; it is independently testa
 ## Task 9 — Orders: PaymentIntent on order creation
 
 **Files:**
-- Modify: `services/orders/src/Orders.Api/Program.cs` (StripeClient registration), the order-creation endpoint and its command handler (`grep -rln "POST.*orders\|CreateOrder" services/orders/src/Orders.Api`), `services/orders/src/Orders.Domain` (payment snapshot fields on the order aggregate)
-- Create: an EF Core migration for the payment snapshot columns
-- Test: xUnit tests for the order-creation handler (mocking `StripeClient`), `Testcontainers-MySQL` integration test
+- Modify: `services/orders/src/Orders.Api/Program.cs` (StripeClient registration + `AddSource("orders-stripe")`), the order-creation endpoint and its command handler (`grep -rln "POST.*orders\|CreateOrder" services/orders/src/Orders.Api`), `services/orders/src/Orders.Domain` (payment snapshot fields on the order aggregate)
+- Create: an EF Core migration for the payment snapshot columns, `services/orders/src/Orders.Infrastructure/Observability/StripeActivitySource.cs`
+- Test: xUnit tests for the order-creation handler (mocking `StripeClient`), `Testcontainers-MySQL` integration test, observability assertions per step 9.10
 
 **Interfaces:**
 - Consumes: `UserResponse.stripe_customer_id` (Task 7), `paymentMethodId` in the `POST /v1/orders` request body (new field).
@@ -994,6 +1195,11 @@ Tasks 1–7 complete the Users side of this milestone; it is independently testa
   builder.Services.AddSingleton(new StripeSettings(stripeEnabled));
   ```
   where `StripeSettings` is a small new record `public sealed record StripeSettings(bool Enabled);` in `Orders.Api`.
+  In the same edit, register the new `orders-stripe` activity source (spec Decision 25, step
+  9.10) alongside the existing `AddSource("orders-messaging")`/`AddSource("orders-workflow")`
+  calls in `Program.cs`'s OTel setup — an unregistered source creates spans that are silently
+  never exported, same trap `WorkflowTracer`'s and `SnsEventPublisher`'s comments already warn
+  about: `.WithTracing(tracing => tracing.AddSource("orders-stripe"))`.
 
 - [ ] 9.2 Add the EF Core migration for the payment snapshot columns on the order aggregate (`PaymentIntentId`, `PaymentStatus`, `AmountCents`, `Currency`, `PaymentMethodId`, `CardBrand`, `CardLast4`, `CardExpMonth`, `CardExpYear`, `PaymentRawPayload`), all nullable so existing orders are unaffected: `dotnet ef migrations add AddStripePaymentSnapshot --project services/orders/src/Orders.Infrastructure --startup-project services/orders/src/Orders.Api`.
 
@@ -1135,7 +1341,76 @@ Tasks 1–7 complete the Users side of this milestone; it is independently testa
   ```
   Call it from the order-creation handler, only on the plain branch (`if (!_stripeSettings.Enabled)`), returning 400 when it fails, before any persistence. Run `dotnet test` — passes. This validator takes NO PaymentIntent/Stripe dependency, unlike Task 9's charging block — it is a pure metadata check, distinct from and unrelated to whether Stripe is configured.
 
-- [ ] 9.10 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+- [ ] 9.10 **Wrap the PaymentIntent call in a CLIENT `Activity` and emit the flow logs (spec
+  Decision 25).** Before writing this step, check for an existing outbound-hop tracing helper
+  in `services/orders/src/` (`grep -rln "ActivitySource\|StartActivity" services/orders/src`)
+  and mirror it — `Orders.Infrastructure/Messaging/SnsEventPublisher.cs`'s
+  `ActivitySource`/manual try-catch-finally shape is the reference here (this repo's .NET side
+  has no `withPublishSpan`-style generic helper; `SnsEventPublisher` inlines its own
+  `ActivitySource`, and Stripe's outbound hop follows the same shape rather than introducing a
+  new abstraction this milestone does not need). Add a dedicated `ActivitySource` to
+  `Orders.Infrastructure/Observability/` (do not reuse `SnsEventPublisher`'s — a different hop
+  gets its own source name, the same way `orders-messaging` and `orders-workflow` are already
+  two separate ones):
+  ```csharp
+  namespace Orders.Infrastructure.Observability;
+
+  // CONTRACT: Program.cs's AddSource(...) must name this EXACT string, mirroring
+  // WorkflowTracer/SnsEventPublisher's existing sources — an unregistered source
+  // creates spans that are silently never exported. See [[ADR-0019-distributed-tracing-opentelemetry]]
+  public static class StripeActivitySource
+  {
+      public const string Name = "orders-stripe";
+      public static readonly ActivitySource Source = new(Name);
+  }
+  ```
+  Wrap the `PaymentIntentService.CreateAsync` call from step 9.7 in a CLIENT activity, named
+  after the operation per spec Decision 25 (`stripe.payment_intent.create`, not
+  `PaymentIntentService.CreateAsync`):
+  ```csharp
+  using var activity = StripeActivitySource.Source.StartActivity(
+      "stripe.payment_intent.create", ActivityKind.Client);
+  activity?.SetTag("stripe.operation", "stripe.payment_intent.create");
+  activity?.SetTag("stripe.resource_type", "payment_intent");
+  activity?.SetTag("stripe.idempotency_key", $"order-charge-{orderId}"); // spec D25 — needed for a retry investigation
+
+  try
+  {
+      paymentIntent = await service.CreateAsync(/* ... 9.7's options ... */, ct);
+      activity?.SetTag("stripe.payment_intent_id", paymentIntent.Id);
+      activity?.SetStatus(ActivityStatusCode.Ok);
+
+      _logger.LogInformation(
+          "PaymentIntent created and charged {app_event} {order_id} {payment_intent_id}",
+          "payment_charged", orderId, paymentIntent.Id);
+  }
+  catch (StripeException ex)
+  {
+      // WHY: A decline is a business outcome, not a server fault (spec D8/D25)
+      // — INFO/WARN with the decline_code as `reason`, never ERROR. An ERROR
+      // span here would put an ordinary declined card on the same dashboard as
+      // a real fault. The activity itself still records the exception, because
+      // it genuinely failed as a Stripe CLIENT call — only the LOG severity is
+      // downgraded, deliberately, from what the span records.
+      activity?.AddException(ex);
+      activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+
+      _logger.LogWarning(
+          "Card declined {app_event} {reason} {order_id}",
+          "payment_declined", ex.StripeError?.DeclineCode ?? ex.StripeError?.Code ?? "unknown", orderId);
+
+      throw new PaymentDeclinedException(ex.StripeError?.Message ?? "Your card was declined.");
+  }
+  ```
+  Never place the raw `paymentIntent`/`ex.StripeError` object, the `client_secret`, or the
+  restricted key on the activity or in either log call (spec Decision 25; [[logging-context]]'s
+  span-attribute rule). Write a unit test asserting: (a) a successful charge logs
+  `app_event=payment_charged` at INFO with `order_id` and `payment_intent_id`; (b) a
+  `StripeException` with `DeclineCode` set logs `app_event=payment_declined` at **Warning**,
+  never Error, with that `decline_code` as `reason`; (c) the activity's tag set never includes a
+  field named `client_secret` or `raw_payload`. Run `dotnet test` — passes.
+
+- [ ] 9.11 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
 
 ## Task 10 — Orders: refund-on-409
 
@@ -1144,10 +1419,10 @@ Tasks 1–7 complete the Users side of this milestone; it is independently testa
 - Test: a dedicated xUnit test forcing the reservation to fail after a successful charge
 
 **Interfaces:**
-- Consumes: `PaymentSnapshot` (Task 9), the existing stock-reservation call that can return 409.
+- Consumes: `PaymentSnapshot` (Task 9), `StripeActivitySource` (Task 9.10), the existing stock-reservation call that can return 409.
 
 > [!warning] Highest-risk task in this plan
-> This is the repo's known review failure mode per [[phase-c-review-flow]] and [[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]]: a concurrency requirement specified from day one, shipped as an unhandled path, passing its own review because the diff is self-consistent on its own terms. **Reviewers must tick this task off against Decision 9 in the spec directly, not just read the diff** — ordinary tests structurally do not exercise concurrency, so the only proof this works is the explicit test in step 10.1, not the absence of a crash elsewhere.
+> This is the repo's known review failure mode per [[phase-c-review-flow]] and [[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]]: a concurrency requirement specified from day one, shipped as an unhandled path, passing its own review because the diff is self-consistent on its own terms. **Reviewers must tick this task off against Decision 9 in the spec directly, not just read the diff** — ordinary tests structurally do not exercise concurrency, so the only proof this works is the explicit test in step 10.1, not the absence of a crash elsewhere. Per spec Decision 25, this is also the path that must be answerable from the logs alone — step 10.4's `app_event=payment_refunded` line, not just the refund call succeeding, is what makes "was the dangling charge actually refunded?" answerable without opening Stripe's dashboard.
 
 ### Steps
 
@@ -1214,7 +1489,56 @@ Tasks 1–7 complete the Users side of this milestone; it is independently testa
 
 - [ ] 10.3 Run `dotnet test --filter CreateOrder_WhenReservationConflictsAfterSuccessfulCharge_RefundsTheCharge` — passes. Then run the full `dotnet test` suite for `services/orders` — confirm no regression on the 9.3–9.6 tests.
 
-- [ ] 10.4 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+- [ ] 10.4 **The refund gets its own span and its own `app_event`, observable independently of
+  the charge (spec Decision 25).** This is the highest-risk path in the whole milestone (see
+  this task's header warning) precisely because it must be answerable from the logs alone —
+  "was a dangling charge actually refunded?" cannot depend on also finding the original charge
+  line. Wrap 10.2's `refundService.CreateAsync` call in its own CLIENT activity from the same
+  `StripeActivitySource` step 9.10 registered, named `stripe.refund.create`, tagging
+  `stripe.payment_intent_id` with the id being refunded, and log
+  `app_event=payment_refunded` (INFO) carrying **both** `order_id` and `payment_intent_id` on
+  success:
+  ```csharp
+  using var refundActivity = StripeActivitySource.Source.StartActivity(
+      "stripe.refund.create", ActivityKind.Client);
+  refundActivity?.SetTag("stripe.operation", "stripe.refund.create");
+  refundActivity?.SetTag("stripe.resource_type", "refund");
+  refundActivity?.SetTag("stripe.payment_intent_id", paymentIntent.Id);
+
+  try
+  {
+      var refundService = new RefundService(_stripeClient);
+      await refundService.CreateAsync(
+          new RefundCreateOptions { PaymentIntent = paymentIntent.Id }, cancellationToken: ct);
+      refundActivity?.SetStatus(ActivityStatusCode.Ok);
+
+      // CONTRACT: Carries BOTH ids on purpose — this line must answer "was the
+      // dangling charge refunded?" on its own, without cross-referencing the
+      // payment_charged line from a different point in the same request.
+      _logger.LogInformation(
+          "Charge refunded after a post-charge reservation conflict {app_event} {order_id} {payment_intent_id}",
+          "payment_refunded", orderId, paymentIntent.Id);
+  }
+  catch (Exception ex)
+  {
+      // WHY: A refund that itself fails leaves a REAL dangling charge — this
+      // must be loud. ERROR here is correct, unlike the decline path in Task 9.
+      refundActivity?.AddException(ex);
+      refundActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+      _logger.LogError(
+          ex,
+          "Refund FAILED after a post-charge reservation conflict — charge left dangling {app_event} {reason} {order_id} {payment_intent_id}",
+          "payment_refunded_failed", "refund_call_failed", orderId, paymentIntent.Id);
+      throw;
+  }
+  ```
+  Extend 10.1's test (or add a sibling) asserting the success case logs
+  `app_event=payment_refunded` with both `order_id` and `payment_intent_id` present on the same
+  log line — the assertion this task's header warning exists to make un-skippable: reviewing
+  the diff against Decision 9 means confirming this line exists, not just that
+  `RefundAsync`/`CreateAsync` was called. Run `dotnet test` — passes.
+
+- [ ] 10.5 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
 
 ## GATE — stop point before Web work
 
@@ -1475,7 +1799,22 @@ Task 11 (web) posts `paymentMethodId` to `POST /v1/orders`, which does not behav
 
 - [ ] 11.16 Wire `payment-method-selector.ts` to show `new-card-block` in place of the bare Payment Element mount from step 11.7, and to show the saved-cards list (composed of `SavedCardRow` instances per 11.1–11.2) when the user has ≥1 card, collapsing to/from `new-card-block` on "Add card" / "Cancel". Update `payment-method-selector`'s spec to cover both transitions. Run `nvm use && pnpm --filter web test payment-method-selector` — passes.
 
-- [ ] 11.17 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+- [ ] 11.17 **Confirm the new calls inherit [[browser-rum]]'s rules — it does not get its own
+  (spec Decision 25).** `PaymentMethodsApi` (step 11.6) and `OrdersApi.createOrder`'s new
+  `paymentMethodId` parameter (step 11.10) MUST go through Angular's `HttpClient`/`ApiClient`
+  path — grep for any raw `fetch()` in the new files this task created
+  (`grep -rn "fetch(" apps/web/src/app/core/api/payment-methods-api.ts
+  apps/web/src/app/features/checkout/`) and confirm there are none; a raw `fetch()` bypasses
+  `rumPropagationInterceptor` entirely, producing no CLIENT span and no `traceparent`. Confirm a
+  card error thrown by `payment-method-selector.ts`/`new-card-block.ts` (a rejected SetupIntent
+  confirmation, an `ApiError` from `attach()`) is **not** swallowed silently — either rethrown
+  so it reaches `RumErrorHandler`, or reported deliberately — and that no full Stripe error
+  object is ever passed to the error handler wholesale (only `message`/`type`/`status`/`detail`
+  per [[browser-rum]]'s allow-list). Add or extend a spec asserting a simulated Stripe
+  confirmation failure still surfaces to the error handler rather than being caught-and-dropped
+  inside the component. Run `nvm use && pnpm --filter web test` — passes.
+
+- [ ] 11.18 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
 
 ## Task 12 — Web: Profile — Payment methods tab (Decision 22)
 
@@ -1533,7 +1872,15 @@ after Task 11, not worked in parallel with it (Execution notes).
 
 - [ ] 12.7 Run `nvm use && pnpm --filter web test` — confirm the new and updated specs pass, and that no arbitrary hex colour class was introduced (`grep -rnE '(bg|text|border)-\[#' apps/web/src/app/features/account/` — expect no matches, per `apps/web/CLAUDE.md`'s §2a golden rule).
 
-- [ ] 12.8 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+- [ ] 12.8 **Same [[browser-rum]] inheritance check as step 11.17, for the profile surface (spec
+  Decision 25).** `payment-methods-tab.ts` and `profile-add-card.ts` reuse `PaymentMethodsApi`
+  (Task 11.6) rather than a new client, so this is confirmation, not new wiring: grep the two
+  new files for a raw `fetch()` (expect none), and confirm a card error from
+  `profile-add-card.ts`'s SetupIntent confirmation reaches `RumErrorHandler` the same way Task
+  11.17 requires for checkout, rather than being caught and only shown as UI text. Run
+  `nvm use && pnpm --filter web test` — passes.
+
+- [ ] 12.9 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
 
 ## Task 13 — Card-field validation on the plain branch (Decision 21)
 
@@ -1910,7 +2257,29 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
 
 - [ ] 15.9 Run all three layers: `nvm use && pnpm --filter e2e-impl test:internal` (or this repo's actual script name — check `e2e/package.json`), the gateway suite, and confirm green.
 
-- [ ] 15.10 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+- [ ] 15.10 **Verify in the OpenObserve viewer, not by trusting a 200 (spec Decision 25;
+  [[browser-rum]]; [[2026-08-21-verify-in-the-viewer-not-the-api]]).** Run the saved-card
+  checkout journey from step 15.3 once against the local stack with the `stripe` compose
+  profile up, then query OpenObserve directly (`observability/dashboards/README.md` /
+  [[openobserve-runbook]] for how to reach it locally) for the resulting `trace_id`, allowing a
+  full export cycle before concluding anything is missing — `BatchSpanProcessor` batches, and a
+  short window produces a false FAIL as easily as a false PASS (same trap [[browser-rum]]
+  documents for Trigger 3). Confirm, in that one trace:
+  - a browser CLIENT span (`telemetry.source = rum`) for the checkout's `POST /v1/orders` call;
+  - the gateway → Orders spans sharing the same `trace_id`;
+  - a `stripe.payment_intent.create` CLIENT span under Orders, per step 9.10;
+  - a `payment_charged` log line (Users' `stripe_customer_created`/`payment_method_attached`
+    lines from earlier in the same session, if the card was added in this run, are a separate
+    trace — they precede `POST /v1/orders` and are not expected inside this one trace).
+  Separately, query for one declined-card attempt (Stripe test card `4000000000000002`) and
+  confirm its span/log show `payment_declined` at INFO/WARN, never ERROR severity on the flow
+  log — this is the concrete check behind Decision 25's "an ERROR here would put an ordinary
+  decline on the on-call dashboard" rule, not merely a documented intention. This step is a
+  manual/scripted verification, not a new automated test — record what was queried and seen (or
+  not seen) in the task's report to the main session, the same way `2026-08-21-verify-in-the-viewer-not-the-api`
+  documents its own verification runs.
+
+- [ ] 15.11 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
 
 ## Execution notes
 
@@ -1949,10 +2318,11 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
 | 22 (payment methods managed from profile too) | 12 |
 | 23 (checkout can add a card inline; save-card checkbox gates attach) | 11 (Task 11.14–11.16), 15 (gateway E2E, step 15.5) |
 | 24 (expired saved card shown, not hidden) | 11 (`SavedCardRow`'s expired state, Task 11.1–11.2), 12 (profile Cards List reuses it), 15 (component spec, step 15.6) |
+| 25 (Stripe calls join the logs/traces cascade) | 1 (`withStripeSpan` foundation, steps 1.7–1.8), 3 (step 3.3), 4 (step 4.10), 5 (step 5.5), 6 (step 6.3), 9 (step 9.10), 10 (step 10.4), 11 (step 11.17), 12 (step 12.8), 15 (step 15.10) |
 
 **Placeholder scan:** no "TBD"/"similar to Task N" shortcuts remain except explicitly-flagged repo-verification steps (4.8's conditional-module choice, 4.7's decorator names, 9.1/10.1's exact mock/fixture APIs, 13.9's exact signal-forms `validate()` signature, 11.1's "verify exact utility spelling against styles.css") — each names the exact `grep` to run and the exact existing file to copy from, rather than leaving the shape undefined.
 
-**Type consistency:** `StripeClientHolder` (Task 1) is the single shape threaded through Tasks 3, 4, 5, 6; `PaymentMethodView` (Task 4.3) is what Task 11's `PaymentMethodsApi.list()` consumes; `SavedCardView`/`SavedCardRow` (Task 11.1) is the single component both Task 11's checkout selector and Task 12's profile Cards List mount, never rebuilt per surface; `PaymentSnapshot` (Task 9) is what Task 10's refund path reads `PaymentIntentId` from; `stripe_customer_id` (Task 7) is the exact field both Task 9's gRPC read and Task 4/5's local persistence trace back to; `CardBrand`/`detectCardBrand`/`isValidCardNumber`/`isValidCvc`/`isValidExpiry` (Task 13) are the exact names Task 11's `checkout-payment.ts` imports and Task 13.7's `numeric-input.ts` rewrite depends on; the `{ brand, last4, expMonth, expYear }` metadata shape is identical between Task 11.13 (sender) and Task 9.9 (`CardMetadataValidator`, receiver).
+**Type consistency:** `StripeClientHolder` (Task 1) is the single shape threaded through Tasks 3, 4, 5, 6; `PaymentMethodView` (Task 4.3) is what Task 11's `PaymentMethodsApi.list()` consumes; `SavedCardView`/`SavedCardRow` (Task 11.1) is the single component both Task 11's checkout selector and Task 12's profile Cards List mount, never rebuilt per surface; `PaymentSnapshot` (Task 9) is what Task 10's refund path reads `PaymentIntentId` from; `stripe_customer_id` (Task 7) is the exact field both Task 9's gRPC read and Task 4/5's local persistence trace back to; `CardBrand`/`detectCardBrand`/`isValidCardNumber`/`isValidCvc`/`isValidExpiry` (Task 13) are the exact names Task 11's `checkout-payment.ts` imports and Task 13.7's `numeric-input.ts` rewrite depends on; the `{ brand, last4, expMonth, expYear }` metadata shape is identical between Task 11.13 (sender) and Task 9.9 (`CardMetadataValidator`, receiver); `withStripeSpan` (Task 1.8) is the single Node-side span helper Tasks 3, 4, 5, and 6 all wrap their Stripe calls in, and `StripeActivitySource` (Task 9.10) is its .NET-side sibling, consumed unchanged by Task 10's refund span.
 
 ## Related
 
@@ -1971,3 +2341,8 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
 - [[local-dev]] — the `profiles:`-gated optional-service pattern `stripe-cli` follows (Task 14).
 - [[skills-catalog]] — the Agent Skills installation mechanism already used for `stripe-best-practices`/`stripe-docs`.
 - [[stripe-sandbox-setup]] — the operator-facing procedure for the sandboxes and keys the Execution notes call a prerequisite of Task 1.
+- [[logging-context]] — the shared log context, `app_event` flow-log convention, and
+  span-attribute PII prohibitions Decision 25's `withStripeSpan`/`StripeActivitySource` steps
+  (Tasks 1, 3, 4, 5, 6, 9, 10) follow.
+- [[browser-rum]] — the Trigger 1/2/3 checklist Tasks 11.17, 12.8, and 15.10 verify the new
+  Stripe web calls against, rather than restating it as a new checklist.
