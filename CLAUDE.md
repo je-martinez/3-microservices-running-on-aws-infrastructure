@@ -182,11 +182,10 @@ The Obsidian vault lives in [`docs/`](docs/). Design and plan for it:
 - Plan: `docs/superpowers/plans/2026-06-26-3mrai-docs-vault.md`
 
 ### Structure — hybrid domain + type
-- `docs/00-overview/` — root MOC (`index.md`), `architecture.md`, `system-context.md`, `glossary.md`.
-- `docs/domains/<service>/{specs,decisions,runbooks,testing}/` — one folder per service: `users`, `orders`, `tracking`, `events-pipeline`.
-- `docs/infrastructure/{specs,decisions,runbooks}/`.
-- `docs/shared/{decisions,patterns,conventions,observability}/` — **all global ADRs live in `shared/decisions/`**.
-- Global note types at root: `docs/{lessons,retros,ideas,plans,templates}/`.
+`ls docs/` shows the layout: a folder per service under `domains/`, plus `infrastructure/`,
+`shared/`, and the global note types at root. Two rules the tree does not state:
+- **All global ADRs live in `shared/decisions/`** — never in a service folder.
+- `docs/00-overview/index.md` is the root MOC every other note is reachable from.
 
 ### Conventions
 - **Cross-cutting rules are defined once in `shared/` and referenced by `[[wikilink]]`** — never duplicated in service specs.

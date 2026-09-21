@@ -1,6 +1,6 @@
 ---
 name: floci
-description: Use when working with Floci, the local AWS emulator (single port :4566) the 3MRAI repo uses for local dev — Terraform/SDKs targeting AWS_ENDPOINT_URL, ECS/Cognito/API Gateway/Lambda/EventBridge locally, or debugging local-emulator quirks. Knowledge layer: per-service doc links + 3MRAI-verified quirks and workarounds.
+description: 'Use when working with Floci, the local AWS emulator (single port :4566) the 3MRAI repo uses for local dev — Terraform/SDKs targeting AWS_ENDPOINT_URL, ECS/Cognito/API Gateway/Lambda/EventBridge locally, or debugging local-emulator quirks. Knowledge layer: per-service doc links + 3MRAI-verified quirks and workarounds.'
 metadata:
   area: infra
   source: docs/lessons/floci-vs-ministack-spike-findings.md
