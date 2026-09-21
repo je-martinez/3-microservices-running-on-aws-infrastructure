@@ -4,7 +4,7 @@ type: plan
 area: shared
 status: draft
 created: 2026-09-19
-updated: 2026-09-19
+updated: 2026-09-21
 tags: [type/plan, area/shared, status/draft]
 propagates-to:
   - "[[2026-09-19-stripe-payments-design]]"
@@ -1216,22 +1216,144 @@ Tasks 1–7 complete the Users side of this milestone; it is independently testa
 
 ## GATE — stop point before Web work
 
-Task 11 (web) posts `paymentMethodId` to `POST /v1/orders`, which does not behave correctly until Tasks 9–10 are merged. **Present the Tasks 9–10 batch for review per [[phase-c-review-flow]] and wait for merge before starting Task 11.** Task 12 (plain-branch card validation) touches only pure functions and the plain branch — it does not depend on Tasks 9–10 and may be implemented in parallel with this wait, but its PR is still batched together with Task 11's at review time since both change `checkout-payment.html`/`.ts`.
+Task 11 (web) posts `paymentMethodId` to `POST /v1/orders`, which does not behave correctly until Tasks 9–10 are merged. **Present the Tasks 9–10 batch for review per [[phase-c-review-flow]] and wait for merge before starting Task 11.** Task 13 (plain-branch card validation) touches only pure functions and the plain branch — it does not depend on Tasks 9–10 and may be implemented in parallel with this wait. Task 12 (profile Payment methods tab) reuses Task 11's `SavedCardRow`/`PaymentMethodsApi`, so it must wait for Task 11 to land first, not merely for this GATE — see Task 12's header note. All three of Tasks 11, 12, and 13's PRs are batched together for review at this same stop point, since all touch `checkout-payment.html`/`.ts`, `profile.ts`/`.html`, or a component either composes.
 
-## Task 11 — Web: Payment Element + saved-card selector
+## Task 11 — Web: `SavedCardRow` component + Payment Element checkout flow
 
 **Files:**
 - Modify: `apps/web/src/env.d.ts`, `apps/web/src/app/core/config/app-config.ts`, `apps/web/src/app/features/checkout/checkout-payment.ts`, `apps/web/src/app/features/checkout/checkout-payment.html`
-- Create: `apps/web/src/app/features/checkout/payment-method-selector.ts` (+ `.html`), `apps/web/src/app/core/api/payment-methods-api.ts`
-- Test: component specs for `payment-method-selector`, an updated spec for `checkout-payment`
+- Create: `apps/web/src/app/shared/ui/saved-card-row.ts` (+ `.html`), `apps/web/src/app/features/checkout/payment-method-selector.ts` (+ `.html`), `apps/web/src/app/features/checkout/new-card-block.ts` (+ `.html`), `apps/web/src/app/core/api/payment-methods-api.ts`
+- Test: `saved-card-row.spec.ts`, component specs for `payment-method-selector` and `new-card-block`, an updated spec for `checkout-payment`
 
 **Interfaces:**
 - Consumes: `GET/POST/DELETE/PUT /v1/users/me/payment-methods*` (Task 4), `POST /v1/orders` with `paymentMethodId` (Task 9).
-- Produces: `APP_CONFIG.stripePublishableKey: string | null`, consumed only inside `checkout-payment.ts`/`payment-method-selector.ts`.
+- Produces:
+  ```ts
+  // apps/web/src/app/shared/ui/saved-card-row.ts — vPwZ1 in the .pen, reused
+  // by Task 12's profile Cards List. Building it twice per surface is the
+  // failure this component-first step prevents.
+  export interface SavedCardView {
+    id: string;
+    brand: string;
+    last4: string;
+    expMonth: number;
+    expYear: number;
+  }
+
+  @Component({ selector: 'app-saved-card-row', templateUrl: './saved-card-row.html', changeDetection: ChangeDetectionStrategy.OnPush })
+  export class SavedCardRow {
+    readonly card = input.required<SavedCardView>();
+    readonly selected = input(false);
+    readonly isDefault = input(false);
+    readonly expired = input(false);
+
+    readonly select = output<string>();     // emits card().id
+    readonly setDefault = output<string>();
+    readonly remove = output<string>();
+  }
+  ```
+  `APP_CONFIG.stripePublishableKey: string | null`, consumed only inside `checkout-payment.ts`/`payment-method-selector.ts`. `SavedCardRow` and `PaymentMethodsApi` (this task) are also consumed by Task 12 (profile Payment methods tab), which must therefore be ordered after this task.
 
 ### Steps
 
-- [ ] 11.1 Add `NG_APP_STRIPE_PUBLISHABLE_KEY` to `apps/web/src/env.d.ts`:
+- [ ] 11.1 Write the failing spec for `saved-card-row.spec.ts`, covering the three visual states from the design's Cards List (spec Web section / Decision 24). Verify the exact emitted utility names against `apps/web/src/styles.css` before writing assertions — don't trust the spelling below if `DESIGN.md`'s table has drifted:
+  ```ts
+  import { describe, expect, it } from 'vitest';
+  import { TestBed } from '@angular/core/testing';
+  import { SavedCardRow } from './saved-card-row';
+
+  describe('SavedCardRow', () => {
+    function render(props: Partial<{ selected: boolean; isDefault: boolean; expired: boolean }>) {
+      const fixture = TestBed.createComponent(SavedCardRow);
+      fixture.componentRef.setInput('card', { id: 'pm_1', brand: 'visa', last4: '4242', expMonth: 4, expYear: 2028 });
+      fixture.componentRef.setInput('selected', props.selected ?? false);
+      fixture.componentRef.setInput('isDefault', props.isDefault ?? false);
+      fixture.componentRef.setInput('expired', props.expired ?? false);
+      fixture.detectChanges();
+      return fixture;
+    }
+
+    it('selected + default: bg-surface-subtle fill, border-brand-navy stroke, no "Set as default" link', () => {
+      const fixture = render({ selected: true, isDefault: true });
+      const root: HTMLElement = fixture.nativeElement.querySelector('[data-testid="saved-card-row"]');
+      expect(root.className).toContain('bg-surface-subtle');
+      expect(root.className).toContain('border-brand-navy');
+      expect(fixture.nativeElement.querySelector('[data-testid="set-default-link"]')).toBeNull();
+    });
+
+    it('unselected, not default: transparent fill, border-line stroke, "Set as default" link shown', () => {
+      const fixture = render({ selected: false, isDefault: false });
+      const root: HTMLElement = fixture.nativeElement.querySelector('[data-testid="saved-card-row"]');
+      expect(root.className).toContain('border-line');
+      expect(root.className).not.toContain('border-brand-navy');
+      expect(fixture.nativeElement.querySelector('[data-testid="set-default-link"]')).not.toBeNull();
+    });
+
+    it('expired: danger-red semibold expiry text, dimmed brand bubble, cannot be selected', () => {
+      const fixture = render({ expired: true });
+      const expiry: HTMLElement = fixture.nativeElement.querySelector('[data-testid="card-expiry"]');
+      expect(expiry.textContent).toContain('Expired');
+      expect(expiry.className).toContain('text-danger-red');
+      expect(expiry.className).toContain('font-semibold');
+      const bubble: HTMLElement = fixture.nativeElement.querySelector('[data-testid="brand-bubble"]');
+      expect(bubble.className).toContain('bg-surface-subtle');
+      const radio: HTMLElement = fixture.nativeElement.querySelector('[data-testid="radio"]');
+      expect(radio.getAttribute('aria-disabled')).toBe('true');
+    });
+  });
+  ```
+  Run `nvm use && pnpm --filter web test saved-card-row` — fails, module missing.
+
+- [ ] 11.2 Implement `saved-card-row.ts`/`.html` per [[angular-component-authoring]] (sibling `.html` via `templateUrl`, `rem` not `px` except borders, no arbitrary hex — token utilities only). Structure and copy come from `apps/web/design/exports/saved-card-row.html`, translated per that export's own caveats (fixed `px` sizing and no `.html`/`.ts` split are the export's, not this component's). The three states from the spec's Web section:
+  ```html
+  <!-- saved-card-row.html — sketch; verify exact utility spelling against styles.css -->
+  <div
+    data-testid="saved-card-row"
+    class="flex items-center gap-3 rounded-md border p-4"
+    [class.bg-surface-subtle]="selected() || expired()"
+    [class.border-brand-navy]="selected() && !expired()"
+    [class.border-line]="!selected() || expired()"
+  >
+    <span data-testid="radio" [attr.aria-disabled]="expired()" (click)="!expired() && select.emit(card().id)"></span>
+    <div
+      data-testid="brand-bubble"
+      class="flex h-10 w-10 items-center justify-center rounded-full"
+      [class.bg-brand-navy-light]="!expired()"
+      [class.bg-surface-subtle]="expired()"
+    >
+      <lucide-icon name="credit-card" [class.text-brand-navy]="!expired()" [class.text-ink-muted]="expired()" />
+    </div>
+    <div class="flex flex-1 flex-col">
+      <div class="flex items-center gap-2">
+        <span class="text-ink-primary">{{ card().brand }} ···· {{ card().last4 }}</span>
+        @if (isDefault()) {
+          <span class="rounded-full bg-brand-navy px-2 py-0.5 text-white">Default</span>
+        }
+      </div>
+      <span
+        data-testid="card-expiry"
+        [class.text-danger-red]="expired()"
+        [class.font-semibold]="expired()"
+        [class.text-ink-secondary]="!expired()"
+      >
+        {{ expired() ? 'Expired' : 'Expires' }} {{ card().expMonth }} / {{ card().expYear }}
+      </span>
+    </div>
+    <div class="flex flex-col items-end gap-1">
+      @if (!isDefault()) {
+        <button data-testid="set-default-link" type="button" class="text-brand-navy" (click)="setDefault.emit(card().id)">
+          Set as default
+        </button>
+      }
+      <button type="button" (click)="remove.emit(card().id)">
+        <lucide-icon name="x" class="text-ink-secondary" />
+      </button>
+    </div>
+  </div>
+  ```
+  Run `nvm use && pnpm --filter web test saved-card-row` — passes.
+
+- [ ] 11.3 Add `NG_APP_STRIPE_PUBLISHABLE_KEY` to `apps/web/src/env.d.ts`:
   ```ts
   interface ImportMetaEnv {
     readonly NG_APP_STRIPE_ENABLED?: string;
@@ -1242,7 +1364,7 @@ Task 11 (web) posts `paymentMethodId` to `POST /v1/orders`, which does not behav
   }
   ```
 
-- [ ] 11.2 Extend `AppConfig` and its reader in `app-config.ts`. Per [[env-files]]/the repo's esbuild rule, spell out the full `import.meta.env.NG_APP_STRIPE_PUBLISHABLE_KEY` access — do not construct the key name dynamically:
+- [ ] 11.4 Extend `AppConfig` and its reader in `app-config.ts`. Per [[env-files]]/the repo's esbuild rule, spell out the full `import.meta.env.NG_APP_STRIPE_PUBLISHABLE_KEY` access — do not construct the key name dynamically:
   ```ts
   export interface AppConfig {
     readonly stripeEnabled: boolean;
@@ -1258,9 +1380,9 @@ Task 11 (web) posts `paymentMethodId` to `POST /v1/orders`, which does not behav
   stripePublishableKey: import.meta.env.NG_APP_STRIPE_PUBLISHABLE_KEY ?? null,
   ```
 
-- [ ] 11.3 Write the failing spec for `payment-method-selector.ts` asserting: it lists saved cards from `PaymentMethodsApi.list()`, preselects the default, exposes a `selectedPaymentMethodId` output, and shows the Payment Element (mounted against a SetupIntent client_secret from `PaymentMethodsApi.createSetupIntent()`) when the user has zero cards or clicks "Add card".
+- [ ] 11.5 Write the failing spec for `payment-method-selector.ts` asserting: it lists saved cards from `PaymentMethodsApi.list()`, preselects the default, exposes a `selectedPaymentMethodId` output, and shows the Payment Element (mounted against a SetupIntent client_secret from `PaymentMethodsApi.createSetupIntent()`) when the user has zero cards or clicks "Add card".
 
-- [ ] 11.4 Create `apps/web/src/app/core/api/payment-methods-api.ts` following the existing `UsersApi`/`OrdersApi` shape (HTTP client wrapper, one method per route from Task 4):
+- [ ] 11.6 Create `apps/web/src/app/core/api/payment-methods-api.ts` following the existing `UsersApi`/`OrdersApi` shape (HTTP client wrapper, one method per route from Task 4):
   ```ts
   @Injectable({ providedIn: 'root' })
   export class PaymentMethodsApi {
@@ -1288,11 +1410,11 @@ Task 11 (web) posts `paymentMethodId` to `POST /v1/orders`, which does not behav
   }
   ```
 
-- [ ] 11.5 Implement `payment-method-selector.ts`/`.html` following [[angular-component-authoring]] (signals, `OnPush`, no domain logic beyond presentation), loading Stripe.js via `loadStripe(APP_CONFIG.stripePublishableKey)`, mounting the Payment Element into a container div when adding a card, and never using the Card Element.
+- [ ] 11.7 Implement `payment-method-selector.ts`/`.html` following [[angular-component-authoring]] (signals, `OnPush`, no domain logic beyond presentation), loading Stripe.js via `loadStripe(APP_CONFIG.stripePublishableKey)`, mounting the Payment Element into a container div when adding a card, and never using the Card Element.
 
-- [ ] 11.6 Replace the static card at `checkout-payment.html:259` (`@if (stripeEnabled())` branch) with `<app-payment-method-selector (selectedPaymentMethodId)="onCardSelected($event)" />`.
+- [ ] 11.8 Replace the static card at `checkout-payment.html:259` (`@if (stripeEnabled())` branch) with `<app-payment-method-selector (selectedPaymentMethodId)="onCardSelected($event)" />`.
 
-- [ ] 11.7 In `checkout-payment.ts`, add a `selectedPaymentMethodId` signal, wire `onCardSelected`, extend `canPay` to also require it when `stripeEnabled()` is true:
+- [ ] 11.9 In `checkout-payment.ts`, add a `selectedPaymentMethodId` signal, wire `onCardSelected`, extend `canPay` to also require it when `stripeEnabled()` is true:
   ```ts
   protected readonly selectedPaymentMethodId = signal<string | null>(null);
 
@@ -1310,7 +1432,7 @@ Task 11 (web) posts `paymentMethodId` to `POST /v1/orders`, which does not behav
   }
   ```
 
-- [ ] 11.8 Update `pay()` to send `paymentMethodId` and map 402 through `authErrorMessage`, mirroring the existing 409 entry:
+- [ ] 11.10 Update `pay()` to send `paymentMethodId` and map 402 through `authErrorMessage`, mirroring the existing 409 entry:
   ```ts
   const order = await firstValueFrom(
     this.ordersApi.createOrder(lines, this.stripeEnabled() ? this.selectedPaymentMethodId() : null),
@@ -1325,15 +1447,93 @@ Task 11 (web) posts `paymentMethodId` to `POST /v1/orders`, which does not behav
   ```
   (`OrdersApi.createOrder` gains an optional `paymentMethodId` parameter forwarded into the POST body — modify its signature accordingly and update every existing call site.)
 
-- [ ] 11.9 Confirm `devFill()` remains unchanged and does not touch `selectedPaymentMethodId` or the Stripe branch — it stays scoped to `addressModel`/`cardModel` exactly as today (the plain branch), per Decision "Constraints" in the Web section.
+- [ ] 11.11 Confirm `devFill()` remains unchanged and does not touch `selectedPaymentMethodId` or the Stripe branch — it stays scoped to `addressModel`/`cardModel` exactly as today (the plain branch), per Decision "Constraints" in the Web section.
 
-- [ ] 11.10 Run `nvm use && pnpm --filter web test` — confirm the new and updated specs pass.
+- [ ] 11.12 Run `nvm use && pnpm --filter web test` — confirm the new and updated specs pass.
 
-- [ ] 11.11 Modify `OrdersApi.createOrder` (or add a sibling parameter) so that on the plain branch it also sends the detected `card: { brand, last4, expMonth, expYear }` metadata alongside the order body — never the PAN, never the CVC (Decision 21; Task 12 supplies the detector this reads from). On the Stripe branch this field is omitted entirely; Orders' Task 9.9 validation only runs when `STRIPE_ENABLED=false`.
+- [ ] 11.13 Modify `OrdersApi.createOrder` (or add a sibling parameter) so that on the plain branch it also sends the detected `card: { brand, last4, expMonth, expYear }` metadata alongside the order body — never the PAN, never the CVC (Decision 21; Task 13 supplies the detector this reads from). On the Stripe branch this field is omitted entirely; Orders' Task 9.9 validation only runs when `STRIPE_ENABLED=false`.
 
-- [ ] 11.12 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+- [ ] 11.14 Write the failing spec for `new-card-block.ts` (Decision 23) asserting: it renders `Method Tabs` (Card / Apple Pay / Link) and the four `SField` rows, a "Cancel" link emits a `cancel` output collapsing it back to the saved-cards list, the "Save this card for future purchases" checkbox defaults unchecked, and confirming the SetupIntent calls `PaymentMethodsApi.attach(...)` when checked vs. leaving the resulting payment method unattached (no `attach` call) when unchecked:
+  ```ts
+  it('attaches the payment method only when "save this card" is checked', async () => {
+    const api = { attach: vi.fn().mockReturnValue(of({ id: 'pm_new' })) };
+    // ... mount NewCardBlock with a fake confirmed Stripe.js setup result (pm_new) ...
+    component['saveForFuture'].set(false);
+    await component.confirm();
+    expect(api.attach).not.toHaveBeenCalled();
 
-## Task 12 — Card-field validation on the plain branch (Decision 21)
+    component['saveForFuture'].set(true);
+    await component.confirm();
+    expect(api.attach).toHaveBeenCalledWith('pm_new');
+  });
+  ```
+  Run `nvm use && pnpm --filter web test new-card-block` — fails, module missing.
+
+- [ ] 11.15 Implement `new-card-block.ts`/`.html` per [[angular-component-authoring]], structure and copy from the `New Card Block` portion of `apps/web/design/exports/checkout-payment-add-card.html`. The `Save Info Row` checkbox drives Decision 23's branch — on confirm, the Payment Element/Stripe.js confirms the SetupIntent (mounted from `PaymentMethodsApi.createSetupIntent()`, unchanged from step 11.7's flow), and only when `saveForFuture()` is `true` does the component call `PaymentMethodsApi.attach(paymentMethodId)`; when `false`, the resulting `pm_...` is passed straight to `pay()` for one-time use on this order's `POST /v1/orders` and never attached. Run `nvm use && pnpm --filter web test new-card-block` — passes.
+
+- [ ] 11.16 Wire `payment-method-selector.ts` to show `new-card-block` in place of the bare Payment Element mount from step 11.7, and to show the saved-cards list (composed of `SavedCardRow` instances per 11.1–11.2) when the user has ≥1 card, collapsing to/from `new-card-block` on "Add card" / "Cancel". Update `payment-method-selector`'s spec to cover both transitions. Run `nvm use && pnpm --filter web test payment-method-selector` — passes.
+
+- [ ] 11.17 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+
+## Task 12 — Web: Profile — Payment methods tab (Decision 22)
+
+This task reuses `SavedCardRow` and `PaymentMethodsApi` from Task 11 — it must be ordered
+after Task 11, not worked in parallel with it (Execution notes).
+
+**Files:**
+- Modify: `apps/web/src/app/features/account/profile.ts`, `apps/web/src/app/features/account/profile.html`
+- Create: `apps/web/src/app/features/account/payment-methods-tab.ts` (+ `.html`), `apps/web/src/app/features/account/profile-add-card.ts` (+ `.html`), `apps/web/src/app/features/account/profile-add-card.spec.ts`, `apps/web/src/app/features/account/payment-methods-tab.spec.ts`
+- Test: `payment-methods-tab.spec.ts`, `profile-add-card.spec.ts`, an updated spec for `profile.ts` asserting the tab is absent when `STRIPE_ENABLED` is off
+
+**Interfaces:**
+- Consumes: `SavedCardRow` (Task 11.1–11.2), `PaymentMethodsApi` (Task 11.4).
+- Produces: no new HTTP surface (spec Decision 22) — this task is a second UI consumer of Task 4's existing five routes.
+
+### Steps
+
+- [ ] 12.1 Write the failing spec for `payment-methods-tab.ts`, asserting: it renders a `Tabs` frame with "Delivery address" and "Payment methods", the active tab carries `text-ink-primary`/`font-semibold` and a visible `Tab Indicator`, the inactive tab carries `text-ink-secondary` and a fully transparent indicator (the `.pen` stores the inactive indicator as transparent; use the same token utility `saved-card-row` uses for its unselected state rather than re-deriving one), and switching tabs toggles which section renders below:
+  ```ts
+  import { describe, expect, it } from 'vitest';
+  import { TestBed } from '@angular/core/testing';
+  import { PaymentMethodsTab } from './payment-methods-tab';
+
+  describe('PaymentMethodsTab', () => {
+    it('defaults to the delivery-address tab active, payment-methods inactive', () => {
+      const fixture = TestBed.createComponent(PaymentMethodsTab);
+      fixture.detectChanges();
+      const active = fixture.nativeElement.querySelector('[data-testid="tab-delivery-address"]');
+      const inactive = fixture.nativeElement.querySelector('[data-testid="tab-payment-methods"]');
+      expect(active.className).toContain('text-ink-primary');
+      expect(active.className).toContain('font-semibold');
+      expect(inactive.className).toContain('text-ink-secondary');
+    });
+
+    it('switches to the SAVED CARDS section when the payment-methods tab is clicked', () => {
+      const fixture = TestBed.createComponent(PaymentMethodsTab);
+      fixture.detectChanges();
+      fixture.nativeElement.querySelector('[data-testid="tab-payment-methods"]').click();
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('[data-testid="saved-cards-section"]')).not.toBeNull();
+    });
+  });
+  ```
+  Run `nvm use && pnpm --filter web test payment-methods-tab` — fails, module missing.
+
+- [ ] 12.2 Implement `payment-methods-tab.ts`/`.html` per [[angular-component-authoring]], structure and copy from `apps/web/design/exports/profile-payment-methods.html`. The `SAVED CARDS` section renders a `Section Top` (label + live count, e.g. `` `${cards().length} cards` ``), the `Cards List` composed of `SavedCardRow` instances (reusing Task 11's component — do not reimplement its markup here), an `Add Card Button` that is a direct usage of the existing `Button Ghost` component (`apps/web/src/app/shared/ui/button-ghost.ts`, per `DESIGN.md`'s component table — not a new button), and a `Security Note` ("Cards are stored by Stripe. 3MRAI never sees your full card number.", `text-ink-muted`). Wire `Cards List`'s row events (`select`, `setDefault`, `remove`) to `PaymentMethodsApi.setDefault()`/`remove()`, refetching the list after each. Run `nvm use && pnpm --filter web test payment-methods-tab` — passes.
+
+- [ ] 12.3 Write the failing spec for `profile-add-card.ts` (the `wnUi1` frame, mobile `WQAq0`), asserting it mounts the Payment Element against `PaymentMethodsApi.createSetupIntent()`'s client_secret exactly as Task 11's `payment-method-selector` does, and on successful confirmation calls `PaymentMethodsApi.attach(...)` then navigates back to the Payment methods tab with the new card visible. Reuse the mounting logic from Task 11.5 rather than reimplementing Stripe.js setup — extract a small shared helper if duplication would otherwise exceed a few lines.
+
+- [ ] 12.4 Implement `profile-add-card.ts`/`.html` per [[angular-component-authoring]], structure and copy from `apps/web/design/exports/profile-add-card.html`. Run `nvm use && pnpm --filter web test profile-add-card` — passes.
+
+- [ ] 12.5 Wire `payment-methods-tab.ts`'s `Add Card Button` to navigate to (or inline-mount, matching whichever pattern `checkout-payment`'s "Add card" already uses — copy that transition, don't invent a second one) `profile-add-card.ts`.
+
+- [ ] 12.6 In `profile.ts`/`profile.html`, mount `payment-methods-tab` only when `APP_CONFIG.stripeEnabled` is `true` (spec Decision 22 — with the flag off, the profile keeps its pre-milestone single-view shape: no `Tabs` frame, no `SAVED CARDS` section). Write the failing spec first asserting `payment-methods-tab` is absent from the DOM when `stripeEnabled` is `false`, then wire the `@if`.
+
+- [ ] 12.7 Run `nvm use && pnpm --filter web test` — confirm the new and updated specs pass, and that no arbitrary hex colour class was introduced (`grep -rnE '(bg|text|border)-\[#' apps/web/src/app/features/account/` — expect no matches, per `apps/web/CLAUDE.md`'s §2a golden rule).
+
+- [ ] 12.8 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+
+## Task 13 — Card-field validation on the plain branch (Decision 21)
 
 **Files:**
 - Create: `apps/web/src/app/shared/ui/card-validation.ts`, `apps/web/src/app/shared/ui/card-validation.spec.ts`
@@ -1358,7 +1558,7 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
 
 ### Steps
 
-- [ ] 12.1 Write the failing spec for Luhn and brand detection, `card-validation.spec.ts`:
+- [ ] 13.1 Write the failing spec for Luhn and brand detection, `card-validation.spec.ts`:
   ```ts
   import { describe, expect, it } from 'vitest';
   import { detectCardBrand, isValidCardNumber } from './card-validation';
@@ -1388,7 +1588,7 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
   ```
   Run `nvm use && pnpm --filter web test card-validation` — fails, module missing.
 
-- [ ] 12.2 Implement brand detection and Luhn in `card-validation.ts`:
+- [ ] 13.2 Implement brand detection and Luhn in `card-validation.ts`:
   ```ts
   export type CardBrand = 'visa' | 'mastercard' | 'amex' | 'discover' | 'diners' | 'jcb' | 'unknown';
 
@@ -1438,7 +1638,7 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
   ```
   Run `nvm use && pnpm --filter web test card-validation` — passes.
 
-- [ ] 12.3 Write the failing spec for length-per-brand edge cases:
+- [ ] 13.3 Write the failing spec for length-per-brand edge cases:
   ```ts
   describe('isValidCardNumber (length per brand)', () => {
     it('rejects a 15-digit Visa', () => {
@@ -1455,9 +1655,9 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
     });
   });
   ```
-  Run `nvm use && pnpm --filter web test card-validation` — passes against the 12.2 implementation (no code change needed if 12.2 was implemented correctly; if it fails, fix `LENGTHS_BY_BRAND` before proceeding).
+  Run `nvm use && pnpm --filter web test card-validation` — passes against the 15.2 implementation (no code change needed if 15.2 was implemented correctly; if it fails, fix `LENGTHS_BY_BRAND` before proceeding).
 
-- [ ] 12.4 Write the failing spec for CVC:
+- [ ] 13.4 Write the failing spec for CVC:
   ```ts
   import { isValidCvc, requiredCvcLength } from './card-validation';
 
@@ -1487,7 +1687,7 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
   ```
   Run `nvm use && pnpm --filter web test card-validation` — passes.
 
-- [ ] 12.5 Write the failing spec for expiry, using an injected clock rather than a hardcoded year:
+- [ ] 13.5 Write the failing spec for expiry, using an injected clock rather than a hardcoded year:
   ```ts
   import { isValidExpiry } from './card-validation';
 
@@ -1525,7 +1725,7 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
   ```
   Run `nvm use && pnpm --filter web test card-validation` — passes.
 
-- [ ] 12.6 Write the failing spec for brand-aware grouping in `numeric-input.spec.ts`:
+- [ ] 13.6 Write the failing spec for brand-aware grouping in `numeric-input.spec.ts`:
   ```ts
   import { describe, expect, it } from 'vitest';
   import { groupCardDigits } from './numeric-input';
@@ -1542,7 +1742,7 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
   ```
   Run `nvm use && pnpm --filter web test numeric-input` — fails against the current 4-4-4-4-only grouping.
 
-- [ ] 12.7 Implement brand-aware grouping, replacing `numeric-input.ts`'s `groupCardDigits` and rewriting its comment to describe the final state (per the repo's code-comment rules — no "used to do X" narration):
+- [ ] 13.7 Implement brand-aware grouping, replacing `numeric-input.ts`'s `groupCardDigits` and rewriting its comment to describe the final state (per the repo's code-comment rules — no "used to do X" narration):
   ```ts
   import { detectCardBrand } from './card-validation';
 
@@ -1571,7 +1771,7 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
   ```
   Run `nvm use && pnpm --filter web test numeric-input` — passes.
 
-- [ ] 12.8 Write the failing component-level spec for `canPay` in `checkout-payment.spec.ts` (extend the existing spec file), asserting `canPay()` is `false` on the plain branch with an invalid card and `true` once the card form is valid, with a valid address on file:
+- [ ] 13.8 Write the failing component-level spec for `canPay` in `checkout-payment.spec.ts` (extend the existing spec file), asserting `canPay()` is `false` on the plain branch with an invalid card and `true` once the card form is valid, with a valid address on file:
   ```ts
   it('disables Pay on the plain branch when the card is invalid', () => {
     // ... existing harness setup with stripeEnabled=false and a saved address ...
@@ -1596,7 +1796,7 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
   ```
   Run `nvm use && pnpm --filter web test checkout-payment` — fails, `cardForm` has no validators yet.
 
-- [ ] 12.9 Add real validators to `cardForm` in `checkout-payment.ts`, mirroring `addressForm`'s pattern:
+- [ ] 13.9 Add real validators to `cardForm` in `checkout-payment.ts`, mirroring `addressForm`'s pattern:
   ```ts
   import {
     detectCardBrand,
@@ -1626,7 +1826,7 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
   ```
   Note: `validate` must be imported from `@angular/forms/signals` alongside the existing `required`/`maxLength`/`pattern` imports; confirm its exact signature against how this Angular version's signal-forms API expresses a custom validator (check another existing custom validator in this codebase first via `grep -rln "validate(" apps/web/src` — copy that call shape exactly if it differs from the one shown here, since signal-forms is a newer API whose exact custom-validator signature must match what's already used elsewhere in this codebase rather than being guessed here).
 
-- [ ] 12.10 Extend `canPay` in `checkout-payment.ts` to require `cardForm().valid()` only on the plain branch:
+- [ ] 13.10 Extend `canPay` in `checkout-payment.ts` to require `cardForm().valid()` only on the plain branch:
   ```ts
   protected readonly canPay = computed(
     () =>
@@ -1641,28 +1841,28 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
   ```
   Run `nvm use && pnpm --filter web test checkout-payment` — passes.
 
-- [ ] 12.11 Add error messages to `checkout-payment.html`'s plain-branch card fields, using the same `app-field`/error-rendering pattern the address form already uses above it (copy that exact markup shape rather than inventing a new one).
+- [ ] 13.11 Add error messages to `checkout-payment.html`'s plain-branch card fields, using the same `app-field`/error-rendering pattern the address form already uses above it (copy that exact markup shape rather than inventing a new one).
 
-- [ ] 12.12 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+- [ ] 13.12 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
 
-## Task 13 — Infra, compose and CSP
+## Task 14 — Infra, compose and CSP
 
 **Files:**
 - Modify: `infra/modules/api-gateway/main.tf`, `infra/modules/compute/nginx/nginx.conf`, `apps/web`'s nginx config (locate via `find apps/web -iname "nginx*.conf"`), `docker-compose.yml`, `Makefile`, `.env.example`
 
 ### Steps
 
-- [ ] 13.1 Add the new Users routes (`/v1/users/me/payment-methods*`, `/v1/users/stripe/webhook`) to `infra/modules/api-gateway/main.tf`'s route map, following the existing route-block pattern for other `/v1/users/*` routes.
+- [ ] 14.1 Add the new Users routes (`/v1/users/me/payment-methods*`, `/v1/users/stripe/webhook`) to `infra/modules/api-gateway/main.tf`'s route map, following the existing route-block pattern for other `/v1/users/*` routes.
 
-- [ ] 13.2 Add a `location` block for `/v1/users/stripe/webhook` (and the payment-methods paths, if they need a distinct block from the existing `/v1/users/` catch-all) in `infra/modules/compute/nginx/nginx.conf`. Per the spec's Infra section, a missing `location` block for a new top-level path silently falls through to `location /`, which routes to Users — verify the new paths already fall under an existing `/v1/users/` block rather than needing a new one, and only add a new block if they do not.
+- [ ] 14.2 Add a `location` block for `/v1/users/stripe/webhook` (and the payment-methods paths, if they need a distinct block from the existing `/v1/users/` catch-all) in `infra/modules/compute/nginx/nginx.conf`. Per the spec's Infra section, a missing `location` block for a new top-level path silently falls through to `location /`, which routes to Users — verify the new paths already fall under an existing `/v1/users/` block rather than needing a new one, and only add a new block if they do not.
 
-- [ ] 13.3 Add the CSP header change to `apps/web`'s nginx config, allowing `https://*.stripe.com` in `script-src`, `frame-src`, and `connect-src`:
+- [ ] 14.3 Add the CSP header change to `apps/web`'s nginx config, allowing `https://*.stripe.com` in `script-src`, `frame-src`, and `connect-src`:
   ```
   add_header Content-Security-Policy "... script-src 'self' https://*.stripe.com; frame-src 'self' https://*.stripe.com; connect-src 'self' https://*.stripe.com ...";
   ```
   (merge into the existing directive rather than replacing it — preserve every existing source already listed for each directive).
 
-- [ ] 13.4 Add the `stripe-cli` service to `docker-compose.yml` behind `profiles: [stripe]`, following the `observability`/`preview` precedent:
+- [ ] 14.4 Add the `stripe-cli` service to `docker-compose.yml` behind `profiles: [stripe]`, following the `observability`/`preview` precedent:
   ```yaml
   stripe-cli:
     image: stripe/stripe-cli:latest
@@ -1674,47 +1874,52 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
   ```
   Note in a comment above it: `stripe listen` prints its own `whsec_...` signing secret on startup, different from the Dashboard's — using the Dashboard secret locally fails webhook signature verification with a 400 that looks like a code bug, not an infra one. That printed secret must be copied by hand into `STRIPE_WEBHOOK_SECRET` in the CUSTOM box of `.env.local.users`.
 
-- [ ] 13.5 Add `make stripe-up` and `make stripe-logs` targets to the `Makefile`, mirroring the existing `observability-up`/`observability-*` targets' shape (`docker compose --profile stripe up -d` / `docker compose logs -f stripe-cli`).
+- [ ] 14.5 Add `make stripe-up` and `make stripe-logs` targets to the `Makefile`, mirroring the existing `observability-up`/`observability-*` targets' shape (`docker compose --profile stripe up -d` / `docker compose logs -f stripe-cli`).
 
-- [ ] 13.6 Add every new variable to `.env.example` with a comment explaining AUTO vs CUSTOM per [[env-files]]: `STRIPE_ENABLED` (AUTO-generated default `false`), `STRIPE_SECRET_KEY` (CUSTOM, hand-injected `rk_...`), `STRIPE_WEBHOOK_SECRET` (CUSTOM, hand-injected `whsec_...` from `stripe listen`'s own output), `NG_APP_STRIPE_PUBLISHABLE_KEY` (CUSTOM, the publishable `pk_...` key, safe for the bundle).
+- [ ] 14.6 Add every new variable to `.env.example` with a comment explaining AUTO vs CUSTOM per [[env-files]]: `STRIPE_ENABLED` (AUTO-generated default `false`), `STRIPE_SECRET_KEY` (CUSTOM, hand-injected `rk_...`), `STRIPE_WEBHOOK_SECRET` (CUSTOM, hand-injected `whsec_...` from `stripe listen`'s own output), `NG_APP_STRIPE_PUBLISHABLE_KEY` (CUSTOM, the publishable `pk_...` key, safe for the bundle).
 
-- [ ] 13.7 Run `nvm use && node scripts/validate-vault.mjs` is not applicable here (infra-only task); instead run this repo's existing Terraform validation/lint step for the touched modules if one exists (`grep -n "^validate\|^plan" Makefile`), and `docker compose config --profile stripe` to confirm the new compose service parses.
-
-- [ ] 13.8 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
-
-## Task 14 — The three test layers
-
-**Files:**
-- Create: `e2e/specs/internal/users/payment-methods.spec.ts`, `e2e/specs/internal/orders/order-payment.spec.ts`, `e2e/specs/gateway/checkout-payment.spec.ts`
-- Modify: `e2e/support/global-teardown.ts` (if a new cleanup call is needed beyond the extended `e2e-cleanup` from Task 6), `e2e/load-tests/` scenario touching checkout (verify only, per step 14.5)
-
-### Steps
-
-- [ ] 14.1 Write internal E2E specs against `localhost:3000` (Users) covering: create setup-intent, attach a card (using Stripe's test PaymentMethod token flow against the CI sandbox per Decision 17), list, set default, detach, and the webhook signature-rejection path (a request with a bad `stripe-signature` header gets 400). Tag every created row with `x-e2e-source: true` and confirm `E2E_TESTING_ENABLED` gates it, per [[testing]]'s "E2E cleanup by tag" mechanism.
-
-- [ ] 14.2 Write internal E2E specs against `localhost:3001` (Orders) covering: `POST /v1/orders` with a valid `paymentMethodId` succeeds and returns an order with a payment snapshot; with the flag on and `paymentMethodId` omitted, returns 400; with a Stripe test card that triggers a decline (`4000000000000002`), returns 402; the metadata-only card validation from Task 9.9 (known/unknown brand, expired/valid, malformed `last4`); and the concurrency scenario from Task 10.1 reproduced at the HTTP layer if feasible, or explicitly noted as covered only at the unit level with a comment pointing to Task 10.1's test name.
-
-- [ ] 14.3 Write the gateway E2E spec with a real Cognito JWT covering the full Stripe-branch UI journey: log in, go to checkout, add a card via the mounted Payment Element (fill Stripe's test iframe using Playwright's frame-locator APIs against the CI sandbox), see it appear in the selector, switch to it, and pay. Assert on a genuine 401→success sequence if a route is initially unwired: per the spec's Infra section, a 404 carrying the gateway's own `{"message":"Not Found"}` body means the request never reached the service (fix the gateway/nginx wiring from Task 13), while a 401 after fixing it is the **correct** intermediate signal that the route resolved and reached the authorizer.
-
-- [ ] 14.4 Write a second gateway E2E spec covering the **plain-branch** card validation from Task 12 (Decision 21): with `STRIPE_ENABLED=false`, typing an invalid card number (e.g. `4242 4242 4242 4241`) into the plain form leaves the Pay button disabled; correcting it to `4242 4242 4242 4242` with a valid future expiry and a 3-digit CVC enables Pay and a successful order follows. This is independent of Task 14.3's Stripe-branch journey — it exercises the branch the Payment Element never touches.
-
-- [ ] 14.5 Add an explicit test (any layer) asserting that with `STRIPE_ENABLED=false`, `POST /v1/orders` succeeds with no `paymentMethodId` and no payment-method routes are reachable (404 or route-not-mounted, per how Task 4.8 resolved conditional mounting) — proving the flag gate, not assuming it.
-
-- [ ] 14.6 Verify, by reading `e2e/load-tests/` (not by running the load suite against real Stripe), that no load-test scenario sends `x-e2e-source` or `x-test-mode` and that the checkout scenario either runs exclusively with `STRIPE_ENABLED=false` or is explicitly excluded from any Stripe-enabled load run — add a one-line comment in the relevant `.gatling.ts` scenario recording this if none exists yet. This is a verification step, not a new scenario — real charges under load would be expensive (spec Testing section).
-
-- [ ] 14.7 Run all three layers: `nvm use && pnpm --filter e2e-impl test:internal` (or this repo's actual script name — check `e2e/package.json`), the gateway suite, and confirm green.
+- [ ] 14.7 Run `nvm use && node scripts/validate-vault.mjs` is not applicable here (infra-only task); instead run this repo's existing Terraform validation/lint step for the touched modules if one exists (`grep -n "^validate\|^plan" Makefile`), and `docker compose config --profile stripe` to confirm the new compose service parses.
 
 - [ ] 14.8 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
 
+## Task 15 — The three test layers
+
+**Files:**
+- Create: `e2e/specs/internal/users/payment-methods.spec.ts`, `e2e/specs/internal/orders/order-payment.spec.ts`, `e2e/specs/gateway/checkout-payment.spec.ts`, `e2e/specs/gateway/profile-payment-methods.spec.ts`
+- Modify: `e2e/support/global-teardown.ts` (if a new cleanup call is needed beyond the extended `e2e-cleanup` from Task 6), `e2e/load-tests/` scenario touching checkout (verify only, per step 15.8), `apps/web/src/app/shared/ui/saved-card-row.spec.ts` (extended per step 15.6, not duplicated)
+
+### Steps
+
+- [ ] 15.1 Write internal E2E specs against `localhost:3000` (Users) covering: create setup-intent, attach a card (using Stripe's test PaymentMethod token flow against the CI sandbox per Decision 17), list, set default, detach, and the webhook signature-rejection path (a request with a bad `stripe-signature` header gets 400). Tag every created row with `x-e2e-source: true` and confirm `E2E_TESTING_ENABLED` gates it, per [[testing]]'s "E2E cleanup by tag" mechanism.
+
+- [ ] 15.2 Write internal E2E specs against `localhost:3001` (Orders) covering: `POST /v1/orders` with a valid `paymentMethodId` succeeds and returns an order with a payment snapshot; with the flag on and `paymentMethodId` omitted, returns 400; with a Stripe test card that triggers a decline (`4000000000000002`), returns 402; the metadata-only card validation from Task 9.9 (known/unknown brand, expired/valid, malformed `last4`); and the concurrency scenario from Task 10.1 reproduced at the HTTP layer if feasible, or explicitly noted as covered only at the unit level with a comment pointing to Task 10.1's test name.
+
+- [ ] 15.3 Write the gateway E2E spec with a real Cognito JWT covering the full Stripe-branch UI journey: log in, go to checkout, add a card via the mounted Payment Element (fill Stripe's test iframe using Playwright's frame-locator APIs against the CI sandbox), see it appear in the selector, switch to it, and pay. Assert on a genuine 401→success sequence if a route is initially unwired: per the spec's Infra section, a 404 carrying the gateway's own `{"message":"Not Found"}` body means the request never reached the service (fix the gateway/nginx wiring from Task 13), while a 401 after fixing it is the **correct** intermediate signal that the route resolved and reached the authorizer.
+
+- [ ] 15.4 Write a second gateway E2E spec covering the **plain-branch** card validation from Task 13 (Decision 21): with `STRIPE_ENABLED=false`, typing an invalid card number (e.g. `4242 4242 4242 4241`) into the plain form leaves the Pay button disabled; correcting it to `4242 4242 4242 4242` with a valid future expiry and a 3-digit CVC enables Pay and a successful order follows. This is independent of Task 15.3's Stripe-branch journey — it exercises the branch the Payment Element never touches.
+
+- [ ] 15.5 Write a gateway E2E spec for the **profile Payment methods flow** (Task 12): log in, open `/profile`, switch to the "Payment methods" tab, add a card via the mounted Payment Element (same frame-locator approach as 15.3), set it as default, remove a different saved card, and confirm the `SAVED CARDS` count updates after each action. Mobile variants (`W6IFps`, `WQAq0`) are the reference for the responsive layout if a mobile viewport pass is added later — this step covers desktop only.
+
+- [ ] 15.6 Write a component-level spec (co-located with `saved-card-row.spec.ts` from Task 11.1, extended rather than duplicated) asserting the three `SavedCardRow` states render correctly end-to-end within `payment-method-selector` and the profile's Cards List, including that clicking the radio on an expired card does **not** emit `select` (Decision 24 — an expired card cannot be selected for payment).
+
+- [ ] 15.7 Add an explicit test (any layer) asserting that with `STRIPE_ENABLED=false`, `POST /v1/orders` succeeds with no `paymentMethodId` and no payment-method routes are reachable (404 or route-not-mounted, per how Task 4.8 resolved conditional mounting) — proving the flag gate, not assuming it. Also assert that with the flag off, the profile's "Payment methods" tab (Task 12) does not render — the `Tabs` frame and `SAVED CARDS` section are absent, and the profile keeps its pre-milestone single-view shape (Decision 22).
+
+- [ ] 15.8 Verify, by reading `e2e/load-tests/` (not by running the load suite against real Stripe), that no load-test scenario sends `x-e2e-source` or `x-test-mode` and that the checkout scenario either runs exclusively with `STRIPE_ENABLED=false` or is explicitly excluded from any Stripe-enabled load run — add a one-line comment in the relevant `.gatling.ts` scenario recording this if none exists yet. This is a verification step, not a new scenario — real charges under load would be expensive (spec Testing section).
+
+- [ ] 15.9 Run all three layers: `nvm use && pnpm --filter e2e-impl test:internal` (or this repo's actual script name — check `e2e/package.json`), the gateway suite, and confirm green.
+
+- [ ] 15.10 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+
 ## Execution notes
 
-- Per [[phase-c-review-flow]], issues for Tasks 1–7 and Tasks 9–14 chain without per-merge prompts; PRs are batched for review at each of the two GATEs above, and nothing is auto-merged — the user reviews and merges each batch explicitly. Task 12 (plain-branch card validation) may be worked in parallel with the Task 9–10 wait, since it has no dependency on them, but its PR still joins the second batch.
+- Per [[phase-c-review-flow]], issues for Tasks 1–7 and Tasks 9–15 chain without per-merge prompts; PRs are batched for review at each of the two GATEs above, and nothing is auto-merged — the user reviews and merges each batch explicitly. Task 13 (plain-branch card validation) may be worked in parallel with the Task 9–10 wait, since it has no dependency on them, but its PR still joins the second batch. Task 12 (profile Payment methods tab) reuses `SavedCardRow` and `PaymentMethodsApi` from Task 11, so it must be ordered after Task 11 within the second batch, not worked in parallel with it.
 - The Linear issues for this milestone do not exist yet. Once `linear-pm` creates them, a milestone-plan note is required at `docs/plans/stripe-payments-milestone.md` per [[milestone-plan]] (task-sequence table, dependency table, and dependency diagram) — this superpowers plan documents *how* to implement each task, not the milestone's cross-issue dependency structure, which is what that note is for.
 - The user injects the restricted keys (`rk_...` for each service) and the webhook secret by hand into the CUSTOM box of `.env.local.users` and `.env.local.orders` — never the AUTO box. The dedicated local-dev and CI Stripe sandboxes (Decision 17) are a prerequisite of Task 1: without a sandbox and its keys, Task 1's `STRIPE_ENABLED=true` path cannot be exercised past the "no key" branch.
+- All design tokens this milestone's six new frames use (Decisions 22–24, Task 11's `SavedCardRow`, Task 12's profile tab) already exist in `apps/web/src/styles.css` — no task in this plan adds a token or touches `styles.css`.
 
 ## Self-review
 
-**Spec coverage** — all 21 decisions map to at least one task:
+**Spec coverage** — all 24 decisions map to at least one task:
 
 | Decision | Task(s) |
 |---|---|
@@ -1727,22 +1932,25 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
 | 7 (charge-then-persist) | 9 |
 | 8 (402 on card errors) | 9 |
 | 9 (refund-on-409) | 10 |
-| 10 (Stripe CLI, not a tunnel) | 13 |
-| 11 (E2E doesn't wait on webhook) | 14 (design already reflected in Task 4's attach flow) |
-| 12 (E2E tagged in Stripe too) | 3, 4, 6, 14 |
+| 10 (Stripe CLI, not a tunnel) | 14 |
+| 11 (E2E doesn't wait on webhook) | 15 (design already reflected in Task 4's attach flow) |
+| 12 (E2E tagged in Stripe too) | 3, 4, 6, 15 |
 | 13 (graceful degradation on missing key) | 1, 9 |
-| 14 (stripe-mock excluded) | 14 (no task introduces it; Decision 17's sandbox is used instead) |
-| 15 (restricted keys, one per service) | 1, 9, 13 |
+| 14 (stripe-mock excluded) | 15 (no task introduces it; Decision 17's sandbox is used instead) |
+| 15 (restricted keys, one per service) | 1, 9, 14 |
 | 16 (never payment_method_types; prohibited APIs) | Global Constraints, 4, 9, 11 |
-| 17 (dedicated sandboxes) | 14, Execution notes |
+| 17 (dedicated sandboxes) | 15, Execution notes |
 | 18 (pinned versions, per-instance StripeClient) | Global Constraints, 1, 9 |
 | 19 (PaymentIntents not Checkout Sessions) | 9 |
 | 20 (Stripe Tax deferred; tax stays in-house) | 9 (amount = Orders' existing tax-inclusive total; no Stripe Tax call introduced anywhere) |
-| 21 (plain-branch card validation, client + metadata-only server mirror) | 9 (server-side metadata mirror, step 9.9), 11 (frontend sends metadata, step 11.11), 12 (client validation), 14 (gateway E2E case, step 14.4) |
+| 21 (plain-branch card validation, client + metadata-only server mirror) | 9 (server-side metadata mirror, step 9.9), 11 (frontend sends metadata, step 11.13), 13 (client validation), 15 (gateway E2E case, step 15.4) |
+| 22 (payment methods managed from profile too) | 12 |
+| 23 (checkout can add a card inline; save-card checkbox gates attach) | 11 (Task 11.14–11.16), 15 (gateway E2E, step 15.5) |
+| 24 (expired saved card shown, not hidden) | 11 (`SavedCardRow`'s expired state, Task 11.1–11.2), 12 (profile Cards List reuses it), 15 (component spec, step 15.6) |
 
-**Placeholder scan:** no "TBD"/"similar to Task N" shortcuts remain except explicitly-flagged repo-verification steps (4.8's conditional-module choice, 4.7's decorator names, 9.1/10.1's exact mock/fixture APIs, 12.9's exact signal-forms `validate()` signature) — each names the exact `grep` to run and the exact existing file to copy from, rather than leaving the shape undefined.
+**Placeholder scan:** no "TBD"/"similar to Task N" shortcuts remain except explicitly-flagged repo-verification steps (4.8's conditional-module choice, 4.7's decorator names, 9.1/10.1's exact mock/fixture APIs, 13.9's exact signal-forms `validate()` signature, 11.1's "verify exact utility spelling against styles.css") — each names the exact `grep` to run and the exact existing file to copy from, rather than leaving the shape undefined.
 
-**Type consistency:** `StripeClientHolder` (Task 1) is the single shape threaded through Tasks 3, 4, 5, 6; `PaymentMethodView` (Task 4.3) is what Task 11's `PaymentMethodsApi.list()` consumes; `PaymentSnapshot` (Task 9) is what Task 10's refund path reads `PaymentIntentId` from; `stripe_customer_id` (Task 7) is the exact field both Task 9's gRPC read and Task 4/5's local persistence trace back to; `CardBrand`/`detectCardBrand`/`isValidCardNumber`/`isValidCvc`/`isValidExpiry` (Task 12) are the exact names Task 11's `checkout-payment.ts` imports and Task 12.7's `numeric-input.ts` rewrite depends on; the `{ brand, last4, expMonth, expYear }` metadata shape is identical between Task 11.11 (sender) and Task 9.9 (`CardMetadataValidator`, receiver).
+**Type consistency:** `StripeClientHolder` (Task 1) is the single shape threaded through Tasks 3, 4, 5, 6; `PaymentMethodView` (Task 4.3) is what Task 11's `PaymentMethodsApi.list()` consumes; `SavedCardView`/`SavedCardRow` (Task 11.1) is the single component both Task 11's checkout selector and Task 12's profile Cards List mount, never rebuilt per surface; `PaymentSnapshot` (Task 9) is what Task 10's refund path reads `PaymentIntentId` from; `stripe_customer_id` (Task 7) is the exact field both Task 9's gRPC read and Task 4/5's local persistence trace back to; `CardBrand`/`detectCardBrand`/`isValidCardNumber`/`isValidCvc`/`isValidExpiry` (Task 13) are the exact names Task 11's `checkout-payment.ts` imports and Task 13.7's `numeric-input.ts` rewrite depends on; the `{ brand, last4, expMonth, expYear }` metadata shape is identical between Task 11.13 (sender) and Task 9.9 (`CardMetadataValidator`, receiver).
 
 ## Related
 
@@ -1752,11 +1960,11 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
 - [[git-workflow]] — the commit/PR flow every task's final step defers to.
 - [[phase-c-review-flow]] — the chained-issues/batched-review discipline around this plan's two GATEs.
 - [[cqrs]] — the CommandBus/QueryBus dispatch discipline Task 4's tests follow.
-- [[angular-component-authoring]] — the component pattern Task 11 follows.
+- [[angular-component-authoring]] — the component pattern Task 11's `SavedCardRow`/`payment-method-selector`/`new-card-block` and Task 12's profile Payment methods tab follow.
 - [[openapi-specs]] — where Task 4 and Task 5's new routes are specified.
 - [[soft-delete]] — the deletion pattern `stripe_payment_methods` uses (Task 2, Task 4.5, Task 5.3).
 - [[audit-fields]] — the standard audit columns on `stripe_payment_methods` (Task 2).
 - [[nano-id]] — the primary-key convention for `stripe_payment_methods` (Task 2, Task 4.4).
 - [[money-representation]] — the amount/currency representation Orders' payment snapshot follows (Task 9).
-- [[local-dev]] — the `profiles:`-gated optional-service pattern `stripe-cli` follows (Task 13).
+- [[local-dev]] — the `profiles:`-gated optional-service pattern `stripe-cli` follows (Task 14).
 - [[skills-catalog]] — the Agent Skills installation mechanism already used for `stripe-best-practices`/`stripe-docs`.

@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: draft
 created: 2026-09-19
-updated: 2026-09-19
+updated: 2026-09-21
 tags: [type/spec, area/shared, status/draft]
 related:
   - "[[users-service-design]]"
@@ -32,6 +32,7 @@ propagates-to:
   - "[[money-representation]]"
   - "[[local-dev]]"
   - "[[logging-context]]"
+  - "[[angular-component-authoring]]"
 ---
 
 # Stripe Payments — Saved Cards and Real Charges
@@ -399,6 +400,71 @@ line items and, on the Stripe branch, a `paymentMethodId` — the plain branch's
 inert). That is exactly why client-side validation is the primary home and the server check is a
 mirror of it, not a gate guarding a real charge.
 
+### 22. Payment methods are managed from the profile as well as the checkout
+
+This reverses an earlier scoping call: the original "Out of scope" section deferred a
+dedicated card-management screen outside checkout to a later milestone ("the user chose
+Elements + selector over the larger option"). New design frames (`VcB4y` Profile — Payment
+Methods, `wnUi1` Profile — Add Card, plus their mobile pairs `W6IFps`/`WQAq0`) reverse that
+deferral: card management lives in **both** surfaces now — the checkout's inline selector
+(Decision 23) and a dedicated tab on the profile screen.
+
+Both surfaces are gated behind `STRIPE_ENABLED` exactly like everything else in this design.
+With the flag off, the profile's new "Payment methods" tab does not render at all and the
+profile keeps its current single-view shape (no `Tabs` frame, no `SAVED CARDS` section) — this
+is not a separate flag, it is the same kill switch already governing the checkout branch and
+the Users routes.
+
+This decision does not introduce a new HTTP surface: the profile tab is a second **consumer**
+of the same five `/v1/users/me/payment-methods*` routes (Decision 4's "Users HTTP surface")
+that the checkout selector already calls — `list`, `setup-intent`/`attach` (add a card),
+`PUT .../default` (set default), `DELETE` (remove). No new Users endpoint is added by this
+decision.
+
+### 23. The checkout can add a card inline, not only select one
+
+The original Web section described the Stripe branch as a saved-card selector plus a
+separate "Add card" action. The `New Card Block` inside `wgkmW`/`V2wb9b`'s `Stripe Payment
+Element` frame shows a fuller flow: the `Saved Cards List` (the same `Saved Card Row`
+instances as the profile, Decision 22) sits alongside an inline new-card form — `Method Tabs`
+(Card / Apple Pay / Link), the four `SField` rows, a `Save Info Row`, and a `Save Card Button`
+— reachable without leaving the checkout page, with a "Cancel" link that collapses it back to
+the saved-cards list.
+
+**Real behavioural branch for Users' API.** The `Save Info Row`'s "Save this card for future
+purchases" checkbox is not cosmetic — it decides which Stripe call the resulting payment
+method goes through:
+- **Checked:** the SetupIntent's resulting `pm_...` is **attached** to the customer via
+  `POST /v1/users/me/payment-methods` (Decision 4's attach route) exactly as today — it becomes
+  a saved card, appears in future listings, and is eligible to be set default.
+- **Unchecked:** the payment method is used **once**, for this order's PaymentIntent only, and
+  is never attached to the customer — no row is written to `stripe_payment_methods`, and it
+  will not appear in any future `GET /v1/users/me/payment-methods` listing.
+
+This is a real branch the current five-endpoint surface does not express on its own — the
+existing routes assume every confirmed SetupIntent gets attached. The web app must send this
+choice explicitly (Task 11 in the plan wires the checkbox to it) rather than the backend
+inferring it from context.
+
+### 24. An expired saved card is shown, not hidden
+
+The design renders an expired card (`Card American Express` in the profile's Cards List and
+checkout's `Saved Cards List`) in place — dimmed `Brand Bubble` (`$bg-subtle`) and `Brand Icon`
+(`$text-muted`), expiry text reading `"Expired 01 / 2026"` in `$danger-red` at `fontWeight 600`
+— rather than filtering it out of the list.
+
+Rules:
+- Expiry is computed client-side from the already-stored `expMonth`/`expYear` (Decision 3's
+  data model) — no new field, no new Stripe call.
+- The same end-of-month semantics as Decision 21 govern both: a card expiring in the
+  **current** month is still valid; comparison is against the last day of the expiry month.
+  One rule, two consumers — the plain-branch form validation and this list's expired/valid
+  visual state — never two independent expiry calculations.
+- An expired card cannot be **selected** for payment (its `Radio` is inert), but it is never
+  silently removed from the list. The buyer removes it themselves via the existing `Remove
+  Button` (Decision 4's detach route) — this design makes no change to when a card is deleted,
+  only to how an expired-but-not-yet-deleted one is displayed.
+
 ## Data model
 
 **Users (Postgres, Prisma):**
@@ -445,12 +511,49 @@ a successful charge (Decision 9).
 
 ## Web
 
-The `@if (stripeEnabled())` branch at `checkout-payment.html:259` stops being a static card and
-becomes: a saved-card selector (radio list, brand + `···· 4242`, default preselected), an
-"Add card" action mounting the **Payment Element** against the SetupIntent `client_secret`, and
-the Payment Element shown directly when the user has no cards. `pay()` sends the selected
-`paymentMethodId` and maps a 402 to an actionable card error via the existing
-`authErrorMessage` pattern (the same shape as the current 409 mapping).
+Two design surfaces implement the routes above, both new since the design frames were read
+live from `assets/web-app/web-app.pen` via the Pencil MCP: **Checkout — Payment (add card)**
+(`wgkmW` / mobile `V2wb9b`) and **Profile — Payment Methods** (`VcB4y` / mobile `W6IFps`), plus
+**Profile — Add Card** (`wnUi1` / mobile `WQAq0`). Seven HTML snapshots for these frames (and
+one shared component) are exported under `apps/web/design/exports/`:
+`checkout-payment-add-card.html`, `mobile-checkout-payment-add-card.html`,
+`profile-payment-methods.html`, `mobile-profile-payment-methods.html`,
+`profile-add-card.html`, `mobile-profile-add-card.html`, `saved-card-row.html`. **All 32
+design tokens this milestone's frames use already exist in `apps/web/src/styles.css`** — there
+is no design-system gap to report and nothing new to add there.
+
+**`Saved Card Row` — new reusable component.** A single component (`vPwZ1` in the `.pen`)
+renders one saved card, in three states the design's Cards List demonstrates side by side:
+
+1. *Selected + default* — `bg-surface-subtle` fill, `border-brand-navy` stroke, radio dot
+   filled, `Default Badge` shown, "Set as default" link **hidden**.
+2. *Unselected, not default* — transparent fill, `border-line` stroke, radio dot empty,
+   `Default Badge` hidden, "Set as default" link shown.
+3. *Expired* (Decision 24) — dimmed `Brand Bubble`/`Brand Icon` (`bg-surface-subtle` /
+   `text-ink-muted`), expiry text `text-danger-red font-semibold` reading `"Expired MM /
+   YYYY"` instead of the live card's `text-ink-secondary` normal-weight `"Expires MM / YYYY"`,
+   and the row cannot be selected.
+
+The component is shared, not duplicated, between the checkout's `Saved Cards List` and the
+profile's `Cards List` — the same three states apply in both places (see the plan's Task 11).
+
+**The `@if (stripeEnabled())` branch at `checkout-payment.html:259`** stops being a static card
+and becomes the `Stripe Payment Element` frame's two parts: a `Saved Cards List` of
+`Saved Card Row` instances (default preselected), and, per Decision 23, an inline
+`New Card Block` — `Method Tabs` (Card / Apple Pay / Link), the four `SField` rows, a
+"Cancel" link collapsing it back to the list, a "Save this card for future purchases"
+checkbox, and a `Save Card Button` — shown directly when the user has no saved cards.
+`pay()` sends the selected `paymentMethodId` and maps a 402 to an actionable card error via
+the existing `authErrorMessage` pattern (the same shape as the current 409 mapping).
+
+**Profile — Payment Methods** (Decision 22) adds a `Tabs` frame ("Delivery address" /
+"Payment methods", active tab `text-ink-primary font-semibold` with a visible 2px
+`Tab Indicator`, inactive `text-ink-secondary` normal with a transparent indicator) above a
+`SAVED CARDS` section: a `Section Top` (label + live count, e.g. "3 cards"), the `Cards List`
+of `Saved Card Row` instances, an `Add Card Button` (reusing the existing `Button Ghost`
+component `aUEDx`, not a new button), and a `Security Note` ("Cards are stored by Stripe.
+3MRAI never sees your full card number."). With the flag off, none of this renders — the
+profile keeps its current single-view shape.
 
 The **Payment Element** is used by name, not the legacy Card Element and not the Payment
 Element restricted to card-only mode — both are traps Stripe's own guidance calls out. The
@@ -553,11 +656,16 @@ Manually installed skills do not auto-update — `pnpm dlx skills update` refres
 
 ## Out of scope
 
-- A dedicated `/account` screen for managing cards outside checkout — "Elements + selector" was
-  chosen over that larger surface; deferred to a later milestone.
 - A separate `payments` microservice.
 - `stripe-mock` (Decision 14).
 - The public webhook route for a real, non-local deployment.
+
+> [!note] Superseded scoping call
+> An earlier draft of this section deferred a dedicated card-management screen outside
+> checkout to a later milestone ("Elements + selector was chosen over that larger surface").
+> Decision 22 reverses that: the new design frames put card management on the profile as well
+> as the checkout, in this same milestone. That line is removed rather than kept as a stale
+> "out of scope" entry that contradicts Decision 22.
 
 ## Related
 
@@ -577,8 +685,8 @@ Manually installed skills do not auto-update — `pnpm dlx skills update` refres
 - [[soft-delete]] — the deletion pattern `stripe_payment_methods` uses.
 - [[audit-fields]] — the standard audit columns `stripe_payment_methods` includes.
 - [[openapi-specs]] — where the new Users routes are specified.
-- [[angular-component-authoring]] — the component pattern the checkout saved-card selector
-  follows.
+- [[angular-component-authoring]] — the component pattern the checkout saved-card selector,
+  the new `SavedCardRow` shared component, and the profile's Payment methods tab all follow.
 - [[cqrs]] — the CommandBus/QueryBus dispatch discipline Users' unit tests must exercise.
 - [[nano-id]] — the primary-key convention for the new `stripe_payment_methods` table.
 - [[phase-c-review-flow]] — how this milestone's issues chain and batch for review.
@@ -589,3 +697,7 @@ Manually installed skills do not auto-update — `pnpm dlx skills update` refres
 - [[code-comments]] — the pre-commit hook (`make install-comment-hook`) that Decision 15
   proposes extending with a key-literal check; also the rule Decision 21's `numeric-input.ts`
   change must follow when rewriting that file's contract comment to its final, brand-aware state.
+- `apps/web/DESIGN.md` — the durable component/route reference table this design's new
+  `Saved Card Row` component and three add-card/Payment-methods state variants are recorded in
+  (Decisions 22–24); read live from the `.pen` via the Pencil MCP, confirming all 32 design
+  tokens these frames use already exist in `apps/web/src/styles.css`.
