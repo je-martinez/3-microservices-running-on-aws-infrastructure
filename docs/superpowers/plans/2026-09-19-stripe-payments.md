@@ -21,6 +21,7 @@ propagates-to:
   - "[[money-representation]]"
   - "[[local-dev]]"
   - "[[skills-catalog]]"
+  - "[[stripe-sandbox-setup]]"
 related:
   - "[[2026-09-19-stripe-payments-design]]"
   - "[[testing]]"
@@ -36,6 +37,7 @@ related:
   - "[[money-representation]]"
   - "[[local-dev]]"
   - "[[skills-catalog]]"
+  - "[[stripe-sandbox-setup]]"
 ---
 
 # Stripe Payments Implementation Plan
@@ -1914,7 +1916,7 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
 
 - Per [[phase-c-review-flow]], issues for Tasks 1–7 and Tasks 9–15 chain without per-merge prompts; PRs are batched for review at each of the two GATEs above, and nothing is auto-merged — the user reviews and merges each batch explicitly. Task 13 (plain-branch card validation) may be worked in parallel with the Task 9–10 wait, since it has no dependency on them, but its PR still joins the second batch. Task 12 (profile Payment methods tab) reuses `SavedCardRow` and `PaymentMethodsApi` from Task 11, so it must be ordered after Task 11 within the second batch, not worked in parallel with it.
 - The Linear issues for this milestone do not exist yet. Once `linear-pm` creates them, a milestone-plan note is required at `docs/plans/stripe-payments-milestone.md` per [[milestone-plan]] (task-sequence table, dependency table, and dependency diagram) — this superpowers plan documents *how* to implement each task, not the milestone's cross-issue dependency structure, which is what that note is for.
-- The user injects the restricted keys (`rk_...` for each service) and the webhook secret by hand into the CUSTOM box of `.env.local.users` and `.env.local.orders` — never the AUTO box. The dedicated local-dev and CI Stripe sandboxes (Decision 17) are a prerequisite of Task 1: without a sandbox and its keys, Task 1's `STRIPE_ENABLED=true` path cannot be exercised past the "no key" branch.
+- The user injects the restricted keys (`rk_...` for each service) and the webhook secret by hand into the CUSTOM box of `.env.local.users` and `.env.local.orders` — never the AUTO box. The dedicated local-dev and CI Stripe sandboxes (Decision 17) are a prerequisite of Task 1: without a sandbox and its keys, Task 1's `STRIPE_ENABLED=true` path cannot be exercised past the "no key" branch. See [[stripe-sandbox-setup]] for the step-by-step procedure to obtain both sandboxes and their keys.
 - All design tokens this milestone's six new frames use (Decisions 22–24, Task 11's `SavedCardRow`, Task 12's profile tab) already exist in `apps/web/src/styles.css` — no task in this plan adds a token or touches `styles.css`.
 
 ## Self-review
@@ -1968,3 +1970,4 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
 - [[money-representation]] — the amount/currency representation Orders' payment snapshot follows (Task 9).
 - [[local-dev]] — the `profiles:`-gated optional-service pattern `stripe-cli` follows (Task 14).
 - [[skills-catalog]] — the Agent Skills installation mechanism already used for `stripe-best-practices`/`stripe-docs`.
+- [[stripe-sandbox-setup]] — the operator-facing procedure for the sandboxes and keys the Execution notes call a prerequisite of Task 1.

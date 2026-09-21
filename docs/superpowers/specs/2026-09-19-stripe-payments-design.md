@@ -25,6 +25,7 @@ related:
   - "[[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]]"
   - "[[skills-catalog]]"
   - "[[code-comments]]"
+  - "[[stripe-sandbox-setup]]"
 propagates-to:
   - "[[users-service-design]]"
   - "[[testing]]"
@@ -279,6 +280,9 @@ registrations, if this changes later — is scoped to that sandbox. It does not 
 mode and does not carry over to another sandbox. Concretely: the CI sandbox does **not**
 inherit anything configured in the local-dev sandbox, or vice versa — each of the two
 sandboxes this decision creates must be configured independently.
+
+See [[stripe-sandbox-setup]] for the operator-facing procedure to create both sandboxes and
+their keys.
 
 ### 18. Pinned versions
 Recorded so implementation does not silently drift onto older defaults:
@@ -701,3 +705,5 @@ Manually installed skills do not auto-update — `pnpm dlx skills update` refres
   `Saved Card Row` component and three add-card/Payment-methods state variants are recorded in
   (Decisions 22–24); read live from the `.pen` via the Pencil MCP, confirming all 32 design
   tokens these frames use already exist in `apps/web/src/styles.css`.
+- [[stripe-sandbox-setup]] — the operator-facing runbook for Decision 17's sandboxes and
+  Decision 15's restricted keys.
