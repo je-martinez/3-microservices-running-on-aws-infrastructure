@@ -156,6 +156,15 @@ failure of its own), while a **write** gets the full
 the workflow span so it carries that span's `span_id`, and instrument the
 endpoint's **entry point**, never a helper shared with the write path.
 
+**The browser emits telemetry too, and new work does NOT inherit it.** In
+`apps/web`, call the gateway through `ApiClient` — a raw `fetch()` bypasses the
+interceptor, so there is no span and no `traceparent` — never swallow an error
+before Angular's `ErrorHandler` sees it, and verify the new surface in the
+OpenObserve viewer. **The failure mode is silence:** the dashboards stay green and
+the surface is simply absent, so nothing tells you it is missing. `pnpm build` is
+part of "done" for web work — the initial-bundle budget is a gate that
+`test`/`lint`/`typecheck` do not check.
+
 Full rule: `.ai/rules/logging-and-pii.md`.
 
 ### Testing — three layers per endpoint

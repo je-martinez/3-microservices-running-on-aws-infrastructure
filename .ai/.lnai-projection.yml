@@ -98,6 +98,11 @@ rules:
   # check an implementer owes on its own files.
   comment-gate-before-handoff: universal
 
+  # browser-rum: a web-app constraint, not a Claude mechanism. Lands in
+  # logging-and-pii.md, which gains `**/*.html`. Also an AGENTS.md paragraph:
+  # the failure mode is silence, so it must land before a file is opened.
+  browser-rum: universal
+
 # Project-level servers from .mcp.json. Distinct from `plugin-mcp-servers`
 # above: those ship inside Claude Code plugins and have no config to project.
 mcp:
@@ -112,9 +117,9 @@ mcp:
 
 skills:
   # Portable knowledge worth having in any tool.
-  # WORKAROUND(provider): .ai/skills/floci/SKILL.md needs its `description`
-  # double-quoted — it contains ": " twice, which lnai's js-yaml rejects. Fix the
-  # COPY after every re-copy, never .claude/skills/.
+  # CONTRACT: A copied `description` containing ": " must be quoted — unquoted,
+  # YAML reads it as a nested mapping and every frontmatter field is dropped
+  # silently. Quote style is free; the source's own style is not required.
   floci: share
   terraform-skill: share
 
@@ -317,8 +322,6 @@ skills:
   # Repo-local runbook over infra/scripts/advance_tracking.py, driving the real
   # carrier webhook through the gateway. No Claude Code dependency; documents
   # that a soft-deleted tracking row reads as missing and DELIVERED is terminal.
-  # WORKAROUND(provider): its `description` needs double-quoting on the COPY,
-  # same ": " hazard as floci. Never fix it in .claude/skills/.
   advance-tracking: share
 
 subagents:

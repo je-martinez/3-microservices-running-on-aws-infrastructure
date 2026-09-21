@@ -672,6 +672,27 @@ error.
 
 A new service needs no endpoint code at all, only the environment variables.
 
+## The browser emits telemetry too — new work does NOT inherit it
+
+Backend instrumentation is largely ambient; browser instrumentation is not. A new
+endpoint, screen, or flow in `apps/web` is observable only if it is written to be:
+
+- **Call the gateway through `ApiClient`.** A raw `fetch()` bypasses the
+  interceptor, so the request gets no span and no `traceparent` header — the
+  browser side of the trace simply does not exist, and the backend span it should
+  have joined becomes an orphan root.
+- **Never swallow an error before Angular's `ErrorHandler` sees it.** A caught and
+  silently handled exception is not reported.
+- **Verify the new surface in the OpenObserve viewer**, not by reasoning about it.
+
+**The failure mode is silence.** No error, no failed check — the dashboards stay
+green and the new surface is merely absent. Nothing tells you it is missing, which
+is why verification is part of the work rather than a follow-up.
+
+`pnpm build` is part of "done" for web work. The initial-bundle budget is a real
+gate, and `test` / `lint` / `typecheck` do **not** check it — a change can pass all
+three and still fail the build.
+
 ---
 
 ## package-manager.md
