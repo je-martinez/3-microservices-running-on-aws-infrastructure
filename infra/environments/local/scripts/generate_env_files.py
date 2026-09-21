@@ -43,6 +43,11 @@ FLOCI_HOST = "floci"
 WEB_PROXY_CONTAINER_HOST = f"{FLOCI_HOST}:4566"
 WEB_PROXY_HOST_TARGET = "http://localhost:4566"
 
+# The collector's HOST-published RUM port (docker-compose.yml). `ng serve`
+# runs outside Docker, so it must reach 4319 the same way it reaches Floci on
+# 4566 above — through the published host port, not the compose DNS name.
+WEB_PROXY_OTLP_TARGET = "http://localhost:4319"
+
 # The `ng serve` proxy, emitted as a module rather than JSON so /geocode/ can
 # append its key at request time.
 #
@@ -79,6 +84,16 @@ export default {{
     secure: false,
     changeOrigin: false,
     rewrite: (path) => path.replace(/^\\/v1/, '{gateway_prefix}'),
+  }},
+  // The `ng serve` twin of nginx.conf's `location /otlp/`: same target port
+  // (4319, host-published), prefix stripped the same way.
+  '/otlp': {{
+    target: '{otlp_target}',
+    secure: false,
+    changeOrigin: false,
+    // Strip the /otlp prefix — the collector serves /v1/traces etc. under its
+    // own root, mirroring nginx.conf's explicit rewrite for the same location.
+    rewrite: (path) => path.replace(/^\\/otlp/, ''),
   }},
   // The `ng serve` twin of nginx.conf's `location /geocode/`: both keep the key
   // server-side, this one by appending it in Node where no browser can read it.
@@ -179,6 +194,7 @@ def write_web_proxy_config(repo_root: Path, api_id: str) -> Path:
         WEB_PROXY_MODULE.format(
             gateway_target=WEB_PROXY_HOST_TARGET,
             gateway_prefix=f"/restapis/{api_id}/$default/_user_request_/v1",
+            otlp_target=WEB_PROXY_OTLP_TARGET,
         )
     )
     return path

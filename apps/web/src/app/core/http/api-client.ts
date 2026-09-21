@@ -43,6 +43,14 @@ export class ApiError extends Error {
   readonly status: number;
   /** Parsed body when the service sent JSON; null for a transport failure or non-JSON. */
   readonly body: ApiErrorBody | null;
+  /**
+   * CONTRACT: Set by toApiError() via TRACE_ID_BY_RESPONSE, never read from
+   * ambient OTel context — this constructor runs a tick after the
+   * interceptor's context.with(...) has already unwound, with no active span
+   * left. Undefined for any error not from a gateway call.
+   * See [[2026-09-19-web-rum-integration-design]]
+   */
+  traceId?: string;
 
   constructor(status: number, body: ApiErrorBody | null, message: string) {
     super(message);
@@ -72,13 +80,24 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * CONTRACT: Keyed by the HttpErrorResponse instance, not a request id — that
+ * is the exact object the interceptor sees on the way up, before
+ * ApiClient.mapError() converts it here. A WeakMap avoids widening ApiError's
+ * constructor for every other call site that builds one directly.
+ * See [[2026-09-19-web-rum-integration-design]]
+ */
+export const TRACE_ID_BY_RESPONSE = new WeakMap<HttpErrorResponse, string>();
+
 function toApiError(response: HttpErrorResponse): ApiError {
   const body: unknown = response.error;
-  return new ApiError(
+  const error = new ApiError(
     response.status,
     isApiErrorBody(body) ? body : null,
     response.message || `HTTP ${String(response.status)}`,
   );
+  error.traceId = TRACE_ID_BY_RESPONSE.get(response);
+  return error;
 }
 
 /** Options a caller may pass through; the URL and error mapping are ours. */

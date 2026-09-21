@@ -21,10 +21,22 @@
     "@lucide/angular": "1.32.0",
     "@ngrx/signals": "22.0.0",
     "@ngrx/store": "22.0.0",
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/api-logs": "^0.222.0",
+    "@opentelemetry/exporter-logs-otlp-http": "0.222.0",
+    "@opentelemetry/exporter-metrics-otlp-http": "0.222.0",
+    "@opentelemetry/exporter-trace-otlp-http": "0.222.0",
+    "@opentelemetry/instrumentation-document-load": "0.67.0",
+    "@opentelemetry/resources": "2.11.0",
+    "@opentelemetry/sdk-logs": "0.222.0",
+    "@opentelemetry/sdk-metrics": "2.11.0",
+    "@opentelemetry/sdk-trace-web": "2.11.0",
+    "@opentelemetry/semantic-conventions": "^1.43.0",
     "date-fns": "4.4.0",
     "libphonenumber-js": "^1.13.12",
     "rxjs": "~7.8.0",
-    "tslib": "^2.3.0"
+    "tslib": "^2.3.0",
+    "web-vitals": "6.2.2"
   },
   "devDependencies": {
     "@angular-eslint/builder": "22.5.0",

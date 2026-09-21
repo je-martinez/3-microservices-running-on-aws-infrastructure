@@ -365,6 +365,7 @@ what makes a lesson reusable is the shape of the mistake, not the service it hap
 - [[mocks-hide-schema-bugs]] — a green mocked-Prisma suite cannot catch a wrong assumption about the real schema.
 - [[2026-08-14-counter-metrics-need-a-clock-and-a-window]] — a counter without a clock and a window is not a rate, and reads as one.
 - [[2026-08-25-reads-are-not-exempt-from-observability]] — read endpoints need the same instrumentation as writes, and an unchecked precedent carried a false claim through implementation.
+- [[2026-09-20-a-shared-stream-widens-every-scoped-count]] — an aggregate's scope living in a stream's name instead of its query passed until the stream gained a second producer, then silently widened a count 27x.
 
 ### Frameworks and libraries behaving unlike their documentation
 

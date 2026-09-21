@@ -17,6 +17,8 @@ interface ImportMetaEnv {
   readonly NG_APP_GEOCODE_ENABLED?: string;
   /** Host-facing realtime socket URL; empty leaves the socket unopened. */
   readonly NG_APP_WS_URL?: string;
+  /** Whether the browser OTel SDK boots at all; off costs the user nothing. */
+  readonly NG_APP_RUM_ENABLED?: string;
 }
 
 interface ImportMeta {
