@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-09-19
+updated: 2026-09-21
 tags:
   - type/spec
   - area/shared
@@ -421,6 +421,7 @@ what makes a lesson reusable is the shape of the mistake, not the service it hap
 - [[2026-08-27-accumulated-local-state-degrades-the-stack-silently]] — a long-running local stack degraded ~1700x on unchanged code and was misdiagnosed as a code defect twice.
 - [[2026-08-29-the-emulator-was-the-ceiling-not-the-code]] — the throughput limit under measurement belonged to the emulator, not to the service.
 - [[2026-09-09-makefile-orchestration-invariants]] — why the bootstrap chain is ordered the way it is.
+- [[2026-09-21-a-round-invariant-delay-on-one-resource-type-is-the-client-not-the-server]] — every SQS resource in `infra-up` takes exactly 25s because of a provider consistency waiter, not Floci; the discriminating test is timing the raw CLI call against the same endpoint.
 - [[2026-07-31-exit-code-should-reflect-this-steps-work]] — a chained script's exit code must reflect its own step, not a downstream readiness check.
 - [[2026-08-30-a-script-on-stdin-has-no-package-json]] — a script piped on stdin resolves nothing from the project it appears to run in.
 - [[2026-08-30-a-global-teardown-cannot-be-scoped]] — a global teardown runs for the whole run, so it cannot be limited to one project's fixtures.

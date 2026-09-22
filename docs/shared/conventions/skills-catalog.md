@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-06-28
-updated: 2026-08-06
+updated: 2026-09-22
 tags:
   - type/convention
   - area/shared
@@ -17,6 +17,7 @@ related:
   - "[[linear-references]]"
   - "[[scripting-language]]"
   - "[[2026-08-06-multi-provider-agent-config-sync-design]]"
+  - "[[skill-propagation]]"
 ---
 
 # Skills Catalog
@@ -161,6 +162,10 @@ applied to the **copy** under `.ai/skills/floci/SKILL.md` only, never to the sou
 `.claude/skills/floci/` — and must be re-applied after every re-copy, since the copy is
 disposable and regenerated from source on each sync.
 
+**Deciding whether a new skill joins the shared subset, and the mechanical steps to add it
+correctly, are covered in [[skill-propagation]]** — including why a green `make ai-sync-check`
+is not evidence a newly authored skill propagated.
+
 ---
 
 ## Where to find more skills
@@ -182,3 +187,4 @@ SkillsMP is a massive aggregator (~1.8 M entries) with low signal-to-noise ratio
 - [[linear-references]] — Linear reference convention (tags + inline links, no mirroring).
 - [[scripting-language]] — Python-first scripting convention that justifies `python-pro` on `infra-impl`.
 - [[2026-08-06-multi-provider-agent-config-sync-design]] — Design of the `ai-config-sync` subagent and the skill-sharing allowlist referenced above.
+- [[skill-propagation]] — how to decide whether a new skill propagates, the mechanical steps (copy into `.ai/skills/`, symlink under `.agents/skills/`, `make ai-sync`), and why `make ai-sync-check` cannot catch a missed propagation.

@@ -4,7 +4,7 @@ type: runbook
 area: infra
 status: active
 created: 2026-07-12
-updated: 2026-08-10
+updated: 2026-09-22
 integration-status: verified
 verified-on: 2026-07-15
 verified-by: Jose E. Martinez
@@ -23,6 +23,8 @@ related:
   - "[[terraform-remote-state-backend]]"
   - "[[local-gateway-per-route-integrations]]"
   - "[[nginx-njs-x-user-id-injection]]"
+  - "[[2026-09-21-a-round-invariant-delay-on-one-resource-type-is-the-client-not-the-server]]"
+  - "[[2026-09-22-a-pruned-cache-that-came-over-the-network-is-not-free]]"
 ---
 
 # Local Dev — Floci
@@ -60,13 +62,21 @@ This runs, in order:
 2. **`infra-init`** — `terraform init` against `infra/environments/local`.
 3. **`infra-up`** — `terraform apply -auto-approve` against Floci, followed by `env-file`
    (regenerates the AUTO-GENERATED block of `./.env` from the fresh Terraform outputs — see
-   below).
+   below). About 75s of this stage's ~98s is the six SQS resources in
+   `infra/modules/messaging`, each taking exactly 25s; that is the pinned AWS provider's
+   client-side consistency waiter, not Floci — see
+   [[2026-09-21-a-round-invariant-delay-on-one-resource-type-is-the-client-not-the-server]].
 4. **`migrate`** — applies Prisma migrations (`migrate deploy`, never `migrate dev`) against
    Floci's Postgres, run as the cluster superuser so DDL succeeds even though the app DB user
    deliberately has no elevated privileges (see [[soft-delete]] / ADR-0004). The same
    superuser-for-migrations, least-privilege-for-runtime split applies to the MySQL cluster's
    Alembic/EF Core migrations — see the note in
    [[two-phase-terraform-apply#Update 2026-07-30 — the MySQL provider no longer hangs]].
+   `bootstrap-converge` runs `make warm-images` / `make warm-nuget` ahead of every build in this
+   chain: `make clean`'s prunes remove BuildKit's build cache (not the Docker image store), so
+   without these targets a torn-down machine re-fetches base images and Orders' NuGet packages
+   over the network on every rebuild, and public registries throttle a repeat client — see
+   [[2026-09-22-a-pruned-cache-that-came-over-the-network-is-not-free]].
 5. **`docker compose up -d --build users`** — builds and starts the Users service container.
 6. **`bootstrap.sh`** (`infra/environments/local/bootstrap.sh`) — creates the least-privilege
    application DB user (no `DELETE` grant — see [[soft-delete]]) and sets up the
@@ -342,6 +352,8 @@ re-applied — see the sibling section above ([[floci-rds-apigw-limits]]).
 - [[local-dev]] — the broader local-dev convention (`.http` files, Makefile overview).
 - [[awscli-fallback-for-floci]] — how the Cognito app client and Pre-Token trigger are wired around Floci/provider gaps during `infra-up`.
 - [[cognito-pre-token-lambda]] — the Lambda deployed as part of this stack's Cognito module.
+- [[2026-09-21-a-round-invariant-delay-on-one-resource-type-is-the-client-not-the-server]] — why the SQS resources inside `infra-up` take exactly 25s each, and why that is not fixable by Floci configuration.
+- [[2026-09-22-a-pruned-cache-that-came-over-the-network-is-not-free]] — why `make clean`'s prunes are not free to repeat, and the `warm-images`/`warm-nuget` targets `bootstrap-converge` runs to avoid re-fetching over the network.
 - [[terraform-modules]] — the real module inventory composed by `infra/environments/local`.
 - [[local-dev-ministack]] — the superseded Ministack runbook this note replaces.
 - [[2026-07-15-orders-gateway-integration-design]] — the design behind routing Orders through

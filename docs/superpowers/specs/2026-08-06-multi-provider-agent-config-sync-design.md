@@ -4,11 +4,12 @@ type: spec
 area: shared
 status: active
 created: 2026-08-06
-updated: 2026-08-06
+updated: 2026-09-22
 tags: [type/spec, area/shared, status/active]
 related: ["[[2026-06-26-implementation-workflow-design]]", "[[git-workflow]]", "[[doc-propagation]]"]
 propagates-to:
   - "[[skills-catalog]]"
+  - "[[skill-propagation]]"
   - "[[index]]"
 ---
 
@@ -437,3 +438,4 @@ fix must be re-applied after each re-copy.
 - [[doc-propagation]]
 - [[scripting-language]]
 - [[skills-catalog]]
+- [[skill-propagation]] — the operational convention for keeping a newly authored skill from being silently missed by this design's sync pipeline.

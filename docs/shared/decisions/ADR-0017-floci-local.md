@@ -5,7 +5,7 @@ area: shared
 status: accepted
 id: ADR-0017
 created: 2026-06-29
-updated: 2026-07-12
+updated: 2026-09-22
 deciders: [Jose E. Martinez]
 supersedes: ADR-0012
 superseded-by: null
@@ -19,6 +19,8 @@ related:
   - "[[floci-storage-modes-and-tmp-corruption]]"
   - "[[awscli-fallback-for-floci]]"
   - "[[cognito-pre-token-lambda]]"
+  - "[[2026-09-21-a-round-invariant-delay-on-one-resource-type-is-the-client-not-the-server]]"
+  - "[[2026-09-22-a-pruned-cache-that-came-over-the-network-is-not-free]]"
 ---
 
 # ADR-0017: Floci for Local AWS Emulation
@@ -61,6 +63,7 @@ The following Floci-specific quirks are known from the spike and later verified 
 - **Cognito `iss` claim = `http://localhost:4566/<pool-id>`** — JWT authorizer config and any service-side token validation must use this issuer, not a real AWS Cognito URL.
 - **Route53/Cloud Map do not back DNS resolution inside Floci** — use Docker DNS via `container_name` (compose services) or `FLOCI_SERVICES_ECS_DOCKER_NETWORK` (ECS tasks on the compose network). Cloud Map resources can still be declared in Terraform for parity; they just do not drive name resolution.
 - **Cognito Lambda triggers: narrower than "never invoked".** PostConfirmation and PreSignUp do **not** fire on Floci. But **Pre-Token-Generation V2 triggers DO fire** — verified live: a Pre-Token-Generation V2 Lambda added a custom claim (`app_user_id`, sourced from `custom:app_user_id`) that appeared in both the id and access tokens. This is the mechanism the repo now ships (the repo's first Lambda) — see [[cognito-pre-token-lambda]]. Because the pinned provider (`= 5.31.0`, see above) cannot declare the V2 trigger natively, it is wired the same awscli-fallback way as the app client: `terraform_data.pre_token_trigger` runs `infra/modules/cognito/scripts/set-pre-token-trigger.sh`, a settings-preserving `update-user-pool` call (Cognito's `UpdateUserPool` is a full-resource PUT, so the script first reads and re-passes every other pool setting to avoid resetting them). See [[awscli-fallback-for-floci]] for the pattern and [[cognito-pre-token-lambda]] for the full design.
+- **Every SQS queue and queue-attribute resource takes exactly 25 seconds — this is the pinned provider's client-side consistency waiter, not Floci.** `waitQueueAttributesPropagated` in `hashicorp/aws@5.31.0` requires six consecutive matching reads at a 5-second `MinTimeout` after `CreateQueue`/`SetQueueAttributes`, even though Floci's own response is correct on the first read. Not configurable via Floci env vars, provider settings, or resource `timeouts` — see [[2026-09-21-a-round-invariant-delay-on-one-resource-type-is-the-client-not-the-server]] for the isolating measurement and the options considered.
 
 This decision migrated `infra/environments/local/` to compose the real Terraform modules (`infra/modules/{label,networking,compute,api-gateway,cognito,rds-aurora}`) directly — this is **done**, not follow-up work. The earlier spike stack `infra/environments/local/spike-floci/` has been **deleted**; it is no longer the reference implementation. The `floci` skill (`.claude/skills/floci/`) carries these quirks for the `infra-impl` agent.
 
@@ -77,3 +80,6 @@ This decision migrated `infra/environments/local/` to compose the real Terraform
 - [[floci-storage-modes-and-tmp-corruption]]
 - [[awscli-fallback-for-floci]]
 - [[cognito-pre-token-lambda]]
+- [[2026-09-21-a-round-invariant-delay-on-one-resource-type-is-the-client-not-the-server]]
+- [[2026-09-22-a-pruned-cache-that-came-over-the-network-is-not-free]] — why the Docker
+  build-cache reclaim in `make clean` is not free to repeat for this stack's container builds.

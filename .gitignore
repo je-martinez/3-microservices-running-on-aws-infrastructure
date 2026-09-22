@@ -119,6 +119,10 @@ __pycache__/
 # run killed mid-render, so a stale directory never reaches a commit.
 functions/events-pipeline/.email-catalog-render-*/
 
+
+# Bootstrap timing measurements (raw JSON + per-stage logs)
+.bootstrap-timings/
+
 # lnai-generated
 .ai/.lnai-manifest.json
 # end lnai-generated
