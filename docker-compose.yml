@@ -218,6 +218,13 @@ services:
     build:
       context: .
       dockerfile: services/orders/Dockerfile
+      args:
+        # CONTRACT: Built by `make warm-nuget`, which bootstrap runs before this
+        # service. The image is the SDK plus an already restored package cache, so
+        # the build's restore resolves offline and survives `make clean` — BuildKit
+        # cache state does not. The Dockerfile defaults to the plain SDK, so a build
+        # without the image still succeeds, just over the network.
+        SDK_IMAGE: 3mrai-nuget-cache:latest
     networks: [3mrai-network]
     ports:
       # Host 3001 → container 8080 (ASPNETCORE_URLS). Health: GET /v1/health.

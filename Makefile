@@ -63,7 +63,7 @@ _tf_plugin_cache := $(shell mkdir -p $(TF_PLUGIN_CACHE_DIR))
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down logs build ps test-unit test-e2e test-all load-test load-test-smoke cache-toggle load-test-cache-ab-on load-test-cache-ab-off backend-up infra-init infra-plan lambda-bundles infra-up post-infra infra-down infra-output env-file migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor clean clean-state observability-up observability-down observability-dashboards observability-traces-schema redeploy-lambdas scripts-setup lint-comments lint-comments-diff install-comment-hook ai-sync ai-sync-check
+.PHONY: help up down logs build ps test-unit test-e2e test-all load-test load-test-smoke cache-toggle load-test-cache-ab-on load-test-cache-ab-off backend-up infra-init infra-plan lambda-bundles infra-up post-infra infra-down infra-output env-file migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor clean clean-state warm-images warm-nuget observability-up observability-down observability-dashboards observability-traces-schema redeploy-lambdas scripts-setup lint-comments lint-comments-diff install-comment-hook ai-sync ai-sync-check
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -545,6 +545,11 @@ bootstrap-converge: scripts-setup ## Phase 2 of bootstrap: migrations + services
 	@# no-op. Entered directly, it is what guarantees the collector exists before
 	@# the services open their exporters at boot.
 	$(MAKE) observability-up
+	@# Ahead of the four builds below: both targets put what the builds need in
+	@# tagged images, which outlive `clean`'s prunes, so a torn-down machine
+	@# rebuilds from disk instead of re-fetching base images and NuGet packages.
+	$(MAKE) warm-images
+	$(MAKE) warm-nuget
 	$(COMPOSE) up -d --build users
 	@# CONTRACT: Do NOT call `post-infra` from this target (only from `bootstrap`). This
 	@# is the RESUME path for a partial run and every step in it is idempotent; post-infra
@@ -581,6 +586,43 @@ bootstrap-converge: scripts-setup ## Phase 2 of bootstrap: migrations + services
 	@# orders/tracking build to finish booting, so its health poll succeeds on
 	@# the first attempt instead of racing a container that started seconds ago.
 	$(PY) $(TF_LOCAL_DIR)/bootstrap.py
+
+# Every external base image, in the IMAGE STORE rather than BuildKit's cache.
+BASE_IMAGES := node:24-alpine \
+	mcr.microsoft.com/dotnet/sdk:10.0 \
+	mcr.microsoft.com/dotnet/aspnet:10.0 \
+	golang:1.26.7-bookworm \
+	nginx:1.27-alpine \
+	gcr.io/distroless/static-debian12:nonroot \
+	mysql:8.0 \
+	migrate/migrate:v4.17.1
+
+warm-images: ## Pull every external base image into the image store (idempotent)
+	@# CONTRACT: A `FROM` inside a BuildKit build does NOT populate the image store —
+	@# the layers land in BuildKit's own cache, which `clean` prunes. Only an explicit
+	@# `docker pull` writes a tagged image that survives, so this target is not
+	@# redundant with `compose build`/`compose up`, which never leave one behind.
+
+	@# WARNING: Without this, every `clean` re-downloads ~185MB of .NET SDK over the
+	@# network. Five consecutive cycles measured mcr.microsoft.com throttling the pull
+	@# from 2831 KB/s to 456 KB/s, doubling bootstrap from 6m13s to 12m35s.
+	@# See [[2026-09-22-a-pruned-cache-that-came-over-the-network-is-not-free]]
+	@for img in $(BASE_IMAGES); do \
+		if docker image inspect "$$img" >/dev/null 2>&1; then \
+			echo "  present: $$img"; \
+		else \
+			echo "  pulling: $$img"; \
+			docker pull -q "$$img" >/dev/null || echo "  WARNING: pull failed for $$img"; \
+		fi; \
+	done
+	@echo "Base images are in the image store; clean no longer re-downloads them."
+
+warm-nuget: ## Build the pre-restored NuGet cache image for the Orders build (idempotent)
+	@# CONTRACT: Rebuild after changing a PackageReference. The image carries the
+	@# restored packages, so a `clean`ed machine restores offline and only a genuinely
+	@# new package reaches nuget.org. See infra/docker/nuget-cache.Dockerfile
+	docker build -q -f infra/docker/nuget-cache.Dockerfile -t 3mrai-nuget-cache:latest . >/dev/null
+	@echo "NuGet cache image ready (3mrai-nuget-cache:latest)."
 
 clean: ## Tear down infra + compose, including the emulator state volume
 	@# CONTRACT: Four things make this a true teardown, and each was found by a
@@ -631,9 +673,15 @@ clean: ## Tear down infra + compose, including the emulator state volume
 	@# WARNING: Both prunes are machine-wide, not project-scoped — `image prune` removes
 	@# every DANGLING image (untagged, unreferenced, so no project loses a tagged image)
 	@# and the builder cache has no project filter at all. Worth knowing before running
-	@# this on a machine hosting other work. Neither is state: the cost of dropping them
-	@# is one slower rebuild. They grow without bound across this project's rebuild loop
-	@# and nothing else reclaims them (measured: 6.4GB cache, 2.2GB dangling images).
+	@# this on a machine hosting other work. They grow without bound across this
+	@# project's rebuild loop and nothing else reclaims them (measured: 6.4GB cache,
+	@# 2.2GB dangling images).
+
+	@# CONTRACT: Keep `warm-images` and `warm-nuget` running before the builds (from
+	@# `bootstrap-converge`). `builder prune` drops what the build fetched over the
+	@# NETWORK and registries throttle a repeat client, so the cost compounds: five
+	@# cycles decayed the SDK pull 2831 -> 456 KB/s, doubling bootstrap to 12m35s.
+	@# Both targets hold that content in TAGGED IMAGES, which these prunes never touch.
 	@echo "Reclaiming dangling images and build cache…"
 	@docker image prune -f 2>/dev/null || true
 	@docker builder prune -af 2>/dev/null || true
