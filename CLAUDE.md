@@ -117,6 +117,9 @@ It deliberately sends **neither** `x-e2e-source` nor `x-test-mode`, so its data 
 data and deliveries advance only through the carrier webhook. Both surfaces are implemented by
 **`e2e-impl`**, whose stack and conventions live in `e2e/CLAUDE.md`.
 
+### Skills
+A new skill under `.claude/skills/` reaches Claude Code only. Propagating it to Codex, Cursor, Antigravity and the rest is a **deliberate, separate step** — `lnai sync` exports what already lives in `.ai/skills/` and never copies from `.claude/`, so `make ai-sync` propagates a new skill only after you put it there. `make ai-sync-check` cannot see the omission and stays green. Decide propagation when you write the skill: `docs/shared/conventions/skill-propagation.md` → [[skill-propagation]].
+
 ### Subagents
 Custom subagents own their write domains. `linear-pm` (Linear) and `obsidian-vault` (`docs/`) are **single writers** of their tools. `github-ops` is an **optional** git helper (the main session may run git directly — see [[git-workflow]]). The external-write agents **read freely but propose every write and wait for explicit confirmation**.
 
