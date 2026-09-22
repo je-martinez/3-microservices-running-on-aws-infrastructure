@@ -618,10 +618,34 @@ warm-images: ## Pull every external base image into the image store (idempotent)
 	@echo "Base images are in the image store; clean no longer re-downloads them."
 
 warm-nuget: ## Build the pre-restored NuGet cache image for the Orders build (idempotent)
-	@# CONTRACT: Rebuild after changing a PackageReference. The image carries the
-	@# restored packages, so a `clean`ed machine restores offline and only a genuinely
-	@# new package reaches nuget.org. See infra/docker/nuget-cache.Dockerfile
-	docker build -q -f infra/docker/nuget-cache.Dockerfile -t 3mrai-nuget-cache:latest . >/dev/null
+	@# CONTRACT: Skip the build when the image exists and no .csproj is newer.
+	@# `docker build` re-evaluates every layer even on a full cache hit (34-43s
+	@# measured) and bootstrap-converge calls this every run, so an unconditional
+	@# build charges that to each cycle.
+
+	@# CONTRACT: Freshness is tracked by a STAMP FILE, not the image's own timestamp.
+	@# Docker keeps the original `.Created` when every layer comes from cache, so a
+	@# rebuilt image reports the old time and any later .csproj looks permanently
+	@# newer. A stale image is SLOW, never wrong.
+	@# See [[2026-09-22-a-pruned-cache-that-came-over-the-network-is-not-free]]
+	@stamp=.bootstrap-timings/.nuget-cache-stamp; \
+	mkdir -p .bootstrap-timings; \
+	rebuild=0; \
+	docker image inspect 3mrai-nuget-cache:latest >/dev/null 2>&1 || rebuild=1; \
+	[ -f "$$stamp" ] || rebuild=1; \
+	if [ "$$rebuild" = "0" ]; then \
+	  for f in $$(find services/orders -name '*.csproj'); do \
+	    [ "$$f" -nt "$$stamp" ] && rebuild=1 && break; \
+	  done; \
+	fi; \
+	if [ "$$rebuild" = "0" ]; then \
+	  echo "  present: 3mrai-nuget-cache:latest (no .csproj newer)"; \
+	else \
+	  echo "  building: 3mrai-nuget-cache:latest"; \
+	  started="$$stamp.started"; touch "$$started"; \
+	  docker build -q -f infra/docker/nuget-cache.Dockerfile -t 3mrai-nuget-cache:latest . >/dev/null \
+	    && mv "$$started" "$$stamp"; \
+	fi
 	@echo "NuGet cache image ready (3mrai-nuget-cache:latest)."
 
 clean: ## Tear down infra + compose, including the emulator state volume
