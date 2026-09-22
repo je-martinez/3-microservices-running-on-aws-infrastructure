@@ -4,7 +4,13 @@
 # outside services/orders, so a service-scoped context could not see it).
 # Multi-stage: sdk restores + publishes src/Orders.Api; aspnet runs the DLL.
 
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+# CONTRACT: Defaults to the plain SDK, so this file builds standalone. `make
+# warm-nuget` builds 3mrai-nuget-cache:latest — the same SDK carrying an already
+# restored package cache — and compose passes it here, making the restore below
+# resolve offline. A tagged image survives `make clean`'s prunes; BuildKit cache
+# state does not, which is why the cache is an IMAGE and not a cache mount.
+ARG SDK_IMAGE=mcr.microsoft.com/dotnet/sdk:10.0
+FROM ${SDK_IMAGE} AS build
 WORKDIR /src
 
 # Grpc.Tools' bundled protoc segfaults (SIGSEGV) on this Ubuntu 24.04 arm64 base

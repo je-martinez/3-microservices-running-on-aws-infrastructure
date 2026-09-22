@@ -124,6 +124,9 @@ functions/events-pipeline/.email-catalog-render-*/
 # CLI release (.angular/cache/<version>/), so it never belongs in a commit.
 .angular/
 
+# Bootstrap timing measurements (raw JSON + per-stage logs)
+.bootstrap-timings/
+
 # lnai-generated
 .ai/.lnai-manifest.json
 # end lnai-generated

@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-03
-updated: 2026-08-27
+updated: 2026-09-22
 tags:
   - type/convention
   - area/shared
@@ -18,6 +18,8 @@ related:
   - "[[2026-07-03-local-dev-tooling]]"
   - "[[package-manager]]"
   - "[[ADR-0019-distributed-tracing-opentelemetry]]"
+  - "[[2026-09-21-a-round-invariant-delay-on-one-resource-type-is-the-client-not-the-server]]"
+  - "[[2026-09-22-a-pruned-cache-that-came-over-the-network-is-not-free]]"
 ---
 
 # Local Development
@@ -46,8 +48,16 @@ list. Key targets:
   regenerate `.env` → migrate → build/start `users`/`orders`/`tracking` → nginx alias), split
   into a not-safely-repeatable `make bootstrap-provision` and a resumable, idempotent
   `make bootstrap-converge`; `make doctor` for a read-only diagnosis of the stack's actual
-  state; `make post-infra` for the phase-2 DB app-user apply; and `make clean` for teardown.
-  Full detail: [[local-dev-floci]].
+  state; `make post-infra` for the phase-2 DB app-user apply; `make clean-state` for a fast
+  warm-cache teardown that skips `clean`'s Docker build-cache/image prunes; and `make clean` for
+  full teardown. Full detail: [[local-dev-floci]]. `infra-up`'s ~75s SQS-resource critical path
+  is a provider waiter, not Floci — see
+  [[2026-09-21-a-round-invariant-delay-on-one-resource-type-is-the-client-not-the-server]].
+  `bootstrap-converge` also runs `make warm-images` / `make warm-nuget` ahead of the service
+  builds: `clean`'s prunes remove BuildKit's cache, not just local compute, so without these
+  targets a torn-down machine re-fetches base images and NuGet packages over the network on
+  every rebuild, and public registries throttle a repeat client — see
+  [[2026-09-22-a-pruned-cache-that-came-over-the-network-is-not-free]].
 - **Observability:** `make observability-up` / `make observability-down` — opt-in OpenObserve
   + OTel collector stack. OpenObserve is now the single backend for **both** logs and traces
   (Jaeger was removed 2026-08-21 — see [[ADR-0019-distributed-tracing-opentelemetry]] Amendment).
@@ -122,3 +132,8 @@ a new service needs local testing.
 - [[ADR-0019-distributed-tracing-opentelemetry]] — the tracing-backend decision; its 2026-08-21
   Amendment records Jaeger's removal and OpenObserve becoming the single backend for logs and
   traces.
+- [[2026-09-21-a-round-invariant-delay-on-one-resource-type-is-the-client-not-the-server]] — why
+  `infra-up`'s SQS resources take exactly 25s each.
+- [[2026-09-22-a-pruned-cache-that-came-over-the-network-is-not-free]] — why `clean`'s prunes are
+  not the bounded "one slower rebuild" they used to be documented as, and what `warm-images`/
+  `warm-nuget` do about it.
