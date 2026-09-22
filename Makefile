@@ -53,9 +53,17 @@ export AWS_SECRET_ACCESS_KEY ?= test
 # See [[terraform-remote-state-backend]]
 export EXECUTION_LOG_TABLE ?= 3mrai-local-tfstate-execution-log
 
+# WHY: Shares downloaded Terraform provider plugins across roots (backend, local, post)
+# so each provider version downloads once per machine. The cache directory lives outside
+# the repo to survive `make clean` and prevent bloating Docker build contexts.
+# Idempotently creates the cache directory on startup if absent.
+export TF_PLUGIN_CACHE_DIR ?= $(HOME)/.terraform.d/plugin-cache
+_tf_plugin_cache := $(shell mkdir -p $(TF_PLUGIN_CACHE_DIR))
+
+
 .DEFAULT_GOAL := help
 
-.PHONY: help up down logs build ps test-unit test-e2e test-all load-test load-test-smoke cache-toggle load-test-cache-ab-on load-test-cache-ab-off backend-up infra-init infra-plan lambda-bundles infra-up post-infra infra-down infra-output env-file migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor clean observability-up observability-down observability-dashboards observability-traces-schema redeploy-lambdas scripts-setup lint-comments lint-comments-diff install-comment-hook ai-sync ai-sync-check
+.PHONY: help up down logs build ps test-unit test-e2e test-all load-test load-test-smoke cache-toggle load-test-cache-ab-on load-test-cache-ab-off backend-up infra-init infra-plan lambda-bundles infra-up post-infra infra-down infra-output env-file migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor clean clean-state observability-up observability-down observability-dashboards observability-traces-schema redeploy-lambdas scripts-setup lint-comments lint-comments-diff install-comment-hook ai-sync ai-sync-check
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -629,6 +637,39 @@ clean: ## Tear down infra + compose, including the emulator state volume
 	@echo "Reclaiming dangling images and build cache…"
 	@docker image prune -f 2>/dev/null || true
 	@docker builder prune -af 2>/dev/null || true
+
+clean-state: ## Tear down state like `clean`, but KEEP the Docker build cache (faster rebuild)
+	@# CONTRACT: Same state teardown as `clean`, pruning neither the build cache nor
+	@# dangling images. Keep the steps below in step with `clean` — a step added there
+	@# and not here makes this a silent half-teardown.
+	@# See [[2026-09-09-makefile-orchestration-invariants]]
+
+	@# WARNING: `clean`'s reclaim is NOT optional maintenance. Cache and dangling images
+	@# grow without bound and nothing else reclaims them (6.4GB + 2.2GB measured). Run
+	@# `make clean` periodically to pay back the disk this trades for time.
+
+	@# WORKAROUND(local): Do NOT use this target to diagnose a misbehaving build. A
+	@# preserved layer cache can serve a stale layer, presenting as "works on a clean
+	@# machine, fails on mine". Reproduce with `make clean` first.
+	@echo "Removing the bootstrap backend state (it describes a bucket that dies with Floci)…"
+	@rm -f infra/environments/local/backend/terraform.tfstate \
+		infra/environments/local/backend/terraform.tfstate.backup 2>/dev/null || true
+	@rm -rf infra/environments/local/.terraform \
+		infra/environments/local/post/.terraform 2>/dev/null || true
+	$(COMPOSE) --profile observability --profile preview down -v --remove-orphans
+	@echo "Removing compose volumes this project still owns but no longer declares…"
+	@docker volume ls -q --filter label=com.docker.compose.project=3mrai \
+		| xargs -r docker volume rm 2>/dev/null || true
+	@echo "Removing Floci-launched containers (not compose services, so down misses them)…"
+	@docker ps -aq --filter "name=^floci-" | xargs -r docker rm -f 2>/dev/null || true
+	@echo "Removing Floci-created volumes (labelled floci=true, not compose)…"
+	@docker volume ls -q --filter label=floci=true \
+		| xargs -r docker volume rm -f 2>/dev/null || true
+	@docker network rm 3mrai_3mrai-network 2>/dev/null || true
+	@echo ""
+	@echo "  Build cache KEPT. Reclaimable right now:"
+	@docker system df --format '    {{.Type}}: {{.Reclaimable}}' 2>/dev/null | grep -i -E 'build cache|images' || true
+	@echo "  Run \`make clean\` to reclaim it."
 
 redeploy-lambdas: scripts-setup ## Rebuild and redeploy every local Lambda from the current source
 	@# CONTRACT: Do NOT expect `docker compose` to redeploy a Lambda. The services

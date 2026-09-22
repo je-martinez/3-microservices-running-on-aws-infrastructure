@@ -122,3 +122,6 @@ functions/events-pipeline/.email-catalog-render-*/
 # lnai-generated
 .ai/.lnai-manifest.json
 # end lnai-generated
+
+# Bootstrap timing measurements (raw JSON + per-stage logs)
+.bootstrap-timings/
