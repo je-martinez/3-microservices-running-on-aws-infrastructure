@@ -4,7 +4,7 @@ type: lesson
 area: infra
 status: active
 created: 2026-09-21
-updated: 2026-09-21
+updated: 2026-09-22
 tags:
   - type/lesson
   - area/infra
@@ -17,6 +17,7 @@ related:
   - "[[local-dev-floci]]"
   - "[[2026-09-09-makefile-orchestration-invariants]]"
   - "[[terraform-modules]]"
+  - "[[2026-09-22-a-pruned-cache-that-came-over-the-network-is-not-free]]"
 ---
 
 # A round, invariant delay on one resource type is the client, not the server
@@ -143,3 +144,6 @@ both bear on `make bootstrap` timing:
   chain is ordered the way it is; this note adds the "why is one stage of it slow" half.
 - [[terraform-modules]] — module inventory; `infra/modules/messaging` is the module that owns
   the six SQS resources this investigation measured.
+- [[2026-09-22-a-pruned-cache-that-came-over-the-network-is-not-free]] — sibling finding from
+  the same profiling effort: a client-side re-fetch mistaken for a free rebuild, versus this
+  note's client-side wait mistaken for server latency.

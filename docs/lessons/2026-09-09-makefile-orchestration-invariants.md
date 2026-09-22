@@ -4,7 +4,7 @@ type: lesson
 area: infra
 status: active
 created: 2026-09-09
-updated: 2026-09-21
+updated: 2026-09-22
 tags:
   - type/lesson
   - area/infra
@@ -20,6 +20,7 @@ related:
   - "[[ADR-0019-distributed-tracing-opentelemetry]]"
   - "[[2026-09-09-migration-version-tables-lie-about-schema]]"
   - "[[2026-09-21-a-round-invariant-delay-on-one-resource-type-is-the-client-not-the-server]]"
+  - "[[2026-09-22-a-pruned-cache-that-came-over-the-network-is-not-free]]"
 ---
 
 # Makefile orchestration invariants: why the bootstrap chain is ordered the way it is
@@ -194,3 +195,6 @@ in `Makefile` as load-bearing, not stylistic.
   a correct schema.
 - [[2026-09-21-a-round-invariant-delay-on-one-resource-type-is-the-client-not-the-server]] — why
   `infra-up`, the most stable single stage in this chain, still spends ~75s of its ~98s on SQS.
+- [[2026-09-22-a-pruned-cache-that-came-over-the-network-is-not-free]] — why `clean`'s Docker
+  reclaim step, invoked from this same chain, used to be documented as cheaper than it is, and
+  what `warm-images`/`warm-nuget` (now run from `bootstrap-converge`) do about it.

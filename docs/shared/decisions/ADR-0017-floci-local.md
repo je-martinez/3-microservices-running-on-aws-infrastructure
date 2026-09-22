@@ -5,7 +5,7 @@ area: shared
 status: accepted
 id: ADR-0017
 created: 2026-06-29
-updated: 2026-09-21
+updated: 2026-09-22
 deciders: [Jose E. Martinez]
 supersedes: ADR-0012
 superseded-by: null
@@ -20,6 +20,7 @@ related:
   - "[[awscli-fallback-for-floci]]"
   - "[[cognito-pre-token-lambda]]"
   - "[[2026-09-21-a-round-invariant-delay-on-one-resource-type-is-the-client-not-the-server]]"
+  - "[[2026-09-22-a-pruned-cache-that-came-over-the-network-is-not-free]]"
 ---
 
 # ADR-0017: Floci for Local AWS Emulation
@@ -80,3 +81,5 @@ This decision migrated `infra/environments/local/` to compose the real Terraform
 - [[awscli-fallback-for-floci]]
 - [[cognito-pre-token-lambda]]
 - [[2026-09-21-a-round-invariant-delay-on-one-resource-type-is-the-client-not-the-server]]
+- [[2026-09-22-a-pruned-cache-that-came-over-the-network-is-not-free]] — why the Docker
+  build-cache reclaim in `make clean` is not free to repeat for this stack's container builds.
