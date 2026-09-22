@@ -4,7 +4,7 @@ type: lesson
 area: infra
 status: active
 created: 2026-09-09
-updated: 2026-09-09
+updated: 2026-09-21
 tags:
   - type/lesson
   - area/infra
@@ -19,6 +19,7 @@ related:
   - "[[floci-recreate-destroys-backing-containers]]"
   - "[[ADR-0019-distributed-tracing-opentelemetry]]"
   - "[[2026-09-09-migration-version-tables-lie-about-schema]]"
+  - "[[2026-09-21-a-round-invariant-delay-on-one-resource-type-is-the-client-not-the-server]]"
 ---
 
 # Makefile orchestration invariants: why the bootstrap chain is ordered the way it is
@@ -191,3 +192,5 @@ in `Makefile` as load-bearing, not stylistic.
 - [[2026-09-09-migration-version-tables-lie-about-schema]] — the companion lesson on why
   `migrate-tracking`'s placement inside `bootstrap-converge` is necessary but not sufficient for
   a correct schema.
+- [[2026-09-21-a-round-invariant-delay-on-one-resource-type-is-the-client-not-the-server]] — why
+  `infra-up`, the most stable single stage in this chain, still spends ~75s of its ~98s on SQS.

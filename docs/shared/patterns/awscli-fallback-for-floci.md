@@ -4,7 +4,7 @@ type: pattern
 area: infra
 status: active
 created: 2026-07-12
-updated: 2026-07-31
+updated: 2026-09-21
 tags:
   - type/pattern
   - area/infra
@@ -14,6 +14,7 @@ related:
   - "[[terraform-modules]]"
   - "[[cognito-pre-token-lambda]]"
   - "[[execution-log-for-provisioning-scripts]]"
+  - "[[2026-09-21-a-round-invariant-delay-on-one-resource-type-is-the-client-not-the-server]]"
 ---
 
 # awscli fallback for Floci gaps
@@ -63,6 +64,14 @@ simply haven't upgraded, or a resource that Floci actually supports — try the 
 first, and only fall back when it demonstrably cannot apply (as both cases above proved through
 direct `terraform apply` failures, not speculation).
 
+A third case was investigated but **not applied**: the six SQS resources in
+`infra/modules/messaging` each take exactly 25 seconds locally because of a provider-side
+consistency waiter, not a Floci limitation — see
+[[2026-09-21-a-round-invariant-delay-on-one-resource-type-is-the-client-not-the-server]]. This
+pattern's `terraform_data` + boto3 shape was the proposed local-only fix, but the trade against
+losing Terraform drift detection on those six resources was judged not worth ~40 seconds of
+local bootstrap time, so it remains a documented option rather than a third verified instance.
+
 ## Making the script idempotent and settings-preserving
 
 - **Idempotent lookup before create.** `create-user-pool-client.sh` lists existing clients by
@@ -110,3 +119,5 @@ direct `terraform apply` failures, not speculation).
   `set-pre-token-trigger.sh`.
 - [[execution-log-for-provisioning-scripts]] — traceability layer wrapped around this
   pattern's scripts so a failure can be traced to a specific script, resource, and attempt.
+- [[2026-09-21-a-round-invariant-delay-on-one-resource-type-is-the-client-not-the-server]] — the
+  investigated-but-not-applied third case: SQS's 25-second provider waiter.
