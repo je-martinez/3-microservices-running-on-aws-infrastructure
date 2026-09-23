@@ -29,8 +29,28 @@ def _seed_env_file(path: Path) -> None:
         path,
         header="Users service environment.",
         generated={"PORT_TEST": "1"},
-        custom_defaults={"STRIPE_WEBHOOK_SECRET": ""},
+        custom_defaults={"STRIPE_WEBHOOK_SECRET": "", "STRIPE_WEBHOOK_URL_TOKEN": ""},
     )
+
+
+def _stub_cli(monkeypatch) -> None:
+    monkeypatch.setattr(mod.shutil, "which", lambda _: "/usr/local/bin/stripe")
+    monkeypatch.setattr(
+        mod.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(
+            args=a, returncode=0, stdout=f"{SECRET}\n", stderr=""
+        ),
+    )
+
+
+def _custom_value(path: Path, key: str) -> str:
+    from lib3mrai.envfile import read_custom_block
+
+    for line in read_custom_block(path):
+        if line.startswith(f"{key}="):
+            return line.split("=", 1)[1]
+    raise AssertionError(f"{key} not in the CUSTOM box of {path.name}")
 
 
 class TestSuccessPath:
@@ -92,6 +112,45 @@ class TestSuccessPath:
         assert SECRET not in captured.out
         assert SECRET not in captured.err
         assert "docker compose up -d users orders" in captured.out
+
+    def test_generates_a_distinct_url_token_per_service_and_never_prints_it(
+        self, tmp_path, monkeypatch, capsys
+    ) -> None:
+        users = tmp_path / ".env.local.users"
+        orders = tmp_path / ".env.local.orders"
+        _seed_env_file(users)
+        _seed_env_file(orders)
+        _stub_cli(monkeypatch)
+
+        assert mod.main(["prog", "--repo-root", str(tmp_path)]) == 0
+
+        users_token = _custom_value(users, "STRIPE_WEBHOOK_URL_TOKEN")
+        orders_token = _custom_value(orders, "STRIPE_WEBHOOK_URL_TOKEN")
+        assert len(users_token) >= 43 and len(orders_token) >= 43
+        assert all(c.isalnum() or c in "-_" for c in users_token + orders_token)
+        assert users_token != orders_token
+
+        captured = capsys.readouterr()
+        for token in (users_token, orders_token):
+            assert token not in captured.out
+            assert token not in captured.err
+        assert "stripe listen" in captured.out
+        assert "/v1/users/stripe/webhook/" in captured.out
+        assert "/v1/orders/stripe/webhook/" in captured.out
+
+    def test_keeps_an_existing_url_token(self, tmp_path, monkeypatch) -> None:
+        users = tmp_path / ".env.local.users"
+        _seed_env_file(users)
+        from lib3mrai.envfile import set_custom_value
+
+        set_custom_value(users, "STRIPE_WEBHOOK_URL_TOKEN", "existing-token-value")
+        _stub_cli(monkeypatch)
+
+        assert mod.main(
+            ["prog", "--repo-root", str(tmp_path), "--env-file", ".env.local.users"]
+        ) == 0
+
+        assert _custom_value(users, "STRIPE_WEBHOOK_URL_TOKEN") == "existing-token-value"
 
     def test_mask_never_returns_the_full_secret(self) -> None:
         masked = mod.mask(SECRET)
