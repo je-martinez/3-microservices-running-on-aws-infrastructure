@@ -1547,7 +1547,7 @@ Task 11 (web) posts `paymentMethodId` to `POST /v1/orders`, which does not behav
 ## Task 11 — Web: `SavedCardRow` component + Payment Element checkout flow
 
 **Files:**
-- Modify: `apps/web/src/env.d.ts`, `apps/web/src/app/core/config/app-config.ts`, `apps/web/src/app/features/checkout/checkout-payment.ts`, `apps/web/src/app/features/checkout/checkout-payment.html`
+- Modify: `apps/web/src/env.d.ts`, `apps/web/src/app/core/config/app-config.ts`, `apps/web/src/app/features/checkout/checkout-payment.ts`, `apps/web/src/app/features/checkout/checkout-payment.html`, `docker-compose.yml`, `apps/web/Dockerfile`, `infra/environments/local/scripts/generate_env_files.py`
 - Create: `apps/web/src/app/shared/ui/saved-card-row.ts` (+ `.html`), `apps/web/src/app/features/checkout/payment-method-selector.ts` (+ `.html`), `apps/web/src/app/features/checkout/new-card-block.ts` (+ `.html`), `apps/web/src/app/core/api/payment-methods-api.ts`
 - Test: `saved-card-row.spec.ts`, component specs for `payment-method-selector` and `new-card-block`, an updated spec for `checkout-payment`
 
@@ -1705,6 +1705,32 @@ Task 11 (web) posts `paymentMethodId` to `POST /v1/orders`, which does not behav
   ```ts
   stripePublishableKey: import.meta.env.NG_APP_STRIPE_PUBLISHABLE_KEY ?? null,
   ```
+  Treat an empty string the same as unset (`?? null` alone does not catch `""`) — mirror the
+  Users rule that a seeded-empty Stripe value means unset, per [[env-files]].
+
+- [ ] 11.4b **No `NG_APP_*` web build arg is hardcoded in `docker-compose.yml`.**
+  **Decision (user, 2026-09-22):** every `NG_APP_*` the web Dockerfile declares as an `ARG` is
+  passed by compose interpolation from the generated root `.env`
+  (`NG_APP_X: "${NG_APP_X}"`), and `make env-file` generates/seeds every one of them:
+  - **AUTO box** (generator-owned, derived — never hand-edited): `NG_APP_API_GATEWAY_URL`
+    (`/v1`) and the WS URL (`NG_APP_WS_URL: "${WS_URL:-}"` — keep the existing `WS_URL`
+    interpolation name; do not rename it without updating every reference).
+  - **CUSTOM box**, seeded per key with the existing `custom_defaults` mechanism (per-machine
+    choices, preserved across regeneration): `NG_APP_STRIPE_ENABLED=false`,
+    `NG_APP_STRIPE_PUBLISHABLE_KEY=` (empty — the `pk_test_...` key is public by design but
+    still per-developer/sandbox), `NG_APP_GEOCODE_ENABLED` (seed with today's compose default,
+    `true`), and `NG_APP_RUM_ENABLED` (check how it is passed today and seed the same way).
+  - Update `infra/environments/local/scripts/generate_env_files.py`'s root-`.env` block (today
+    documented as "ONLY what compose interpolates", four AUTO vars — see [[env-files]]) to add
+    the CUSTOM box above, and update `docker-compose.yml`'s `web.build.args` to interpolate
+    every one of these from `.env` instead of the literals currently there
+    (`NG_APP_STRIPE_ENABLED: "false"`, `NG_APP_GEOCODE_ENABLED: "true"`).
+  - **These are BUILD-time values**: changing one still needs `docker compose build web` — a
+    plain restart re-serves the old bundle.
+  - This step is where `NG_APP_STRIPE_PUBLISHABLE_KEY` moves from a hand-edited
+    `apps/web/.env` (as [[stripe-sandbox-setup]] describes until this task lands) to the root
+    `.env` CUSTOM box seeded by `make env-file`. Cross-reference Task 14 step 14.6 (Users'
+    seeded, empty-means-unset Stripe keys) — the two mechanisms must stay consistent.
 
 - [ ] 11.5 Write the failing spec for `payment-method-selector.ts` asserting: it lists saved cards from `PaymentMethodsApi.list()`, preselects the default, exposes a `selectedPaymentMethodId` output, and shows the Payment Element (mounted against a SetupIntent client_secret from `PaymentMethodsApi.createSetupIntent()`) when the user has zero cards or clicks "Add card".
 

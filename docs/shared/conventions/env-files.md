@@ -4,7 +4,7 @@ type: convention
 area: infra
 status: active
 created: 2026-07-20
-updated: 2026-09-15
+updated: 2026-09-22
 tags:
   - type/convention
   - area/infra
@@ -26,6 +26,7 @@ related:
   - "[[2026-07-30-post-infra-root]]"
   - "[[2026-09-15-a-falsy-default-that-means-disabled-erases-the-difference-from-unconfigured]]"
   - "[[web-app-env-config]]"
+  - "[[2026-09-19-stripe-payments]]"
 ---
 
 # Env Files
@@ -40,7 +41,7 @@ new API id, and reassigns RDS proxy ports by cluster creation order.
 
 | File | Holds | Consumed by |
 |---|---|---|
-| `.env` | ONLY the four vars compose interpolates as `${VAR}` | docker-compose interpolation |
+| `.env` | ONLY what compose interpolates as `${VAR}`: an AUTO box of derived values, plus a CUSTOM box of per-machine `NG_APP_*` toggles/keys for the `web` build (see "Web `NG_APP_*` build args" below) — no longer a fixed count of four | docker-compose interpolation |
 | `.env.local.infra` | Terraform outputs (Cognito ids, API GW url, DB hosts/ports) **plus `MAILPIT_API_URL`** | the E2E suite, humans |
 | `.env.local.users` | the Users service environment | compose `env_file:` |
 | `.env.local.orders` | the Orders service environment | compose `env_file:` |
@@ -156,6 +157,32 @@ personal tokens, and local-only flags in CUSTOM.
 Values with no consumer anywhere (today `APIDOG_ACCESS_TOKEN`/`APIDOG_PROJECT_ID`) belong in a
 CUSTOM box rather than scattered around.
 
+## Web `NG_APP_*` build args are never literals in `docker-compose.yml`
+
+**Decision (user, 2026-09-22).** A web `NG_APP_*` build arg is never hardcoded as a literal in
+`docker-compose.yml`'s `web.build.args`. Every `NG_APP_*` the web Dockerfile declares as an
+`ARG` is passed by compose interpolation from the generated root `.env`
+(`NG_APP_X: "${NG_APP_X}"`), and `make env-file` generates or seeds every one of them:
+
+- **AUTO box** (generator-owned, derived — never hand-edited): values that follow from
+  infrastructure state, e.g. `NG_APP_API_GATEWAY_URL` (`/v1`) and the WS URL.
+- **CUSTOM box**, seeded per key with the `custom_defaults` mechanism (per-machine choices,
+  preserved across regeneration): feature toggles and per-developer/sandbox keys, e.g.
+  `NG_APP_STRIPE_ENABLED`, `NG_APP_STRIPE_PUBLISHABLE_KEY` (seeded empty — the `pk_test_...`
+  key is public by design but still per-sandbox), `NG_APP_GEOCODE_ENABLED`, and
+  `NG_APP_RUM_ENABLED`.
+- A seeded **empty** `NG_APP_*` value means unset, not misconfigured — the web config reader
+  (`apps/web/src/app/core/config/app-config.ts`) must treat it as falsy/`null`, the same rule
+  Users applies to its own seeded-empty Stripe keys.
+- These are **build-time** values (`@ngx-env/builder` inlines them at compile time): changing
+  one still needs `docker compose build web` — a plain restart re-serves the old bundle. See
+  the warning above on a build-time var absent at build time.
+
+This closes the gap the [[2026-09-19-stripe-payments]] milestone's Task 11 found:
+`NG_APP_STRIPE_ENABLED`/`NG_APP_GEOCODE_ENABLED` previously lived as hardcoded literals in
+`docker-compose.yml`, which meant flipping a flag required hand-editing the compose file
+instead of the CUSTOM box like every other per-machine choice in this repo.
+
 ## Adding a service
 
 1. Add a `.env.local.<service>` entry to
@@ -248,3 +275,5 @@ When changing env plumbing, verify against a real bring-up, not by inspection:
   `bootstrap`/`post-infra` split.
 - [[web-app-env-config]] — the runbook operationalizing the `NG_APP_WS_URL` bridge above into a
   step-by-step procedure and symptom table.
+- [[2026-09-19-stripe-payments]] — Task 11's step 11.4b, which moves every web `NG_APP_*` build
+  arg out of `docker-compose.yml` literals and into the root `.env`'s AUTO/CUSTOM boxes.
