@@ -1157,11 +1157,13 @@ Tasks 1–7 complete the Users side of this milestone; it is independently testa
 
 **Files:**
 - Modify: `services/orders/src/Orders.Api/Program.cs` (StripeClient registration + `AddSource("orders-stripe")`), the order-creation endpoint and its command handler (`grep -rln "POST.*orders\|CreateOrder" services/orders/src/Orders.Api`), `services/orders/src/Orders.Domain` (payment snapshot fields on the order aggregate)
-- Create: an EF Core migration for the payment snapshot columns, `services/orders/src/Orders.Infrastructure/Observability/StripeActivitySource.cs`
-- Test: xUnit tests for the order-creation handler (mocking `StripeClient`), `Testcontainers-MySQL` integration test, observability assertions per step 9.10
+- Create: an EF Core migration for the payment snapshot columns, a second EF Core migration for
+  the `IdempotencyKey` column + unique index (step 9.10b),
+  `services/orders/src/Orders.Infrastructure/Observability/StripeActivitySource.cs`
+- Test: xUnit tests for the order-creation handler (mocking `StripeClient`), `Testcontainers-MySQL` integration test, observability assertions per step 9.10, idempotency-key tests per step 9.10b
 
 **Interfaces:**
-- Consumes: `UserResponse.stripe_customer_id` (Task 7), `paymentMethodId` in the `POST /v1/orders` request body (new field).
+- Consumes: `UserResponse.stripe_customer_id` (Task 7), `paymentMethodId` in the `POST /v1/orders` request body (new field), `Idempotency-Key` request header (new, required when `STRIPE_ENABLED=true` — step 9.10b).
 - Produces:
   ```csharp
   public sealed record PaymentSnapshot(
@@ -1410,16 +1412,74 @@ Tasks 1–7 complete the Users side of this milestone; it is independently testa
   never Error, with that `decline_code` as `reason`; (c) the activity's tag set never includes a
   field named `client_secret` or `raw_payload`. Run `dotnet test` — passes.
 
+- [ ] 9.10b **Client-supplied `Idempotency-Key` (spec Decision 7, user decision 2026-09-22).**
+  A server-minted order id cannot make a retry idempotent — a re-POST mints a new id, so the
+  key must come from the client. Migration first: add a nullable `IdempotencyKey` column plus a
+  unique index on `(UserId, IdempotencyKey)`:
+  `dotnet ef migrations add AddOrderIdempotencyKey --project services/orders/src/Orders.Infrastructure --startup-project services/orders/src/Orders.Api`.
+
+  Write the failing tests first, each asserting exactly one branch of Decision 7:
+  - [ ] 9.10b.1 Missing `Idempotency-Key` header with `STRIPE_ENABLED=true` → `400
+    idempotency_key_required`. Header absent with the flag off → succeeds exactly as today
+    (header ignored).
+  - [ ] 9.10b.2 Same `(user, key)` POSTed twice with an identical body → the **first** call
+    charges once; the **second** call returns the existing order (`200`, same body) and
+    `PaymentIntentService.CreateAsync` is asserted **not called** a second time.
+  - [ ] 9.10b.3 Concurrent duplicate requests (same `(user, key)`, fired together) → exactly
+    one order is persisted and exactly one Stripe charge is made; the request that loses the
+    unique-index race also returns the existing order rather than erroring — assert this with
+    a test that forces the race (e.g. two handler invocations against the same in-memory/test
+    DB context, or however this repo's existing unique-constraint races are tested; grep first).
+  - [ ] 9.10b.4 Replay of an already-refunded PaymentIntent: Stripe returns
+    `Idempotent-Replayed: true` for a key whose PaymentIntent was refunded by Task 10's path →
+    Orders persists **no** order and answers `409 idempotency_key_reused`.
+  - [ ] 9.10b.5 Same key, different request body → Stripe's `idempotency_error` is mapped to
+    `422 idempotency_key_mismatch`.
+
+  Implement:
+  - The `Idempotency-Key` header is required (flag on) / optional-and-ignored (flag off),
+    validated for presence before any Stripe call — mirror however `paymentMethodId`'s
+    required-when-enabled check (step 9.3) is structured.
+  - Before charging, look up `(UserId, IdempotencyKey)`; if an order exists, return it directly
+    (no Stripe call).
+  - The Stripe idempotency key passed to `PaymentIntentCreateOptions`'s `RequestOptions`
+    becomes `$"order-charge-{userId}-{clientKey}"`, replacing step 9.7's
+    `$"order-charge-{orderId}"` — derived from `(user id, client key)`, not the server-minted
+    order id, so a retried or concurrent request with the same client key reaches the same
+    PaymentIntent.
+  - Persist `IdempotencyKey` on the order row alongside the payment snapshot.
+  - Detect an `Idempotent-Replayed` response whose PaymentIntent status reflects a prior refund
+    (Task 10) and answer 409 `idempotency_key_reused` without persisting an order.
+  - Map Stripe's `idempotency_error` to `422 idempotency_key_mismatch` in the same
+    exception-to-status-code middleware step 9.7 already extended for `PaymentDeclinedException`.
+
+  Wrap the idempotency-key lookup and the two new error paths in the same `stripe.payment_intent.create`
+  activity from step 9.10 — add `stripe.idempotency_key` as a tag (already specified in step
+  9.10; this step supplies its real value). Run `dotnet test` — all of 9.10b.1–9.10b.5 pass, and
+  the 9.3–9.6/9.9 suite still passes with the new required header added to those tests' requests.
+
 - [ ] 9.11 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
 
-## Task 10 — Orders: refund-on-409
+## Task 10 — Orders: refund on any post-charge failure
+
+**Widened scope (spec Decision 9, user decision 2026-09-22):** the automatic refund is not
+limited to a stock-reservation 409. It covers **any** failure between a successful charge and a
+committed order — a 409 under the lock, a product removed from under the reservation, the
+price-mismatch guard rejecting a stale total, or a persistence/commit failure — because in every
+one of these the charge already succeeded and must never be left dangling. The refund uses its
+**own** idempotency key derived from the PaymentIntent id (`refund-{paymentIntentId}`),
+independent of Task 9.10b's order-creation key, so a retried refund attempt cannot double-refund.
+This task's original name ("refund-on-409") undersold the scope; the steps below cover the 409
+case as the primary test and note the other failure modes share the same refund path.
 
 **Files:**
 - Modify: the same order-creation handler from Task 9
-- Test: a dedicated xUnit test forcing the reservation to fail after a successful charge
+- Test: a dedicated xUnit test forcing the reservation to fail after a successful charge, plus
+  one test per other post-charge failure mode (product removed, price-mismatch guard,
+  persistence/commit failure) confirming each also triggers the same refund path
 
 **Interfaces:**
-- Consumes: `PaymentSnapshot` (Task 9), `StripeActivitySource` (Task 9.10), the existing stock-reservation call that can return 409.
+- Consumes: `PaymentSnapshot` (Task 9), `StripeActivitySource` (Task 9.10), the existing stock-reservation call that can return 409, and whatever other post-charge failure paths already exist (price-mismatch guard, persistence/commit).
 
 > [!warning] Highest-risk task in this plan
 > This is the repo's known review failure mode per [[phase-c-review-flow]] and [[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]]: a concurrency requirement specified from day one, shipped as an unhandled path, passing its own review because the diff is self-consistent on its own terms. **Reviewers must tick this task off against Decision 9 in the spec directly, not just read the diff** — ordinary tests structurally do not exercise concurrency, so the only proof this works is the explicit test in step 10.1, not the absence of a crash elsewhere. Per spec Decision 25, this is also the path that must be answerable from the logs alone — step 10.4's `app_event=payment_refunded` line, not just the refund call succeeding, is what makes "was the dangling charge actually refunded?" answerable without opening Stripe's dashboard.
@@ -1475,19 +1535,48 @@ Tasks 1–7 complete the Users side of this milestone; it is independently testa
   {
       if (paymentIntent is not null)
       {
-          // CONTRACT: A charge must never be left dangling (spec D9). This is
-          // the ONLY path that refunds — a reservation conflict occurring
-          // BEFORE any charge (Stripe disabled, or reservation checked first
-          // in some other flow) has nothing to refund.
+          // CONTRACT: A charge must never be left dangling (spec D9, widened
+          // 2026-09-22). This same catch/refund path also covers a removed
+          // product, the price-mismatch guard, and a persistence/commit
+          // failure after a successful charge — not only a stock conflict. A
+          // reservation conflict occurring BEFORE any charge (Stripe
+          // disabled, or reservation checked first in some other flow) has
+          // nothing to refund.
           var refundService = new RefundService(_stripeClient);
           await refundService.CreateAsync(
-              new RefundCreateOptions { PaymentIntent = paymentIntent.Id }, cancellationToken: ct);
+              new RefundCreateOptions
+              {
+                  PaymentIntent = paymentIntent.Id,
+              },
+              // Own idempotency key, derived from the PaymentIntent id — independent
+              // of the order-creation key (step 9.10b) — so a retried refund attempt
+              // cannot double-refund.
+              new RequestOptions { IdempotencyKey = $"refund-{paymentIntent.Id}" },
+              cancellationToken: ct);
       }
       throw;
   }
   ```
+  The same `try`/`catch (StockConflictException)` block must be extended, or paralleled with
+  identical `catch` clauses, for the other post-charge failure types this task's widened scope
+  covers: a "product removed" exception, the price-mismatch guard's exception type, and a
+  persistence/commit failure thrown by the final save — locate each type via
+  `grep -rn "ProductRemoved\|PriceMismatch\|class.*Exception" services/orders/src/Orders.Domain`
+  and route each into the same refund block (extract it into a private
+  `RefundDanglingChargeAsync(paymentIntent, ct)` helper once more than one `catch` needs it,
+  rather than duplicating the refund call inline per exception type).
 
-- [ ] 10.3 Run `dotnet test --filter CreateOrder_WhenReservationConflictsAfterSuccessfulCharge_RefundsTheCharge` — passes. Then run the full `dotnet test` suite for `services/orders` — confirm no regression on the 9.3–9.6 tests.
+- [ ] 10.2b Write failing xUnit tests for the other post-charge failure modes, one per type
+  (product removed after charge, price-mismatch guard after charge, persistence/commit failure
+  after charge), each asserting a refund was issued for the exact `PaymentIntentId` charged —
+  mirroring step 10.1's shape but forcing a different exception after the charge succeeds. Also
+  add a test asserting the refund call's `RequestOptions.IdempotencyKey` equals
+  `refund-{paymentIntentId}` (not derived from the order id), and a test that calling the same
+  failure path twice for the same PaymentIntent (e.g. a retried request hitting the same
+  post-charge failure again) issues the refund only once, proving the refund's own idempotency
+  key does its job. Run `dotnet test` — fails until 10.2's implementation covers these paths.
+
+- [ ] 10.3 Run `dotnet test --filter CreateOrder_WhenReservationConflictsAfterSuccessfulCharge_RefundsTheCharge` — passes. Then run the full `dotnet test` suite for `services/orders`, including the new 10.2b tests — confirm no regression on the 9.3–9.6 tests.
 
 - [ ] 10.4 **The refund gets its own span and its own `app_event`, observable independently of
   the charge (spec Decision 25).** This is the highest-risk path in the whole milestone (see
@@ -1509,14 +1598,18 @@ Tasks 1–7 complete the Users side of this milestone; it is independently testa
   {
       var refundService = new RefundService(_stripeClient);
       await refundService.CreateAsync(
-          new RefundCreateOptions { PaymentIntent = paymentIntent.Id }, cancellationToken: ct);
+          new RefundCreateOptions { PaymentIntent = paymentIntent.Id },
+          // Own idempotency key (step 10.2) — independent of the order-creation
+          // key (step 9.10b) — so a retried refund attempt cannot double-refund.
+          new RequestOptions { IdempotencyKey = $"refund-{paymentIntent.Id}" },
+          cancellationToken: ct);
       refundActivity?.SetStatus(ActivityStatusCode.Ok);
 
       // CONTRACT: Carries BOTH ids on purpose — this line must answer "was the
       // dangling charge refunded?" on its own, without cross-referencing the
       // payment_charged line from a different point in the same request.
       _logger.LogInformation(
-          "Charge refunded after a post-charge reservation conflict {app_event} {order_id} {payment_intent_id}",
+          "Charge refunded after a post-charge failure {app_event} {order_id} {payment_intent_id}",
           "payment_refunded", orderId, paymentIntent.Id);
   }
   catch (Exception ex)
@@ -1527,7 +1620,7 @@ Tasks 1–7 complete the Users side of this milestone; it is independently testa
       refundActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
       _logger.LogError(
           ex,
-          "Refund FAILED after a post-charge reservation conflict — charge left dangling {app_event} {reason} {order_id} {payment_intent_id}",
+          "Refund FAILED after a post-charge failure — charge left dangling {app_event} {reason} {order_id} {payment_intent_id}",
           "payment_refunded_failed", "refund_call_failed", orderId, paymentIntent.Id);
       throw;
   }
@@ -1552,7 +1645,7 @@ Task 11 (web) posts `paymentMethodId` to `POST /v1/orders`, which does not behav
 - Test: `saved-card-row.spec.ts`, component specs for `payment-method-selector` and `new-card-block`, an updated spec for `checkout-payment`
 
 **Interfaces:**
-- Consumes: `GET/POST/DELETE/PUT /v1/users/me/payment-methods*` (Task 4), `POST /v1/orders` with `paymentMethodId` (Task 9).
+- Consumes: `GET/POST/DELETE/PUT /v1/users/me/payment-methods*` (Task 4), `POST /v1/orders` with `paymentMethodId` and the `Idempotency-Key` header (Task 9, step 9.10b).
 - Produces:
   ```ts
   // apps/web/src/app/shared/ui/saved-card-row.ts — vPwZ1 in the .pen, reused
@@ -1798,6 +1891,20 @@ Task 11 (web) posts `paymentMethodId` to `POST /v1/orders`, which does not behav
   );
   ```
   (`OrdersApi.createOrder` gains an optional `paymentMethodId` parameter forwarded into the POST body — modify its signature accordingly and update every existing call site.)
+
+- [ ] 11.10b **Generate and send the `Idempotency-Key` header (spec Decision 7, user decision
+  2026-09-22).** Per the client contract: generate ONE key (`crypto.randomUUID()`) per checkout
+  attempt when `pay()` is first invoked; reuse that same key only when retrying after a network
+  error, a timeout, or a 5xx from the same attempt; generate a fresh key after any definitive
+  response (any 2xx or 4xx), including a 402 decline — a declined card is a definitive response
+  the buyer will correct and resubmit, not a transient failure to retry blindly. Store the
+  current key in a signal alongside `selectedPaymentMethodId`, reset it to a new UUID whenever
+  `pay()` completes with a 2xx/4xx. `OrdersApi.createOrder` sends it as the `Idempotency-Key`
+  request header (not a body field) on every `POST /v1/orders` call, through `ApiClient` per
+  [[browser-rum]] (a raw `fetch()` would bypass the interceptor and the header both). Write a
+  spec asserting: the header is present and unchanged across a simulated retry after a network
+  error, and a **new** header value appears on the next `pay()` call after a successful order or
+  a 402. Run `nvm use && pnpm --filter web test checkout-payment` — passes.
 
 - [ ] 11.11 Confirm `devFill()` remains unchanged and does not touch `selectedPaymentMethodId` or the Stripe branch — it stays scoped to `addressModel`/`cardModel` exactly as today (the plain branch), per Decision "Constraints" in the Web section.
 
@@ -2309,9 +2416,9 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
 
 - [ ] 15.1 Write internal E2E specs against `localhost:3000` (Users) covering: create setup-intent, attach a card (using Stripe's test PaymentMethod token flow against the CI sandbox per Decision 17), list, set default, detach, and the webhook signature-rejection path (a request with a bad `stripe-signature` header gets 400). Tag every created row with `x-e2e-source: true` and confirm `E2E_TESTING_ENABLED` gates it, per [[testing]]'s "E2E cleanup by tag" mechanism.
 
-- [ ] 15.2 Write internal E2E specs against `localhost:3001` (Orders) covering: `POST /v1/orders` with a valid `paymentMethodId` succeeds and returns an order with a payment snapshot; with the flag on and `paymentMethodId` omitted, returns 400; with a Stripe test card that triggers a decline (`4000000000000002`), returns 402; the metadata-only card validation from Task 9.9 (known/unknown brand, expired/valid, malformed `last4`); and the concurrency scenario from Task 10.1 reproduced at the HTTP layer if feasible, or explicitly noted as covered only at the unit level with a comment pointing to Task 10.1's test name.
+- [ ] 15.2 Write internal E2E specs against `localhost:3001` (Orders) covering: `POST /v1/orders` with a valid `paymentMethodId` and `Idempotency-Key` succeeds and returns an order with a payment snapshot; with the flag on and `paymentMethodId` omitted, returns 400; with the flag on and the `Idempotency-Key` header omitted, returns 400 `idempotency_key_required` (step 9.10b); with a Stripe test card that triggers a decline (`4000000000000002`), returns 402; the metadata-only card validation from Task 9.9 (known/unknown brand, expired/valid, malformed `last4`); the same `(user, key)` POSTed twice returns the existing order on the second call and Stripe is charged exactly once (step 9.10b.2); and the concurrency scenario from Task 10.1 reproduced at the HTTP layer if feasible, or explicitly noted as covered only at the unit level with a comment pointing to Task 10.1's test name.
 
-- [ ] 15.3 Write the gateway E2E spec with a real Cognito JWT covering the full Stripe-branch UI journey: log in, go to checkout, add a card via the mounted Payment Element (fill Stripe's test iframe using Playwright's frame-locator APIs against the CI sandbox), see it appear in the selector, switch to it, and pay. Assert on a genuine 401→success sequence if a route is initially unwired: per the spec's Infra section, a 404 carrying the gateway's own `{"message":"Not Found"}` body means the request never reached the service (fix the gateway/nginx wiring from Task 13), while a 401 after fixing it is the **correct** intermediate signal that the route resolved and reached the authorizer.
+- [ ] 15.3 Write the gateway E2E spec with a real Cognito JWT covering the full Stripe-branch UI journey: log in, go to checkout, add a card via the mounted Payment Element (fill Stripe's test iframe using Playwright's frame-locator APIs against the CI sandbox), see it appear in the selector, switch to it, and pay. Assert on a genuine 401→success sequence if a route is initially unwired: per the spec's Infra section, a 404 carrying the gateway's own `{"message":"Not Found"}` body means the request never reached the service (fix the gateway/nginx wiring from Task 13), while a 401 after fixing it is the **correct** intermediate signal that the route resolved and reached the authorizer. Include at least the two idempotency cases named in the CLAUDE.md-driven scope for this milestone: (a) missing `Idempotency-Key` header with the flag on returns 400 through the real gateway; (b) replaying the same checkout request (same `Idempotency-Key`, e.g. by resubmitting after simulating a network drop) returns the same order rather than a second charge, verified by asserting only one order appears in the buyer's order history after both requests.
 
 - [ ] 15.4 Write a second gateway E2E spec covering the **plain-branch** card validation from Task 13 (Decision 21): with `STRIPE_ENABLED=false`, typing an invalid card number (e.g. `4242 4242 4242 4241`) into the plain form leaves the Pay button disabled; correcting it to `4242 4242 4242 4242` with a valid future expiry and a 3-digit CVC enables Pay and a successful order follows. This is independent of Task 15.3's Stripe-branch journey — it exercises the branch the Payment Element never touches.
 
@@ -2368,9 +2475,9 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
 | 4 (drift mitigation / webhook) | 5 |
 | 5 (Orders payment snapshot) | 9 |
 | 6 (gRPC stripe_customer_id) | 7, 9 |
-| 7 (charge-then-persist) | 9 |
+| 7 (charge-then-persist; client-supplied Idempotency-Key) | 9 (step 9.10b), 11 (step 11.10b), 15 (steps 15.2–15.3) |
 | 8 (402 on card errors) | 9 |
-| 9 (refund-on-409) | 10 |
+| 9 (refund on any post-charge failure, own idempotency key) | 10 (widened scope, step 10.2/10.2b) |
 | 10 (Stripe CLI, not a tunnel) | 14 |
 | 11 (E2E doesn't wait on webhook) | 15 (design already reflected in Task 4's attach flow) |
 | 12 (E2E tagged in Stripe too) | 3, 4, 6, 15 |
@@ -2390,7 +2497,7 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
 
 **Placeholder scan:** no "TBD"/"similar to Task N" shortcuts remain except explicitly-flagged repo-verification steps (4.8's conditional-module choice, 4.7's decorator names, 9.1/10.1's exact mock/fixture APIs, 13.9's exact signal-forms `validate()` signature, 11.1's "verify exact utility spelling against styles.css") — each names the exact `grep` to run and the exact existing file to copy from, rather than leaving the shape undefined.
 
-**Type consistency:** `StripeClientHolder` (Task 1) is the single shape threaded through Tasks 3, 4, 5, 6; `PaymentMethodView` (Task 4.3) is what Task 11's `PaymentMethodsApi.list()` consumes; `SavedCardView`/`SavedCardRow` (Task 11.1) is the single component both Task 11's checkout selector and Task 12's profile Cards List mount, never rebuilt per surface; `PaymentSnapshot` (Task 9) is what Task 10's refund path reads `PaymentIntentId` from; `stripe_customer_id` (Task 7) is the exact field both Task 9's gRPC read and Task 4/5's local persistence trace back to; `CardBrand`/`detectCardBrand`/`isValidCardNumber`/`isValidCvc`/`isValidExpiry` (Task 13) are the exact names Task 11's `checkout-payment.ts` imports and Task 13.7's `numeric-input.ts` rewrite depends on; the `{ brand, last4, expMonth, expYear }` metadata shape is identical between Task 11.13 (sender) and Task 9.9 (`CardMetadataValidator`, receiver); `withStripeSpan` (Task 1.8) is the single Node-side span helper Tasks 3, 4, 5, and 6 all wrap their Stripe calls in, and `StripeActivitySource` (Task 9.10) is its .NET-side sibling, consumed unchanged by Task 10's refund span.
+**Type consistency:** `StripeClientHolder` (Task 1) is the single shape threaded through Tasks 3, 4, 5, 6; `PaymentMethodView` (Task 4.3) is what Task 11's `PaymentMethodsApi.list()` consumes; `SavedCardView`/`SavedCardRow` (Task 11.1) is the single component both Task 11's checkout selector and Task 12's profile Cards List mount, never rebuilt per surface; `PaymentSnapshot` (Task 9) is what Task 10's refund path reads `PaymentIntentId` from; `stripe_customer_id` (Task 7) is the exact field both Task 9's gRPC read and Task 4/5's local persistence trace back to; `CardBrand`/`detectCardBrand`/`isValidCardNumber`/`isValidCvc`/`isValidExpiry` (Task 13) are the exact names Task 11's `checkout-payment.ts` imports and Task 13.7's `numeric-input.ts` rewrite depends on; the `{ brand, last4, expMonth, expYear }` metadata shape is identical between Task 11.13 (sender) and Task 9.9 (`CardMetadataValidator`, receiver); `withStripeSpan` (Task 1.8) is the single Node-side span helper Tasks 3, 4, 5, and 6 all wrap their Stripe calls in, and `StripeActivitySource` (Task 9.10) is its .NET-side sibling, consumed unchanged by Task 10's refund span; the client-generated `Idempotency-Key` header (Task 11.10b, sender) is the exact header Task 9.10b's Orders handler reads and persists as `IdempotencyKey`, and the Stripe idempotency key it derives (`order-charge-{userId}-{clientKey}`, Task 9.10b) is distinct in shape and purpose from the refund's own key (`refund-{paymentIntentId}`, Task 10.2) — the two are never confused or reused for each other.
 
 ## Related
 

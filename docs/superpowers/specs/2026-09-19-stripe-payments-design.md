@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: draft
 created: 2026-09-19
-updated: 2026-09-21
+updated: 2026-09-22
 tags: [type/spec, area/shared, status/draft]
 related:
   - "[[users-service-design]]"
@@ -129,8 +129,12 @@ or auto-updated by the issuing bank). Mitigated by the three rules in Decision 4
 `CardBrand`/`CardLast4`/`CardExpMonth`/`CardExpYear`, and `PaymentRawPayload` (whole
 PaymentIntent). Denormalized deliberately — an order is a historical document and must not
 join against the user's live cards, the same reasoning as the existing
-`ShippingAddressSnapshot` and consistent with [[money-representation]]. `PaymentStatus` is
-persisted even when the charge **fails** — a declined attempt is information worth keeping.
+`ShippingAddressSnapshot` and consistent with [[money-representation]]. The snapshot is
+written only for a **succeeded** charge (Decision 7/8): a declined attempt creates no order
+row, because an order row without a payment would consume an order number and appear in "my
+orders" with no stock reserved. The declined attempt is not lost — it is recorded in Stripe
+itself (the PaymentIntent carries `metadata.order_id`) and in the `payment_declined` log line
+and span (Decision 25).
 
 ### 6. Orders gets `stripeCustomerId` over the existing gRPC
 `proto/users.proto`'s `UserResponse` gains `stripe_customer_id`; the proto file's existing
@@ -143,8 +147,38 @@ to devtools for no gain.
 Orders charges **before** persisting the order. Charging after persisting risks an order with
 no payment — shipped goods with no charge and no trace. Charging first risks a charge with no
 order, which is detectable and repairable: the PaymentIntent carries `metadata.order_id` and is
-refundable. The Stripe `idempotencyKey` is derived from the order id (generated before
-charging), so a client retry returns the same PaymentIntent instead of double-charging.
+refundable.
+
+**Client-supplied idempotency (Decision, user, 2026-09-22).** An order id minted server-side
+cannot make a client retry idempotent — a re-POST mints a **new** order id, derives a new
+Stripe idempotency key from it, and charges a second time. Idempotency must originate with the
+client:
+
+- `POST /v1/orders` takes an `Idempotency-Key` request header. **Required** when
+  `STRIPE_ENABLED=true` (400 `idempotency_key_required` when missing); optional and ignored
+  when the flag is off. Format: an opaque client-generated token (the web app uses a UUID),
+  max length documented as **≤ 64 chars ASCII** (the implementation enforces the exact limit).
+- **Client contract:** generate ONE key per checkout attempt; reuse it only when retrying after
+  a network error, a timeout, or a 5xx; generate a new key after any definitive response (any
+  2xx or 4xx).
+- Orders persists the key on the order with a **unique index on `(UserId, IdempotencyKey)`**.
+  A request whose `(user, key)` pair already has an order returns that existing order (same
+  body, `200`) without charging again. A concurrent duplicate that loses the unique-index race
+  also returns the existing order, rather than erroring.
+- The Stripe idempotency key is derived from **`(user id, client key)`**, e.g.
+  `order-charge-{userId}-{clientKey}` — not from the server-minted order id — so a concurrent
+  or retried request with the same client key gets the same PaymentIntent back from Stripe,
+  never a second charge.
+- **Guard — replay of an already-refunded PaymentIntent.** When Stripe replays a cached
+  response for that key (`Idempotent-Replayed: true`) and the PaymentIntent has since been
+  refunded (the earlier attempt hit a post-charge failure and Decision 9's refund already ran),
+  Orders does **not** persist an order and answers `409 idempotency_key_reused`; the client
+  must retry with a new key.
+- **Guard — body mismatch.** Reusing a key with a different request body is rejected by Stripe
+  itself (`idempotency_error`); Orders answers `422 idempotency_key_mismatch`.
+
+This header lives alongside `paymentMethodId` in the `POST /v1/orders` contract — see "Orders
+flow" below.
 
 ### 8. Card errors return 402
 Declined, insufficient funds, and expired-card responses are not server faults; the frontend
@@ -152,10 +186,19 @@ must distinguish them to ask for another card. The response carries Stripe's act
 message, mapped through the frontend's existing `authErrorMessage` pattern.
 
 ### 9. Concurrency requirement (first-class, not an implementation detail)
-The existing stock reservation can return 409. A 409 occurring **after** a successful charge
-must trigger an automatic refund; the charge must never be left dangling. This is called out
-explicitly because a silently-dropped concurrency requirement is this repo's known review
-failure mode — see [[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]].
+**Widened scope (Decision, user, 2026-09-22):** the automatic refund covers **any** failure
+that occurs between a successful charge and a committed order — not only a 409. Concretely:
+the stock reservation 409 under the lock, a product removed from under the reservation, the
+price-mismatch guard rejecting a stale total, or a persistence/commit failure after the charge
+succeeded. In every one of these, the charge must never be left dangling; a charge with no
+order is refunded automatically, the same way a 409-after-charge always was. The refund uses
+its own idempotency key derived from the PaymentIntent id (e.g. `refund-{paymentIntentId}`),
+independent of the order-creation idempotency key from Decision 7, so a retried refund attempt
+cannot double-refund.
+
+This is called out explicitly because a silently-dropped concurrency requirement is this
+repo's known review failure mode — see
+[[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]].
 
 ### 10. Local webhook delivery via Stripe CLI, not a tunnel
 Chosen over Cloudflare Tunnel and ngrok. `stripe listen --forward-to` opens an **outbound**
@@ -572,7 +615,8 @@ placing an order with a saved card produces **one** trace spanning browser → g
 **Orders (Postgres, EF Core):** a payment snapshot on the order aggregate — `PaymentIntentId`,
 `PaymentStatus`, `AmountCents`, `Currency`, `PaymentMethodId`, `CardBrand`, `CardLast4`,
 `CardExpMonth`, `CardExpYear`, `PaymentRawPayload` — denormalized per Decision 5, alongside the
-existing `ShippingAddressSnapshot`.
+existing `ShippingAddressSnapshot`. Plus a nullable `IdempotencyKey` column with a unique index
+on `(UserId, IdempotencyKey)`, per Decision 7's client-supplied idempotency.
 
 ## Users HTTP surface
 
@@ -595,13 +639,19 @@ card. Endpoints are specified in the service's `openapi.yaml` per [[openapi-spec
 
 ## Orders flow
 
-With the flag on, `paymentMethodId` arrives in the `POST /v1/orders` body (400 if missing).
-With the flag off, the field is ignored and the endpoint behaves exactly as today. Orders
-fetches `stripe_customer_id` over gRPC (Decision 6), creates the PaymentIntent (amount = the
-total Orders already computes, `customer`, `payment_method`, `off_session: true,
-confirm: true`), then persists the order with the payment snapshot (Decision 5), charging
-before persisting (Decision 7) and refunding automatically if the stock reservation 409s after
-a successful charge (Decision 9).
+With the flag on, `paymentMethodId` arrives in the `POST /v1/orders` body (400 if missing), and
+the request additionally carries an `Idempotency-Key` header (400 `idempotency_key_required` if
+missing — Decision 7). With the flag off, `paymentMethodId` is ignored, the header is optional
+and ignored too, and the endpoint behaves exactly as today. Orders fetches `stripe_customer_id`
+over gRPC (Decision 6); checks `(UserId, IdempotencyKey)` for an existing order and returns it
+(`200`, no charge) on a match; otherwise creates the PaymentIntent (amount = the total Orders
+already computes, `customer`, `payment_method`, `off_session: true, confirm: true`, an
+idempotency key derived from `(userId, clientKey)`), then persists the order with the payment
+snapshot (Decision 5), charging before persisting (Decision 7) and refunding automatically if
+any failure — a stock conflict, a removed product, the price-mismatch guard, or a
+persistence/commit failure — occurs after a successful charge (Decision 9). A replayed
+Stripe response for an already-refunded PaymentIntent answers `409 idempotency_key_reused`; a
+reused key with a mismatched body answers `422 idempotency_key_mismatch` (Decision 7).
 
 ## Web
 
