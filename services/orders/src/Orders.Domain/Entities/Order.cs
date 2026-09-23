@@ -61,6 +61,14 @@ public class Order : AuditableEntity
     /// </summary>
     public string? IdempotencyKey { get; set; }
 
+    /// <summary>
+    /// SHA-256 hex of the canonical purchase behind <see cref="IdempotencyKey"/>.
+    /// CONTRACT: A replay whose hash differs answers 422, never this order. Null on orders
+    /// without a key and on rows older than the column, which replay unchecked.
+    /// See [[2026-09-19-stripe-payments-design]]
+    /// </summary>
+    public string? IdempotencyRequestHash { get; set; }
+
     // Payment snapshot (see PaymentSnapshot). All null on an order placed with Stripe off,
     // and on every order predating the columns.
     public string? PaymentIntentId { get; set; }

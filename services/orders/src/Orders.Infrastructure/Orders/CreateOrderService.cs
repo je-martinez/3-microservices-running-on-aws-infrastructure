@@ -130,14 +130,16 @@ public class CreateOrderService
         var userId = caller.InternalUserId;
 
         // CONTRACT: With Stripe on, a (user, Idempotency-Key) pair that already has an order gets
-        // THAT order back, before any pricing or charge. See [[2026-09-19-stripe-payments-design]]
+        // THAT order back, before any pricing or charge — or 422 when the request's fingerprint
+        // differs from the one stored with it. See [[2026-09-19-stripe-payments-design]]
         var clientKey = _stripe.Enabled
             ? command.IdempotencyKey
                 ?? throw new ArgumentException("An Idempotency-Key is required when Stripe is enabled.", nameof(command))
             : null;
+        var requestHash = clientKey is null ? null : CreateOrderFingerprint.Compute(command);
         if (clientKey is not null && await FindByIdempotencyKeyAsync(userId, clientKey, ct) is { } existing)
         {
-            return Replayed(existing);
+            return ReplayOrReject(existing, requestHash);
         }
 
         // CONTRACT: Serialize the address ONCE and reuse it for the order row and Tracking —
@@ -187,12 +189,22 @@ public class CreateOrderService
             }
             catch (Exception ex) when (ex is IdempotencyKeyReusedException or IdempotencyKeyMismatchException)
             {
-                // WHY: WARNING — the client broke the key contract; nothing here is a fault.
-                var reason = ex is IdempotencyKeyReusedException ? "idempotency_key_reused" : "idempotency_key_mismatch";
+                KeyRejected(ex is IdempotencyKeyReusedException ? "idempotency_key_reused" : "idempotency_key_mismatch", orderId);
+                throw;
+            }
+            catch (IdempotencyKeyInFlightException ex)
+            {
+                if (await AwaitInFlightOrderAsync(userId, clientKey!, ct) is { } inFlight)
+                {
+                    return ReplayOrReject(inFlight, requestHash);
+                }
+
+                // CONTRACT: WARNING, never ERROR — a double-submitted checkout is routine, and the
+                // client's retry after Retry-After finds the order. See [[logging-context]]
                 _logger.LogWarning(
-                    "Order creation failed: idempotency key rejected {app_event} {reason} {order_id}",
-                    "create_order_failed", reason, orderId);
-                _tracer.SetReason(reason);
+                    "Order creation deferred: the same idempotency key is still in flight {app_event} {reason} {order_id}",
+                    "create_order_failed", ex.Reason, orderId);
+                _tracer.SetReason(ex.Reason);
                 throw;
             }
             catch (PaymentDeclinedException ex)
@@ -236,7 +248,7 @@ public class CreateOrderService
                     await _charger.RefundAsync(orderId, payment.PaymentIntentId);
                 }
 
-                return Replayed(winner);
+                return ReplayOrReject(winner, requestHash);
             }
 
             if (payment is not null)
@@ -266,6 +278,7 @@ public class CreateOrderService
             {
                 Id = orderId,
                 IdempotencyKey = clientKey,
+                IdempotencyRequestHash = requestHash,
                 // CONTRACT: Minted from the order's OWN creation instant, in UTC, so the
                 // number stays reproducible from created_at and does not depend on which
                 // host served the request. Re-minted on a unique-index collision below.
@@ -449,6 +462,53 @@ public class CreateOrderService
             .IgnoreQueryFilters()
             .Include(o => o.Details)
             .FirstOrDefaultAsync(o => o.UserId == userId && o.IdempotencyKey == clientKey, ct);
+
+    /// <summary>
+    /// Replays <paramref name="existing"/>, or throws <see cref="IdempotencyKeyMismatchException"/>
+    /// when its stored fingerprint differs from this request's. A row with none replays unchecked.
+    /// </summary>
+    private CreateOrderResult ReplayOrReject(Order existing, string? requestHash)
+    {
+        if (existing.IdempotencyRequestHash is not null && existing.IdempotencyRequestHash != requestHash)
+        {
+            KeyRejected("idempotency_key_mismatch", existing.Id);
+            throw new IdempotencyKeyMismatchException();
+        }
+
+        return Replayed(existing);
+    }
+
+    // WHY: WARNING — the client broke the key contract; nothing here is a fault.
+    private void KeyRejected(string reason, string orderId)
+    {
+        _logger.LogWarning(
+            "Order creation failed: idempotency key rejected {app_event} {reason} {order_id}",
+            "create_order_failed", reason, orderId);
+        _tracer.SetReason(reason);
+    }
+
+    private const int InFlightRecheckAttempts = 3;
+
+    private static readonly TimeSpan InFlightRecheckDelay = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>The order under (user, key), re-read while Stripe reports that key in flight.</summary>
+    /// <remarks>
+    /// CONTRACT: Bounded, about 1.5 s in all — an unbounded wait turns a winner that failed into
+    /// a hung checkout. See [[2026-09-19-stripe-payments-design]]
+    /// </remarks>
+    private async Task<Order?> AwaitInFlightOrderAsync(string userId, string clientKey, CancellationToken ct)
+    {
+        for (var attempt = 0; attempt < InFlightRecheckAttempts; attempt++)
+        {
+            await Task.Delay(InFlightRecheckDelay, ct);
+            if (await FindByIdempotencyKeyAsync(userId, clientKey, ct) is { } order)
+            {
+                return order;
+            }
+        }
+
+        return null;
+    }
 
     private CreateOrderResult Replayed(Order existing)
     {

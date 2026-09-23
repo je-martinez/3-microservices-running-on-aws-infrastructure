@@ -40,7 +40,8 @@ public static class CreateOrderEndpoint
     // Idempotency-Key already produced. 400 malformed body or key, 401 no x-user-id (enforced
     // by CallerContextMiddleware), 402 payment declined, 404 unknown user/product, 409
     // insufficient stock or a refunded key, 422 key reused with another body, 503 payments
-    // unavailable. 200, 402, 422 and 503 only occur with STRIPE_ENABLED on.
+    // unavailable (with Retry-After: 1 while the same key is in flight). 200, 402, 422 and 503
+    // only occur with STRIPE_ENABLED on.
     public static async Task<IResult> Handle(
         ICurrentCaller caller,
         CreateOrderRequest body,
@@ -137,6 +138,13 @@ public static class CreateOrderEndpoint
             return Results.Json(
                 new { error = "payment_declined", detail = ex.Message, code = ex.Code },
                 statusCode: StatusCodes.Status402PaymentRequired);
+        }
+        catch (IdempotencyKeyInFlightException ex)
+        {
+            http.Response.Headers.RetryAfter = "1";
+            return Results.Json(
+                new { error = "payment_unavailable", detail = ex.Message },
+                statusCode: StatusCodes.Status503ServiceUnavailable);
         }
         catch (PaymentUnavailableException ex)
         {

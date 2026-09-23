@@ -98,6 +98,7 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         b.Property(o => o.CardExpYear).HasColumnName("card_exp_year");
         b.Property(o => o.PaymentRawPayload).HasColumnName("payment_raw_payload").HasColumnType("json");
         b.Property(o => o.IdempotencyKey).HasColumnName("idempotency_key").HasMaxLength(IdempotencyKeyMaxLength);
+        b.Property(o => o.IdempotencyRequestHash).HasColumnName("idempotency_request_hash").HasColumnType("char(64)");
         // WHY: MySQL ignores NULLs in a unique index, so orders placed without a key never collide.
         b.HasIndex(o => new { o.UserId, o.IdempotencyKey })
             .IsUnique()

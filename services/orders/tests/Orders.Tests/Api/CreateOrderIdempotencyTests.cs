@@ -1,8 +1,13 @@
 using System.Net;
 using System.Net.Http.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Orders.Application.Orders;
+using Orders.Infrastructure.Id;
+using Orders.Infrastructure.Orders;
+using Orders.Tests.Observability;
 using Orders.Tests.Payments;
+using Product = Orders.Domain.Entities.Product;
 
 namespace Orders.Tests.Api;
 
@@ -163,6 +168,182 @@ public partial class CreateOrderStripeTests
         Assert.Equal(HttpStatusCode.UnprocessableEntity, retry.StatusCode);
         Assert.Equal("idempotency_key_mismatch", (await retry.Content.ReadFromJsonAsync<ErrorBody>())!.Error);
         Assert.Equal(1, stripe.ChargesExecuted);
+    }
+
+    [Fact]
+    public async Task CreateOrder_ReplayedWithTheSameKeyAndDifferentItems_Returns422WithoutCallingStripe()
+    {
+        var stockBefore = await StockAsync();
+        var stripe = FakeStripeHandler.Succeeding();
+        var client = ClientFor(stripeEnabled: true, stripe);
+        Assert.Equal(HttpStatusCode.Created, (await client.PostAsJsonAsync("/v1/orders", OneLine())).StatusCode);
+
+        var replay = await client.PostAsJsonAsync("/v1/orders", OneLine(quantity: 2));
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, replay.StatusCode);
+        Assert.Equal("idempotency_key_mismatch", (await replay.Content.ReadFromJsonAsync<ErrorBody>())!.Error);
+        Assert.Single(stripe.Requests);
+        Assert.Equal(stockBefore - 1, await StockAsync());
+    }
+
+    [Fact]
+    public async Task CreateOrder_ReplayedWithTheSameKeyAndAnotherPaymentMethod_Returns422WithoutCallingStripe()
+    {
+        var stripe = FakeStripeHandler.Succeeding();
+        var client = ClientFor(stripeEnabled: true, stripe);
+        Assert.Equal(HttpStatusCode.Created, (await client.PostAsJsonAsync("/v1/orders", OneLine())).StatusCode);
+
+        var replay = await client.PostAsJsonAsync("/v1/orders", new
+        {
+            lines = new[] { new { productId = _productId, quantity = 1 } },
+            paymentMethodId = "pm_card_mastercard",
+        });
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, replay.StatusCode);
+        Assert.Equal("idempotency_key_mismatch", (await replay.Content.ReadFromJsonAsync<ErrorBody>())!.Error);
+        Assert.Single(stripe.Requests);
+    }
+
+    [Fact]
+    public async Task CreateOrder_ReplayedWithTheSameItemsInAnotherOrder_ReturnsTheExistingOrder()
+    {
+        var otherProductId = await AddProductAsync();
+        var stripe = FakeStripeHandler.Succeeding();
+        var client = ClientFor(stripeEnabled: true, stripe);
+
+        var first = await client.PostAsJsonAsync("/v1/orders", new
+        {
+            lines = new[] { new { productId = _productId, quantity = 1 }, new { productId = otherProductId, quantity = 2 } },
+            paymentMethodId = PaymentMethodId,
+        });
+        var replay = await client.PostAsJsonAsync("/v1/orders", new
+        {
+            lines = new[] { new { productId = otherProductId, quantity = 2 }, new { productId = _productId, quantity = 1 } },
+            paymentMethodId = PaymentMethodId,
+        });
+
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+        Assert.Equal(await first.Content.ReadAsStringAsync(), await replay.Content.ReadAsStringAsync());
+        Assert.Single(stripe.Charges);
+    }
+
+    [Fact]
+    public async Task CreateOrder_ReplayedAgainstAnOrderWithNoRequestHash_ReturnsTheExistingOrder()
+    {
+        var stripe = FakeStripeHandler.Succeeding();
+        var client = ClientFor(stripeEnabled: true, stripe);
+        var first = await client.PostAsJsonAsync("/v1/orders", OneLine());
+        var orderId = (await first.Content.ReadFromJsonAsync<OrderDto>())!.Id;
+        var stored = (await LoadOrderAsync(orderId))!;
+        Assert.Matches("^[0-9a-f]{64}$", stored.IdempotencyRequestHash);
+        await using (var db = _factory.NewWriteContext())
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                "UPDATE `order` SET idempotency_request_hash = NULL WHERE id = {0}", orderId);
+        }
+
+        var replay = await client.PostAsJsonAsync("/v1/orders", OneLine(quantity: 2));
+
+        Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+        Assert.Equal(orderId, (await replay.Content.ReadFromJsonAsync<OrderDto>())!.Id);
+        Assert.Single(stripe.Charges);
+    }
+
+    [Fact]
+    public async Task CreateOrder_DuplicateStripeRejectsAsInFlight_ReturnsTheWinnersOrderOnceItCommits()
+    {
+        var stripe = FakeStripeHandler.RejectingInFlightRepeats();
+        var arrivals = 0;
+        stripe.OnRequest = async _ =>
+        {
+            if (Interlocked.Increment(ref arrivals) == 1)
+            {
+                await stripe.InFlightConflictAnswered.WaitAsync(TimeSpan.FromSeconds(10));
+            }
+        };
+        var log = new SpanScopedLogger<CreateOrderService>();
+        var client = ClientFor(stripeEnabled: true, stripe, serviceLog: log);
+
+        var winner = client.PostAsJsonAsync("/v1/orders", OneLine());
+        await UntilAsync(() => stripe.Charges.Count() == 1);
+        var duplicate = await client.PostAsJsonAsync("/v1/orders", OneLine());
+        var created = await winner;
+
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, duplicate.StatusCode);
+        Assert.Equal(await created.Content.ReadAsStringAsync(), await duplicate.Content.ReadAsStringAsync());
+        Assert.Equal(1, stripe.ChargesExecuted);
+        Assert.Empty(stripe.Refunds);
+        Assert.DoesNotContain(log.Entries.ToArray(), e => e.Level >= LogLevel.Error);
+    }
+
+    [Fact]
+    public async Task CreateOrder_DuplicateStripeRejectsAsInFlight_Returns503WithRetryAfterWhenNoOrderAppears()
+    {
+        var stripe = FakeStripeHandler.RejectingInFlightRepeats();
+        var releaseWinner = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var arrivals = 0;
+        stripe.OnRequest = async _ =>
+        {
+            if (Interlocked.Increment(ref arrivals) == 1)
+            {
+                await releaseWinner.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            }
+        };
+        var log = new SpanScopedLogger<CreateOrderService>();
+        var client = ClientFor(stripeEnabled: true, stripe, serviceLog: log);
+
+        var winner = client.PostAsJsonAsync("/v1/orders", OneLine());
+        HttpResponseMessage duplicate;
+        try
+        {
+            await UntilAsync(() => stripe.Charges.Count() == 1);
+            duplicate = await client.PostAsJsonAsync("/v1/orders", OneLine());
+        }
+        finally
+        {
+            releaseWinner.TrySetResult();
+        }
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, duplicate.StatusCode);
+        Assert.Equal("payment_unavailable", (await duplicate.Content.ReadFromJsonAsync<ErrorBody>())!.Error);
+        Assert.Equal(TimeSpan.FromSeconds(1), duplicate.Headers.RetryAfter?.Delta);
+        Assert.Equal(HttpStatusCode.Created, (await winner).StatusCode);
+        Assert.Equal(1, stripe.ChargesExecuted);
+        var entries = log.Entries.ToArray();
+        Assert.DoesNotContain(entries, e => e.Level >= LogLevel.Error);
+        var line = Assert.Single(entries, e => Equals(e.Values.GetValueOrDefault("reason"), "idempotency_key_in_flight"));
+        Assert.Equal(LogLevel.Warning, line.Level);
+        Assert.Equal("create_order_failed", line.Values["app_event"]);
+    }
+
+    private async Task<string> AddProductAsync()
+    {
+        await using var db = _factory.NewWriteContext();
+        var id = NanoId.NewId(NanoId.ProductPrefix);
+        db.Products.Add(new Product
+        {
+            Id = id,
+            Name = "Stripe Gadget",
+            Description = "d",
+            UnitPriceCents = 1200,
+            UnitsInStock = 1000,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+        return id;
+    }
+
+    private static async Task UntilAsync(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!condition())
+        {
+            Assert.True(DateTime.UtcNow < deadline, "Timed out waiting for the first charge to reach Stripe.");
+            await Task.Delay(10);
+        }
     }
 
     private object OneLine(int quantity = 1) => new

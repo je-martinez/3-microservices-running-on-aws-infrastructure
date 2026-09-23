@@ -23,7 +23,8 @@ public sealed record CapturedStripeRequest(
 /// CONTRACT: Idempotency is emulated the way Stripe documents it — a repeated key with the same
 /// parameters replays the FIRST response (<c>Idempotent-Replayed: true</c>), different
 /// parameters answer 400 <c>idempotency_error</c>, and a repeat arriving while the first is in
-/// flight waits for it. See [[2026-09-19-stripe-payments-design]]
+/// flight waits for it — or, from <see cref="RejectingInFlightRepeats"/>, answers Stripe's 409
+/// <c>idempotency_error</c>. See [[2026-09-19-stripe-payments-design]]
 /// </remarks>
 public sealed class FakeStripeHandler : HttpMessageHandler
 {
@@ -39,6 +40,8 @@ public sealed class FakeStripeHandler : HttpMessageHandler
     private readonly Func<CapturedStripeRequest, (HttpStatusCode Status, string Body)> _refund;
     private readonly Dictionary<string, (string Parameters, TaskCompletionSource<(HttpStatusCode, string)> Response)> _byKey = new();
     private readonly List<string> _refundedIntents = new();
+    private readonly TaskCompletionSource _inFlightConflict = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private bool _rejectInFlightRepeats;
 
     private FakeStripeHandler(
         Func<CapturedStripeRequest, (HttpStatusCode, string)> charge,
@@ -107,6 +110,20 @@ public sealed class FakeStripeHandler : HttpMessageHandler
                 }
                 : null,
         })));
+
+    /// <summary>Completes when a repeat is first answered 409 because its key is still in flight.</summary>
+    public Task InFlightConflictAnswered => _inFlightConflict.Task;
+
+    /// <summary>
+    /// Succeeds like <see cref="Succeeding"/>, but a repeat arriving while the first request with
+    /// its key is in flight gets Stripe's 409 <c>idempotency_error</c> instead of waiting.
+    /// </summary>
+    public static FakeStripeHandler RejectingInFlightRepeats()
+    {
+        var handler = Succeeding();
+        handler._rejectInFlightRepeats = true;
+        return handler;
+    }
 
     /// <summary>A charge that succeeds and a refund that Stripe rejects with a key-bearing message.</summary>
     public static FakeStripeHandler SucceedingWithFailingRefund()
@@ -256,6 +273,14 @@ public sealed class FakeStripeHandler : HttpMessageHandler
             {
                 return Respond((HttpStatusCode.BadRequest, """
                     {"error":{"type":"idempotency_error","message":"Keys for idempotent requests can only be used with the same parameters they were first used with."}}
+                    """), replayed: false);
+            }
+
+            if (_rejectInFlightRepeats && !prior.Response!.Task.IsCompleted)
+            {
+                _inFlightConflict.TrySetResult();
+                return Respond((HttpStatusCode.Conflict, """
+                    {"error":{"type":"idempotency_error","message":"There is currently another in-progress request using this Idempotency Key. Please try again later."}}
                     """), replayed: false);
             }
 

@@ -13,14 +13,16 @@ public static class PublicRoutes
     /// </summary>
     public const string HealthRoute = "/v1/health";
 
-    public static bool IsPublic(string method, string? routePath) =>
+    /// <param name="routePath">The resolved endpoint's route pattern; null when none matched.</param>
+    /// <param name="requestPath">The concrete request path, read only by the Stripe webhook arm.</param>
+    public static bool IsPublic(string method, string? routePath, PathString requestPath) =>
         (string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase)
             && routePath == "/v1/health")
         // E2E cleanup deletes by tag, not by caller, and the global test teardown runs
         // with no identity — requiring x-user-id would 401 it. Listing it here does NOT
         // widen the surface: the route is only MAPPED under E2E_TESTING_ENABLED, so with
-        // the flag off it never resolves to an endpoint and this arm cannot match (a
-        // request to that path 404s before the middleware has a route to allow).
+        // the flag off no endpoint resolves, this arm cannot match, and the caller guard
+        // answers 401.
         || (string.Equals(method, "DELETE", StringComparison.OrdinalIgnoreCase)
             && routePath == "/v1/orders/e2e-cleanup")
         // The internal account-deletion cascade. "Public" here means only "exempt
@@ -39,10 +41,17 @@ public static class PublicRoutes
         // RoutePattern.RawText, so a concrete path here never matches and every call 401s.
         || (string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase)
             && routePath == "/v1/orders/{orderId}/cache-invalidation")
-        // Stripe's webhook carries no identity; its handler checks the source IP, the URL token
-        // and the Stripe-Signature before touching anything. Mapped only under STRIPE_ENABLED.
-        // CONTRACT: Keep the {token} PATTERN public — off this list a wrong token answers 401 from
-        // here instead of the handler's 404.
-        || (string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase)
-            && routePath == StripeWebhookEndpoints.Route);
+        || IsStripeWebhookPath(method, requestPath);
+
+    /// <summary>A POST to the Stripe webhook path or anything under it, mapped or not.</summary>
+    /// <remarks>
+    /// CONTRACT: Match the REQUEST PATH prefix, not the route pattern. The bare path, an extra
+    /// segment and the route with STRIPE_ENABLED off resolve no endpoint; off this list they
+    /// answer 401 while a wrong token answers 404, which tells a scan the token route exists.
+    /// Exempt, all of them get the framework's bodiless 404, the same as a wrong token.
+    /// See [[2026-09-19-stripe-payments-design]]
+    /// </remarks>
+    public static bool IsStripeWebhookPath(string method, PathString requestPath) =>
+        string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase)
+        && requestPath.StartsWithSegments(StripeWebhookEndpoints.RoutePrefix, StringComparison.OrdinalIgnoreCase);
 }

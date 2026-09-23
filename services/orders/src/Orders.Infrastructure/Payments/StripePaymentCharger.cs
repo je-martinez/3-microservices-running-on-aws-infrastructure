@@ -48,6 +48,7 @@ public class StripePaymentCharger
     /// <exception cref="PaymentDeclinedException">A card error, no Stripe customer, or an unpaid intent.</exception>
     /// <exception cref="IdempotencyKeyReusedException">A replayed charge that was since refunded.</exception>
     /// <exception cref="IdempotencyKeyMismatchException">The key was first used with other parameters.</exception>
+    /// <exception cref="IdempotencyKeyInFlightException">Another request with the key is still in flight.</exception>
     /// <exception cref="PaymentUnavailableException">No key configured, or any other Stripe failure.</exception>
     public async Task<PaymentSnapshot> ChargeAsync(
         string orderId,
@@ -112,11 +113,15 @@ public class StripePaymentCharger
                 ex.StripeError.DeclineCode ?? ex.StripeError.Code ?? "unknown");
         }
         catch (StripeException ex) when (
-            ex.StripeError?.Type == "idempotency_error" && ex.HttpStatusCode != HttpStatusCode.Conflict)
+            ex.StripeError?.Type == "idempotency_error" && ex.HttpStatusCode == HttpStatusCode.Conflict)
         {
-            // WHY: A 409 idempotency_error is Stripe reporting the SAME key still in flight, not a
-            // body mismatch — it falls through to the 503 below, which the client retries with the
-            // same key and then finds the order.
+            // WHY: A 409 idempotency_error is the SAME key still in flight, not a body mismatch —
+            // the caller waits for that request's order instead of answering 422.
+            activity?.SetStatus(ActivityStatusCode.Error, IdempotencyKeyInFlightException.InFlightReason);
+            throw new IdempotencyKeyInFlightException();
+        }
+        catch (StripeException ex) when (ex.StripeError?.Type == "idempotency_error")
+        {
             activity?.SetStatus(ActivityStatusCode.Error, "idempotency_key_mismatch");
             throw new IdempotencyKeyMismatchException();
         }

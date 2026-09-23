@@ -141,9 +141,8 @@ public sealed class StripeWebhookTests : IDisposable
 
         var response = await PostAsync(client, body, Sign(body, WebhookSecret));
 
-        // WHY: An unmapped path is not on the public allowlist, so the caller guard answers it
-        // exactly as it answered before this route existed.
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(string.Empty, await response.Content.ReadAsStringAsync());
         Assert.Empty(stripe.Requests);
         Assert.Empty(_webhookLog.Entries);
     }
@@ -167,26 +166,30 @@ public sealed class StripeWebhookTests : IDisposable
     // ---- layer 1: URL token --------------------------------------------------------------
 
     [Fact]
-    public async Task A_wrong_url_token_answers_the_same_bodiless_404_as_an_unmapped_route()
+    public async Task Every_invalid_webhook_request_answers_one_identical_bodiless_404()
     {
         var stripe = FakeStripeHandler.Succeeding();
         var client = ClientFor(stripe);
+        var disabled = ClientFor(stripe, stripeEnabled: false);
         var body = PaymentIntentSucceeded(createdAgo: TimeSpan.FromHours(1));
+        var signature = Sign(body, WebhookSecret);
 
-        var wrong = await PostAsync(client, body, Sign(body, WebhookSecret), path: "/v1/orders/stripe/webhook/ordTok_wrong");
-        // WHY: x-user-id gets an unmapped path past the caller guard to the framework's own 404.
-        var unmappedRequest = new HttpRequestMessage(HttpMethod.Post, "/v1/orders/stripe/nowhere")
+        // WHY: No x-user-id, as from Stripe or a scan — with one, the caller guard never runs.
+        var responses = new[]
         {
-            Content = new StringContent(body, Encoding.UTF8, "application/json"),
+            await PostAsync(client, body, signature, path: "/v1/orders/stripe/webhook/ordTok_wrong"),
+            await PostAsync(client, body, signature, path: "/v1/orders/stripe/webhook"),
+            await PostAsync(client, body, signature, path: Route + "/extra"),
+            await PostAsync(disabled, body, signature),
         };
-        unmappedRequest.Headers.Add("x-user-id", OrdersApiFactory.KnownCognitoSub);
-        var unmapped = await client.SendAsync(unmappedRequest);
 
-        Assert.Equal(HttpStatusCode.NotFound, unmapped.StatusCode);
-        Assert.Equal(unmapped.StatusCode, wrong.StatusCode);
-        Assert.Equal(string.Empty, await wrong.Content.ReadAsStringAsync());
-        Assert.Equal(await unmapped.Content.ReadAsStringAsync(), await wrong.Content.ReadAsStringAsync());
-        Assert.Equal(unmapped.Content.Headers.ContentType, wrong.Content.Headers.ContentType);
+        foreach (var response in responses)
+        {
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+            Assert.Equal(string.Empty, await response.Content.ReadAsStringAsync());
+            Assert.Null(response.Content.Headers.ContentType);
+        }
+
         Assert.Empty(stripe.Requests);
         Assert.Empty(_webhookLog.Entries);
         Assert.Empty(_accessLog.Entries);
@@ -214,8 +217,7 @@ public sealed class StripeWebhookTests : IDisposable
 
         var response = await PostAsync(client, body, Sign(body, WebhookSecret), path: "/v1/orders/stripe/webhook");
 
-        // WHY: No endpoint matches, so the caller guard answers it like any other unmapped path.
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         Assert.Empty(stripe.Requests);
         Assert.Empty(_webhookLog.Entries);
     }
@@ -402,7 +404,7 @@ public sealed class StripeWebhookTests : IDisposable
             Assert.Equal(HttpStatusCode.BadRequest, (await PostAsync(client, forged, Sign(forged, "whsec_x"))).StatusCode);
             Assert.Equal(HttpStatusCode.Forbidden, (await PostSignedAsync(client, CustomerCreated(), OutsideIp)).StatusCode);
             // WHY: An unmatched path under the webhook prefix still carries the token.
-            Assert.Equal(HttpStatusCode.Unauthorized, (await PostAsync(client, forged, null, path: Route + "/extra")).StatusCode);
+            Assert.Equal(HttpStatusCode.NotFound, (await PostAsync(client, forged, null, path: Route + "/extra")).StatusCode);
         }
         finally
         {

@@ -4,10 +4,13 @@ using System.Net.Http.Json;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Orders.Application.Orders;
 using Orders.Domain.Entities;
 using Orders.Infrastructure.Id;
 using Orders.Infrastructure.Observability;
+using Orders.Infrastructure.Orders;
+using Orders.Tests.Observability;
 using Orders.Tests.Payments;
 using Stripe;
 using Product = Orders.Domain.Entities.Product;
@@ -333,11 +336,21 @@ public partial class CreateOrderStripeTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
     }
 
-    private HttpClient ClientFor(bool stripeEnabled, FakeStripeHandler? stripe, string sub = OrdersApiFactory.KnownCognitoSub)
+    private HttpClient ClientFor(
+        bool stripeEnabled,
+        FakeStripeHandler? stripe,
+        string sub = OrdersApiFactory.KnownCognitoSub,
+        SpanScopedLogger<CreateOrderService>? serviceLog = null)
     {
         var host = _factory.WithWebHostBuilder(builder =>
         {
             builder.UseSetting("STRIPE_ENABLED", stripeEnabled ? "true" : "false");
+            if (serviceLog is not null)
+            {
+                builder.ConfigureTestServices(services =>
+                    services.AddSingleton<ILogger<CreateOrderService>>(serviceLog));
+            }
+
             if (stripe is null)
             {
                 return;
