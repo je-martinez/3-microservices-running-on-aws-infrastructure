@@ -2,10 +2,10 @@
 title: "Stripe Payments — Saved Cards and Real Charges"
 type: spec
 area: shared
-status: draft
+status: active
 created: 2026-09-19
-updated: 2026-09-22
-tags: [type/spec, area/shared, status/draft]
+updated: 2026-09-23
+tags: [type/spec, area/shared, status/active]
 related:
   - "[[users-service-design]]"
   - "[[testing]]"
@@ -29,6 +29,8 @@ related:
   - "[[browser-rum]]"
   - "[[ADR-0009-apigw-alb-fargate]]"
   - "[[ADR-0016-local-apigw-nginx-ecs]]"
+  - "[[2026-09-23-stripe-net-pins-the-api-version-through-the-package]]"
+  - "[[stripe-payments-milestone]]"
 propagates-to:
   - "[[users-service-design]]"
   - "[[testing]]"
@@ -172,6 +174,29 @@ client:
   `order-charge-{userId}-{clientKey}` — not from the server-minted order id — so a concurrent
   or retried request with the same client key gets the same PaymentIntent back from Stripe,
   never a second charge.
+- **Replay detection, implemented (2026-09-23, corrected).** A local replay of the same
+  `(user, key)` pair is detected by comparing a **stored request fingerprint** —
+  `idempotency_request_hash` — against the incoming request's own fingerprint, computed the same
+  way. The fingerprint is a **SHA-256 hex digest, version-tagged**, of a canonical form of the
+  **purchase**: the order's lines, merged per product and sorted (so the same cart posted with
+  lines in a different order, or with a duplicate line for the same product, hashes identically),
+  plus `paymentMethodId`. Same fingerprint → the existing order is returned (`200`, no charge).
+  Different fingerprint → `422 idempotency_key_mismatch`, the same status the Stripe-side
+  body-mismatch guard below uses, so the client sees one consistent status for "this key was
+  already used for a different request" regardless of which layer caught it.
+
+  **Deliberately excluded: the shipping address.** The address is not part of the idempotency
+  contract because it is not part of the request in the first place — Orders reads it
+  server-side from the Users profile, not from the `POST /v1/orders` body. Hashing it anyway
+  would make retry safety depend on something the client cannot even see change: a user who
+  edits their saved address between the original attempt and a legitimate retry (same key, same
+  cart, same card) would turn an otherwise-identical retry into a spurious `422`. The fingerprint
+  covers only what the client actually controls and resent.
+
+  Persisted as `idempotency_request_hash char(64)` on the order, **nullable** — an order created
+  before this fingerprint existed has no hash, and a replay against it falls back to the
+  pre-fingerprint behaviour (the existing order is returned unconditionally on a `(user, key)`
+  match, per the bullet above) rather than being treated as a mismatch.
 - **Guard — replay of an already-refunded PaymentIntent.** When Stripe replays a cached
   response for that key (`Idempotent-Replayed: true`) and the PaymentIntent has since been
   refunded (the earlier attempt hit a post-charge failure and Decision 9's refund already ran),
@@ -179,6 +204,25 @@ client:
   must retry with a new key.
 - **Guard — body mismatch.** Reusing a key with a different request body is rejected by Stripe
   itself (`idempotency_error`); Orders answers `422 idempotency_key_mismatch`.
+- **Guard — in-flight concurrent duplicate, implemented (2026-09-23, corrected).** Two requests
+  carrying the same `(user, key)` pair that are both in flight at once race Stripe's own
+  idempotency layer, not just the local unique index: the second call to reach Stripe receives
+  Stripe's `409 idempotency_error` while the first is still being processed — distinct from the
+  `400 idempotency_error` variant Stripe returns for a genuine body mismatch (the guard above);
+  only the `409` means "in flight", never a mismatch. Orders responds by **re-checking for the
+  winning order up to 3 times, 500 ms apart** (a fixed, bounded poll, not an open-ended wait);
+  if a winning order appears during that window, Orders returns it. If none appears by the third
+  check, Orders answers `503 payment_unavailable` with a `Retry-After` header, logged at WARNING
+  with `app_event=idempotency_key_in_flight` — this is a transient contention state, not a fault
+  the client caused, so a short client-side retry with the **same** key is the correct response,
+  not a new key.
+
+  **This path is a fallback, not the primary defense.** In production, the Stripe SDK's own
+  network-level retry logic already retries a request that raced another request under the same
+  idempotency key, so Stripe's `409 idempotency_error` is largely absorbed before Orders ever
+  observes it — the SDK's retry effectively waits out the race on Orders' behalf. The 3×/500ms
+  re-check above exists for the cases the SDK's retry does not fully cover (its retry budget
+  exhausted, or a race window wider than that budget), not as the first line of defense.
 
 This header lives alongside `paymentMethodId` in the `POST /v1/orders` contract — see "Orders
 flow" below.
@@ -212,8 +256,32 @@ domain, no third-party account, reusing the restricted key already injected by h
 domain — the opposite of minimal setup — and both expose the local stack to the internet for
 no benefit here.
 
-Added as a `stripe-cli` compose service behind `profiles: [stripe]`, following the existing
-`observability`/`preview` pattern, reaching `users` over the internal compose network.
+**Amended (2026-09-23) — implemented shape, closing the "verify, don't assume" open item from
+Task 10c.9.** There is **no** `stripe-cli` compose service, and no `make stripe-up`/`make
+stripe-logs` targets — that shape, described in an earlier draft of this decision, was not
+built. What exists instead is **two host-side `stripe listen` processes**, one per service,
+each launched by hand from the developer's own machine (not inside compose), each with its own
+`--events` filter and its own token-bearing forward URL (Decision 27):
+
+```bash
+stripe listen --events payment_method.attached,payment_method.detached,payment_method.updated,payment_method.automatically_updated,customer.updated \
+  --forward-to "http://localhost:3000/v1/users/stripe/webhook/<users token>"
+
+stripe listen --events payment_intent.succeeded,charge.refunded,charge.dispute.created,charge.dispute.closed \
+  --forward-to "http://localhost:3001/v1/orders/stripe/webhook/<orders token>"
+```
+
+`make stripe-webhook-secret` (already implemented, `infra/environments/local/scripts/set_stripe_webhook_secret.py`)
+is the actual entry point: it runs `stripe listen --print-secret` once, writes the **same**
+`whsec_...` into both services' CUSTOM boxes (confirming the shared-secret premise below — one
+`stripe listen` process's signing secret is valid for every event it forwards, and each service
+runs its own process, but the CLI still mints one secret per invocation, so running two
+processes does **not** produce two different secrets in practice here because both are
+invocations of `--print-secret` against the same authenticated CLI session), mints each
+service's `STRIPE_WEBHOOK_URL_TOKEN` when absent, and prints the two `stripe listen` commands
+above with the token resolved via a shell `$(grep ... | cut -d= -f2)` substitution at
+run time — so the script itself never prints the token literal, only the command that resolves
+it. See [[stripe-sandbox-setup]] for the full operator procedure.
 
 Gotcha: `stripe listen` prints its **own** signing secret (`whsec_...`), different from the
 dashboard's. Using the dashboard secret locally fails signature verification with a 400 that
@@ -271,7 +339,7 @@ following least privilege:
   (Stripe's restricted-key editor groups these as a single resource with one permission level;
   Write is required to create refunds, and it includes the read needed for Decision 7's
   idempotency replay guard, which lists a PaymentIntent's refunds, and for the `latest_charge`
-  expansion). **No access to Customers or PaymentMethods** (Decision D, user, 2026-09-22): Orders
+  expansion). **No access to Customers or PaymentMethods** (this decision, user, 2026-09-22): Orders
   charges an existing `payment_method` by id and never looks one up — the card brand/last4/expiry
   for the payment snapshot come from the charge itself (`latest_charge.payment_method_details.card`,
   see the Orders flow section), not from a PaymentMethods read. A compromised Orders key should not
@@ -692,14 +760,17 @@ to Orders' own endpoint, not a new logging shape.
 **Local delivery (Decision 10).** `stripe listen`'s signing secret is the same value for every
 event it forwards on one machine — the CLI mints one secret per running `listen` process, not
 per destination. `make stripe-webhook-secret` therefore writes that **one** `whsec_...` into
-**both** `.env.local.users`' and `.env.local.orders`' CUSTOM boxes. What the implementer must
-verify, not invent: whether one `stripe listen --forward-to` invocation can forward to two
-local endpoints, or whether two concurrent `stripe listen` processes are needed (in which case
-they would mint two *different* secrets, contradicting the shared-secret premise above) — run
-`stripe listen --help` and confirm before wiring the compose command; do not assume flags that
-have not been checked against the installed CLI's own help output. A real deployment gives each
-endpoint its own Dashboard-issued secret, so this shared-secret-on-one-machine shape is a local
-convenience, not a production characteristic.
+**both** `.env.local.users`' and `.env.local.orders`' CUSTOM boxes. **Resolved (2026-09-23,
+closing this task's open item):** two concurrent `stripe listen` processes are used, one per
+service, each with its own `--events` filter and its own forward URL — not a single invocation
+forwarding to two destinations. This does not contradict the shared-secret premise above:
+`make stripe-webhook-secret` obtains the secret from one `stripe listen --print-secret` call
+against the authenticated CLI session and writes that same value into both services' CUSTOM
+boxes, so the two long-running `--forward-to` processes a developer starts by hand are given the
+same signing secret to verify against, rather than each minting and using its own. See Decision
+10's amendment for the exact commands. A real deployment gives each endpoint its own
+Dashboard-issued secret, so this shared-secret-on-one-machine shape is a local convenience, not
+a production characteristic.
 
 ### 27. Webhook defense in depth: URL token + Stripe IP allowlist, enforced in the services
 
@@ -788,11 +859,14 @@ consistent with the two new `/{token}` paths and the new rejection reason:
   `billingEmail`, `billingAddress Json`, `isDefault`, `rawPayload Json`, plus the standard
   [[audit-fields]] and [[soft-delete]] columns. Primary key follows [[nano-id]].
 
-**Orders (Postgres, EF Core):** a payment snapshot on the order aggregate — `PaymentIntentId`,
+**Orders (MySQL, EF Core):** a payment snapshot on the order aggregate — `PaymentIntentId`,
 `PaymentStatus`, `AmountCents`, `Currency`, `PaymentMethodId`, `CardBrand`, `CardLast4`,
 `CardExpMonth`, `CardExpYear`, `PaymentRawPayload` — denormalized per Decision 5, alongside the
 existing `ShippingAddressSnapshot`. Plus a nullable `IdempotencyKey` column with a unique index
-on `(UserId, IdempotencyKey)`, per Decision 7's client-supplied idempotency.
+on `(UserId, IdempotencyKey)`, and a nullable `idempotency_request_hash char(64)` column — the
+SHA-256, version-tagged request fingerprint Decision 7 compares on replay (rows predating this
+column have no hash and replay unconditionally, per Decision 7) — both per Decision 7's
+client-supplied idempotency.
 
 ## Users HTTP surface
 
@@ -820,8 +894,11 @@ With the flag on, `paymentMethodId` arrives in the `POST /v1/orders` body (400 i
 the request additionally carries an `Idempotency-Key` header (400 `idempotency_key_required` if
 missing — Decision 7). With the flag off, `paymentMethodId` is ignored, the header is optional
 and ignored too, and the endpoint behaves exactly as today. Orders fetches `stripe_customer_id`
-over gRPC (Decision 6); checks `(UserId, IdempotencyKey)` for an existing order and returns it
-(`200`, no charge) on a match; otherwise creates the PaymentIntent (amount = the total Orders
+over gRPC (Decision 6); checks `(UserId, IdempotencyKey)` for an existing order — a match with
+the same request fingerprint (`idempotency_request_hash`, or no stored hash at all) returns that
+order (`200`, no charge); a match with a different fingerprint answers `422
+idempotency_key_mismatch` before Stripe is ever called (Decision 7). Otherwise, creates the
+PaymentIntent (amount = the total Orders
 already computes, `customer`, `payment_method`, `off_session: true, confirm: true`, an
 idempotency key derived from `(userId, clientKey)`), then persists the order with the payment
 snapshot (Decision 5), charging before persisting (Decision 7) and refunding automatically if
@@ -833,7 +910,7 @@ reused key with a mismatched body answers `422 idempotency_key_mismatch` (Decisi
 The payment snapshot's card fields (`CardBrand`/`CardLast4`/`CardExpMonth`/`CardExpYear`,
 Decision 5) come from the charge, not from a PaymentMethods lookup: the PaymentIntent create
 call expands `latest_charge`, and the card fields are read from
-`latest_charge.payment_method_details.card` (Decision D, user, 2026-09-22) — consistent with
+`latest_charge.payment_method_details.card` (Decision 15, user, 2026-09-22) — consistent with
 Orders' restricted key having no PaymentMethods access at all (Decision 15).
 
 **`POST /v1/orders/stripe/webhook/{token}`** — public, no JWT, IP-allowlisted and
@@ -917,13 +994,13 @@ validates its own branch.
 
 ## Local webhook delivery
 
-See Decision 10. `stripe-cli` runs as a compose service behind `profiles: [stripe]`, started
-with `make stripe-up` and inspected with `make stripe-logs`, following the `observability`
-pattern in [[local-dev]]. It forwards Stripe events to **both** Users and Orders over the
-internal compose network — Orders' own webhook (Decision 26) needs delivery too, using the
-**same** `stripe listen`-minted signing secret in both services' CUSTOM boxes (Decision 26's
-local-delivery paragraph); no public route exists for either locally (Decision 10's
-consequence).
+See Decision 10's amendment. There is no `stripe-cli` compose service and no `make stripe-up`/
+`make stripe-logs`; delivery is two host-side `stripe listen` processes launched by hand, one
+per service, each forwarding to its own `localhost` port and token-bearing URL. `make
+stripe-webhook-secret` (already implemented) is the entry point — it mints and writes the
+**same** `stripe listen`-obtained signing secret into both services' CUSTOM boxes (Decision 26's
+local-delivery paragraph) and prints the two ready-to-run commands. No public route exists for
+either locally (Decision 10's consequence).
 
 ## Testing
 
@@ -964,9 +1041,9 @@ Users' route. `/v1/orders/stripe/webhook/{token}` needs **no new** nginx `locati
 `infra/modules/compute/nginx/nginx.conf` — it falls under the existing `location /v1/orders`
 prefix block, which forwards path and all to Orders unchanged; verified against the current
 file, not assumed. That block's existence is still worth restating: a new top-level path with no
-matching `location` silently falls through to `location /`, which routes to Users. Plus the
-`stripe-cli` compose service behind `profiles: [stripe]` and the `make stripe-up` / `make
-stripe-logs` targets.
+matching `location` silently falls through to `location /`, which routes to Users. No compose
+service or Makefile targets are added for webhook delivery — see Decision 10's amendment;
+`make stripe-webhook-secret` is the only Makefile entry point this milestone adds.
 
 Also tracked here, not as footnotes:
 - The `Content-Security-Policy` change to `apps/web`'s nginx config (Web section) allowing
@@ -1033,8 +1110,9 @@ Manually installed skills do not auto-update — `pnpm dlx skills update` refres
 - [[money-representation]] — the amount/currency representation the payment snapshot follows.
 - [[money-as-integer-cents]] — the ADR behind Orders' existing tax calculation that Decision 20
   keeps in place instead of adopting Stripe Tax.
-- [[local-dev]] — the `profiles:`-gated optional-service pattern the `stripe-cli` service
-  follows.
+- [[local-dev]] — the local-dev workflow this milestone's `make stripe-webhook-secret` target
+  follows; webhook delivery itself is two host-side `stripe listen` processes, not a
+  `profiles:`-gated compose service (Decision 10's amendment).
 - [[logging-context]] — the shared logging context the new payment endpoints must emit under
   (no plaintext card data, ever).
 - [[git-workflow]] — branch/PR flow this milestone's implementation issues follow.
@@ -1066,3 +1144,8 @@ Manually installed skills do not auto-update — `pnpm dlx skills update` refres
   depth layers live in the services.
 - [[ADR-0016-local-apigw-nginx-ecs]] — the local API Gateway/nginx emulation Decision 27 cites
   as the reason its layers are service-side rather than nginx-side even locally.
+- [[2026-09-23-stripe-net-pins-the-api-version-through-the-package]] — Stripe.NET has no
+  per-client API-version option; the pinned version in Decision 18 travels with the `Stripe.net`
+  package version on Orders' side, not with a constructor argument the way Node's SDK allows.
+- [[stripe-payments-milestone]] — the milestone-level status/gap-backlog note tracking this
+  spec's implementation progress, PR links, and open follow-up items.
