@@ -7,7 +7,7 @@ import { StripeUnavailableException } from "#shared/stripe/stripe-unavailable.ex
 import { ensureStripeCustomer } from "../../src/payment-methods/ensure-stripe-customer.ts";
 
 function fakeDb(
-  user: { stripeCustomerId: string | null },
+  user: { stripeCustomerId: string | null; cognitoSub?: string | null },
   options?: { updateManyCount?: number; reread?: { stripeCustomerId: string | null } },
 ) {
   const findUniqueOrThrow = vi.fn().mockResolvedValueOnce(user).mockResolvedValue(options?.reread ?? user);
@@ -100,6 +100,31 @@ describe("ensureStripeCustomer", () => {
       { email: "a@b.com", metadata: { user_id: "usr_1", e2e_source: "true" } },
       { idempotencyKey: "stripe-customer-create-usr_1" },
     );
+  });
+
+  it("sends metadata.cognito_sub from the user row when it has one", async () => {
+    const create = vi.fn().mockResolvedValue({ id: "cus_sub" });
+    const stripe = { enabled: true, client: { customers: { create } } } as never;
+    const db = fakeDb({ stripeCustomerId: null, cognitoSub: "sub-abc" });
+
+    await ensureStripeCustomer(stripe, db, { userId: "usr_1", email: "a@b.com", e2eSource: true });
+
+    expect(create).toHaveBeenCalledWith(
+      { email: "a@b.com", metadata: { user_id: "usr_1", cognito_sub: "sub-abc", e2e_source: "true" } },
+      { idempotencyKey: "stripe-customer-create-usr_1" },
+    );
+  });
+
+  it.each([null, ""])("omits metadata.cognito_sub when the user row's sub is %j", async (cognitoSub) => {
+    const create = vi.fn().mockResolvedValue({ id: "cus_nosub" });
+    const stripe = { enabled: true, client: { customers: { create } } } as never;
+    const db = fakeDb({ stripeCustomerId: null, cognitoSub });
+
+    await ensureStripeCustomer(stripe, db, { userId: "usr_1", email: "a@b.com", e2eSource: false });
+
+    const [params] = create.mock.calls[0] as [{ metadata: Record<string, string> }];
+    expect(params.metadata).toEqual({ user_id: "usr_1" });
+    expect(params.metadata).not.toHaveProperty("cognito_sub");
   });
 
   it("throws StripeUnavailableException when the client is null", async () => {
