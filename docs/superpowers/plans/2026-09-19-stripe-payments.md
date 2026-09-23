@@ -42,6 +42,8 @@ related:
   - "[[stripe-sandbox-setup]]"
   - "[[browser-rum]]"
   - "[[logging-context]]"
+  - "[[ADR-0009-apigw-alb-fargate]]"
+  - "[[ADR-0016-local-apigw-nginx-ecs]]"
 ---
 
 # Stripe Payments Implementation Plan
@@ -1780,9 +1782,107 @@ app, and disputes. Fulfillment stays exactly as Task 9 built it: synchronous, in
 - [ ] 10c.10 Leave the work uncommitted in the working tree and report what changed — the main
   session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
 
+## Task 10d — Webhook defense in depth (URL token + IP allowlist)
+
+**Spec Decision 27 (user, 2026-09-22).** Both webhooks (Users' from Task 5, Orders' from Task
+10c) gain two more layers on top of the existing `Stripe-Signature` check: a per-service URL
+token appended to the route, and an allowlist of Stripe's published webhook source IPs. Both
+layers are enforced in the services themselves — nginx is local-only and AWS WAF does not
+attach to the HTTP APIs this repo uses. Order of checks, before any body parsing: IP allowlist →
+URL token → signature. Write every rejection test first.
+
+**Files:**
+- Modify (Users): the webhook route file from Task 5 (grep `stripe/webhook` under
+  `services/users/src`), `services/users/src/config/env.schema.ts`, the webhook route's
+  `.spec.ts`
+- Modify (Orders): `services/orders/src/Orders.Api/StripeWebhook/StripeWebhookEndpoint.cs` (Task
+  10c.2's file, or wherever it actually landed), Orders' settings/env binding, its xUnit tests
+- Modify (infra): `infra/modules/api-gateway/main.tf` (both webhook route entries' `key` and
+  integration `path`), `infra/environments/local/scripts/generate_env_files.py` (both services'
+  AUTO box — `STRIPE_WEBHOOK_ALLOWED_CIDRS`, `STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS=0`),
+  `infra/environments/local/scripts/set_stripe_webhook_secret.py` (or wherever Task 10c.8 left
+  `make stripe-webhook-secret` — extend it to also mint/preserve each service's
+  `STRIPE_WEBHOOK_URL_TOKEN`), `docker-compose.yml` (`stripe-cli`'s `--forward-to` targets gain
+  the token path)
+- Modify (E2E): the existing Users webhook internal + gateway specs (Task 5/8's tests) move to
+  the token path; add the new rejection cases below
+
+**Interfaces:**
+- Consumes: Task 5's Users webhook route, Task 10c's Orders webhook route, Decision 27's env
+  vars (`STRIPE_WEBHOOK_URL_TOKEN`, `STRIPE_WEBHOOK_ALLOWED_CIDRS`,
+  `STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS`).
+- Produces: `POST /v1/users/stripe/webhook/{token}` and `POST
+  /v1/orders/stripe/webhook/{token}`, replacing the bare `/webhook` paths Tasks 5 and 10c
+  created. No other route changes.
+
+### Steps
+
+- [ ] 10d.1 **Failing tests first, Users.** Write the rejection cases before touching the route:
+  - [ ] 10d.1a Wrong or missing `{token}` → `404`, the framework's normal not-found shape (assert
+    the body is indistinguishable from an unmapped route, not a custom "invalid token" payload).
+  - [ ] 10d.1b `STRIPE_ENABLED=true` with `STRIPE_WEBHOOK_URL_TOKEN` unset → `503
+    stripe_unavailable`.
+  - [ ] 10d.1c Correct token but source IP outside `STRIPE_WEBHOOK_ALLOWED_CIDRS` → `403
+    forbidden_source`, and assert `app_event=stripe_webhook_received`,
+    `reason=source_ip_not_allowed`, and the source IP are logged at WARNING.
+  - [ ] 10d.1d Correct token, allowed IP, valid signature → 2xx, unchanged from Task 5's existing
+    behavior (regression check that layering the two new guards in front does not break the
+    happy path).
+  - [ ] 10d.1e The token never appears in any log line or span attribute across 10d.1a–10d.1d —
+    assert against the logger/tracer test doubles already used in Task 1.7's spec, not a new
+    harness.
+  Run `nvm use && pnpm --filter users test` for the webhook spec — all new cases fail.
+
+- [ ] 10d.2 Implement Users' side: extend the env schema with the three new vars (mirroring Task
+  1.1's pattern), change the route path to append `/:token` (or this framework's equivalent),
+  add the IP-allowlist check (reading `STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS` to pick the right
+  address) and the constant-time token comparison ahead of the existing signature verification,
+  in that order. Redact the route to its template (`…/webhook/{token}`) in any access log/span
+  that would otherwise record the concrete path. Run 10d.1's tests — pass.
+
+- [ ] 10d.3 **Failing tests first, Orders.** Mirror 10d.1a–10d.1e in xUnit against Task 10c's
+  endpoint (`10d.3a`–`10d.3e`), same five cases, same assertions translated to this service's
+  test/logging idioms. Run — all fail.
+
+- [ ] 10d.4 Implement Orders' side, mirroring 10d.2's shape: route path gains the token segment,
+  IP allowlist and token checks ahead of Task 10c.2's signature verification, redaction on any
+  access log/activity that would record the concrete path. Run 10d.3's tests — pass.
+
+- [ ] 10d.5 **Infra — gateway routes.** Update both webhook entries in
+  `infra/modules/api-gateway/main.tf` so their `key` and integration `path` carry the `{token}`
+  segment, e.g. `users_stripe_webhook = { key = "POST /v1/users/stripe/webhook/{token}", path =
+  "/v1/users/stripe/webhook/{token}", auth = false }`, and the equivalent for Orders' entry from
+  Task 10c.5. Confirm the nginx prefix blocks (`location /v1/users`, `location /v1/orders`) still
+  forward the longer path unchanged — no new `location` block needed, same reasoning as Task
+  10c.6.
+
+- [ ] 10d.6 **Infra — env generator.** Add `STRIPE_WEBHOOK_ALLOWED_CIDRS` and
+  `STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS=0` to both services' AUTO box in
+  `infra/environments/local/scripts/generate_env_files.py` — the local value per Decision 27
+  includes the published Stripe IPs plus loopback/private ranges, since `stripe listen` forwards
+  from the developer's own machine.
+
+- [ ] 10d.7 **Infra — `make stripe-webhook-secret` also mints the URL tokens.** Extend the script
+  from Task 10c.8 to generate `STRIPE_WEBHOOK_URL_TOKEN` (≥ 32 random URL-safe bytes) into each
+  service's CUSTOM box when absent, preserving an existing value rather than rotating it
+  silently, and print the two `stripe listen --forward-to` commands with the tokens masked
+  unless the caller explicitly asks to reveal them.
+
+- [ ] 10d.8 **E2E — move existing specs to the token path.** Update Task 5/8's Users webhook
+  internal and gateway Playwright specs to target `.../webhook/{token}` using the token the test
+  environment's CUSTOM box provides. Add the new rejection cases: wrong token → 404; disallowed
+  IP → 403, where the test can control the source address. Note for the gateway-E2E case: locally
+  the request arrives from a private address, so the 403 case is exercised at the
+  unit/integration layer (10d.1c/10d.3c) and, where the gateway E2E environment's source IP is
+  actually controllable, also at that layer — do not fabricate a gateway-E2E 403 case against an
+  uncontrollable source IP.
+
+- [ ] 10d.9 Leave the work uncommitted in the working tree and report what changed — the main
+  session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+
 ## GATE — stop point before Web work
 
-Task 11 (web) posts `paymentMethodId` to `POST /v1/orders`, which does not behave correctly until Tasks 9–10 (and 10c) are merged. **Present the Tasks 9–10c batch for review per [[phase-c-review-flow]] and wait for merge before starting Task 11.** Task 10c (Orders' own Stripe webhook, payment reconciliation) has no dependency on Task 11/12/13 and joins this same batch — it depends only on Task 9's `PaymentSnapshot`/order model and Task 10's refund idempotency key, both already merged by the time 10c is implemented within this batch. Task 13 (plain-branch card validation) touches only pure functions and the plain branch — it does not depend on Tasks 9–10c and may be implemented in parallel with this wait. Task 12 (profile Payment methods tab) reuses Task 11's `SavedCardRow`/`PaymentMethodsApi`, so it must wait for Task 11 to land first, not merely for this GATE — see Task 12's header note. All three of Tasks 11, 12, and 13's PRs are batched together for review at this same stop point, since all touch `checkout-payment.html`/`.ts`, `profile.ts`/`.html`, or a component either composes.
+Task 11 (web) posts `paymentMethodId` to `POST /v1/orders`, which does not behave correctly until Tasks 9–10 (and 10c–10d) are merged. **Present the Tasks 9–10d batch for review per [[phase-c-review-flow]] and wait for merge before starting Task 11.** Task 10c (Orders' own Stripe webhook, payment reconciliation) and Task 10d (webhook defense in depth, both services) have no dependency on Task 11/12/13 and join this same batch — 10c depends only on Task 9's `PaymentSnapshot`/order model and Task 10's refund idempotency key, and 10d depends only on Task 5 (Users' webhook) and 10c (Orders' webhook), all already merged by the time 10c/10d are implemented within this batch. Task 13 (plain-branch card validation) touches only pure functions and the plain branch — it does not depend on Tasks 9–10d and may be implemented in parallel with this wait. Task 12 (profile Payment methods tab) reuses Task 11's `SavedCardRow`/`PaymentMethodsApi`, so it must wait for Task 11 to land first, not merely for this GATE — see Task 12's header note. All three of Tasks 11, 12, and 13's PRs are batched together for review at this same stop point, since all touch `checkout-payment.html`/`.ts`, `profile.ts`/`.html`, or a component either composes.
 
 ## Task 11 — Web: `SavedCardRow` component + Payment Element checkout flow
 
@@ -2481,9 +2581,9 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
 
 ### Steps
 
-- [ ] 14.1 Add the new Users routes (`/v1/users/me/payment-methods*`, `/v1/users/stripe/webhook`) to `infra/modules/api-gateway/main.tf`'s route map, following the existing route-block pattern for other `/v1/users/*` routes. Orders' own webhook route (`POST /v1/orders/stripe/webhook`) is added by Task 10c.5, not here — it is listed in this plan's Self-review coverage table under Decision 26, not duplicated in this task.
+- [ ] 14.1 Add the new Users routes (`/v1/users/me/payment-methods*`, `/v1/users/stripe/webhook/{token}`) to `infra/modules/api-gateway/main.tf`'s route map, following the existing route-block pattern for other `/v1/users/*` routes. The webhook entry's `key` and integration `path` both carry the `{token}` segment per Decision 27; if Task 14 lands before Task 10d, seed the bare `/v1/users/stripe/webhook` shape here and let Task 10d.5 add the `{token}` segment — do not block Task 14 on Task 10d's ordering. Orders' own webhook route (`POST /v1/orders/stripe/webhook/{token}`) is added by Task 10c.5/10d.5, not here — it is listed in this plan's Self-review coverage table under Decisions 26/27, not duplicated in this task.
 
-- [ ] 14.2 Verify whether `/v1/users/stripe/webhook` and the payment-methods paths need a `location` block distinct from the existing `/v1/users/` catch-all in `infra/modules/compute/nginx/nginx.conf` — per the spec's Infra section, a missing `location` block for a new top-level path silently falls through to `location /`, which routes to Users. Both fall under the existing `location /` block (Users is the default backend), so no new block is expected here; confirm against the file rather than assuming. (Orders' webhook path is verified separately, in Task 10c.6, against `location /v1/orders` — a different block, since Orders is not the nginx default.)
+- [ ] 14.2 Verify whether `/v1/users/stripe/webhook/{token}` and the payment-methods paths need a `location` block distinct from the existing `/v1/users/` catch-all in `infra/modules/compute/nginx/nginx.conf` — per the spec's Infra section, a missing `location` block for a new top-level path silently falls through to `location /`, which routes to Users. Both fall under the existing `location /` block (Users is the default backend), so no new block is expected here; confirm against the file rather than assuming. (Orders' webhook path is verified separately, in Task 10c.6, against `location /v1/orders` — a different block, since Orders is not the nginx default.)
 
 - [ ] 14.3 Add the CSP header change to `apps/web`'s nginx config, allowing `https://*.stripe.com` in `script-src`, `frame-src`, and `connect-src`:
   ```
@@ -2509,11 +2609,14 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
   `orders:8080/v1/orders/stripe/webhook`, or whether a second `stripe-cli`-like service/process
   is needed. Land this step's single-destination command first (Task 14 has no dependency on
   Task 10c and may land first in the review batch); Task 10c.9 verifies against `stripe listen
-  --help` and updates this block accordingly rather than guessing the flag here.
+  --help` and updates this block accordingly rather than guessing the flag here. Once Task 10d
+  lands, both `--forward-to` targets additionally carry each service's `{token}` segment
+  (Decision 27) — Task 10d.7 is where `make stripe-webhook-secret` starts minting and printing
+  those tokens, and this compose block's forward-to URLs are updated there, not here.
 
 - [ ] 14.5 Add `make stripe-up` and `make stripe-logs` targets to the `Makefile`, mirroring the existing `observability-up`/`observability-*` targets' shape (`docker compose --profile stripe up -d` / `docker compose logs -f stripe-cli`).
 
-- [ ] 14.6 Add every new variable to `.env.example` with a comment explaining AUTO vs CUSTOM per [[env-files]]: `STRIPE_ENABLED` (AUTO-generated default `false`), `STRIPE_SECRET_KEY` (CUSTOM, hand-injected `rk_...`), `STRIPE_WEBHOOK_SECRET` (CUSTOM, hand-injected `whsec_...` from `stripe listen`'s own output), `NG_APP_STRIPE_PUBLISHABLE_KEY` (CUSTOM, the publishable `pk_...` key, safe for the bundle).
+- [ ] 14.6 Add every new variable to `.env.example` with a comment explaining AUTO vs CUSTOM per [[env-files]]: `STRIPE_ENABLED` (AUTO-generated default `false`), `STRIPE_SECRET_KEY` (CUSTOM, hand-injected `rk_...`), `STRIPE_WEBHOOK_SECRET` (CUSTOM, hand-injected `whsec_...` from `stripe listen`'s own output), `NG_APP_STRIPE_PUBLISHABLE_KEY` (CUSTOM, the publishable `pk_...` key, safe for the bundle). Task 10d adds three more, not this step: `STRIPE_WEBHOOK_URL_TOKEN` (CUSTOM, per-service, minted by `make stripe-webhook-secret`) and `STRIPE_WEBHOOK_ALLOWED_CIDRS`/`STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS` (AUTO, per Decision 27) — listed here only so `.env.example` is not treated as finished before Task 10d lands.
 
   **Decision (user, 2026-09-22 — revised, supersedes the same-day decision below):**
   `infra/environments/local/scripts/generate_env_files.py` seeds three keys into the **CUSTOM**
@@ -2570,7 +2673,7 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
 
 ### Steps
 
-- [ ] 15.1 Write internal E2E specs against `localhost:3000` (Users) covering: create setup-intent, attach a card (using Stripe's test PaymentMethod token flow against the CI sandbox per Decision 17), list, set default, detach, and the webhook signature-rejection path (a request with a bad `stripe-signature` header gets 400). Tag every created row with `x-e2e-source: true` and confirm `E2E_TESTING_ENABLED` gates it, per [[testing]]'s "E2E cleanup by tag" mechanism.
+- [ ] 15.1 Write internal E2E specs against `localhost:3000` (Users) covering: create setup-intent, attach a card (using Stripe's test PaymentMethod token flow against the CI sandbox per Decision 17), list, set default, detach, and the webhook signature-rejection path (a request with a bad `stripe-signature` header gets 400). Tag every created row with `x-e2e-source: true` and confirm `E2E_TESTING_ENABLED` gates it, per [[testing]]'s "E2E cleanup by tag" mechanism. The URL-token and IP-allowlist rejection cases (Decision 27) are Task 10d.8's responsibility, not this step's — this step targets the route at whatever path it has once Task 10d has landed, and does not duplicate 10d's own rejection tests.
 
 - [ ] 15.2 Write internal E2E specs against `localhost:3001` (Orders) covering: `POST /v1/orders` with a valid `paymentMethodId` and `Idempotency-Key` succeeds and returns an order with a payment snapshot; with the flag on and `paymentMethodId` omitted, returns 400; with the flag on and the `Idempotency-Key` header omitted, returns 400 `idempotency_key_required` (step 9.10b); with a Stripe test card that triggers a decline (`4000000000000002`), returns 402; the metadata-only card validation from Task 9.9 (known/unknown brand, expired/valid, malformed `last4`); the same `(user, key)` POSTed twice returns the existing order on the second call and Stripe is charged exactly once (step 9.10b.2); and the concurrency scenario from Task 10.1 reproduced at the HTTP layer if feasible, or explicitly noted as covered only at the unit level with a comment pointing to Task 10.1's test name.
 
@@ -2614,14 +2717,14 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
 
 ## Execution notes
 
-- Per [[phase-c-review-flow]], issues for Tasks 1–7 and Tasks 9–15 (including 10c) chain without per-merge prompts; PRs are batched for review at each of the two GATEs above, and nothing is auto-merged — the user reviews and merges each batch explicitly. Task 10c (Orders' own Stripe webhook) has no dependency on Tasks 11–13 and may be worked in any order relative to them within the second batch, provided it lands after Tasks 9–10 (it consumes Task 9's order model and Task 10's refund idempotency key). Task 13 (plain-branch card validation) may be worked in parallel with the Task 9–10 wait, since it has no dependency on them, but its PR still joins the second batch. Task 12 (profile Payment methods tab) reuses `SavedCardRow` and `PaymentMethodsApi` from Task 11, so it must be ordered after Task 11 within the second batch, not worked in parallel with it.
+- Per [[phase-c-review-flow]], issues for Tasks 1–7 and Tasks 9–15 (including 10c and 10d) chain without per-merge prompts; PRs are batched for review at each of the two GATEs above, and nothing is auto-merged — the user reviews and merges each batch explicitly. Task 10c (Orders' own Stripe webhook) has no dependency on Tasks 11–13 and may be worked in any order relative to them within the second batch, provided it lands after Tasks 9–10 (it consumes Task 9's order model and Task 10's refund idempotency key). Task 10d (webhook defense in depth) depends on both Task 5 (Users' webhook) and Task 10c (Orders' webhook) and lands after both within the second batch. Task 13 (plain-branch card validation) may be worked in parallel with the Task 9–10 wait, since it has no dependency on them, but its PR still joins the second batch. Task 12 (profile Payment methods tab) reuses `SavedCardRow` and `PaymentMethodsApi` from Task 11, so it must be ordered after Task 11 within the second batch, not worked in parallel with it.
 - The Linear issues for this milestone do not exist yet. Once `linear-pm` creates them, a milestone-plan note is required at `docs/plans/stripe-payments-milestone.md` per [[milestone-plan]] (task-sequence table, dependency table, and dependency diagram) — this superpowers plan documents *how* to implement each task, not the milestone's cross-issue dependency structure, which is what that note is for.
 - The user injects the restricted keys (`rk_...` for each service) and the webhook secret by hand into the CUSTOM box of `.env.local.users` and `.env.local.orders` — never the AUTO box. The dedicated local-dev and CI Stripe sandboxes (Decision 17) are a prerequisite of Task 1: without a sandbox and its keys, Task 1's `STRIPE_ENABLED=true` path cannot be exercised past the "no key" branch. See [[stripe-sandbox-setup]] for the step-by-step procedure to obtain both sandboxes and their keys.
 - All design tokens this milestone's six new frames use (Decisions 22–24, Task 11's `SavedCardRow`, Task 12's profile tab) already exist in `apps/web/src/styles.css` — no task in this plan adds a token or touches `styles.css`.
 
 ## Self-review
 
-**Spec coverage** — all 26 decisions (plus Decision D) map to at least one task:
+**Spec coverage** — all 27 decisions (plus Decision D) map to at least one task:
 
 | Decision | Task(s) |
 |---|---|
@@ -2651,6 +2754,7 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
 | 24 (expired saved card shown, not hidden) | 11 (`SavedCardRow`'s expired state, Task 11.1–11.2), 12 (profile Cards List reuses it), 15 (component spec, step 15.6) |
 | 25 (Stripe calls join the logs/traces cascade) | 1 (`withStripeSpan` foundation, steps 1.7–1.8), 3 (step 3.3), 4 (step 4.10), 5 (step 5.5), 6 (step 6.3), 9 (step 9.10), 10 (step 10.4), 10c (step 10c.3), 11 (step 11.17), 12 (step 12.8), 15 (step 15.10) |
 | 26 (Orders gets its own Stripe webhook, payment reconciliation) | 10c |
+| 27 (webhook defense in depth: URL token + Stripe IP allowlist) | 10d |
 | D (Orders' key never reads PaymentMethods; snapshot reads `latest_charge`) | 9 (step 9.7), 14 (permission table cross-reference) |
 
 **Placeholder scan:** no "TBD"/"similar to Task N" shortcuts remain except explicitly-flagged repo-verification steps (4.8's conditional-module choice, 4.7's decorator names, 9.1/10.1's exact mock/fixture APIs, 13.9's exact signal-forms `validate()` signature, 11.1's "verify exact utility spelling against styles.css") — each names the exact `grep` to run and the exact existing file to copy from, rather than leaving the shape undefined.

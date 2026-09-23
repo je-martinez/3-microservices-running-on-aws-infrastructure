@@ -27,6 +27,8 @@ related:
   - "[[code-comments]]"
   - "[[stripe-sandbox-setup]]"
   - "[[browser-rum]]"
+  - "[[ADR-0009-apigw-alb-fargate]]"
+  - "[[ADR-0016-local-apigw-nginx-ecs]]"
 propagates-to:
   - "[[users-service-design]]"
   - "[[testing]]"
@@ -36,6 +38,7 @@ propagates-to:
   - "[[logging-context]]"
   - "[[angular-component-authoring]]"
   - "[[browser-rum]]"
+  - "[[stripe-sandbox-setup]]"
 ---
 
 # Stripe Payments — Saved Cards and Real Charges
@@ -598,7 +601,9 @@ without Stripe's own dashboard open:**
 - **The webhook (Decision 4/11).** `app_event=stripe_webhook_received` with the Stripe
   `event.type` and `event.id` as attributes. A signature-verification failure logs as a
   failure with `reason=signature_verification_failed`, and **never** logs the `stripe-signature`
-  header or the raw request body.
+  header or the raw request body. A rejection at Decision 27's IP-allowlist or URL-token layer
+  logs the same `app_event` with `reason=source_ip_not_allowed` or, for the token, nothing at
+  all beyond the 404 itself (the token must never appear in a log line, per Decision 27).
 
 **The web side inherits [[browser-rum]]'s rules — it does not get its own.** The new checkout
 and profile calls (Decisions 22–23) MUST go through `ApiClient`: a raw `fetch()` bypasses
@@ -671,8 +676,9 @@ idempotency key, the refund/dispute-status handlers are plain upserts of the ord
 the same status twice. A processed-event table would only buy protection a plain idempotent
 handler already has for this handler shape.
 
-**Route.** `POST /v1/orders/stripe/webhook` — public, no JWT (`auth = false` in the gateway
-route map, the same shape as Users' `stripe_webhook` route). Signature verified on the
+**Route.** `POST /v1/orders/stripe/webhook/{token}` (the `{token}` segment per Decision 27) —
+public, no JWT (`auth = false` in the gateway route map, the same shape as Users'
+`stripe_webhook` route). Signature verified on the
 **raw** request body using Orders' **own** `STRIPE_WEBHOOK_SECRET` before any handler runs —
 an invalid signature answers `400 invalid_signature` and dispatches nothing, mirroring
 Decision 4's webhook. `STRIPE_ENABLED=true` with the secret absent answers `503
@@ -694,6 +700,83 @@ they would mint two *different* secrets, contradicting the shared-secret premise
 have not been checked against the installed CLI's own help output. A real deployment gives each
 endpoint its own Dashboard-issued secret, so this shared-secret-on-one-machine shape is a local
 convenience, not a production characteristic.
+
+### 27. Webhook defense in depth: URL token + Stripe IP allowlist, enforced in the services
+
+**Decision, user, 2026-09-22.** Both webhooks (Users, Orders) are public at the gateway — no
+Cognito JWT, because Stripe cannot present one — and authenticate every delivery by the
+`Stripe-Signature` HMAC over the raw body with a per-endpoint `whsec_...` (Decision 4/26), with
+a 5-minute timestamp tolerance against replay. Stripe's own guidance recommends exactly two
+controls beyond that: signature verification and allowlisting Stripe's webhook source IPs.
+Stripe cannot send custom headers or basic auth, so the only API-key-like secret it can present
+is one embedded in the endpoint URL itself. This decision adds both as two more layers on top
+of the signature, at the user's request.
+
+**Placement: in the services, not nginx.** nginx exists only locally
+([[ADR-0016-local-apigw-nginx-ecs]]); a real deployment is API Gateway → ALB → Fargate
+([[ADR-0009-apigw-alb-fargate]]). Edge filtering is not available for this shape: AWS WAF
+integrates with API Gateway REST APIs, not the HTTP APIs this repo uses. So each service
+enforces both layers itself, identically in local and production — neither layer is
+nginx-only or gateway-only.
+
+**Layer 1 — URL token.**
+- Routes become `POST /v1/users/stripe/webhook/{token}` and `POST
+  /v1/orders/stripe/webhook/{token}`; the bare `/webhook` path (Decision 4/26) no longer
+  exists.
+- Each service has its **own** token (`STRIPE_WEBHOOK_URL_TOKEN`, ≥ 32 random URL-safe bytes,
+  distinct per service), compared in constant time. Missing or wrong token → `404` with the
+  framework's normal not-found shape — indistinguishable from an unmapped route, so a scan
+  cannot tell "wrong token" from "no such route" apart. Flag on but the token unset → `503
+  stripe_unavailable`, the same graceful-degradation shape Decision 13 already specifies for a
+  missing secret.
+- The token is a secret: it must never be logged or placed on a span. Any access log or OTel
+  attribute recording the request path or URL for this route is redacted to the route
+  **template**, not the concrete path — `…/webhook/{token}` or `[REDACTED]`, never the literal
+  token value.
+
+**Layer 2 — Stripe source-IP allowlist.**
+- `STRIPE_WEBHOOK_ALLOWED_CIDRS` (comma-separated IPs/CIDRs). The client IP is the socket's
+  remote address when `STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS=0`, otherwise the `X-Forwarded-For`
+  entry that many hops from the right — the entry appended by the outermost trusted proxy.
+  Unparseable or disallowed → `403 forbidden_source`, logged at WARNING with
+  `app_event=stripe_webhook_received`, `reason=source_ip_not_allowed`, and the source IP (an IP
+  is not a secret, unlike the URL token above).
+- **Production value** = Stripe's published webhook IPs (docs.stripe.com/ips, "Webhook
+  notifications"; downloadable as `ips_webhooks.json`): `3.18.12.63`, `3.130.192.231`,
+  `13.235.14.237`, `13.235.122.149`, `18.211.135.69`, `35.154.171.200`, `52.15.183.38`,
+  `54.88.130.119`, `54.88.130.237`, `54.187.174.169`, `54.187.205.235`, `54.187.216.72`,
+  `35.157.207.129`, `3.69.109.8`, `3.120.168.93` — list as of 2026-09-22; Stripe may change it,
+  so it must be refreshed from the published list rather than treated as a permanent constant.
+  The production trusted-hop count for API Gateway HTTP API → ALB is an **open item**: it must
+  be verified at deployment time, not guessed here.
+- **Local value**: the same Stripe list, **plus** loopback and private ranges (`127.0.0.0/8`,
+  `::1`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), because `stripe listen` forwards from
+  the developer's own machine straight to the service port; local trusted hops = 0.
+
+**Order of checks**, all before parsing the body: IP allowlist → URL token → signature. Unit
+tests cover each rejection independently, and that the token never appears in a log line.
+
+**Local delivery.** `stripe listen` forwards to
+`http://localhost:3000/v1/users/stripe/webhook/<users token>` and
+`http://localhost:3001/v1/orders/stripe/webhook/<orders token>` (two processes with `--events`
+filters: Users `payment_method.attached`/`detached`/`updated`/`automatically_updated` +
+`customer.updated`; Orders `payment_intent.succeeded`, `charge.refunded`,
+`charge.dispute.created`, `charge.dispute.closed`). `make stripe-webhook-secret` also generates
+each service's URL token into its CUSTOM box when absent — preserving an existing one rather
+than rotating it silently — and prints the two forward commands with the tokens masked, except
+when explicitly asked to reveal them. `make env-file` writes
+`STRIPE_WEBHOOK_ALLOWED_CIDRS` and `STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS=0` into both services'
+AUTO box.
+
+**Amendments this decision makes elsewhere in this spec**, so every route reference stays
+consistent with the two new `/{token}` paths and the new rejection reason:
+- Decision 4 and Decision 26, and the "Users HTTP surface" / Orders flow sections below,
+  describe the webhook routes as `POST /v1/users/stripe/webhook` and `POST
+  /v1/orders/stripe/webhook`. Both now carry the trailing `/{token}` segment; read those
+  sections with that amendment applied rather than as contradicting this decision.
+- Decision 25's reason list (used with `app_event=stripe_webhook_received` on a rejected
+  delivery) gains `source_ip_not_allowed`, alongside the existing
+  `signature_verification_failed`.
 
 ## Data model
 
@@ -723,8 +806,9 @@ All routes flag-guarded; not mounted when `STRIPE_ENABLED` is off.
 - `DELETE /v1/users/me/payment-methods/:id` — detaches in Stripe, soft-deletes locally.
 - `PUT /v1/users/me/payment-methods/:id/default` — sets `invoice_settings.default_payment_method`,
   mirrors `isDefault` locally.
-- `POST /v1/users/stripe/webhook` — public, signature-verified via `STRIPE_WEBHOOK_SECRET`,
-  upserts per Decision 4.
+- `POST /v1/users/stripe/webhook/{token}` — public, IP-allowlisted and URL-token-checked before
+  signature verification (Decision 27), signature-verified via `STRIPE_WEBHOOK_SECRET`, upserts
+  per Decision 4.
 
 Security requirement: every route verifies the `pm_...` belongs to the caller's customer
 before acting — without that check, passing someone else's id would delete another user's
@@ -752,8 +836,10 @@ call expands `latest_charge`, and the card fields are read from
 `latest_charge.payment_method_details.card` (Decision D, user, 2026-09-22) — consistent with
 Orders' restricted key having no PaymentMethods access at all (Decision 15).
 
-**`POST /v1/orders/stripe/webhook`** — public, no JWT, signature-verified against Orders' own
-`STRIPE_WEBHOOK_SECRET` — handles payment *reconciliation* (orphan charges, refunds made outside
+**`POST /v1/orders/stripe/webhook/{token}`** — public, no JWT, IP-allowlisted and
+URL-token-checked before signature verification (Decision 27), signature-verified against
+Orders' own `STRIPE_WEBHOOK_SECRET` — handles payment *reconciliation* (orphan charges, refunds
+made outside
 the app, disputes), never fulfillment; see Decision 26.
 
 ## Web
@@ -870,25 +956,30 @@ refund-after-409 path, and the webhook — not merely coded and assumed correct.
 ## Infra
 
 New gateway routes in `infra/modules/api-gateway/main.tf` — including `POST
-/v1/orders/stripe/webhook` (Decision 26), `auth = false`, the same shape as Users'
-`stripe_webhook` route — are their own implementation task, not a footnote: a route missing
-from the gateway map 404s while working on the service port. `/v1/orders/stripe/webhook`
-needs **no new** nginx `location` block in `infra/modules/compute/nginx/nginx.conf` — it falls
-under the existing `location /v1/orders` prefix block, which forwards path and all to Orders
-unchanged; verified against the current file, not assumed. That block's existence is still
-worth restating: a new top-level path with no matching `location` silently falls through to
-`location /`, which routes to Users. Plus the `stripe-cli` compose service behind `profiles:
-[stripe]` and the `make stripe-up` / `make stripe-logs` targets.
+/v1/orders/stripe/webhook/{token}` (Decision 26, `{token}` segment per Decision 27), `auth =
+false`, the same shape as Users' `stripe_webhook` route — are their own implementation task, not
+a footnote: a route missing from the gateway map 404s while working on the service port. Both
+the route's `key` and its integration `path` carry the `{token}` placeholder, mirrored from
+Users' route. `/v1/orders/stripe/webhook/{token}` needs **no new** nginx `location` block in
+`infra/modules/compute/nginx/nginx.conf` — it falls under the existing `location /v1/orders`
+prefix block, which forwards path and all to Orders unchanged; verified against the current
+file, not assumed. That block's existence is still worth restating: a new top-level path with no
+matching `location` silently falls through to `location /`, which routes to Users. Plus the
+`stripe-cli` compose service behind `profiles: [stripe]` and the `make stripe-up` / `make
+stripe-logs` targets.
 
 Also tracked here, not as footnotes:
 - The `Content-Security-Policy` change to `apps/web`'s nginx config (Web section) allowing
   `https://*.stripe.com` in `script-src`, `frame-src`, and `connect-src`.
 - **Webhook signature verification is mandatory** (already required by Decision 4's webhook
-  handler; restated here as a deployment gate, not an optional hardening step). For a real
-  deployment, Stripe's IP addresses should additionally be allowlisted on the public webhook
-  endpoint as defense in depth. This is a deployment-time measure only — it does not apply to
-  local delivery via `stripe listen`, which is an outbound connection from the machine to
-  Stripe and has no inbound public endpoint to allowlist (Decision 10).
+  handler; restated here as a deployment gate, not an optional hardening step). Decision 27 adds
+  two more layers **enforced in the services themselves**, not at the edge (AWS WAF does not
+  attach to the HTTP APIs this repo uses): the URL token, and allowlisting Stripe's published
+  webhook IPs. Unlike signature verification, the IP-allowlist layer's production trusted-hop
+  count for API Gateway HTTP API → ALB is an open item to verify at deployment time (Decision
+  27) — it does not apply to local delivery via `stripe listen`, which is an outbound connection
+  from the machine to Stripe and has no inbound public endpoint to filter (Decision 10); the
+  local allowlist instead includes loopback/private ranges for that reason.
 
 ## Flag gate
 
@@ -919,10 +1010,11 @@ Manually installed skills do not auto-update — `pnpm dlx skills update` refres
 - A separate `payments` microservice.
 - `stripe-mock` (Decision 14).
 - The public webhook route for a real, non-local deployment. This is about the **deployed**
-  endpoint (a real Dashboard-configured webhook URL, IP allowlisting — see Infra), not about
-  Orders having a webhook at all: Decision 26 adds Orders' `POST /v1/orders/stripe/webhook` for
-  local delivery via `stripe listen` in this same milestone, same as Users' webhook already
-  does.
+  endpoint (a real Dashboard-configured webhook URL — see Infra) and its open trusted-hop-count
+  verification (Decision 27), not about Orders having a webhook, a URL token, or an IP allowlist
+  at all: Decision 26 adds Orders' `POST /v1/orders/stripe/webhook/{token}` and Decision 27 adds
+  both defense-in-depth layers for local delivery via `stripe listen` in this same milestone,
+  same as Users' webhook already does.
 
 > [!note] Superseded scoping call
 > An earlier draft of this section deferred a dedicated card-management screen outside
@@ -969,3 +1061,8 @@ Manually installed skills do not auto-update — `pnpm dlx skills update` refres
   Decision 15's restricted keys.
 - [[browser-rum]] — the Trigger 1/2/3 checklist Decision 25's web-side paragraph defers to
   rather than restating, for the new checkout and profile Stripe calls.
+- [[ADR-0009-apigw-alb-fargate]] — the production API Gateway → ALB → Fargate shape Decision 27
+  cites as the reason edge filtering (AWS WAF on HTTP APIs) is unavailable, so both defense-in-
+  depth layers live in the services.
+- [[ADR-0016-local-apigw-nginx-ecs]] — the local API Gateway/nginx emulation Decision 27 cites
+  as the reason its layers are service-side rather than nginx-side even locally.
