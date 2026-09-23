@@ -2227,7 +2227,34 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
 
 - [ ] 14.6 Add every new variable to `.env.example` with a comment explaining AUTO vs CUSTOM per [[env-files]]: `STRIPE_ENABLED` (AUTO-generated default `false`), `STRIPE_SECRET_KEY` (CUSTOM, hand-injected `rk_...`), `STRIPE_WEBHOOK_SECRET` (CUSTOM, hand-injected `whsec_...` from `stripe listen`'s own output), `NG_APP_STRIPE_PUBLISHABLE_KEY` (CUSTOM, the publishable `pk_...` key, safe for the bundle).
 
-  **Decision (user, 2026-09-22):** `infra/environments/local/scripts/generate_env_files.py`
+  **Decision (user, 2026-09-22 — revised, supersedes the same-day decision below):**
+  `infra/environments/local/scripts/generate_env_files.py` seeds three keys into the **CUSTOM**
+  box of `.env.local.users` when they are absent — `STRIPE_ENABLED=false`,
+  `STRIPE_SECRET_KEY=` (empty), `STRIPE_WEBHOOK_SECRET=` (empty) — using the existing per-key
+  `custom_defaults` mechanism (same precedent as `CACHE_ENABLED`). Existing values are never
+  overwritten, and a commented-out key is not re-seeded. The developer fills the two secrets
+  and flips the flag in place, per [[env-files]]. `STRIPE_ENABLED` is **not** emitted in the
+  AUTO box — one location only, no duplicate key between AUTO and CUSTOM.
+
+  Users' env schema treats an empty or whitespace-only value for these three keys as unset:
+  `STRIPE_ENABLED` defaults to `false`; an empty secret behaves as absent (flag on + no key →
+  Stripe routes answer 503, per the design spec's Decision 13) instead of failing validation
+  at boot.
+
+  This is already implemented on `feat/stripe-payments-users` (generator + schema) — Task 14
+  no longer needs to add it for Users. What remains here is **Orders**: when Orders gains its
+  Stripe env vars (Task 9/14), its equivalent keys must follow the same rule — seeded empty in
+  the CUSTOM box, empty treated as unset.
+
+  Override precedence (verified 2026-09-22 with `docker compose config`) still holds as a fact
+  about this repo's env-file layering — Compose keeps the **last** duplicate key in one
+  `env_file`, `dotenv` keeps the **first** — but it matters less here now, since there is no
+  AUTO/CUSTOM duplicate for `STRIPE_ENABLED` to order.
+
+  <details>
+  <summary>Superseded same-day decision (2026-09-22, kept for history)</summary>
+
+  `infra/environments/local/scripts/generate_env_files.py`
   emits `STRIPE_ENABLED=false` in the AUTO-GENERATED box of `.env.local.users` (and
   `.env.local.orders`), so the default is visible in the generated file rather than only in
   `.env.example`. `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are **never** emitted by the
@@ -2240,14 +2267,7 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
   fails Zod's `.min(1)` validation and the service does not boot at all — a strictly worse
   failure mode than the one the flag is meant to degrade into.
 
-  Override precedence (verified 2026-09-22 with `docker compose config`): with duplicate keys
-  in one `env_file`, Compose keeps the **last** occurrence, so a CUSTOM `STRIPE_ENABLED=true`
-  placed below the AUTO `STRIPE_ENABLED=false` in the same file wins. Caveat to verify in this
-  task: the `dotenv` library keeps the **first** occurrence instead, so any host-run tool that
-  loads these env files through `dotenv` would see the AUTO value, not the CUSTOM override.
-  Today only `services/users/prisma.config.ts` uses `dotenv`, and it loads `services/users/.env`
-  — not `.env.local.users` — so this caveat does not currently bite, but it must be re-checked
-  if a future tool points `dotenv` at one of the generated files.
+  </details>
 
 - [ ] 14.7 Run `nvm use && node scripts/validate-vault.mjs` is not applicable here (infra-only task); instead run this repo's existing Terraform validation/lint step for the touched modules if one exists (`grep -n "^validate\|^plan" Makefile`), and `docker compose config --profile stripe` to confirm the new compose service parses.
 

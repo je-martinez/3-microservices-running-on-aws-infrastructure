@@ -4,7 +4,7 @@ type: runbook
 area: infra
 status: active
 created: 2026-09-21
-updated: 2026-09-21
+updated: 2026-09-22
 integration-status: not-started
 verified-on: null
 verified-by: null
@@ -109,7 +109,10 @@ Read the `whsec_...` value from that container's startup log via `make stripe-lo
 ## 4. Where each value goes
 
 Every value below goes in the **CUSTOM box**, never the AUTO box — `make env-file` rewrites
-the AUTO box from Terraform outputs on every run ([[env-files]]).
+the AUTO box from Terraform outputs on every run ([[env-files]]). `make env-file` seeds
+`STRIPE_ENABLED=false`, `STRIPE_SECRET_KEY=` and `STRIPE_WEBHOOK_SECRET=` into
+`.env.local.users`'s CUSTOM box when they are absent, so you fill them in place (empty =
+unset).
 
 | Value | File | Box |
 |---|---|---|
