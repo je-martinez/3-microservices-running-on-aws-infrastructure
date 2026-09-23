@@ -4,7 +4,7 @@ type: plan
 area: shared
 status: draft
 created: 2026-09-19
-updated: 2026-09-21
+updated: 2026-09-22
 tags: [type/plan, area/shared, status/draft]
 propagates-to:
   - "[[2026-09-19-stripe-payments-design]]"
@@ -2197,7 +2197,7 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
 ## Task 14 — Infra, compose and CSP
 
 **Files:**
-- Modify: `infra/modules/api-gateway/main.tf`, `infra/modules/compute/nginx/nginx.conf`, `apps/web`'s nginx config (locate via `find apps/web -iname "nginx*.conf"`), `docker-compose.yml`, `Makefile`, `.env.example`
+- Modify: `infra/modules/api-gateway/main.tf`, `infra/modules/compute/nginx/nginx.conf`, `apps/web`'s nginx config (locate via `find apps/web -iname "nginx*.conf"`), `docker-compose.yml`, `Makefile`, `.env.example`, `infra/environments/local/scripts/generate_env_files.py`
 
 ### Steps
 
@@ -2226,6 +2226,28 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
 - [ ] 14.5 Add `make stripe-up` and `make stripe-logs` targets to the `Makefile`, mirroring the existing `observability-up`/`observability-*` targets' shape (`docker compose --profile stripe up -d` / `docker compose logs -f stripe-cli`).
 
 - [ ] 14.6 Add every new variable to `.env.example` with a comment explaining AUTO vs CUSTOM per [[env-files]]: `STRIPE_ENABLED` (AUTO-generated default `false`), `STRIPE_SECRET_KEY` (CUSTOM, hand-injected `rk_...`), `STRIPE_WEBHOOK_SECRET` (CUSTOM, hand-injected `whsec_...` from `stripe listen`'s own output), `NG_APP_STRIPE_PUBLISHABLE_KEY` (CUSTOM, the publishable `pk_...` key, safe for the bundle).
+
+  **Decision (user, 2026-09-22):** `infra/environments/local/scripts/generate_env_files.py`
+  emits `STRIPE_ENABLED=false` in the AUTO-GENERATED box of `.env.local.users` (and
+  `.env.local.orders`), so the default is visible in the generated file rather than only in
+  `.env.example`. `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are **never** emitted by the
+  generator — not even as empty placeholders — and live only in the CUSTOM box, hand-injected
+  per [[env-files]].
+
+  Why no empty placeholders: Users' env schema declares
+  `STRIPE_SECRET_KEY: z.string().min(1).optional()` (Task 1.1), so an absent key is a valid
+  boot state (Stripe routes answer 503, per Decision 13) while an empty `STRIPE_SECRET_KEY=`
+  fails Zod's `.min(1)` validation and the service does not boot at all — a strictly worse
+  failure mode than the one the flag is meant to degrade into.
+
+  Override precedence (verified 2026-09-22 with `docker compose config`): with duplicate keys
+  in one `env_file`, Compose keeps the **last** occurrence, so a CUSTOM `STRIPE_ENABLED=true`
+  placed below the AUTO `STRIPE_ENABLED=false` in the same file wins. Caveat to verify in this
+  task: the `dotenv` library keeps the **first** occurrence instead, so any host-run tool that
+  loads these env files through `dotenv` would see the AUTO value, not the CUSTOM override.
+  Today only `services/users/prisma.config.ts` uses `dotenv`, and it loads `services/users/.env`
+  — not `.env.local.users` — so this caveat does not currently bite, but it must be re-checked
+  if a future tool points `dotenv` at one of the generated files.
 
 - [ ] 14.7 Run `nvm use && node scripts/validate-vault.mjs` is not applicable here (infra-only task); instead run this repo's existing Terraform validation/lint step for the touched modules if one exists (`grep -n "^validate\|^plan" Makefile`), and `docker compose config --profile stripe` to confirm the new compose service parses.
 
