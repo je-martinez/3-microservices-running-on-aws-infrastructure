@@ -9,7 +9,7 @@ import type { StripeClientHolder } from "#shared/stripe/stripe-client.provider";
 import { StripeUnavailableException } from "#shared/stripe/stripe-unavailable.exception";
 import { STRIPE_CLIENT } from "#shared/tokens";
 import { appLogger } from "#shared/logging/app-logger";
-import { ReconcilePaymentMethodCommand, RECONCILED_TYPES } from "../commands/reconcile-payment-method.command";
+import { ReconcilePaymentMethodCommand, RECONCILED_TYPES } from "../commands/reconcile-payment-method.command.ts";
 
 // CONTRACT: PUBLIC at the API Gateway — Stripe has no Cognito JWT to present,
 // so the global AuthGuard would 401 every delivery. The `stripe-signature`

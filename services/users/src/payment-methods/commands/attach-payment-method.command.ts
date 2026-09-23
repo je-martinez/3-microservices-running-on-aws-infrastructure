@@ -12,8 +12,8 @@ import { AuditActor } from "#shared/audit/audit-actor";
 import { appLogger } from "#shared/logging/app-logger";
 import { NanoIdConfig } from "#shared/id/nano-id";
 import { DB, STRIPE_CLIENT } from "#shared/tokens";
-import { ensureStripeCustomer } from "../ensure-stripe-customer";
-import { mapStripePaymentMethodFields } from "../stripe-payment-method-mapper";
+import { ensureStripeCustomer } from "../ensure-stripe-customer.ts";
+import { mapStripePaymentMethodFields } from "../stripe-payment-method-mapper.ts";
 
 export interface AttachPaymentMethodInput {
   userId: string;

@@ -6,7 +6,7 @@ import { StripeUnavailableException } from "#shared/stripe/stripe-unavailable.ex
 import { withStripeSpan } from "#shared/observability/stripe-tracing";
 import { Workflow } from "#shared/observability/workflow-metadata";
 import { DB, STRIPE_CLIENT } from "#shared/tokens";
-import { ensureStripeCustomer } from "../ensure-stripe-customer";
+import { ensureStripeCustomer } from "../ensure-stripe-customer.ts";
 
 export interface CreateSetupIntentInput {
   userId: string;

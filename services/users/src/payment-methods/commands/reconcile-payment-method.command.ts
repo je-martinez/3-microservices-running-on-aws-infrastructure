@@ -12,7 +12,7 @@ import { appLogger } from "#shared/logging/app-logger";
 import { NanoIdConfig } from "#shared/id/nano-id";
 import { lockUserRow, STRIPE_TIMEOUT_MS, TRANSACTION_TIMEOUT_MS } from "#shared/stripe/stripe-tx-lock";
 import { DB, STRIPE_CLIENT } from "#shared/tokens";
-import { mapStripePaymentMethodFields } from "../stripe-payment-method-mapper";
+import { mapStripePaymentMethodFields } from "../stripe-payment-method-mapper.ts";
 
 // CONTRACT: The single source of truth for which event types trigger
 // reconciliation — the controller filters dispatch with the SAME set, so the
