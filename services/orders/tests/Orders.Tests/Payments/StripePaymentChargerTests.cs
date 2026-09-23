@@ -61,6 +61,32 @@ public sealed class StripePaymentChargerTests : IDisposable
     }
 
     [Fact]
+    public async Task The_snapshot_takes_its_card_fields_from_the_latest_charge()
+    {
+        var snapshot = await ChargeAsync(ChargerOver(FakeStripeHandler.Succeeding()));
+
+        Assert.Equal(FakeStripeHandler.PaymentMethodId, snapshot.PaymentMethodId);
+        Assert.Equal(FakeStripeHandler.ChargeCardBrand, snapshot.CardBrand);
+        Assert.Equal(FakeStripeHandler.ChargeCardLast4, snapshot.CardLast4);
+        Assert.Equal(FakeStripeHandler.ChargeCardExpMonth, snapshot.CardExpMonth);
+        Assert.Equal(FakeStripeHandler.ChargeCardExpYear, snapshot.CardExpYear);
+        Assert.Contains(FakeStripeHandler.ChargeId, snapshot.PaymentRawPayload);
+        Assert.DoesNotContain("client_secret", snapshot.PaymentRawPayload);
+    }
+
+    [Fact]
+    public async Task Without_a_latest_charge_the_card_fields_stay_null()
+    {
+        var snapshot = await ChargeAsync(ChargerOver(FakeStripeHandler.Succeeding(withLatestCharge: false)));
+
+        Assert.Equal(FakeStripeHandler.PaymentIntentId, snapshot.PaymentIntentId);
+        Assert.Null(snapshot.CardBrand);
+        Assert.Null(snapshot.CardLast4);
+        Assert.Null(snapshot.CardExpMonth);
+        Assert.Null(snapshot.CardExpYear);
+    }
+
+    [Fact]
     public async Task No_span_tag_or_log_value_carries_the_client_secret_or_the_raw_payload()
     {
         var charger = ChargerOver(FakeStripeHandler.Succeeding());
@@ -220,6 +246,37 @@ public sealed class StripePaymentChargerTests : IDisposable
         Assert.Equal(2, stripe.Refunds.Count());
         Assert.All(stripe.Refunds, r => Assert.Equal($"refund-{FakeStripeHandler.PaymentIntentId}", r.IdempotencyKey));
         Assert.Equal(1, stripe.RefundsExecuted);
+    }
+
+    [Fact]
+    public async Task An_orphan_refund_shares_the_inline_refund_key_and_logs_payment_orphan_refunded()
+    {
+        var stripe = FakeStripeHandler.Succeeding();
+        var charger = ChargerOver(stripe);
+
+        Assert.True(await charger.RefundAsync(_orderId, FakeStripeHandler.PaymentIntentId));
+        Assert.True(await charger.RefundOrphanAsync(_orderId, FakeStripeHandler.PaymentIntentId));
+
+        Assert.All(stripe.Refunds, r => Assert.Equal($"refund-{FakeStripeHandler.PaymentIntentId}", r.IdempotencyKey));
+        Assert.Equal(1, stripe.RefundsExecuted);
+        var orphan = _logger.Entries.Last();
+        Assert.Equal(LogLevel.Warning, orphan.Level);
+        Assert.Equal("payment_orphan_refunded", orphan.Values["app_event"]);
+        Assert.Equal(_orderId, orphan.Values["order_id"]);
+        Assert.Equal(FakeStripeHandler.PaymentIntentId, orphan.Values["payment_intent_id"]);
+        Assert.Same(ThisRefundsSpan(), orphan.Activity);
+    }
+
+    [Fact]
+    public async Task A_refund_of_an_already_refunded_charge_counts_as_refunded()
+    {
+        var charger = ChargerOver(FakeStripeHandler.SucceedingWithAlreadyRefunded());
+
+        var refunded = await charger.RefundOrphanAsync(_orderId, FakeStripeHandler.PaymentIntentId);
+
+        Assert.True(refunded);
+        Assert.Equal(ActivityStatusCode.Ok, ThisRefundsSpan().Status);
+        Assert.DoesNotContain(_logger.Entries, e => e.Level == LogLevel.Error);
     }
 
     private Activity ThisRefundsSpan()

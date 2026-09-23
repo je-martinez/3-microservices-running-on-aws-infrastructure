@@ -20,4 +20,7 @@ public static class AuditActor
     // was deleted must stay distinguishable from one the user removed themselves,
     // which is exactly what deleted_by exists to record.
     public const string DeleteByUser = "orders_api:delete_by_user";
+
+    // POST /v1/orders/stripe/webhook — a payment status Stripe reported, not a user action.
+    public const string StripeWebhook = "orders_api:stripe_webhook";
 }

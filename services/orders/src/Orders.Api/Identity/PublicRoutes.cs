@@ -36,5 +36,9 @@ public static class PublicRoutes
         // CONTRACT: Match the ROUTE PATTERN, parameter braces and all — the caller passes
         // RoutePattern.RawText, so a concrete path here never matches and every call 401s.
         || (string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase)
-            && routePath == "/v1/orders/{orderId}/cache-invalidation");
+            && routePath == "/v1/orders/{orderId}/cache-invalidation")
+        // Stripe's webhook carries no identity; its handler verifies the Stripe-Signature
+        // before touching anything. Mapped only under STRIPE_ENABLED, like e2e-cleanup above.
+        || (string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase)
+            && routePath == "/v1/orders/stripe/webhook");
 }

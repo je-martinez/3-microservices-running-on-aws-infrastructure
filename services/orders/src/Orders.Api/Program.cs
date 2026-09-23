@@ -230,6 +230,21 @@ builder.Services.AddSingleton(sp => new StripePaymentCharger(
     sp.GetService<IStripeClient>(),
     sp.GetRequiredService<ILogger<StripePaymentCharger>>()));
 
+// WARNING: STRIPE_ENABLED with no STRIPE_WEBHOOK_SECRET still boots — the webhook answers 503.
+var stripeWebhookSecret = builder.Configuration["STRIPE_WEBHOOK_SECRET"];
+var stripeWebhookSecretMissing = stripeEnabled && string.IsNullOrWhiteSpace(stripeWebhookSecret);
+builder.Services.AddSingleton(new StripeWebhookSettings(
+    string.IsNullOrWhiteSpace(stripeWebhookSecret) ? null : stripeWebhookSecret,
+    TimeSpan.FromSeconds(builder.Configuration.GetValue(
+        "STRIPE_ORPHAN_GRACE_PERIOD_SECONDS", StripeWebhookSettings.DefaultOrphanGracePeriodSeconds))));
+builder.Services.AddScoped(sp => new StripeWebhookService(
+    sp.GetRequiredService<OrdersWriteDbContext>(),
+    sp.GetRequiredService<StripePaymentCharger>(),
+    sp.GetService<IStripeClient>() is not null,
+    sp.GetRequiredService<StripeWebhookSettings>(),
+    sp.GetRequiredService<IWorkflowTracer>(),
+    sp.GetRequiredService<ILogger<StripeWebhookService>>()));
+
 // CONTRACT: Fail fast on missing EVENTS_TOPIC_ARN — a null ARN boots silently and the publisher
 // swallows publish failures, so no confirmation email is ever sent.
 // WORKAROUND(local): Exempt during GetDocument.Insider — no env file at `dotnet build` time.
@@ -417,6 +432,12 @@ if (stripeKeyMissing && !isDocumentGeneration)
         "STRIPE_ENABLED is true but STRIPE_SECRET_KEY is not set. Order creation will answer 503.");
 }
 
+if (stripeWebhookSecretMissing && !isDocumentGeneration)
+{
+    app.Logger.LogWarning(
+        "STRIPE_ENABLED is true but STRIPE_WEBHOOK_SECRET is not set. The Stripe webhook will answer 503.");
+}
+
 // WHY: Open AmbientRequestId here — UseSerilogRequestLogging runs on unwind after inner
 // middleware, so a scope opened deeper would drop request_id from "request completed".
 app.Use(async (_, next) =>
@@ -511,6 +532,13 @@ app.MapInternalEndpoints();
 if (app.Configuration.GetValue<bool>("E2E_TESTING_ENABLED") || IsOpenApiGeneration())
 {
     app.MapE2eEndpoints();
+}
+
+// CONTRACT: Stripe off means no Stripe route at all. Mapped during document generation too,
+// so openapi.yaml documents it. See [[2026-09-19-stripe-payments-design]]
+if (stripeEnabled || IsOpenApiGeneration())
+{
+    app.MapStripeWebhookEndpoints();
 }
 
 app.Run();

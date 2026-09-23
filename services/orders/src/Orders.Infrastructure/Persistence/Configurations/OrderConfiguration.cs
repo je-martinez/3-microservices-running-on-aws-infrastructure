@@ -120,6 +120,9 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         b.HasIndex(o => o.UserId).HasDatabaseName("idx_order_user_id");
         b.HasIndex(o => o.CognitoSub).HasDatabaseName("idx_order_cognito_sub");
         b.HasIndex(o => o.DeletedAt).HasDatabaseName("idx_order_deleted_at");
+        // WHY: The Stripe webhook finds an order by its PaymentIntent — refund and dispute
+        // events carry no order id.
+        b.HasIndex(o => o.PaymentIntentId).HasDatabaseName("idx_order_payment_intent_id");
         b.HasQueryFilter(o => o.DeletedAt == null);
     }
 }

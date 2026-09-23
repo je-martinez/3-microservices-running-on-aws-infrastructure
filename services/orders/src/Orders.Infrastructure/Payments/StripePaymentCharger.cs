@@ -91,9 +91,10 @@ public class StripePaymentCharger
                     OffSession = true,
                     Confirm = true,
                     Metadata = new Dictionary<string, string> { ["order_id"] = orderId },
-                    // WHY: The card's brand/last4/expiry live on the PaymentMethod, which the
-                    // intent returns as a bare id unless expanded.
-                    Expand = new List<string> { "payment_method" },
+                    // CONTRACT: Expand latest_charge, NEVER payment_method — that needs
+                    // PaymentMethods read, and Orders' restricted key must not touch saved cards.
+                    // The charge carries the same brand/last4/expiry. See [[stripe-sandbox-setup]]
+                    Expand = new List<string> { "latest_charge" },
                 },
                 new RequestOptions { IdempotencyKey = idempotencyKey },
                 ct);
@@ -161,13 +162,14 @@ public class StripePaymentCharger
                 "payment_charged", orderId, intent.Id);
         }
 
-        var card = intent.PaymentMethod?.Card;
+        // WHY: Null when the intent has no charge or it was not paid by card.
+        var card = intent.LatestCharge?.PaymentMethodDetails?.Card;
         return new PaymentSnapshot(
             intent.Id,
             intent.Status,
             intent.Amount,
             intent.Currency,
-            paymentMethodId,
+            intent.PaymentMethodId ?? paymentMethodId,
             card?.Brand,
             card?.Last4,
             (int?)card?.ExpMonth,
@@ -190,7 +192,22 @@ public class StripePaymentCharger
     /// refund error thrown here would replace it. A failed refund leaves a real dangling charge,
     /// so it is logged at ERROR with both ids. See [[2026-09-19-stripe-payments-design]]
     /// </remarks>
-    public async Task<bool> RefundAsync(string orderId, string paymentIntentId)
+    public Task<bool> RefundAsync(string orderId, string paymentIntentId) =>
+        RefundCoreAsync(orderId, paymentIntentId, orphan: false);
+
+    /// <summary>
+    /// Refunds, in full, a succeeded charge the Stripe webhook found with no order behind it.
+    /// Returns whether the charge is now refunded; never throws.
+    /// </summary>
+    /// <remarks>
+    /// CONTRACT: Do NOT give this path its own idempotency key — it shares
+    /// <see cref="RefundIdempotencyKeyFor"/> with <see cref="RefundAsync"/>, so the webhook and
+    /// the inline refund can never both refund one charge. See [[2026-09-19-stripe-payments-design]]
+    /// </remarks>
+    public Task<bool> RefundOrphanAsync(string orderId, string paymentIntentId) =>
+        RefundCoreAsync(orderId, paymentIntentId, orphan: true);
+
+    private async Task<bool> RefundCoreAsync(string orderId, string paymentIntentId, bool orphan)
     {
         const string operation = "stripe.refund.create";
         var idempotencyKey = RefundIdempotencyKeyFor(paymentIntentId);
@@ -214,21 +231,48 @@ public class StripePaymentCharger
                 new RequestOptions { IdempotencyKey = idempotencyKey },
                 CancellationToken.None);
         }
+        catch (StripeException ex) when (ex.StripeError?.Code == "charge_already_refunded")
+        {
+            // WHY: Stripe keeps an idempotency key for 24 hours and retries a webhook for 3 days,
+            // so a late replay meets this error instead of the cached refund. The money is back.
+            activity?.SetTag("stripe.already_refunded", true);
+        }
         catch (Exception)
         {
             // CONTRACT: Do NOT record or log the exception — a Stripe error's text can carry the
             // masked key. The fixed reason and both ids are what an operator needs to refund.
             activity?.SetStatus(ActivityStatusCode.Error, "refund_call_failed");
-            _logger.LogError(
-                "Refund failed after a post-charge failure; the charge is left dangling {app_event} {reason} {order_id} {payment_intent_id}",
-                "payment_refunded_failed", "refund_call_failed", orderId, paymentIntentId);
+            if (orphan)
+            {
+                _logger.LogError(
+                    "Orphan charge refund failed; the charge is left dangling {app_event} {reason} {order_id} {payment_intent_id}",
+                    "payment_orphan_refunded_failed", "refund_call_failed", orderId, paymentIntentId);
+            }
+            else
+            {
+                _logger.LogError(
+                    "Refund failed after a post-charge failure; the charge is left dangling {app_event} {reason} {order_id} {payment_intent_id}",
+                    "payment_refunded_failed", "refund_call_failed", orderId, paymentIntentId);
+            }
+
             return false;
         }
 
         activity?.SetStatus(ActivityStatusCode.Ok);
-        _logger.LogInformation(
-            "Charge refunded after a post-charge failure {app_event} {order_id} {payment_intent_id}",
-            "payment_refunded", orderId, paymentIntentId);
+        if (orphan)
+        {
+            // WHY: WARNING — money moved with no order behind it, which is never routine.
+            _logger.LogWarning(
+                "Orphan charge refunded: no order exists for it {app_event} {order_id} {payment_intent_id}",
+                "payment_orphan_refunded", orderId, paymentIntentId);
+        }
+        else
+        {
+            _logger.LogInformation(
+                "Charge refunded after a post-charge failure {app_event} {order_id} {payment_intent_id}",
+                "payment_refunded", orderId, paymentIntentId);
+        }
+
         return true;
     }
 

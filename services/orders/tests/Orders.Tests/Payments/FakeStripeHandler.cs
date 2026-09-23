@@ -66,10 +66,17 @@ public sealed class FakeStripeHandler : HttpMessageHandler
     /// <summary>Runs while a CHARGE is in flight, before its response is produced.</summary>
     public Func<CapturedStripeRequest, Task>? OnRequest { get; set; }
 
-    // WHY: Includes client_secret and the expanded card on purpose — the snapshot must keep the
-    // card fields and drop the secret, and telemetry must carry neither.
-    public static FakeStripeHandler Succeeding(string status = "succeeded") => new(r => (HttpStatusCode.OK,
-        JsonSerializer.Serialize(new
+    public const string ChargeId = "ch_test_123";
+    public const string ChargeCardBrand = "mastercard";
+    public const string ChargeCardLast4 = "4444";
+    public const int ChargeCardExpMonth = 11;
+    public const int ChargeCardExpYear = 2031;
+
+    // WHY: Includes client_secret on purpose — the snapshot must drop it and telemetry must never
+    // carry it. payment_method is a bare id, as Stripe returns it unexpanded; the card details
+    // live only on the expanded latest_charge.
+    public static FakeStripeHandler Succeeding(string status = "succeeded", bool withLatestCharge = true) =>
+        new(r => (HttpStatusCode.OK, JsonSerializer.Serialize(new
         {
             id = PaymentIntentId,
             @object = "payment_intent",
@@ -79,13 +86,26 @@ public sealed class FakeStripeHandler : HttpMessageHandler
             client_secret = ClientSecret,
             customer = r.Form["customer"].ToString(),
             metadata = new { order_id = r.Form["metadata[order_id]"].ToString() },
-            payment_method = new
-            {
-                id = PaymentMethodId,
-                @object = "payment_method",
-                type = "card",
-                card = new { brand = "visa", last4 = "4242", exp_month = 12, exp_year = 2034 },
-            },
+            payment_method = PaymentMethodId,
+            latest_charge = withLatestCharge
+                ? new
+                {
+                    id = ChargeId,
+                    @object = "charge",
+                    payment_method = PaymentMethodId,
+                    payment_method_details = new
+                    {
+                        type = "card",
+                        card = new
+                        {
+                            brand = ChargeCardBrand,
+                            last4 = ChargeCardLast4,
+                            exp_month = ChargeCardExpMonth,
+                            exp_year = ChargeCardExpYear,
+                        },
+                    },
+                }
+                : null,
         })));
 
     /// <summary>A charge that succeeds and a refund that Stripe rejects with a key-bearing message.</summary>
@@ -94,6 +114,18 @@ public sealed class FakeStripeHandler : HttpMessageHandler
         var charged = Succeeding();
         return new FakeStripeHandler(charged._charge, _ => (HttpStatusCode.InternalServerError, """
             {"error":{"type":"api_error","message":"Refund failed for key rk_test_****fake"}}
+            """));
+    }
+
+    /// <summary>
+    /// A refund Stripe rejects because the charge is already fully refunded — what a delivery
+    /// gets once the 24-hour idempotency key has expired.
+    /// </summary>
+    public static FakeStripeHandler SucceedingWithAlreadyRefunded()
+    {
+        var charged = Succeeding();
+        return new FakeStripeHandler(charged._charge, _ => (HttpStatusCode.BadRequest, """
+            {"error":{"type":"invalid_request_error","code":"charge_already_refunded","message":"Charge ch_test_123 has already been refunded."}}
             """));
     }
 

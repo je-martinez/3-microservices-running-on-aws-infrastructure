@@ -126,6 +126,11 @@ public partial class CreateOrderStripeTests : IAsyncLifetime
         Assert.Equal("usd", request.Form["currency"]);
         Assert.Equal(OrdersApiFactory.KnownStripeCustomerId, request.Form["customer"]);
         Assert.Equal(PaymentMethodId, request.Form["payment_method"]);
+        // CONTRACT: Expanding payment_method needs PaymentMethods read, which Orders' restricted
+        // key must not have — the card details come from the charge instead.
+        var expanded = request.Form.Where(f => f.Key.StartsWith("expand", StringComparison.Ordinal))
+            .SelectMany(f => f.Value.ToArray()).ToArray();
+        Assert.Equal(new[] { "latest_charge" }, expanded);
         Assert.DoesNotContain(request.Form.Keys, k => k.StartsWith("payment_method_types", StringComparison.Ordinal));
         Assert.Equal(dto.Id, request.Form["metadata[order_id]"]);
         Assert.Equal(ChargeKeyOf(client), request.IdempotencyKey);
@@ -140,10 +145,10 @@ public partial class CreateOrderStripeTests : IAsyncLifetime
         Assert.Equal(dto.Total.Cents, order.AmountCents);
         Assert.Equal("usd", order.Currency);
         Assert.Equal(PaymentMethodId, order.PaymentMethodId);
-        Assert.Equal("visa", order.CardBrand);
-        Assert.Equal("4242", order.CardLast4);
-        Assert.Equal(12, order.CardExpMonth);
-        Assert.Equal(2034, order.CardExpYear);
+        Assert.Equal(FakeStripeHandler.ChargeCardBrand, order.CardBrand);
+        Assert.Equal(FakeStripeHandler.ChargeCardLast4, order.CardLast4);
+        Assert.Equal(FakeStripeHandler.ChargeCardExpMonth, order.CardExpMonth);
+        Assert.Equal(FakeStripeHandler.ChargeCardExpYear, order.CardExpYear);
         Assert.Contains(FakeStripeHandler.PaymentIntentId, order.PaymentRawPayload);
         Assert.DoesNotContain("client_secret", order.PaymentRawPayload);
         Assert.Equal(stockBefore - 2, await StockAsync());
