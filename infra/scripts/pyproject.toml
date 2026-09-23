@@ -32,4 +32,4 @@ build-backend = "setuptools.build_meta"
 include = ["lib3mrai*"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "../environments/local/scripts/tests"]
