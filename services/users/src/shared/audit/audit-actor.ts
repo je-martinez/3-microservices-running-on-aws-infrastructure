@@ -29,4 +29,12 @@ export enum AuditActor {
   // from "a user asked".
   NotificationCreated = "users_api:notification_created",
   NotificationsMarkedRead = "users_api:notifications_marked_read",
+  // The payment-methods CQRS handlers: attach/detach/set-default all write
+  // `StripePaymentMethod` rows on the caller's own behalf.
+  PaymentMethodAttached = "users_api:payment_method_attached",
+  PaymentMethodDetached = "users_api:payment_method_detached",
+  PaymentMethodSetDefault = "users_api:payment_method_set_default",
+  // The Stripe webhook's reconciliation writes — outside a request, like
+  // NotificationCreated above, but sourced from Stripe rather than SQS.
+  StripeWebhookReconcile = "users_api:stripe_webhook_reconcile",
 }

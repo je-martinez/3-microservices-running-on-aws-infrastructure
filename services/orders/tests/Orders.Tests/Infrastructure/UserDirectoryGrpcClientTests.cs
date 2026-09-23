@@ -82,6 +82,38 @@ public class UserDirectoryGrpcClientTests
         Assert.Equal("usr_resolved", caller.InternalUserId);
     }
 
+    [Fact]
+    public async Task Maps_a_set_stripe_customer_id_onto_the_caller_profile()
+    {
+        var impl = new StubUsers { StripeCustomerId = "cus_123" };
+        await using var server = BuildServer(impl, out var address);
+
+        using var channel = GrpcChannel.ForAddress(address);
+        var client = new UserDirectoryGrpcClient(new Users.V1.Users.UsersClient(channel), "test-key");
+
+        var caller = await client.ResolveCallerAsync("sub-123");
+
+        Assert.NotNull(caller);
+        Assert.Equal("cus_123", caller!.StripeCustomerId);
+    }
+
+    [Fact]
+    public async Task Maps_an_empty_stripe_customer_id_to_null()
+    {
+        // proto3 has no null for strings: a caller with no Stripe customer yet arrives
+        // as "" on the wire, and Orders must never treat that as a real customer id.
+        var impl = new StubUsers { StripeCustomerId = "" };
+        await using var server = BuildServer(impl, out var address);
+
+        using var channel = GrpcChannel.ForAddress(address);
+        var client = new UserDirectoryGrpcClient(new Users.V1.Users.UsersClient(channel), "test-key");
+
+        var caller = await client.ResolveCallerAsync("sub-123");
+
+        Assert.NotNull(caller);
+        Assert.Null(caller!.StripeCustomerId);
+    }
+
     // Concrete stub resolved from DI by MapGrpcService. Records the api key it
     // observed and can simulate the NOT_FOUND path.
     private sealed class StubUsers : Users.V1.Users.UsersBase
@@ -93,6 +125,7 @@ public class UserDirectoryGrpcClientTests
         public string? SeenApiKey { get; private set; }
         public string? SeenId { get; private set; }
         public bool NotFound { get; init; }
+        public string StripeCustomerId { get; init; } = "";
 
         public override Task<UserResponse> GetUserById(GetUserByIdRequest request, ServerCallContext context)
         {
@@ -105,6 +138,7 @@ public class UserDirectoryGrpcClientTests
                 Id = "usr_resolved",
                 Email = Email,
                 CognitoSub = request.Id,
+                StripeCustomerId = StripeCustomerId,
             });
         }
     }

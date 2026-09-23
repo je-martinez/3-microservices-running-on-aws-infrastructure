@@ -537,6 +537,218 @@ paths:
       summary: "Mark the caller's notifications read"
       tags:
         - notifications
+  "/v1/users/me/payment-methods/setup-intent":
+    post:
+      operationId: createPaymentMethodSetupIntent
+      parameters:
+        - name: x-user-id
+          in: header
+          description: "Cognito subject forwarded by the API Gateway authorizer. Required in practice — a request without it resolves no current user and is answered 404 (not a 400)."
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/SetupIntentResult"
+        "404":
+          description: ""
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "503":
+          description: ""
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Error"
+      summary: "Create a SetupIntent to tokenize a new payment method"
+      tags:
+        - payment-methods
+  "/v1/users/me/payment-methods":
+    get:
+      description: "Reads only the local table — never calls Stripe on this path."
+      operationId: listPaymentMethods
+      parameters:
+        - name: x-user-id
+          in: header
+          description: "Cognito subject forwarded by the API Gateway authorizer. Required in practice — a request without it resolves no current user and is answered 404 (not a 400)."
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/PaymentMethodList"
+        "404":
+          description: ""
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Error"
+      summary: "List the caller's saved payment methods"
+      tags:
+        - payment-methods
+    post:
+      operationId: attachPaymentMethod
+      parameters:
+        - name: x-user-id
+          in: header
+          description: "Cognito subject forwarded by the API Gateway authorizer. Required in practice — a request without it resolves no current user and is answered 404 (not a 400)."
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/AttachPaymentMethod"
+      responses:
+        "200":
+          description: ""
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/AttachPaymentMethodResult"
+        "402":
+          description: ""
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: ""
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: ""
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "503":
+          description: ""
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Error"
+      summary: "Attach a tokenized payment method to the caller"
+      tags:
+        - payment-methods
+  "/v1/users/me/payment-methods/{id}":
+    delete:
+      operationId: detachPaymentMethod
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: "Stripe PaymentMethod id (pm_...)"
+          schema: {}
+        - name: x-user-id
+          in: header
+          description: "Cognito subject forwarded by the API Gateway authorizer. Required in practice — a request without it resolves no current user and is answered 404 (not a 400)."
+          required: false
+          schema:
+            type: string
+      responses:
+        "204":
+          description: "Default Response"
+        "404":
+          description: ""
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "503":
+          description: ""
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Error"
+      summary: "Detach a payment method"
+      tags:
+        - payment-methods
+  "/v1/users/me/payment-methods/{id}/default":
+    put:
+      operationId: setDefaultPaymentMethod
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: "Stripe PaymentMethod id (pm_...)"
+          schema: {}
+        - name: x-user-id
+          in: header
+          description: "Cognito subject forwarded by the API Gateway authorizer. Required in practice — a request without it resolves no current user and is answered 404 (not a 400)."
+          required: false
+          schema:
+            type: string
+      responses:
+        "204":
+          description: "Default Response"
+        "404":
+          description: ""
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "503":
+          description: ""
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Error"
+      summary: "Set a payment method as the caller's default"
+      tags:
+        - payment-methods
+  "/v1/users/stripe/webhook":
+    post:
+      operationId: stripeWebhook
+      parameters:
+        - name: stripe-signature
+          in: header
+          description: "HMAC signature Stripe computes over the raw request body."
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+          content:
+            "application/json":
+              schema:
+                type: object
+                properties:
+                  received:
+                    type: boolean
+                required:
+                  - received
+                additionalProperties: false
+        "400":
+          description: ""
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "503":
+          description: ""
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Error"
+      summary: "Stripe payment-method/customer webhook (reconciliation)"
+      tags:
+        - webhooks
 info:
   title: "Users Service API"
   description: "HTTP API for the 3MRAI Users microservice (NestJS + Aurora Postgres). Identity is enforced at the API Gateway authorizer, which forwards the Cognito subject as the x-user-id header."
@@ -548,9 +760,11 @@ tags:
   - name: users
     description: "Registration, auth and profile"
   - name: webhooks
-    description: "Inbound Cognito trigger (shared-secret guarded)"
+    description: "Inbound triggers: Cognito (shared-secret guarded) and Stripe (signature guarded)"
   - name: notifications
     description: "In-app notification inbox"
+  - name: payment-methods
+    description: "Stripe payment methods (STRIPE_ENABLED)"
   - name: e2e
     description: "Test-only routes (E2E_TESTING_ENABLED)"
 servers:
@@ -930,4 +1144,71 @@ components:
         - metadata
         - read_at
         - created_at
+      additionalProperties: false
+    AttachPaymentMethod:
+      type: object
+      properties:
+        paymentMethodId:
+          type: string
+          pattern: "^pm_"
+      required:
+        - paymentMethodId
+      additionalProperties: false
+    AttachPaymentMethodResult:
+      type: object
+      properties:
+        id:
+          type: string
+      required:
+        - id
+      additionalProperties: false
+    PaymentMethodList:
+      type: array
+      items:
+        "$ref": "#/components/schemas/PaymentMethodView"
+    PaymentMethodView:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        brand:
+          anyOf:
+            - type: string
+            - type: "null"
+        last4:
+          anyOf:
+            - type: string
+            - type: "null"
+        expMonth:
+          anyOf:
+            - type: integer
+              minimum: -9007199254740991
+              maximum: 9007199254740991
+            - type: "null"
+        expYear:
+          anyOf:
+            - type: integer
+              minimum: -9007199254740991
+              maximum: 9007199254740991
+            - type: "null"
+        isDefault:
+          type: boolean
+      required:
+        - id
+        - type
+        - brand
+        - last4
+        - expMonth
+        - expYear
+        - isDefault
+      additionalProperties: false
+    SetupIntentResult:
+      type: object
+      properties:
+        clientSecret:
+          type: string
+      required:
+        - clientSecret
       additionalProperties: false

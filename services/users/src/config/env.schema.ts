@@ -78,6 +78,17 @@ const schema = z.object({
   // set explicitly via METRICS_INTERVAL_MS in the generated .env.local.users.
   // Defaulted so no existing env file, test, or deployment breaks by omitting it.
   METRICS_INTERVAL_MS: z.coerce.number().int().positive().default(15_000),
+  // Kill switch for the whole Stripe integration (spec D13). Off by default so
+  // every existing deploy and every test that doesn't opt in stays untouched.
+  STRIPE_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  // A restricted key (rk_...), never a secret key. Optional: STRIPE_ENABLED=true
+  // with this absent is a valid boot state (spec D13) — the Stripe routes then
+  // answer 503 instead of taking the service down.
+  STRIPE_SECRET_KEY: z.string().min(1).optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
 });
 
 export const envSchema = schema;
