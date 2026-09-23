@@ -49,7 +49,10 @@ every time. Cross-cutting rules are **referenced**, never duplicated.
 - Run local (docker-watch): `docker compose up users --watch` (from repo root)
 - Migrate: `pnpm prisma migrate dev` (via the `prisma` passthrough script). The
   local bootstrap chain applies migrations with `make migrate` (`migrate deploy`).
-- **Generate the OpenAPI spec: `pnpm generate:openapi`** (writes `openapi.yaml`).
+- **Generate the OpenAPI spec: `nvm use && pnpm generate:openapi`** (writes `openapi.yaml`,
+  exits on its own in a few seconds). Needs no env file and no running stack: the generator
+  applies placeholder env values and forces `E2E_TESTING_ENABLED` / `STRIPE_ENABLED` on, so
+  the gated routes are always in the spec whatever your shell exports.
 
 ## 2a. GOLDEN RULE — keep `openapi.yaml` in sync
 
@@ -196,6 +199,8 @@ services/users/
       single-use. `mustChangePassword` DOES live in Postgres — it is a durable
       attribute, not an ephemeral credential.
   - `[POST] /v1/webhooks/cognito` (shared-secret guarded identity capture, `@Public()`)
+  - Payment methods and `[POST] /v1/users/stripe/webhook/:token` — only when
+    `STRIPE_ENABLED`; see §7.
   - `[DELETE] /v1/users/e2e-cleanup`, `[GET] /v1/users/e2e-identity` — only when
     `E2E_TESTING_ENABLED`
   - gRPC: `GetUserById` — **live** on `:50051` (`GRPC_PORT`), via `@nestjs/microservices`,
@@ -214,3 +219,34 @@ services/users/
   - The envelope carries an `author` block — `{ actor: AuditActor.Register, user_id, cognito_sub }`
     — recording WHO originated the event, as distinct from the root `user_id`, which is who it is
     ABOUT (the same person here; not on every event). See [[audit-fields]].
+
+## 7. Stripe payments
+Design: [[2026-09-19-stripe-payments-design]] (read it for the flows; this is the map).
+
+- **Env** (`src/config/env.schema.ts`) — a blank value (`""` or whitespace) counts as unset:
+  - `STRIPE_ENABLED` (default `false`) mounts `PaymentMethodsModule` at import time.
+  - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_WEBHOOK_URL_TOKEN` — optional. Flag on
+    with one missing is a valid boot state; the routes that need it answer **503**.
+  - `STRIPE_WEBHOOK_ALLOWED_CIDRS` — comma-separated IPv4/IPv6 addresses or CIDRs. Unset →
+    the webhook answers 503 (never allow-all); **malformed → the process fails at boot**.
+  - `STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS` (default `0`) — `X-Forwarded-For` hops to trust.
+- **Routes** (`src/payment-methods/http/`): `[GET|POST] /v1/users/me/payment-methods`,
+  `[POST] …/payment-methods/setup-intent`, `[DELETE] …/payment-methods/{id}`,
+  `[PUT] …/payment-methods/{id}/default`.
+- **Webhook** `[POST] /v1/users/stripe/webhook/:token` — checks run **IP → token → signature**.
+  IP and token live in a Fastify `onRequest` hook, `src/payment-methods/webhooks/stripe-webhook-gate.ts`
+  (403 `forbidden_source`; a wrong token answers Nest's plain 404 and logs nothing); the
+  signature is verified in the controller (400 `invalid_signature`).
+  - **WARNING:** Do NOT move the gate into a Nest middleware. Fastify also routes encoded
+    paths (`/v1/users/%73tripe/webhook/x`) and an empty token to the handler, and a
+    middleware's path match skips both.
+- **Token redaction** (`src/shared/observability/redact-webhook-token.ts`) — applied in the
+  logger's `req` serializer (`shared/logging/logger.ts`) and in the tracing hooks
+  (`shared/observability/tracing.ts`: http `startIncomingSpanHook`, Fastify `requestHook`).
+  A new place that records the URL must redact it too.
+- **gRPC:** `GetUserById`'s `UserResponse` carries `stripe_customer_id` (`""` when none).
+- **E2E cleanup** also deletes the Stripe customers of the `E2E Source`-tagged users it
+  soft-deletes (a missing customer is skipped; one failure never stops the rest).
+- **CONTRACT:** Never surface Stripe's error text — not in a response, a log line, or a
+  `reason`. Map errors to fixed codes: its auth errors embed a masked API key, and its
+  request errors can embed other customers' ids.

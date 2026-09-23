@@ -34,7 +34,7 @@
   },
   "scripts": {
     "dev": "node --import ./src/shared/observability/tracing.ts --import @swc-node/register/esm-register --watch src/main.ts",
-    "generate:openapi": "node --import @swc-node/register/esm-register src/shared/openapi/generate-openapi.ts",
+    "generate:openapi": "node --conditions=development --import @swc-node/register/esm-register src/shared/openapi/generate-openapi.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node --import ./dist/shared/observability/tracing.js dist/main.js",
     "test": "vitest run",
