@@ -1178,7 +1178,11 @@ Tasks 1–7 complete the Users side of this milestone; it is independently testa
       int? CardExpYear,
       string PaymentRawPayload);
   ```
-  Consumed by Task 10 (refund path) and the order read models.
+  Consumed by Task 10 (refund path) and the order read models. **Card fields come from the
+  charge, not PaymentMethods** (spec Decision D, user, 2026-09-22): step 9.7 expands
+  `latest_charge` on the PaymentIntent create call and reads
+  `latest_charge.payment_method_details.card`, because Orders' restricted key (Task 14's
+  permission table) has no PaymentMethods access at all.
 
 ### Steps
 
@@ -1269,6 +1273,11 @@ Tasks 1–7 complete the Users side of this milestone; it is independently testa
                   Confirm = true,
                   Metadata = new Dictionary<string, string> { ["order_id"] = orderId },
                   // No PaymentMethodTypes (spec D16) — dynamic payment methods stay enabled.
+                  // Expand latest_charge, NOT payment_method (spec D15/D, user
+                  // 2026-09-22): Orders' restricted key has no PaymentMethods
+                  // access at all, so the snapshot's card fields are read from
+                  // the charge, never from a PaymentMethod lookup.
+                  Expand = new List<string> { "latest_charge" },
               },
               new RequestOptions { IdempotencyKey = $"order-charge-{orderId}" },
               ct);
@@ -1281,16 +1290,17 @@ Tasks 1–7 complete the Users side of this milestone; it is independently testa
           throw new PaymentDeclinedException(ex.StripeError?.Message ?? "Your card was declined.");
       }
 
+      var card = paymentIntent.LatestCharge?.PaymentMethodDetails?.Card;
       order.ApplyPaymentSnapshot(new PaymentSnapshot(
           paymentIntent.Id,
           paymentIntent.Status,
           pricing.TotalCents,
           "usd",
           input.PaymentMethodId,
-          paymentIntent.PaymentMethod?.Card?.Brand,
-          paymentIntent.PaymentMethod?.Card?.Last4,
-          (int?)paymentIntent.PaymentMethod?.Card?.ExpMonth,
-          (int?)paymentIntent.PaymentMethod?.Card?.ExpYear,
+          card?.Brand,
+          card?.Last4,
+          (int?)card?.ExpMonth,
+          (int?)card?.ExpYear,
           JsonSerializer.Serialize(paymentIntent)));
   }
   // Persist happens here, after the above block — charge-then-persist (spec D7).
@@ -1633,9 +1643,146 @@ case as the primary test and note the other failure modes share the same refund 
 
 - [ ] 10.5 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
 
+## Task 10c — Orders: Stripe webhook (payment reconciliation)
+
+**Spec Decision 26 (user, 2026-09-22).** This is a **second** webhook, separate from Users'
+(Decision 4/11) — Orders' payment reconciliation for orphan charges, refunds made outside the
+app, and disputes. Fulfillment stays exactly as Task 9 built it: synchronous, inside `POST
+/v1/orders`. This task adds no fulfillment path.
+
+**Files:**
+- Create: `services/orders/src/Orders.Api/StripeWebhook/StripeWebhookEndpoint.cs` (or wherever
+  this service's existing Minimal API endpoints for webhooks/public routes live — grep first,
+  `grep -rln "MapPost.*webhook\|PublicRoutes" services/orders/src/Orders.Api`),
+  `services/orders/src/Orders.Application/Stripe/ReconcilePaymentHandler.cs` (or this repo's
+  equivalent application-layer location for Orders — mirror wherever Task 9's order-creation
+  handler lives), `.spec`/xUnit tests for both
+- Modify: `services/orders/src/Orders.Api/Program.cs` (register the raw-body-reading route,
+  wire `STRIPE_WEBHOOK_SECRET`), `services/orders/openapi.yaml`,
+  `infra/environments/local/scripts/generate_env_files.py` (Orders' CUSTOM box),
+  `infra/scripts/set_stripe_webhook_secret.py` (or wherever `make stripe-webhook-secret`'s
+  script lives — see Task 14.4's note), `docker-compose.yml` (`stripe-cli`'s `--forward-to`)
+
+**Interfaces:**
+- Consumes: `StripeClient` (Task 9.1), `PaymentSnapshot`/order read model (Task 9), the same
+  `refund-{paymentIntentId}` idempotency key Task 10.2 already derives (the orphan-refund path
+  reuses this exact key — spec Decision 26 — so it and Task 10's inline refund can never both
+  succeed for the same charge).
+- Produces: `POST /v1/orders/stripe/webhook` — public, no JWT, signature-verified against
+  Orders' own `STRIPE_WEBHOOK_SECRET`.
+
+### Steps
+
+- [ ] 10c.1 Write the failing tests first, one per branch of Decision 26 — the signature and
+  availability guards, then the three reconciliation cases, in this order:
+  - [ ] 10c.1a Invalid `stripe-signature` → `400 invalid_signature`, and no handler is
+    dispatched — mirror Task 5.1's shape (Users' webhook spec) for the assertion structure:
+    `constructEvent`/its .NET equivalent throws, the test asserts the reconciliation handler was
+    never invoked.
+  - [ ] 10c.1b `STRIPE_ENABLED=true` with `STRIPE_WEBHOOK_SECRET` unset → `503
+    stripe_unavailable`, checked **before** attempting signature verification (there is nothing
+    to verify against).
+  - [ ] 10c.1c `payment_intent.succeeded` with `metadata.order_id` set, no matching order, and
+    the PaymentIntent's `created` timestamp inside the grace period (10 minutes, configurable) →
+    a non-2xx response, and assert **no** refund call was made — Stripe must retry the delivery
+    later rather than the handler racing an in-flight `POST /v1/orders`.
+  - [ ] 10c.1d Same event, but `created` older than the grace period → a refund is issued with
+    idempotency key exactly `refund-{paymentIntentId}` (assert the literal key, not just that
+    `RefundAsync`/`CreateAsync` was called), and `app_event=payment_orphan_refunded` is logged
+    at WARNING with `order_id` and `payment_intent_id`.
+  - [ ] 10c.1e Same event, but an order already exists for `metadata.order_id` → no refund call,
+    2xx, no reconciliation log line (this is the common case, not an error path).
+  - [ ] 10c.1f The orphan-refund case (10c.1d) delivered **twice** (simulating a Stripe retry) →
+    exactly one refund is issued — the second delivery hits the same
+    `refund-{paymentIntentId}` idempotency key and is a no-op against Stripe, not a second call
+    from Orders' own perspective (assert the refund call happens at most once, or that a second
+    call with the same key is harmless per however this repo's other idempotency-key tests
+    assert that — see Task 9.10b's tests for the pattern).
+  - [ ] 10c.1g `charge.refunded` with `amount_refunded == amount` → order's `PaymentStatus` set
+    to `refunded`. With `amount_refunded < amount` → `partially_refunded`.
+  - [ ] 10c.1h `charge.dispute.created` → `PaymentStatus=disputed`, logged at WARNING.
+    `charge.dispute.closed` with a won outcome → reverts to `succeeded`. Lost outcome →
+    `dispute_lost`.
+  - [ ] 10c.1i An event type not in the six above (e.g. `customer.created`) → 2xx, no handler
+    dispatched, no error.
+  Run the test command for whichever project houses these (`dotnet test --filter
+  StripeWebhook`) — all fail, nothing implemented yet.
+
+- [ ] 10c.2 Implement the endpoint and handler covering 10c.1a–10c.1i. Follow Task 9.1's
+  `StripeClient`/`StripeSettings` registration and Task 5.2's (Users) signature-verification
+  shape translated to .NET — verify the raw body against `STRIPE_WEBHOOK_SECRET` using
+  `EventUtility.ConstructEvent` before dispatching anything, exactly mirroring Decision 4's
+  "verify before processing" rule Decision 26 restates for this second webhook. Wire the grace
+  period as a configurable value (10 minutes default) rather than a hardcoded literal, so it can
+  be shortened in tests without sleeping. Run the tests from 10c.1 — pass.
+
+- [ ] 10c.3 **Observability (spec Decision 25/26).** Wrap the Stripe calls this handler makes
+  (the orphan refund) in the same `StripeActivitySource` from Task 9.10/10.4 — a
+  `stripe.refund.create` CLIENT activity, same idempotency-key tag convention as Task 10.4. Log
+  `app_event=stripe_webhook_received` with `event.type`/`event.id` on every successfully
+  verified delivery (mirroring Task 5.5's shape for Users), and the signature-failure branch
+  logs with `reason=signature_verification_failed` and **never** the `stripe-signature` header
+  or raw body — same restraint as Task 5.5. `app_event=payment_orphan_refunded` is a distinct
+  event from `payment_refunded` (Task 10.4) — the two paths must remain independently visible in
+  the logs (an orphan-refund is a different failure shape from a post-charge-failure refund,
+  even though both call the same Stripe Refunds endpoint). Run the tests — pass.
+
+- [ ] 10c.4 Add `POST /v1/orders/stripe/webhook` to `services/orders/openapi.yaml`, documented
+  public/unauthenticated with a `stripe-signature` header requirement, mirroring how Task 5.4
+  documented Users' webhook.
+
+- [ ] 10c.5 **Gateway route** — add to `infra/modules/api-gateway/main.tf`'s route map:
+  ```
+  orders_stripe_webhook = { key = "POST /v1/orders/stripe/webhook", path = "/v1/orders/stripe/webhook", auth = false }
+  ```
+  following the exact `key`/`path`/`auth` shape already used for Users' `stripe_webhook` entry.
+
+- [ ] 10c.6 **nginx — verify, don't assume.** Read `infra/modules/compute/nginx/nginx.conf`'s
+  existing `location /v1/orders` block before touching it. **Verified 2026-09-22: no new
+  `location` block is needed** — `/v1/orders/stripe/webhook` falls under the existing prefix
+  match `location /v1/orders { proxy_pass http://orders:8080; }`, which forwards the full
+  request path unchanged to Orders. This is unlike `/v1/cart` or `/v1/products`, which needed
+  their own blocks specifically because they are top-level paths **outside** `/v1/orders`. If a
+  future reader finds this block has since been narrowed to an exact match or moved, that
+  assumption must be re-verified, not copied blindly.
+
+- [ ] 10c.7 **`generate_env_files.py` — Orders' CUSTOM box.** Add `STRIPE_WEBHOOK_SECRET=`
+  (empty) to Orders' `custom_defaults` block in
+  `infra/environments/local/scripts/generate_env_files.py`, next to the existing
+  `STRIPE_ENABLED`/`STRIPE_SECRET_KEY` entries added on `feat/stripe-payments-users` (see Task
+  14.6's note — this file already seeds those two for Orders; this step adds the third). Update
+  that block's comment, which currently reads "No webhook secret: only Users receives
+  webhooks" — that sentence is no longer true as of Decision 26 and must be corrected, not left
+  contradicting the code three lines below it. Orders' env schema/config treats an empty value
+  the same as unset (flag on + no secret → 503, per Decision 13/26), matching Users' existing
+  rule.
+
+- [ ] 10c.8 **`make stripe-webhook-secret` writes both files.** Read
+  `infra/environments/local/scripts/set_stripe_webhook_secret.py` (the script `Makefile`'s
+  `stripe-webhook-secret` target already calls) before editing it — it currently writes only
+  into `.env.local.users`'s CUSTOM box. Extend it to write the **same** `whsec_...` value into
+  `.env.local.orders`'s CUSTOM box too, per spec Decision 26's local-delivery paragraph: one
+  `stripe listen` process mints one signing secret, valid for every event it forwards on this
+  machine, so both services get the identical value — this is not two secrets, it is one secret
+  written to two files.
+
+- [ ] 10c.9 **`stripe-cli` compose command — verify before wiring.** Per spec Decision 26, do
+  not invent a `stripe listen` flag. Before editing `docker-compose.yml`'s `stripe-cli` command
+  (Task 14.4 introduces the service; this step's forwarding target may need to change), run
+  `stripe listen --help` and confirm whether one invocation supports multiple `--forward-to`
+  destinations (one process, one secret, forwarding to both `users:3000/v1/users/stripe/webhook`
+  and `orders:8080/v1/orders/stripe/webhook`) or whether it requires **two** concurrent `stripe
+  listen` processes — in which case each mints its **own** `whsec_...`, which would contradict
+  10c.8's shared-secret write and require revisiting that step before implementing it. Record
+  which of the two is true in this step's own commit/PR description, since the spec deliberately
+  left it unresolved pending this verification.
+
+- [ ] 10c.10 Leave the work uncommitted in the working tree and report what changed — the main
+  session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+
 ## GATE — stop point before Web work
 
-Task 11 (web) posts `paymentMethodId` to `POST /v1/orders`, which does not behave correctly until Tasks 9–10 are merged. **Present the Tasks 9–10 batch for review per [[phase-c-review-flow]] and wait for merge before starting Task 11.** Task 13 (plain-branch card validation) touches only pure functions and the plain branch — it does not depend on Tasks 9–10 and may be implemented in parallel with this wait. Task 12 (profile Payment methods tab) reuses Task 11's `SavedCardRow`/`PaymentMethodsApi`, so it must wait for Task 11 to land first, not merely for this GATE — see Task 12's header note. All three of Tasks 11, 12, and 13's PRs are batched together for review at this same stop point, since all touch `checkout-payment.html`/`.ts`, `profile.ts`/`.html`, or a component either composes.
+Task 11 (web) posts `paymentMethodId` to `POST /v1/orders`, which does not behave correctly until Tasks 9–10 (and 10c) are merged. **Present the Tasks 9–10c batch for review per [[phase-c-review-flow]] and wait for merge before starting Task 11.** Task 10c (Orders' own Stripe webhook, payment reconciliation) has no dependency on Task 11/12/13 and joins this same batch — it depends only on Task 9's `PaymentSnapshot`/order model and Task 10's refund idempotency key, both already merged by the time 10c is implemented within this batch. Task 13 (plain-branch card validation) touches only pure functions and the plain branch — it does not depend on Tasks 9–10c and may be implemented in parallel with this wait. Task 12 (profile Payment methods tab) reuses Task 11's `SavedCardRow`/`PaymentMethodsApi`, so it must wait for Task 11 to land first, not merely for this GATE — see Task 12's header note. All three of Tasks 11, 12, and 13's PRs are batched together for review at this same stop point, since all touch `checkout-payment.html`/`.ts`, `profile.ts`/`.html`, or a component either composes.
 
 ## Task 11 — Web: `SavedCardRow` component + Payment Element checkout flow
 
@@ -2334,9 +2481,9 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
 
 ### Steps
 
-- [ ] 14.1 Add the new Users routes (`/v1/users/me/payment-methods*`, `/v1/users/stripe/webhook`) to `infra/modules/api-gateway/main.tf`'s route map, following the existing route-block pattern for other `/v1/users/*` routes.
+- [ ] 14.1 Add the new Users routes (`/v1/users/me/payment-methods*`, `/v1/users/stripe/webhook`) to `infra/modules/api-gateway/main.tf`'s route map, following the existing route-block pattern for other `/v1/users/*` routes. Orders' own webhook route (`POST /v1/orders/stripe/webhook`) is added by Task 10c.5, not here — it is listed in this plan's Self-review coverage table under Decision 26, not duplicated in this task.
 
-- [ ] 14.2 Add a `location` block for `/v1/users/stripe/webhook` (and the payment-methods paths, if they need a distinct block from the existing `/v1/users/` catch-all) in `infra/modules/compute/nginx/nginx.conf`. Per the spec's Infra section, a missing `location` block for a new top-level path silently falls through to `location /`, which routes to Users — verify the new paths already fall under an existing `/v1/users/` block rather than needing a new one, and only add a new block if they do not.
+- [ ] 14.2 Verify whether `/v1/users/stripe/webhook` and the payment-methods paths need a `location` block distinct from the existing `/v1/users/` catch-all in `infra/modules/compute/nginx/nginx.conf` — per the spec's Infra section, a missing `location` block for a new top-level path silently falls through to `location /`, which routes to Users. Both fall under the existing `location /` block (Users is the default backend), so no new block is expected here; confirm against the file rather than assuming. (Orders' webhook path is verified separately, in Task 10c.6, against `location /v1/orders` — a different block, since Orders is not the nginx default.)
 
 - [ ] 14.3 Add the CSP header change to `apps/web`'s nginx config, allowing `https://*.stripe.com` in `script-src`, `frame-src`, and `connect-src`:
   ```
@@ -2344,7 +2491,7 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
   ```
   (merge into the existing directive rather than replacing it — preserve every existing source already listed for each directive).
 
-- [ ] 14.4 Add the `stripe-cli` service to `docker-compose.yml` behind `profiles: [stripe]`, following the `observability`/`preview` precedent:
+- [ ] 14.4 Add the `stripe-cli` service to `docker-compose.yml` behind `profiles: [stripe]`, following the `observability`/`preview` precedent, as a starting point:
   ```yaml
   stripe-cli:
     image: stripe/stripe-cli:latest
@@ -2355,6 +2502,14 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
       - .env.local.users
   ```
   Note in a comment above it: `stripe listen` prints its own `whsec_...` signing secret on startup, different from the Dashboard's — using the Dashboard secret locally fails webhook signature verification with a 400 that looks like a code bug, not an infra one. That printed secret must be copied by hand into `STRIPE_WEBHOOK_SECRET` in the CUSTOM box of `.env.local.users`.
+
+  **This command forwards to Users only — it is not yet complete.** Orders needs delivery too
+  (spec Decision 26), and Task 10c.9 is where the exact shape of the fix is decided: whether one
+  `stripe listen` invocation can carry a second `--forward-to` to
+  `orders:8080/v1/orders/stripe/webhook`, or whether a second `stripe-cli`-like service/process
+  is needed. Land this step's single-destination command first (Task 14 has no dependency on
+  Task 10c and may land first in the review batch); Task 10c.9 verifies against `stripe listen
+  --help` and updates this block accordingly rather than guessing the flag here.
 
 - [ ] 14.5 Add `make stripe-up` and `make stripe-logs` targets to the `Makefile`, mirroring the existing `observability-up`/`observability-*` targets' shape (`docker compose --profile stripe up -d` / `docker compose logs -f stripe-cli`).
 
@@ -2375,9 +2530,10 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
   at boot.
 
   This is already implemented on `feat/stripe-payments-users` (generator + schema) — Task 14
-  no longer needs to add it for Users. What remains here is **Orders**: when Orders gains its
-  Stripe env vars (Task 9/14), its equivalent keys must follow the same rule — seeded empty in
-  the CUSTOM box, empty treated as unset.
+  no longer needs to add it for Users. Orders' equivalent `STRIPE_ENABLED`/`STRIPE_SECRET_KEY`
+  seeding is likewise already in place (verified in `generate_env_files.py`'s Orders block).
+  What remained unseeded for Orders — `STRIPE_WEBHOOK_SECRET`, since Orders had no webhook
+  until Decision 26 — is added by **Task 10c.7**, not here; this step does not duplicate it.
 
   Override precedence (verified 2026-09-22 with `docker compose config`) still holds as a fact
   about this repo's env-file layering — Compose keeps the **last** duplicate key in one
@@ -2458,14 +2614,14 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
 
 ## Execution notes
 
-- Per [[phase-c-review-flow]], issues for Tasks 1–7 and Tasks 9–15 chain without per-merge prompts; PRs are batched for review at each of the two GATEs above, and nothing is auto-merged — the user reviews and merges each batch explicitly. Task 13 (plain-branch card validation) may be worked in parallel with the Task 9–10 wait, since it has no dependency on them, but its PR still joins the second batch. Task 12 (profile Payment methods tab) reuses `SavedCardRow` and `PaymentMethodsApi` from Task 11, so it must be ordered after Task 11 within the second batch, not worked in parallel with it.
+- Per [[phase-c-review-flow]], issues for Tasks 1–7 and Tasks 9–15 (including 10c) chain without per-merge prompts; PRs are batched for review at each of the two GATEs above, and nothing is auto-merged — the user reviews and merges each batch explicitly. Task 10c (Orders' own Stripe webhook) has no dependency on Tasks 11–13 and may be worked in any order relative to them within the second batch, provided it lands after Tasks 9–10 (it consumes Task 9's order model and Task 10's refund idempotency key). Task 13 (plain-branch card validation) may be worked in parallel with the Task 9–10 wait, since it has no dependency on them, but its PR still joins the second batch. Task 12 (profile Payment methods tab) reuses `SavedCardRow` and `PaymentMethodsApi` from Task 11, so it must be ordered after Task 11 within the second batch, not worked in parallel with it.
 - The Linear issues for this milestone do not exist yet. Once `linear-pm` creates them, a milestone-plan note is required at `docs/plans/stripe-payments-milestone.md` per [[milestone-plan]] (task-sequence table, dependency table, and dependency diagram) — this superpowers plan documents *how* to implement each task, not the milestone's cross-issue dependency structure, which is what that note is for.
 - The user injects the restricted keys (`rk_...` for each service) and the webhook secret by hand into the CUSTOM box of `.env.local.users` and `.env.local.orders` — never the AUTO box. The dedicated local-dev and CI Stripe sandboxes (Decision 17) are a prerequisite of Task 1: without a sandbox and its keys, Task 1's `STRIPE_ENABLED=true` path cannot be exercised past the "no key" branch. See [[stripe-sandbox-setup]] for the step-by-step procedure to obtain both sandboxes and their keys.
 - All design tokens this milestone's six new frames use (Decisions 22–24, Task 11's `SavedCardRow`, Task 12's profile tab) already exist in `apps/web/src/styles.css` — no task in this plan adds a token or touches `styles.css`.
 
 ## Self-review
 
-**Spec coverage** — all 24 decisions map to at least one task:
+**Spec coverage** — all 26 decisions (plus Decision D) map to at least one task:
 
 | Decision | Task(s) |
 |---|---|
@@ -2493,11 +2649,13 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
 | 22 (payment methods managed from profile too) | 12 |
 | 23 (checkout can add a card inline; save-card checkbox gates attach) | 11 (Task 11.14–11.16), 15 (gateway E2E, step 15.5) |
 | 24 (expired saved card shown, not hidden) | 11 (`SavedCardRow`'s expired state, Task 11.1–11.2), 12 (profile Cards List reuses it), 15 (component spec, step 15.6) |
-| 25 (Stripe calls join the logs/traces cascade) | 1 (`withStripeSpan` foundation, steps 1.7–1.8), 3 (step 3.3), 4 (step 4.10), 5 (step 5.5), 6 (step 6.3), 9 (step 9.10), 10 (step 10.4), 11 (step 11.17), 12 (step 12.8), 15 (step 15.10) |
+| 25 (Stripe calls join the logs/traces cascade) | 1 (`withStripeSpan` foundation, steps 1.7–1.8), 3 (step 3.3), 4 (step 4.10), 5 (step 5.5), 6 (step 6.3), 9 (step 9.10), 10 (step 10.4), 10c (step 10c.3), 11 (step 11.17), 12 (step 12.8), 15 (step 15.10) |
+| 26 (Orders gets its own Stripe webhook, payment reconciliation) | 10c |
+| D (Orders' key never reads PaymentMethods; snapshot reads `latest_charge`) | 9 (step 9.7), 14 (permission table cross-reference) |
 
 **Placeholder scan:** no "TBD"/"similar to Task N" shortcuts remain except explicitly-flagged repo-verification steps (4.8's conditional-module choice, 4.7's decorator names, 9.1/10.1's exact mock/fixture APIs, 13.9's exact signal-forms `validate()` signature, 11.1's "verify exact utility spelling against styles.css") — each names the exact `grep` to run and the exact existing file to copy from, rather than leaving the shape undefined.
 
-**Type consistency:** `StripeClientHolder` (Task 1) is the single shape threaded through Tasks 3, 4, 5, 6; `PaymentMethodView` (Task 4.3) is what Task 11's `PaymentMethodsApi.list()` consumes; `SavedCardView`/`SavedCardRow` (Task 11.1) is the single component both Task 11's checkout selector and Task 12's profile Cards List mount, never rebuilt per surface; `PaymentSnapshot` (Task 9) is what Task 10's refund path reads `PaymentIntentId` from; `stripe_customer_id` (Task 7) is the exact field both Task 9's gRPC read and Task 4/5's local persistence trace back to; `CardBrand`/`detectCardBrand`/`isValidCardNumber`/`isValidCvc`/`isValidExpiry` (Task 13) are the exact names Task 11's `checkout-payment.ts` imports and Task 13.7's `numeric-input.ts` rewrite depends on; the `{ brand, last4, expMonth, expYear }` metadata shape is identical between Task 11.13 (sender) and Task 9.9 (`CardMetadataValidator`, receiver); `withStripeSpan` (Task 1.8) is the single Node-side span helper Tasks 3, 4, 5, and 6 all wrap their Stripe calls in, and `StripeActivitySource` (Task 9.10) is its .NET-side sibling, consumed unchanged by Task 10's refund span; the client-generated `Idempotency-Key` header (Task 11.10b, sender) is the exact header Task 9.10b's Orders handler reads and persists as `IdempotencyKey`, and the Stripe idempotency key it derives (`order-charge-{userId}-{clientKey}`, Task 9.10b) is distinct in shape and purpose from the refund's own key (`refund-{paymentIntentId}`, Task 10.2) — the two are never confused or reused for each other.
+**Type consistency:** `StripeClientHolder` (Task 1) is the single shape threaded through Tasks 3, 4, 5, 6; `PaymentMethodView` (Task 4.3) is what Task 11's `PaymentMethodsApi.list()` consumes; `SavedCardView`/`SavedCardRow` (Task 11.1) is the single component both Task 11's checkout selector and Task 12's profile Cards List mount, never rebuilt per surface; `PaymentSnapshot` (Task 9) is what Task 10's refund path reads `PaymentIntentId` from; `stripe_customer_id` (Task 7) is the exact field both Task 9's gRPC read and Task 4/5's local persistence trace back to; `CardBrand`/`detectCardBrand`/`isValidCardNumber`/`isValidCvc`/`isValidExpiry` (Task 13) are the exact names Task 11's `checkout-payment.ts` imports and Task 13.7's `numeric-input.ts` rewrite depends on; the `{ brand, last4, expMonth, expYear }` metadata shape is identical between Task 11.13 (sender) and Task 9.9 (`CardMetadataValidator`, receiver); `withStripeSpan` (Task 1.8) is the single Node-side span helper Tasks 3, 4, 5, and 6 all wrap their Stripe calls in, and `StripeActivitySource` (Task 9.10) is its .NET-side sibling, consumed unchanged by Task 10's refund span; the client-generated `Idempotency-Key` header (Task 11.10b, sender) is the exact header Task 9.10b's Orders handler reads and persists as `IdempotencyKey`, and the Stripe idempotency key it derives (`order-charge-{userId}-{clientKey}`, Task 9.10b) is distinct in shape and purpose from the refund's own key (`refund-{paymentIntentId}`, Task 10.2) — the two are never confused or reused for each other. The refund key is itself shared, not distinct, across two call sites: Task 10.2's inline post-charge refund and Task 10c.1d's orphan-charge refund both derive `refund-{paymentIntentId}` from the same PaymentIntent id, deliberately, so the two paths can never both succeed at refunding the same charge. `latest_charge.payment_method_details.card` (Task 9.7, spec Decision D) is the single source `PaymentSnapshot`'s `CardBrand`/`CardLast4`/`CardExpMonth`/`CardExpYear` fields read from — never a PaymentMethods lookup, since Orders' restricted key (Task 14) has none.
 
 ## Related
 

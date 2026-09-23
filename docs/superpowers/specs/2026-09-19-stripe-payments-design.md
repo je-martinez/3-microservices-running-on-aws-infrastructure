@@ -222,16 +222,21 @@ here (see "Out of scope").
 
 ### 11. E2E does not wait on the webhook
 Users writes its own local row in the same response when a card is added — it already holds
-the PaymentMethod object Stripe returned. The webhook is reconciliation for changes
+the PaymentMethod object Stripe returned. Users' webhook is reconciliation for changes
 originating **outside** the app. This keeps E2E deterministic and runnable without the
 `stripe` compose profile active.
 
 Stripe's own guidance insists fulfillment must be driven from an event handler rather than a
 success page, because a buyer may never load the return page. That concern does not apply
 here: the charge is synchronous inside `POST /v1/orders` — there is no redirect during which
-the buyer can be lost — so the webhook's role in this design stays card-state reconciliation,
-never order fulfillment. If this integration ever moves to Checkout Sessions or adds a
-delayed-notification payment method, that changes and fulfillment must move into the handler.
+the buyer can be lost — so **fulfillment** stays synchronous: the order and its payment
+snapshot are written by `POST /v1/orders` itself, never by a webhook. If this integration ever
+moves to Checkout Sessions or adds a delayed-notification payment method, that changes and
+fulfillment must move into a handler.
+
+This paragraph covers fulfillment only. Orders gets its **own** webhook too, but for a
+narrower purpose — payment *reconciliation*, the same role Users' webhook already plays for
+card state — see Decision 26.
 
 ### 12. E2E data is tagged in Stripe too
 Reusing the existing mechanism: when `x-e2e-source: true` AND `E2E_TESTING_ENABLED` are both
@@ -259,9 +264,18 @@ Each service gets its own **restricted API key** (`rk_...`), not a secret key (`
 following least privilege:
 - **Users' RAK** — write access to Customers, PaymentMethods, and SetupIntents only (it creates
   customers, attaches/detaches cards, and sets the default payment method).
-- **Orders' RAK** — write access to PaymentIntents and Refunds only (it charges and, per
-  Decision 9, refunds). It must **not** be able to manage customers or payment methods — a
-  compromised Orders key should not be able to touch a saved card.
+- **Orders' RAK** — write access to PaymentIntents, and write access to Charges and Refunds
+  (Stripe's restricted-key editor groups these as a single resource with one permission level;
+  Write is required to create refunds, and it includes the read needed for Decision 7's
+  idempotency replay guard, which lists a PaymentIntent's refunds, and for the `latest_charge`
+  expansion). **No access to Customers or PaymentMethods** (Decision D, user, 2026-09-22): Orders
+  charges an existing `payment_method` by id and never looks one up — the card brand/last4/expiry
+  for the payment snapshot come from the charge itself (`latest_charge.payment_method_details.card`,
+  see the Orders flow section), not from a PaymentMethods read. A compromised Orders key should not
+  be able to touch a saved card, and this narrower scope is what makes that true in practice, not
+  only in intent. Because Charges and Refunds are granted together, Orders' key technically permits
+  the legacy Charges API too; the ban on that API (Decision 16) is enforced by code review and the
+  prohibited-API grep, not by the key's permission scope.
 
 Keys are injected by hand into the CUSTOM box of the relevant `.env.local.*` file, never the
 AUTO box (Decision 13, [[env-files]]). Additional rules from Stripe's security guidance:
@@ -565,7 +579,9 @@ specifics:**
 severity; success is `INFO` + `app_event=*_succeeded`). Named concretely, not left to be
 invented at implementation time: `stripe_customer_created`, `payment_method_attached`,
 `payment_method_detached`, `payment_method_set_default`, `payment_intent_created`,
-`payment_charged`, `payment_declined`, `payment_refunded`, `stripe_webhook_received`.
+`payment_charged`, `payment_declined`, `payment_refunded`, `stripe_webhook_received` (emitted
+by **both** services' webhooks — Users' per Decision 4/11, Orders' per Decision 26),
+`payment_orphan_refunded` (Orders' webhook only, Decision 26).
 
 **The three paths that must be observable independently, because they are the ones debugged
 without Stripe's own dashboard open:**
@@ -601,6 +617,83 @@ records — "observable" means the trace was actually seen in OpenObserve, after
 export cycle, never inferred from a 200 response. What "covered" means for this milestone:
 placing an order with a saved card produces **one** trace spanning browser → gateway → Orders
 → Stripe, with the Stripe hop appearing as its own named CLIENT span in that same waterfall.
+
+### 26. Orders gets its own Stripe webhook — for payment reconciliation, not fulfillment
+
+**Decision, user, 2026-09-22.** Decision 11 is true for **fulfillment**: the order and its
+payment snapshot are still written synchronously by `POST /v1/orders`, never by a webhook,
+because the charge itself is synchronous and there is no redirect to lose the buyer across.
+That stays unchanged. But three failure shapes have no detector today, none of them fixable
+by making the synchronous path more careful, because each happens **after** `POST /v1/orders`
+has already returned or crashed:
+
+1. **Orphan charges.** A succeeded PaymentIntent carrying `metadata.order_id` (Decision 5's
+   ordering, Task 9's `order_id` metadata) with no matching order row — the process was killed
+   between the charge and the commit, the post-charge refund in Decision 9's path itself failed
+   partway, or a PaymentIntent that was `processing` when Orders answered its caller 402 (Orders
+   never retries a `processing` intent — see the Orders flow section) later transitions to
+   `succeeded` on Stripe's side with nothing on the Orders side aware of it. In every one of
+   these, real money moved with no order to show for it, and it must come back.
+
+   Handler, on `payment_intent.succeeded`: look up an order for `metadata.order_id`.
+   - **No order exists, PaymentIntent younger than a grace period** (10 minutes, configurable):
+     answer a non-2xx so Stripe retries the delivery later — the in-flight `POST /v1/orders`
+     request may still be about to commit, and refunding under it would be a real double-refund
+     race, not merely a redundant one.
+   - **No order exists, PaymentIntent older than the grace period:** issue a full refund using
+     the **same** idempotency key as Decision 9's inline refund path,
+     `refund-{paymentIntentId}` — deliberately the same key, not a new one, so the two paths
+     (the inline post-charge catch block and this webhook handler) can never both succeed at
+     refunding the same charge. Log `app_event=payment_orphan_refunded` (WARNING) with
+     `order_id` and `payment_intent_id`.
+   - **Order exists:** no-op. This is the common case — most `payment_intent.succeeded`
+     deliveries arrive for orders that already committed normally.
+
+2. **Refunds made outside the app.** A refund issued from the Stripe Dashboard, by support, or
+   by any path other than this codebase has nothing in Orders reflecting it. Handler, on
+   `charge.refunded`: update the order's `PaymentStatus` to `refunded` (full) or
+   `partially_refunded` (comparing `amount_refunded` against `amount` on the event).
+
+3. **Disputes.** Nothing today tells Orders a cardholder disputed a charge. Handler:
+   `charge.dispute.created` sets `PaymentStatus=disputed`; `charge.dispute.closed` records the
+   outcome — won reverts to `succeeded`, lost sets `PaymentStatus=dispute_lost`. Log each
+   transition at WARNING; a dispute is not routine traffic.
+
+Every other event type Stripe delivers to this endpoint is acknowledged with a 2xx and
+otherwise ignored — an unrecognized type is not an error, it is simply not one of the three
+cases above.
+
+**No processed-event table.** Stripe may deliver an event more than once, or out of order,
+and this design accepts both without deduplicating deliveries by `event.id`: every handler
+above is idempotent on its own terms — the orphan-refund path reuses Decision 9's exact
+idempotency key, the refund/dispute-status handlers are plain upserts of the order's
+`PaymentStatus` keyed on the PaymentIntent/charge id, so replaying the same event twice sets
+the same status twice. A processed-event table would only buy protection a plain idempotent
+handler already has for this handler shape.
+
+**Route.** `POST /v1/orders/stripe/webhook` — public, no JWT (`auth = false` in the gateway
+route map, the same shape as Users' `stripe_webhook` route). Signature verified on the
+**raw** request body using Orders' **own** `STRIPE_WEBHOOK_SECRET` before any handler runs —
+an invalid signature answers `400 invalid_signature` and dispatches nothing, mirroring
+Decision 4's webhook. `STRIPE_ENABLED=true` with the secret absent answers `503
+stripe_unavailable`, the same graceful-degradation shape Decision 13 already specifies for
+every other Stripe-backed route.
+
+**Observability.** `app_event=stripe_webhook_received` with `event.type` and `event.id`, the
+same shape Decision 25 already specifies for Users' webhook — this is the same event, applied
+to Orders' own endpoint, not a new logging shape.
+
+**Local delivery (Decision 10).** `stripe listen`'s signing secret is the same value for every
+event it forwards on one machine — the CLI mints one secret per running `listen` process, not
+per destination. `make stripe-webhook-secret` therefore writes that **one** `whsec_...` into
+**both** `.env.local.users`' and `.env.local.orders`' CUSTOM boxes. What the implementer must
+verify, not invent: whether one `stripe listen --forward-to` invocation can forward to two
+local endpoints, or whether two concurrent `stripe listen` processes are needed (in which case
+they would mint two *different* secrets, contradicting the shared-secret premise above) — run
+`stripe listen --help` and confirm before wiring the compose command; do not assume flags that
+have not been checked against the installed CLI's own help output. A real deployment gives each
+endpoint its own Dashboard-issued secret, so this shared-secret-on-one-machine shape is a local
+convenience, not a production characteristic.
 
 ## Data model
 
@@ -652,6 +745,16 @@ any failure — a stock conflict, a removed product, the price-mismatch guard, o
 persistence/commit failure — occurs after a successful charge (Decision 9). A replayed
 Stripe response for an already-refunded PaymentIntent answers `409 idempotency_key_reused`; a
 reused key with a mismatched body answers `422 idempotency_key_mismatch` (Decision 7).
+
+The payment snapshot's card fields (`CardBrand`/`CardLast4`/`CardExpMonth`/`CardExpYear`,
+Decision 5) come from the charge, not from a PaymentMethods lookup: the PaymentIntent create
+call expands `latest_charge`, and the card fields are read from
+`latest_charge.payment_method_details.card` (Decision D, user, 2026-09-22) — consistent with
+Orders' restricted key having no PaymentMethods access at all (Decision 15).
+
+**`POST /v1/orders/stripe/webhook`** — public, no JWT, signature-verified against Orders' own
+`STRIPE_WEBHOOK_SECRET` — handles payment *reconciliation* (orphan charges, refunds made outside
+the app, disputes), never fulfillment; see Decision 26.
 
 ## Web
 
@@ -730,8 +833,11 @@ validates its own branch.
 
 See Decision 10. `stripe-cli` runs as a compose service behind `profiles: [stripe]`, started
 with `make stripe-up` and inspected with `make stripe-logs`, following the `observability`
-pattern in [[local-dev]]. It forwards Stripe events to Users over the internal compose
-network; no public route exists for it locally (Decision 10's consequence).
+pattern in [[local-dev]]. It forwards Stripe events to **both** Users and Orders over the
+internal compose network — Orders' own webhook (Decision 26) needs delivery too, using the
+**same** `stripe listen`-minted signing secret in both services' CUSTOM boxes (Decision 26's
+local-delivery paragraph); no public route exists for either locally (Decision 10's
+consequence).
 
 ## Testing
 
@@ -763,12 +869,16 @@ refund-after-409 path, and the webhook — not merely coded and assumed correct.
 
 ## Infra
 
-New gateway routes in `infra/modules/api-gateway/main.tf` and an nginx `location` block for the
-webhook path in `infra/modules/compute/nginx/nginx.conf` are their own implementation task, not
-a footnote: a route missing from the gateway map 404s while working on the service port, and a
-new top-level path without a `location` block silently falls through to Users. Plus the
-`stripe-cli` compose service behind `profiles: [stripe]` and the `make stripe-up` /
-`make stripe-logs` targets.
+New gateway routes in `infra/modules/api-gateway/main.tf` — including `POST
+/v1/orders/stripe/webhook` (Decision 26), `auth = false`, the same shape as Users'
+`stripe_webhook` route — are their own implementation task, not a footnote: a route missing
+from the gateway map 404s while working on the service port. `/v1/orders/stripe/webhook`
+needs **no new** nginx `location` block in `infra/modules/compute/nginx/nginx.conf` — it falls
+under the existing `location /v1/orders` prefix block, which forwards path and all to Orders
+unchanged; verified against the current file, not assumed. That block's existence is still
+worth restating: a new top-level path with no matching `location` silently falls through to
+`location /`, which routes to Users. Plus the `stripe-cli` compose service behind `profiles:
+[stripe]` and the `make stripe-up` / `make stripe-logs` targets.
 
 Also tracked here, not as footnotes:
 - The `Content-Security-Policy` change to `apps/web`'s nginx config (Web section) allowing
@@ -808,7 +918,11 @@ Manually installed skills do not auto-update — `pnpm dlx skills update` refres
 
 - A separate `payments` microservice.
 - `stripe-mock` (Decision 14).
-- The public webhook route for a real, non-local deployment.
+- The public webhook route for a real, non-local deployment. This is about the **deployed**
+  endpoint (a real Dashboard-configured webhook URL, IP allowlisting — see Infra), not about
+  Orders having a webhook at all: Decision 26 adds Orders' `POST /v1/orders/stripe/webhook` for
+  local delivery via `stripe listen` in this same milestone, same as Users' webhook already
+  does.
 
 > [!note] Superseded scoping call
 > An earlier draft of this section deferred a dedicated card-management screen outside

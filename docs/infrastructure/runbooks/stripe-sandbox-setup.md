@@ -61,18 +61,37 @@ exist in the other; each must be set up independently.
 Dashboard → **Developers → API keys → Create restricted key**. Do this **once per sandbox**
 (local-dev sandbox now; repeat in the CI sandbox in step 6).
 
+Stripe's restricted-key editor groups **Charges and Refunds as a single resource** with one
+permission level (None / Read / Write) — there is no separate Charges row and Refunds row, and
+Write includes Read.
+
 | Resource | Users' key | Orders' key |
 |---|---|---|
 | Customers | Write | None |
 | PaymentMethods | Write | None |
 | SetupIntents | Write | None |
 | PaymentIntents | None | Write |
-| Refunds | None | Write |
+| Charges and Refunds | None | Write |
 | Everything else | None | None |
 
 Users' key creates customers, attaches/detaches cards, and sets the default payment method.
 Orders' key charges and refunds — it must **not** reach Customers or PaymentMethods, so a
 compromised Orders key cannot touch a saved card.
+
+> [!note] Orders' key has no PaymentMethods access at all — by design
+> Orders charges an existing `payment_method` id and never looks one up. The payment
+> snapshot's card brand/last4/expiry come from the **charge** (`latest_charge.payment_method_details.card`
+> on the PaymentIntent, expanded at creation time), never from a PaymentMethods read. Charges
+> and Refunds is set to **Write** (which includes Read) because a refund is a write, the
+> idempotency replay guard (design spec Decision 7) lists a PaymentIntent's refunds to detect a
+> prior refund on a replayed request, and the `latest_charge` expansion itself is a Charges read.
+> See [[2026-09-19-stripe-payments-design]] Decision D (user, 2026-09-22).
+
+> [!warning] Write on Charges and Refunds technically permits the legacy Charges API
+> Stripe grants Charges and Refunds together, so Orders' key technically has enough permission
+> to call the legacy Charges API even though this integration never does. The ban on the
+> Charges API (Global Constraints / Decision 16) is enforced by code review and the
+> prohibited-API grep, not by the key's permission scope.
 
 > [!warning] The key is shown once
 > Stripe shows a restricted key's value only at creation time. It cannot be retrieved
@@ -83,7 +102,14 @@ policy for each key. Users' and Orders' policies must differ from each other (pe
 control *what* a key can call; the access policy controls *who/where* can use it — compromising
 one service's environment must not expose the other's).
 
-## 3. Get the webhook signing secret (Decision 10)
+## 3. Get the webhook signing secret (Decision 10, Decision 26)
+
+**Both** Users and Orders now receive webhooks (Decision 26, user, 2026-09-22 — Orders'
+webhook handles payment *reconciliation*: orphan charges, refunds made outside the app, and
+disputes; Users' webhook keeps reconciling saved-card state, unchanged). `stripe listen` mints
+**one** signing secret per running process, valid for every event it forwards on this machine
+— so both services get the **same** `whsec_...` value; this is one secret written to two
+files, not two separate secrets.
 
 ```bash
 stripe listen --forward-to http://localhost:3000/v1/users/stripe/webhook
@@ -107,20 +133,32 @@ make stripe-logs
 
 Read the `whsec_...` value from that container's startup log via `make stripe-logs`.
 
+> [!warning] Forwarding to two destinations is not yet resolved as of this runbook's last update
+> Whether one `stripe listen` invocation can forward to both
+> `users:3000/v1/users/stripe/webhook` and `orders:8080/v1/orders/stripe/webhook`, or whether
+> two concurrent processes are needed (which would mint **two different** secrets, contradicting
+> the shared-secret premise above), is verified — not guessed — in
+> [[2026-09-19-stripe-payments]] Task 10c.9, by running `stripe listen --help` against the
+> installed CLI. Read that task's outcome before assuming the exact compose command shape.
+> `make stripe-webhook-secret` writes the one secret it obtains into **both**
+> `.env.local.users` and `.env.local.orders` regardless of which shape wins (Task 10c.8).
+
 ## 4. Where each value goes
 
 Every value below goes in the **CUSTOM box**, never the AUTO box — `make env-file` rewrites
 the AUTO box from Terraform outputs on every run ([[env-files]]). `make env-file` seeds
 `STRIPE_ENABLED=false`, `STRIPE_SECRET_KEY=` and `STRIPE_WEBHOOK_SECRET=` into
-`.env.local.users`'s CUSTOM box when they are absent, so you fill them in place (empty =
-unset).
+`.env.local.users`'s CUSTOM box when they are absent, and `STRIPE_ENABLED=false` /
+`STRIPE_SECRET_KEY=` / `STRIPE_WEBHOOK_SECRET=` (the last one added by
+[[2026-09-19-stripe-payments]] Task 10c.7, once Orders has a webhook to receive — Decision 26)
+into `.env.local.orders`'s CUSTOM box, so you fill them in place (empty = unset).
 
 | Value | File | Box |
 |---|---|---|
 | `STRIPE_ENABLED=true` | `.env.local.users` AND `.env.local.orders` | CUSTOM |
 | `STRIPE_SECRET_KEY=rk_test_...` (Users' restricted key) | `.env.local.users` | CUSTOM |
-| `STRIPE_SECRET_KEY=rk_test_...` (Orders' restricted key — a **different** key) | `.env.local.orders` | CUSTOM |
-| `STRIPE_WEBHOOK_SECRET=whsec_...` (from `stripe listen`) | `.env.local.users` | CUSTOM |
+| `STRIPE_SECRET_KEY=rk_test_...` (Orders' restricted key — a **different** key, narrower permissions — see section 2's note) | `.env.local.orders` | CUSTOM |
+| `STRIPE_WEBHOOK_SECRET=whsec_...` (from `stripe listen` — the **same** value in both files, per section 3) | `.env.local.users` AND `.env.local.orders` | CUSTOM |
 | `NG_APP_STRIPE_PUBLISHABLE_KEY=pk_test_...` | `apps/web/.env` (until Task 11 lands, below) | — (public, see below) |
 | `NG_APP_STRIPE_ENABLED=true` | `apps/web/.env`, and `docker-compose.yml`'s web build arg (currently hardcoded `"false"`, until Task 11 lands, below) | — |
 
@@ -145,14 +183,20 @@ real one.
 | Key present, flag on | Set `STRIPE_ENABLED=true` and a real key, boot Users | Users boots; payment-method routes respond normally (not 503) |
 | Key absent, flag on (Decision 13) | Set `STRIPE_ENABLED=true`, leave `STRIPE_SECRET_KEY` unset, boot Users | Users still boots, logs a warning, Stripe routes answer 503 — verify this deliberately, it is what protects the local environment from a missing secret |
 | Flag off (default) | Leave `STRIPE_ENABLED=false` | Nothing Stripe-related is mounted; repo behaves exactly as before |
+| Orders' webhook secret present, flag on (Decision 26) | Set `STRIPE_ENABLED=true` and a real `STRIPE_WEBHOOK_SECRET` on Orders, boot Orders | `POST /v1/orders/stripe/webhook` verifies a correctly-signed test event and answers 2xx |
+| Orders' webhook secret absent, flag on | Set `STRIPE_ENABLED=true`, leave Orders' `STRIPE_WEBHOOK_SECRET` unset | Orders still boots; the webhook route answers 503, the same graceful-degradation shape as every other Stripe-backed route (Decision 13) |
 
 ## 6. CI
 
-The CI sandbox (created in section 1) gets its **own** pair of restricted keys, created the
-same way as section 2 but stored as CI secrets — never in any `.env.local.*` file. Per
-Decision 17's scoping caveat, the CI sandbox does not inherit anything configured in the
-local-dev sandbox (or vice versa); repeat sections 2 and 3 independently against the CI
-sandbox rather than assuming carryover.
+The CI sandbox (created in section 1) gets its **own** pair of restricted keys and its **own**
+webhook signing secret(s) for both services' webhooks (Users' and, per Decision 26, Orders'),
+created the same way as sections 2 and 3 but stored as CI secrets — never in any
+`.env.local.*` file. Per Decision 17's scoping caveat, the CI sandbox does not inherit
+anything configured in the local-dev sandbox (or vice versa); repeat sections 2 and 3
+independently against the CI sandbox rather than assuming carryover. In a real deployment
+(unlike local `stripe listen`), Users' and Orders' webhook endpoints each get their own
+Dashboard-issued secret rather than sharing one — the shared-secret shape in section 3 is a
+`stripe listen` characteristic, not a rule that carries to CI or production.
 
 ## 7. Rotation and incident response
 
@@ -168,11 +212,12 @@ Practice rolling a key ahead of any incident so the procedure is not learned liv
 
 ## Related
 
-- [[2026-09-19-stripe-payments-design]] — Decisions 10, 13, 15, and 17, which this runbook
-  operationalizes.
+- [[2026-09-19-stripe-payments-design]] — Decisions 10, 13, 15, 17, 26, and D, which this
+  runbook operationalizes.
 - [[2026-09-19-stripe-payments]] — Task 11 step 11.4b, which moves the two web `NG_APP_*`
   rows in section 4 from a hand-maintained `apps/web/.env`/hardcoded compose literal to the
-  root `.env`'s CUSTOM box.
+  root `.env`'s CUSTOM box; Task 10c, which adds Orders' webhook (section 3's two-destination
+  question, section 4's Orders webhook-secret row).
 - [[env-files]] — the AUTO/CUSTOM box convention governing where every value in section 4 lives.
 - [[local-dev]] — the `profiles:`-gated optional-service pattern `stripe-cli` follows.
 - [[secret-rotation]] — general credential rotation mechanics referenced from section 7.
