@@ -10,6 +10,7 @@ using Orders.Api.Middleware;
 using Orders.Application.Abstractions;
 using Orders.Application.Messaging;
 using Orders.Application.Identity;
+using Orders.Application.Payments;
 using Orders.Application.Tracking;
 using Orders.Infrastructure.Bus;
 using Orders.Infrastructure.Caching;
@@ -23,12 +24,14 @@ using Orders.Infrastructure.Metrics;
 using Orders.Infrastructure.Observability;
 using Orders.Infrastructure.Orders;
 using Orders.Infrastructure.Orders.Handlers;
+using Orders.Infrastructure.Payments;
 using Orders.Infrastructure.Persistence;
 using Orders.Infrastructure.Tracking;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Serilog;
 using StackExchange.Redis;
+using Stripe;
 using Wolverine;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -66,6 +69,8 @@ builder.Services.AddOpenTelemetry()
         .AddSource(CloudWatchMetricsPublisher.ActivitySourceName)
         // Redis cache.get / cache.set spans.
         .AddSource(CacheGateway.ActivitySourceName)
+        // Outbound Stripe calls.
+        .AddSource(StripeActivitySource.Name)
         // CONTRACT: Do NOT set OtlpExporter Endpoint in code — hand-built URLs POST to the collector
         // root and return 404 silently; the SDK reads OTEL_EXPORTER_OTLP_ENDPOINT instead.
         // See [[logging-context]]
@@ -209,6 +214,22 @@ builder.Services.AddScoped<IUserDirectory>(sp =>
     return cache is null ? grpc : new CachedUserDirectory(grpc, cache);
 });
 
+// CONTRACT: One StripeClient instance per process — never the global StripeConfiguration.ApiKey.
+// The API version (2026-08-26.dahlia) is pinned by the Stripe.net 52.4.0 package itself.
+// WARNING: STRIPE_ENABLED with no STRIPE_SECRET_KEY still boots — charges answer 503 instead.
+// See [[2026-09-19-stripe-payments-design]]
+var stripeEnabled = builder.Configuration.GetValue("STRIPE_ENABLED", false);
+var stripeSecretKey = builder.Configuration["STRIPE_SECRET_KEY"];
+var stripeKeyMissing = stripeEnabled && string.IsNullOrWhiteSpace(stripeSecretKey);
+builder.Services.AddSingleton(new StripeSettings(stripeEnabled));
+if (stripeEnabled && !stripeKeyMissing)
+{
+    builder.Services.AddSingleton<IStripeClient>(_ => new StripeClient(stripeSecretKey));
+}
+builder.Services.AddSingleton(sp => new StripePaymentCharger(
+    sp.GetService<IStripeClient>(),
+    sp.GetRequiredService<ILogger<StripePaymentCharger>>()));
+
 // CONTRACT: Fail fast on missing EVENTS_TOPIC_ARN — a null ARN boots silently and the publisher
 // swallows publish failures, so no confirmation email is ever sent.
 // WORKAROUND(local): Exempt during GetDocument.Insider — no env file at `dotnet build` time.
@@ -345,7 +366,9 @@ builder.Services.AddScoped(sp => new CreateOrderService(
     sp.GetRequiredService<IWorkflowTracer>(),
     sp.GetRequiredService<ICacheInvalidator>(),
     assetsBaseUrl,
-    sp.GetRequiredService<ILogger<CreateOrderService>>()));
+    sp.GetRequiredService<ILogger<CreateOrderService>>(),
+    sp.GetRequiredService<StripeSettings>(),
+    sp.GetRequiredService<StripePaymentCharger>()));
 
 // CQRS dispatch bus. The four behaviors are registered ONCE here, in the pipeline order the
 // design commits to: tracing -> app_event -> logging -> validation -> handler. Wolverine's
@@ -387,6 +410,12 @@ builder.Host.UseWolverine(opts =>
 });
 
 var app = builder.Build();
+
+if (stripeKeyMissing && !isDocumentGeneration)
+{
+    app.Logger.LogWarning(
+        "STRIPE_ENABLED is true but STRIPE_SECRET_KEY is not set. Order creation will answer 503.");
+}
 
 // WHY: Open AmbientRequestId here — UseSerilogRequestLogging runs on unwind after inner
 // middleware, so a scope opened deeper would drop request_id from "request completed".

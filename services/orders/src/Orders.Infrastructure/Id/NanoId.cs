@@ -102,4 +102,26 @@ public static class NanoId
     /// </remarks>
     public static string NewId(string prefix) =>
         prefix + NanoidDotNet.Nanoid.Generate(NanoIdConfig.Alphabet, NanoIdConfig.Length);
+
+    /// <summary>
+    /// A <c>prefix_nanoid</c> derived from <paramref name="seed"/>: same seed, same id, in the
+    /// same format as <see cref="NewId"/>.
+    /// </summary>
+    /// <remarks>
+    /// CONTRACT: Only for an id that a retry must reproduce. An order charged through Stripe
+    /// sends its id as PaymentIntent metadata, and Stripe rejects a repeated idempotency key
+    /// whose parameters differ — a fresh id per retry turns every retry into a 422.
+    /// See [[2026-09-19-stripe-payments-design]]
+    /// </remarks>
+    public static string DerivedId(string prefix, string seed)
+    {
+        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(seed));
+        var chars = new char[NanoIdConfig.Length];
+        for (var i = 0; i < chars.Length; i++)
+        {
+            chars[i] = NanoIdConfig.Alphabet[hash[i] % NanoIdConfig.Alphabet.Length];
+        }
+
+        return prefix + new string(chars);
+    }
 }

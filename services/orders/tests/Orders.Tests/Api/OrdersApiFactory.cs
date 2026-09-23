@@ -48,6 +48,9 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
     public const string KnownEmail = "known@example.com";
     // WHY: Same response as the email; the confirmation mail greets the buyer by name.
     public const string KnownFullName = "Known Buyer";
+    // WHY: Only the known user has a Stripe customer; the other identity exercises the
+    // "no saved payment method" branch of a Stripe-enabled order.
+    public const string KnownStripeCustomerId = "cus_known";
     public string SeededProductId { get; private set; } = string.Empty;
 
     /// <summary>
@@ -263,7 +266,8 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
                     // those exact constants in the ORDER_CREATED envelope.
                     id == KnownUserId ? KnownEmail : $"{id}@example.com",
                     id == KnownUserId ? KnownFullName : $"Test {id}",
-                    new CallerAddress("1 Test St", null, "Testville", null, "Testland", null)));
+                    new CallerAddress("1 Test St", null, "Testville", null, "Testland", null),
+                    id == KnownUserId ? KnownStripeCustomerId : null));
         }
     }
 }

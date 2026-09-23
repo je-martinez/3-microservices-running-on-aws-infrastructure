@@ -1,16 +1,20 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Orders.Application.Abstractions;
 using Orders.Application.Identity;
 using Orders.Application.Orders;
+using Orders.Application.Payments;
 using Orders.Application.Tracking;
 using Orders.Domain.Entities;
 using Orders.Domain.Pricing;
 using Orders.Domain;
+using Orders.Domain.Payments;
 using Orders.Infrastructure.Caching;
 using Orders.Infrastructure.Carts;
 using Orders.Infrastructure.Id;
 using Orders.Infrastructure.Observability;
+using Orders.Infrastructure.Payments;
 using Orders.Infrastructure.Persistence;
 using Orders.Infrastructure.Persistence.Configurations;
 
@@ -18,7 +22,8 @@ namespace Orders.Infrastructure.Orders;
 
 // Every write runs inside a transaction: resolve identity via IUserDirectory (gRPC), lock
 // each product row FOR UPDATE, validate and decrement stock, persist order + lines with
-// both identifiers, emit ORDER_CREATED. Any failure rolls the whole thing back.
+// both identifiers, emit ORDER_CREATED. Any failure rolls the whole thing back. With Stripe
+// enabled the order is charged BEFORE that transaction opens.
 public class CreateOrderService
 {
     private readonly OrdersWriteDbContext _db;
@@ -30,6 +35,8 @@ public class CreateOrderService
     private readonly ICacheInvalidator _cache;
     private readonly string _assetsBaseUrl;
     private readonly ILogger<CreateOrderService> _logger;
+    private readonly StripeSettings _stripe;
+    private readonly StripePaymentCharger _charger;
 
     /// <param name="assetsBaseUrl">
     /// Assets base URL used ONLY to render the response's image URLs; the row stores the
@@ -44,7 +51,9 @@ public class CreateOrderService
         IWorkflowTracer tracer,
         ICacheInvalidator cache,
         string assetsBaseUrl,
-        ILogger<CreateOrderService> logger)
+        ILogger<CreateOrderService> logger,
+        StripeSettings? stripe = null,
+        StripePaymentCharger? charger = null)
     {
         _db = db;
         _users = users;
@@ -55,6 +64,8 @@ public class CreateOrderService
         _cache = cache;
         _assetsBaseUrl = assetsBaseUrl.TrimEnd('/');
         _logger = logger;
+        _stripe = stripe ?? new StripeSettings(Enabled: false);
+        _charger = charger ?? new StripePaymentCharger(client: null, NullLogger<StripePaymentCharger>.Instance);
     }
 
     /// <param name="testMode">Forwarded to Tracking as <c>x-test-mode</c>.</param>
@@ -69,6 +80,18 @@ public class CreateOrderService
         string cognitoSub,
         bool testMode = false,
         bool e2eSource = false,
+        CancellationToken ct = default) =>
+        (await CreateOrReplayAsync(command, cognitoSub, testMode, e2eSource, ct)).Order;
+
+    /// <summary>
+    /// Creates the order, or returns the one the caller's Idempotency-Key already produced.
+    /// </summary>
+    /// <inheritdoc cref="CreateAsync" path="/param"/>
+    public async Task<CreateOrderResult> CreateOrReplayAsync(
+        CreateOrderCommand command,
+        string cognitoSub,
+        bool testMode = false,
+        bool e2eSource = false,
         CancellationToken ct = default)
     {
         // WHY: The span's attributes mirror the create_order_* log lines below, so the
@@ -79,7 +102,7 @@ public class CreateOrderService
             () => CreateInternalAsync(command, cognitoSub, testMode, e2eSource, ct));
     }
 
-    private async Task<OrderDto> CreateInternalAsync(
+    private async Task<CreateOrderResult> CreateInternalAsync(
         CreateOrderCommand command,
         string cognitoSub,
         bool testMode,
@@ -106,6 +129,17 @@ public class CreateOrderService
 
         var userId = caller.InternalUserId;
 
+        // CONTRACT: With Stripe on, a (user, Idempotency-Key) pair that already has an order gets
+        // THAT order back, before any pricing or charge. See [[2026-09-19-stripe-payments-design]]
+        var clientKey = _stripe.Enabled
+            ? command.IdempotencyKey
+                ?? throw new ArgumentException("An Idempotency-Key is required when Stripe is enabled.", nameof(command))
+            : null;
+        if (clientKey is not null && await FindByIdempotencyKeyAsync(userId, clientKey, ct) is { } existing)
+        {
+            return Replayed(existing);
+        }
+
         // CONTRACT: Serialize the address ONCE and reuse it for the order row and Tracking —
         // per-destination serialization is how the two copies drift. PII: never log it and
         // never put it in an exception. See [[logging-context]]
@@ -120,17 +154,118 @@ public class CreateOrderService
         // from its own columns. See [[money-representation]]
         var shippingCents = await _config.GetShippingCentsAsync(ct);
 
+        // CONTRACT: Consolidate duplicate ProductIds BEFORE locking, so each product is
+        // locked, priced and decremented exactly once. Ordered by ProductId for a
+        // deterministic lock order — otherwise two concurrent orders deadlock.
+        var consolidatedLines = command.Lines
+            .GroupBy(l => l.ProductId)
+            .Select(g => new CreateOrderLine(g.Key, (uint)g.Sum(l => (long)l.Quantity)))
+            .OrderBy(l => l.ProductId, StringComparer.Ordinal)
+            .ToList();
+
+        // WHY: Derived from (user, key) on the Stripe path — the id travels as PaymentIntent
+        // metadata, and a retry sending a different id is rejected by Stripe as a mismatch.
+        var orderId = clientKey is null
+            ? NanoId.NewId(NanoId.OrderPrefix)
+            : NanoId.DerivedId(NanoId.OrderPrefix, $"{userId}\n{clientKey}");
+
+        // CONTRACT: Charge BEFORE persisting and OUTSIDE the transaction below. After it, a
+        // failed charge leaves an order nobody paid for; inside it, the FOR UPDATE locks are
+        // held for the whole Stripe round trip and checkout serializes on those products.
+        // See [[2026-09-19-stripe-payments-design]]
+        PaymentSnapshot? payment = null;
+        if (_stripe.Enabled)
+        {
+            var paymentMethodId = command.PaymentMethodId
+                ?? throw new ArgumentException("A payment method is required when Stripe is enabled.", nameof(command));
+            var amountCents = await PriceForChargeAsync(consolidatedLines, taxRate, shippingCents, ct);
+            try
+            {
+                payment = await _charger.ChargeAsync(
+                    orderId, amountCents, caller.StripeCustomerId, paymentMethodId,
+                    StripePaymentCharger.ChargeIdempotencyKeyFor(userId, clientKey!), ct);
+            }
+            catch (Exception ex) when (ex is IdempotencyKeyReusedException or IdempotencyKeyMismatchException)
+            {
+                // WHY: WARNING — the client broke the key contract; nothing here is a fault.
+                var reason = ex is IdempotencyKeyReusedException ? "idempotency_key_reused" : "idempotency_key_mismatch";
+                _logger.LogWarning(
+                    "Order creation failed: idempotency key rejected {app_event} {reason} {order_id}",
+                    "create_order_failed", reason, orderId);
+                _tracer.SetReason(reason);
+                throw;
+            }
+            catch (PaymentDeclinedException ex)
+            {
+                // WHY: The charger wrote the payment_declined line; the workflow span carries the
+                // same three fields. WorkflowTracer leaves this span's status Unset.
+                _tracer.SetAttribute("app_event", "payment_declined");
+                _tracer.SetReason(ex.Reason);
+                _tracer.SetAttribute("order_id", orderId);
+                throw;
+            }
+            catch (PaymentUnavailableException ex)
+            {
+                _logger.LogError(
+                    "Order creation failed: payments unavailable {app_event} {reason} {order_id}",
+                    "create_order_failed", ex.Reason, orderId);
+                _tracer.SetReason(ex.Reason);
+                throw;
+            }
+        }
+
+        // CONTRACT: A succeeded charge is refunded if ANYTHING fails before the commit — a stock
+        // conflict or deleted product found under the lock, the price guard, a failed save or
+        // commit. The original exception still propagates, so the caller keeps its 409/404/500.
+        // One exception: a concurrent duplicate that lost the insert race gets the winner's
+        // order, and is NOT refunded — Stripe replayed the winner's PaymentIntent to it.
+        // See [[2026-09-19-stripe-payments-design]]
+        var committed = false;
+        try
+        {
+            return new CreateOrderResult(await PersistAsync(), Created: true);
+        }
+        catch (Exception ex) when (!committed && (payment is not null || clientKey is not null))
+        {
+            if (ex is DbUpdateException
+                && clientKey is not null
+                && await FindByIdempotencyKeyAsync(userId, clientKey, ct) is { } winner)
+            {
+                if (payment is not null && winner.PaymentIntentId != payment.PaymentIntentId)
+                {
+                    await _charger.RefundAsync(orderId, payment.PaymentIntentId);
+                }
+
+                return Replayed(winner);
+            }
+
+            if (payment is not null)
+            {
+                await _charger.RefundAsync(orderId, payment.PaymentIntentId);
+            }
+
+            throw;
+        }
+
         // WHY: The audit interceptor stamps CreatedBy/UpdatedBy with the actor, describing
         // WHAT produced the row; the buyer is traced via UserId/CognitoSub.
         // See [[audit-fields]]
-        return await AmbientActor.RunAsync(AuditActor.CreateOrder, async () =>
+        Task<OrderDto> PersistAsync() => AmbientActor.RunAsync(AuditActor.CreateOrder, async () =>
         {
             await using var tx = await _db.Database.BeginTransactionAsync(ct);
 
             var now = DateTime.UtcNow;
+            if (clientKey is not null)
+            {
+                // WHY: created_at stores microseconds; truncating here makes the 201 body and a
+                // later replayed 200 body byte-identical.
+                now = new DateTime(now.Ticks - (now.Ticks % 10), DateTimeKind.Utc);
+            }
+
             var order = new Order
             {
-                Id = NanoId.NewId(NanoId.OrderPrefix),
+                Id = orderId,
+                IdempotencyKey = clientKey,
                 // CONTRACT: Minted from the order's OWN creation instant, in UTC, so the
                 // number stays reproducible from created_at and does not depend on which
                 // host served the request. Re-minted on a unique-index collision below.
@@ -149,15 +284,6 @@ public class CreateOrderService
 
             long subtotal = 0, tax = 0, total = 0;
 
-            // CONTRACT: Consolidate duplicate ProductIds BEFORE locking, so each product is
-            // locked, priced and decremented exactly once. Ordered by ProductId for a
-            // deterministic lock order — otherwise two concurrent orders deadlock.
-            var consolidatedLines = command.Lines
-                .GroupBy(l => l.ProductId)
-                .Select(g => new CreateOrderLine(g.Key, (uint)g.Sum(l => (long)l.Quantity)))
-                .OrderBy(l => l.ProductId, StringComparer.Ordinal)
-                .ToList();
-
             // WHY: Filled inside the pricing loop, the only place a Product entity is in
             // hand — OrderDetail records ProductId alone, so recovering names afterwards
             // costs a second query for rows already read and locked.
@@ -174,21 +300,12 @@ public class CreateOrderService
 
                 if (product is null)
                 {
-                    _logger.LogError(
-                        "Order creation failed: unknown product {app_event} {reason} {product_id}",
-                        "create_order_failed", "unknown_product", line.ProductId);
-                    _tracer.SetReason("unknown_product");
-                    throw new UnknownProductException(line.ProductId);
+                    throw UnknownProduct(line.ProductId);
                 }
 
                 if (product.UnitsInStock < line.Quantity)
                 {
-                    _logger.LogError(
-                        "Order creation failed: insufficient stock {app_event} {reason} {product_id} {requested} {available}",
-                        "create_order_failed", "insufficient_stock", line.ProductId,
-                        line.Quantity, product.UnitsInStock);
-                    _tracer.SetReason("insufficient_stock");
-                    throw new InsufficientStockException(line.ProductId);
+                    throw InsufficientStock(line, product.UnitsInStock);
                 }
 
                 var (lineSub, lineTax, lineTotal) = OrderPricing.PriceLine(product.UnitPriceCents, line.Quantity, taxRate);
@@ -233,6 +350,19 @@ public class CreateOrderService
             total += shippingCents;
             order.TotalCents = total;
 
+            if (payment is not null)
+            {
+                // CONTRACT: The persisted total must be what was charged. Prices are re-read
+                // under the lock, so a catalogue repricing between the two reads lands here.
+                if (payment.AmountCents != total)
+                {
+                    throw new InvalidOperationException(
+                        $"Order {order.Id} was charged {payment.AmountCents} cents but prices to {total}.");
+                }
+
+                order.ApplyPaymentSnapshot(payment);
+            }
+
             _db.Orders.Add(order);
 
             // CONTRACT: Delete the cart INSIDE this transaction. Outside it, a rollback
@@ -252,6 +382,7 @@ public class CreateOrderService
                 subtotal, tax, shippingCents, total,
                 shippingAddressJson, eventItems, now, cognitoSub, ct);
             await tx.CommitAsync(ct);
+            committed = true;
 
             // CONTRACT: Invalidate AFTER the commit, never before. A concurrent read landing
             // between the delete and the commit repopulates the pre-order state, which then
@@ -290,14 +421,98 @@ public class CreateOrderService
                     "init_tracking_failed", ReasonFor(trackingResult.Outcome), order.Id, trackingResult.StatusCode);
             }
 
-            // CONTRACT: Keep this mapping in sync with OrderReadService.Map — it maps the
-            // in-memory order rather than re-querying, so the two can silently diverge.
-            return new OrderDto(
-                order.Id, OrderNumberDto.FromCanonical(order.OrderNumber), order.UserId, order.CognitoSub,
-                Money.FromCents(order.SubtotalCents), Money.FromCents(order.TaxCents), Money.FromCents(order.ShippingCents), Money.FromCents(order.TotalCents),
-                order.CreatedAt,
-                order.Details.Select(d => OrderLineMapper.Map(d, _assetsBaseUrl)).ToList());
+            return ToDto(order);
         });
+    }
+
+    // CONTRACT: Keep this mapping in sync with OrderReadService.Map — it maps the in-memory
+    // order rather than re-querying, so the two can silently diverge. It also renders a
+    // replayed order, so the created and replayed bodies stay identical: UTC kind, lines in
+    // the consolidated (ProductId) order.
+    private OrderDto ToDto(Order order) => new(
+        order.Id, OrderNumberDto.FromCanonical(order.OrderNumber), order.UserId, order.CognitoSub,
+        Money.FromCents(order.SubtotalCents), Money.FromCents(order.TaxCents), Money.FromCents(order.ShippingCents), Money.FromCents(order.TotalCents),
+        DateTime.SpecifyKind(order.CreatedAt, DateTimeKind.Utc),
+        order.Details
+            .OrderBy(d => d.ProductId, StringComparer.Ordinal)
+            .Select(d => OrderLineMapper.Map(d, _assetsBaseUrl))
+            .ToList());
+
+    /// <summary>The order a (user, Idempotency-Key) pair already produced, with its lines.</summary>
+    /// <remarks>
+    /// CONTRACT: Ignores the soft-delete filter — the unique index covers deleted rows too, and a
+    /// filtered read would miss the winner and refund the PaymentIntent that paid for it.
+    /// </remarks>
+    private Task<Order?> FindByIdempotencyKeyAsync(string userId, string clientKey, CancellationToken ct) =>
+        _db.Orders
+            .AsNoTracking()
+            .IgnoreQueryFilters()
+            .Include(o => o.Details)
+            .FirstOrDefaultAsync(o => o.UserId == userId && o.IdempotencyKey == clientKey, ct);
+
+    private CreateOrderResult Replayed(Order existing)
+    {
+        _logger.LogInformation(
+            "Order already exists for this idempotency key {app_event} {order_id}",
+            "create_order_replayed", existing.Id);
+        _tracer.SetAttribute("app_event", "create_order_replayed");
+        _tracer.SetAttribute("order_id", existing.Id);
+        return new CreateOrderResult(ToDto(existing), Created: false);
+    }
+
+    /// <summary>
+    /// The total to charge, priced exactly as the locked loop in the transaction prices it.
+    /// </summary>
+    /// <remarks>
+    /// CONTRACT: Keep AsNoTracking. A tracked read here makes the later FOR UPDATE query hand
+    /// back these cached entities with THIS read's stock, and concurrent orders oversell.
+    /// Unknown products and short stock fail here, before anything is charged.
+    /// See [[2026-09-19-stripe-payments-design]]
+    /// </remarks>
+    private async Task<long> PriceForChargeAsync(
+        IReadOnlyList<CreateOrderLine> lines, decimal taxRate, long shippingCents, CancellationToken ct)
+    {
+        var ids = lines.Select(l => l.ProductId).ToList();
+        var products = await _db.Products
+            .AsNoTracking()
+            .Where(p => ids.Contains(p.Id))
+            .ToDictionaryAsync(p => p.Id, ct);
+
+        var total = shippingCents;
+        foreach (var line in lines)
+        {
+            if (!products.TryGetValue(line.ProductId, out var product))
+            {
+                throw UnknownProduct(line.ProductId);
+            }
+
+            if (product.UnitsInStock < line.Quantity)
+            {
+                throw InsufficientStock(line, product.UnitsInStock);
+            }
+
+            total += OrderPricing.PriceLine(product.UnitPriceCents, line.Quantity, taxRate).TotalCents;
+        }
+
+        return total;
+    }
+
+    private UnknownProductException UnknownProduct(string productId)
+    {
+        _logger.LogError(
+            "Order creation failed: unknown product {app_event} {reason} {product_id}",
+            "create_order_failed", "unknown_product", productId);
+        _tracer.SetReason("unknown_product");
+        return new UnknownProductException(productId);
+    }
+
+    private InsufficientStockException InsufficientStock(CreateOrderLine line, uint available)
+    {
+        _logger.LogError(
+            "Order creation failed: insufficient stock {app_event} {reason} {product_id} {requested} {available}",
+            "create_order_failed", "insufficient_stock", line.ProductId, line.Quantity, available);
+        _tracer.SetReason("insufficient_stock");
+        return new InsufficientStockException(line.ProductId);
     }
 
     /// <summary>

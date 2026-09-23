@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Orders.Infrastructure.Persistence;
 
@@ -11,9 +12,11 @@ using Orders.Infrastructure.Persistence;
 namespace Orders.Infrastructure.Migrations
 {
     [DbContext(typeof(OrdersWriteDbContext))]
-    partial class OrdersWriteDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260923030746_AddStripePaymentSnapshot")]
+    partial class AddStripePaymentSnapshot
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -261,11 +264,6 @@ namespace Orders.Infrastructure.Migrations
                         .HasColumnType("varchar(28)")
                         .HasColumnName("deleted_by");
 
-                    b.Property<string>("IdempotencyKey")
-                        .HasMaxLength(64)
-                        .HasColumnType("varchar(64)")
-                        .HasColumnName("idempotency_key");
-
                     b.Property<string>("OrderNumber")
                         .HasColumnType("char(12)")
                         .HasColumnName("order_number");
@@ -347,10 +345,6 @@ namespace Orders.Infrastructure.Migrations
 
                     b.HasIndex("UserId")
                         .HasDatabaseName("idx_order_user_id");
-
-                    b.HasIndex("UserId", "IdempotencyKey")
-                        .IsUnique()
-                        .HasDatabaseName("ux_order_user_idempotency_key");
 
                     b.ToTable("order", (string)null);
                 });

@@ -1,3 +1,5 @@
+using Orders.Domain.Payments;
+
 namespace Orders.Domain.Entities;
 
 public class Order : AuditableEntity
@@ -50,6 +52,41 @@ public class Order : AuditableEntity
     public List<string> Tags { get; set; } = new();
 
     public List<OrderDetail> Details { get; set; } = new();
+
+    /// <summary>
+    /// The client's <c>Idempotency-Key</c> for the request that created this order.
+    /// CONTRACT: Unique per <see cref="UserId"/>; null on orders placed with Stripe off. A second
+    /// request with the same pair returns this order instead of charging again.
+    /// See [[2026-09-19-stripe-payments-design]]
+    /// </summary>
+    public string? IdempotencyKey { get; set; }
+
+    // Payment snapshot (see PaymentSnapshot). All null on an order placed with Stripe off,
+    // and on every order predating the columns.
+    public string? PaymentIntentId { get; set; }
+    public string? PaymentStatus { get; set; }
+    public long? AmountCents { get; set; }
+    public string? Currency { get; set; }
+    public string? PaymentMethodId { get; set; }
+    public string? CardBrand { get; set; }
+    public string? CardLast4 { get; set; }
+    public int? CardExpMonth { get; set; }
+    public int? CardExpYear { get; set; }
+    public string? PaymentRawPayload { get; set; }
+
+    public void ApplyPaymentSnapshot(PaymentSnapshot payment)
+    {
+        PaymentIntentId = payment.PaymentIntentId;
+        PaymentStatus = payment.PaymentStatus;
+        AmountCents = payment.AmountCents;
+        Currency = payment.Currency;
+        PaymentMethodId = payment.PaymentMethodId;
+        CardBrand = payment.CardBrand;
+        CardLast4 = payment.CardLast4;
+        CardExpMonth = payment.CardExpMonth;
+        CardExpYear = payment.CardExpYear;
+        PaymentRawPayload = payment.PaymentRawPayload;
+    }
 
     public decimal Subtotal => SubtotalCents / 100m;
     public decimal Tax => TaxCents / 100m;
