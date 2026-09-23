@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Write the Stripe CLI's local webhook signing secret into .env.local.users.
+"""Write the Stripe CLI's local webhook signing secret into Users' and Orders' env files.
 
 CONTRACT: Use `stripe listen`'s OWN whsec_, never a Dashboard endpoint secret —
 `stripe listen` signs forwarded events with its own secret, and a Dashboard
 one fails verification with an HTTP 400. See [[stripe-sandbox-setup]]
+WHY: One value for both services — the CLI's secret is identical across every
+`stripe listen` process on a machine, and each service runs its own process.
 """
 
 import argparse
@@ -22,6 +24,12 @@ STRIPE_LOGIN_HINT = (
     "sandbox — see docs/infrastructure/runbooks/stripe-sandbox-setup.md"
 )
 TIMEOUT_SECONDS = 30
+DEFAULT_ENV_FILES = (".env.local.users", ".env.local.orders")
+
+
+def service_for(env_file: str) -> str:
+    """Map `.env.local.<service>` to its compose service name."""
+    return Path(env_file).name.removeprefix(".env.local.")
 
 
 def mask(secret: str) -> str:
@@ -70,10 +78,13 @@ def main(argv: list[str]) -> int:
     )
     parser.add_argument(
         "--env-file",
-        default=".env.local.users",
-        help="env file to update, relative to --repo-root (default: .env.local.users)",
+        action="append",
+        dest="env_files",
+        help="env file to update, relative to --repo-root; repeatable "
+        f"(default: {' and '.join(DEFAULT_ENV_FILES)})",
     )
     args = parser.parse_args(argv[1:])
+    env_files = args.env_files or list(DEFAULT_ENV_FILES)
 
     if shutil.which("stripe") is None:
         no(f"the Stripe CLI is not on PATH. {STRIPE_LOGIN_HINT}")
@@ -85,15 +96,16 @@ def main(argv: list[str]) -> int:
         no(str(exc))
         return 1
 
-    target = args.repo_root / args.env_file
-    try:
-        set_custom_value(target, "STRIPE_WEBHOOK_SECRET", secret)
-    except MissingCustomBox as exc:
-        no(str(exc))
-        return 1
+    for env_file in env_files:
+        try:
+            set_custom_value(args.repo_root / env_file, "STRIPE_WEBHOOK_SECRET", secret)
+        except MissingCustomBox as exc:
+            no(str(exc))
+            return 1
+        ok(f"wrote STRIPE_WEBHOOK_SECRET={mask(secret)} to {env_file}")
 
-    ok(f"wrote STRIPE_WEBHOOK_SECRET={mask(secret)} to {args.env_file}")
-    inf("restart users to pick it up: docker compose up -d users")
+    services = " ".join(service_for(env_file) for env_file in env_files)
+    inf(f"restart to pick it up: docker compose up -d {services}")
     return 0
 
 

@@ -323,7 +323,7 @@ env-file: scripts-setup ## Generate every env file from terraform outputs (CUSTO
 	@# anything under CUSTOM survives. See [[env-files]]
 	$(PY) $(TF_LOCAL_DIR)/scripts/generate_env_files.py
 
-stripe-webhook-secret: scripts-setup ## Write the Stripe CLI's local webhook secret into .env.local.users (CUSTOM box)
+stripe-webhook-secret: scripts-setup ## Write the Stripe CLI's local webhook secret into .env.local.users and .env.local.orders (CUSTOM box)
 	$(PY) $(TF_LOCAL_DIR)/scripts/set_stripe_webhook_secret.py
 
 ## --- Database migrations ---

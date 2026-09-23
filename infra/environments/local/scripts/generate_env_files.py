@@ -457,6 +457,14 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # so a per-machine choice survives `make env-file` — and so the
                 # load-test A/B can flip it without a regeneration undoing it.
                 "CACHE_ENABLED": "true",
+                # Stripe kill switch plus Orders' own hand-injected secrets: a
+                # restricted rk_test_ key (never Users' key), and the whsec_ that
+                # `make stripe-webhook-secret` writes. Seeded empty so the keys
+                # are visible; Orders reads an empty value as unset (503).
+                # See [[stripe-sandbox-setup]]
+                "STRIPE_ENABLED": "false",
+                "STRIPE_SECRET_KEY": "",
+                "STRIPE_WEBHOOK_SECRET": "",
             },
         ),
         # --- tracking service ------------------------------------------------

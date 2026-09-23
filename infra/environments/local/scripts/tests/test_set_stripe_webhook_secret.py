@@ -63,6 +63,36 @@ class TestSuccessPath:
         assert SECRET not in captured.err
         assert "docker compose up -d users" in captured.out
 
+    def test_default_writes_the_same_secret_to_users_and_orders(
+        self, tmp_path, monkeypatch, capsys
+    ) -> None:
+        users = tmp_path / ".env.local.users"
+        orders = tmp_path / ".env.local.orders"
+        _seed_env_file(users)
+        _seed_env_file(orders)
+
+        monkeypatch.setattr(mod.shutil, "which", lambda _: "/usr/local/bin/stripe")
+        monkeypatch.setattr(
+            mod.subprocess,
+            "run",
+            lambda *a, **k: subprocess.CompletedProcess(
+                args=a, returncode=0, stdout=f"{SECRET}\n", stderr=""
+            ),
+        )
+
+        exit_code = mod.main(["prog", "--repo-root", str(tmp_path)])
+
+        assert exit_code == 0
+        from lib3mrai.envfile import read_custom_block
+
+        assert f"STRIPE_WEBHOOK_SECRET={SECRET}" in read_custom_block(users)
+        assert f"STRIPE_WEBHOOK_SECRET={SECRET}" in read_custom_block(orders)
+
+        captured = capsys.readouterr()
+        assert SECRET not in captured.out
+        assert SECRET not in captured.err
+        assert "docker compose up -d users orders" in captured.out
+
     def test_mask_never_returns_the_full_secret(self) -> None:
         masked = mod.mask(SECRET)
         assert masked != SECRET
