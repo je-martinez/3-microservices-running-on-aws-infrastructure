@@ -267,7 +267,10 @@ public sealed class OrdersApiFactory : WebApplicationFactory<Program>, IAsyncLif
                     id == KnownUserId ? KnownEmail : $"{id}@example.com",
                     id == KnownUserId ? KnownFullName : $"Test {id}",
                     new CallerAddress("1 Test St", null, "Testville", null, "Testland", null),
-                    id == KnownUserId ? KnownStripeCustomerId : null));
+                    id == KnownUserId ? KnownStripeCustomerId : null,
+                    // WHY: The self-resolving caller has no sub on file here, which keeps the
+                    // "unknown identity is omitted" branch reachable end to end.
+                    CognitoSub: cognitoSub == id ? null : cognitoSub));
         }
     }
 }

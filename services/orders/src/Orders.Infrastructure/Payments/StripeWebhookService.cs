@@ -154,7 +154,7 @@ public class StripeWebhookService
             return StripeWebhookOutcome.OrderNotYetCommitted;
         }
 
-        if (await _charger.RefundOrphanAsync(orderId, intent.Id))
+        if (await _charger.RefundOrphanAsync(PaymentMetadata.FromStripe(orderId, intent.Metadata), intent.Id))
         {
             return StripeWebhookOutcome.Acknowledged;
         }

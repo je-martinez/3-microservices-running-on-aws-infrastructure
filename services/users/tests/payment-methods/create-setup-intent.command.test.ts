@@ -67,6 +67,44 @@ describe("CreateSetupIntentHandler", () => {
     expect(create).toHaveBeenCalledWith({ customer: "cus_1" });
   });
 
+  it("creates the Stripe customer with the user's cognito_sub in its metadata", async () => {
+    const customersCreate = vi.fn().mockResolvedValue({ id: "cus_new" });
+    const stripeHolder = {
+      enabled: true,
+      client: {
+        customers: { create: customersCreate },
+        setupIntents: { create: vi.fn().mockResolvedValue({ id: "seti_3", client_secret: "seti_3_secret" }) },
+      },
+    };
+    const user = {
+      findUniqueOrThrow: vi.fn().mockResolvedValue({
+        id: "usr_1",
+        email: "a@b.com",
+        cognitoSub: "sub-abc",
+        stripeCustomerId: null,
+      }),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    };
+    const db = { user, $primary: () => ({ user }) };
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [CqrsModule],
+      providers: [
+        CreateSetupIntentHandler,
+        { provide: DB, useValue: db },
+        { provide: STRIPE_CLIENT, useValue: stripeHolder },
+      ],
+    }).compile();
+    await moduleRef.init();
+
+    await moduleRef.get(CommandBus).execute(new CreateSetupIntentCommand({ userId: "usr_1", e2eSource: false }));
+
+    expect(customersCreate).toHaveBeenCalledWith(
+      { email: "a@b.com", metadata: { user_id: "usr_1", cognito_sub: "sub-abc" } },
+      { idempotencyKey: "stripe-customer-create-usr_1" },
+    );
+  });
+
   it("does not call Stripe again when the user already has a stripeCustomerId", async () => {
     const create = vi.fn().mockResolvedValue({ id: "seti_2", client_secret: "seti_456_secret_xyz" });
     const customersCreate = vi.fn();

@@ -135,7 +135,14 @@ public partial class CreateOrderStripeTests : IAsyncLifetime
             .SelectMany(f => f.Value.ToArray()).ToArray();
         Assert.Equal(new[] { "latest_charge" }, expanded);
         Assert.DoesNotContain(request.Form.Keys, k => k.StartsWith("payment_method_types", StringComparison.Ordinal));
-        Assert.Equal(dto.Id, request.Form["metadata[order_id]"]);
+        Assert.Equal(
+            new Dictionary<string, string>
+            {
+                ["order_id"] = dto.Id,
+                ["user_id"] = OrdersApiFactory.KnownUserId,
+                ["cognito_sub"] = OrdersApiFactory.KnownCognitoSub,
+            },
+            request.Metadata);
         Assert.Equal(ChargeKeyOf(client), request.IdempotencyKey);
         Assert.Equal("2026-08-26.dahlia", request.StripeVersion);
 

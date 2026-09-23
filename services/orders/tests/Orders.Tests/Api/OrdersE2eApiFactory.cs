@@ -162,7 +162,8 @@ public abstract class OrdersE2eApiFactoryBase : WebApplicationFactory<Program>, 
                     // Derived from the id for the same reason the email is: the two users
                     // must stay distinguishable in whatever the event carries.
                     $"Test {id}",
-                    new CallerAddress("1 Test St", null, "Testville", null, "Testland", null)));
+                    new CallerAddress("1 Test St", null, "Testville", null, "Testland", null),
+                    CognitoSub: cognitoSub));
         }
     }
 

@@ -30,6 +30,7 @@ export async function ensureStripeCustomer(
   if (user.stripeCustomerId) return user.stripeCustomerId;
 
   const metadata: Record<string, string> = { user_id: input.userId };
+  if (user.cognitoSub) metadata.cognito_sub = user.cognitoSub;
   if (input.e2eSource) metadata.e2e_source = "true";
 
   const client = stripe.client;
@@ -39,8 +40,9 @@ export async function ensureStripeCustomer(
     async (span) => {
       // CONTRACT: Keyed on userId alone, so two concurrent first calls for the
       // same user resolve to the SAME Stripe customer instead of creating two.
-      // WARNING: Reusing this key within 24h with a different email returns a
-      // Stripe error, not a customer — safe here since email is fixed per user.
+      // WARNING: Reusing this key within 24h with different params returns a
+      // Stripe error, not a customer — safe here since email, user_id and
+      // cognito_sub are fixed per user.
       const created = await client.customers.create(
         { email: input.email, metadata },
         { idempotencyKey: `stripe-customer-create-${input.userId}` },
