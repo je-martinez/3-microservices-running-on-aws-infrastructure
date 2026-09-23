@@ -83,12 +83,52 @@ Generation is build-time — there is no separate generate script.
 Locally Orders now runs against a **provisioned Floci MySQL cluster** (the second
 `rds-aurora` instantiation in `infra/environments/local`), reached at Floci's RDS
 proxy port — not the old `7002` placeholder (the port is discovered from
-`terraform output`, never hardcoded). Migrations run via **`make migrate-orders`**
-as the cluster superuser (`test/test`), mirroring Users' `make migrate` — NOT via
-`SEED_ON_STARTUP` at boot. A least-privilege **`orders_app`** user
+`terraform output`, never hardcoded). There is **no `make migrate-orders`**: migrations
+apply on startup when `SEED_ON_STARTUP` is set (compose sets it locally; `Program.cs`
+runs `MigrateAsync` then seeds products and configuration), or by hand with the
+`dotnet ef database update` command in §2. A least-privilege **`orders_app`** user
 (SELECT/INSERT/UPDATE, **no DELETE** — [[soft-delete]]/[[ADR-0004-soft-delete-only]])
-is created post-apply by `infra/environments/local/bootstrap.sh`. See
-[[ADR-0017-floci-local]] and [[floci-rds-apigw-limits]].
+is created by **`make post-infra`** (the phase-2 Terraform root,
+`infra/environments/local/post/`). See [[ADR-0017-floci-local]] and
+[[floci-rds-apigw-limits]].
+
+## 2c. Stripe payments
+
+Design: [[2026-09-19-stripe-payments-design]] — this section is the service-local digest, not
+a copy.
+
+- **Env vars.** `STRIPE_ENABLED` (default off; off means no Stripe call, no webhook route,
+  `paymentMethodId` ignored), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
+  `STRIPE_WEBHOOK_URL_TOKEN`, `STRIPE_WEBHOOK_ALLOWED_CIDRS` (comma-separated IPs/CIDRs; one
+  invalid entry invalidates the whole list), `STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS` (0 = socket
+  address; N = Nth X-Forwarded-For entry from the RIGHT), `STRIPE_ORPHAN_GRACE_PERIOD_SECONDS`
+  (default 600). **Fail closed:** with the flag on, a missing/invalid setting still boots, logs
+  a startup warning, and the affected surface answers **503** — never open.
+- **`POST /v1/orders` with Stripe on:** body adds `paymentMethodId`; header `Idempotency-Key`
+  (1-64 printable ASCII) is required. 201 created · 200 replay of the order that
+  (user, key) already produced · 400 missing `paymentMethodId`/key · 402 `payment_declined`
+  · 409 `insufficient_stock` or `idempotency_key_reused` (key's charge was refunded) · 422
+  `idempotency_key_mismatch` (key reused with another purchase — checked against the
+  `idempotency_request_hash` stored on the order, or by Stripe itself) · 503
+  `payment_unavailable` (with `Retry-After: 1` when Stripe reports the same key in flight
+  and no order appears within ~1.5 s).
+- **Charge before persist, outside the transaction;** any failure before the commit refunds.
+  The pre-charge price read is **`AsNoTracking`** — a tracked read makes the later
+  `FOR UPDATE` query return those cached entities with stale stock, and orders oversell.
+- **Webhook:** `POST /v1/orders/stripe/webhook/{token}` (public — no `x-user-id`). Check order
+  **source IP → URL token → `Stripe-Signature`** over the raw body. A wrong token, the bare
+  path, an extra segment and the route with the flag off all answer the **same bodiless 404**
+  (`PublicRoutes.IsStripeWebhookPath` exempts the whole prefix from the caller guard).
+- **The URL token is a secret.** Every logged path goes through `RequestPathRedactionEnricher`
+  and every span through `StripeWebhookEndpoints.RedactSpan`; both use `RedactPath`, which
+  matches the PREFIX so unmatched paths holding the token are redacted too.
+- **Never surface Stripe's error text** (response, log, span, exception chain) — an auth
+  error's message carries the masked key. Only a `card_error` message reaches the buyer.
+- **Tests:** a REAL `StripeClient` over `FakeStripeHandler` (emulates Stripe idempotency;
+  `RejectingInFlightRepeats()` gives Stripe's 409), and webhook deliveries signed with Stripe's
+  real HMAC scheme — never a bypassed verifier.
+- The Stripe API version is pinned by the `Stripe.net` package version — see the WARNING in
+  `Orders.Infrastructure.csproj`.
 
 ## 2b. GOLDEN RULE — test every endpoint in all three layers
 

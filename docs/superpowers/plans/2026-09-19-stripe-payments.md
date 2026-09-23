@@ -2,10 +2,10 @@
 title: "Stripe Payments Implementation Plan"
 type: plan
 area: shared
-status: draft
+status: active
 created: 2026-09-19
-updated: 2026-09-22
-tags: [type/plan, area/shared, status/draft]
+updated: 2026-09-23
+tags: [type/plan, area/shared, status/active]
 propagates-to:
   - "[[2026-09-19-stripe-payments-design]]"
   - "[[testing]]"
@@ -42,6 +42,8 @@ related:
   - "[[stripe-sandbox-setup]]"
   - "[[browser-rum]]"
   - "[[logging-context]]"
+  - "[[ADR-0009-apigw-alb-fargate]]"
+  - "[[ADR-0016-local-apigw-nginx-ecs]]"
 ---
 
 # Stripe Payments Implementation Plan
@@ -98,7 +100,7 @@ related:
 
 ### Steps
 
-- [ ] 1.1 Add the two new env vars to `services/users/src/config/env.schema.ts`, mirroring the existing `E2E_TESTING_ENABLED` pattern:
+- [x] 1.1 Add the two new env vars to `services/users/src/config/env.schema.ts`, mirroring the existing `E2E_TESTING_ENABLED` pattern:
   ```ts
   // Kill switch for the whole Stripe integration (spec D13). Off by default so
   // every existing deploy and every test that doesn't opt in stays untouched.
@@ -113,12 +115,12 @@ related:
   ```
   Run `nvm use && pnpm --filter users test env.schema` — expect it to fail (no such test file yet is fine; confirm the schema still parses via `pnpm --filter users exec tsc --noEmit`).
 
-- [ ] 1.2 Add `STRIPE_CLIENT` to `services/users/src/shared/tokens.ts` alongside the existing `DB`, `AUTH_PROVIDER`, `EVENT_PUBLISHER` tokens:
+- [x] 1.2 Add `STRIPE_CLIENT` to `services/users/src/shared/tokens.ts` alongside the existing `DB`, `AUTH_PROVIDER`, `EVENT_PUBLISHER` tokens:
   ```ts
   export const STRIPE_CLIENT = Symbol("STRIPE_CLIENT");
   ```
 
-- [ ] 1.3 Write the failing spec first, `services/users/src/shared/stripe/stripe-client.provider.spec.ts`:
+- [x] 1.3 Write the failing spec first, `services/users/src/shared/stripe/stripe-client.provider.spec.ts`:
   ```ts
   import { describe, expect, it, vi } from "vitest";
   import { buildStripeClientHolder } from "./stripe-client.provider";
@@ -158,7 +160,7 @@ related:
   ```
   Run `nvm use && pnpm --filter users test stripe-client.provider` — fails, module does not exist.
 
-- [ ] 1.4 Implement `services/users/src/shared/stripe/stripe-client.provider.ts`:
+- [x] 1.4 Implement `services/users/src/shared/stripe/stripe-client.provider.ts`:
   ```ts
   import { StripeClient } from "stripe";
 
@@ -198,7 +200,7 @@ related:
   ```
   Run `nvm use && pnpm --filter users test stripe-client.provider` — passes.
 
-- [ ] 1.5 Wire it as a Nest provider consuming `ConfigService` and `appLogger`, in the same file:
+- [x] 1.5 Wire it as a Nest provider consuming `ConfigService` and `appLogger`, in the same file:
   ```ts
   import { Inject, Injectable } from "@nestjs/common";
   import { ConfigService } from "@nestjs/config";
@@ -221,7 +223,7 @@ related:
   ```
   Run `nvm use && pnpm --filter users test` (full suite) — passes.
 
-- [ ] 1.6 Add a `StripeUnavailableException` mapped to HTTP 503, `services/users/src/shared/stripe/stripe-unavailable.exception.ts`:
+- [x] 1.6 Add a `StripeUnavailableException` mapped to HTTP 503, `services/users/src/shared/stripe/stripe-unavailable.exception.ts`:
   ```ts
   import { HttpException, HttpStatus } from "@nestjs/common";
 
@@ -235,7 +237,7 @@ related:
   }
   ```
 
-- [ ] 1.7 **Stripe observability foundation (spec Decision 25).** Write the failing spec first,
+- [x] 1.7 **Stripe observability foundation (spec Decision 25).** Write the failing spec first,
   `services/users/src/shared/observability/stripe-tracing.spec.ts`, asserting a span is
   created with the right name/kind/attributes and that a thrown error sets ERROR status:
   ```ts
@@ -273,7 +275,7 @@ related:
   ```
   Run `nvm use && pnpm --filter users test stripe-tracing` — fails, module missing.
 
-- [ ] 1.8 Implement `services/users/src/shared/observability/stripe-tracing.ts`, the Stripe
+- [x] 1.8 Implement `services/users/src/shared/observability/stripe-tracing.ts`, the Stripe
   analogue of `withPublishSpan`
   (`services/users/src/shared/observability/publish-tracing.ts`) — same tracer-per-module,
   `startActiveSpan`, attributes built inside the callback, `end()` in a `finally`:
@@ -343,7 +345,7 @@ related:
   the same way every command in this plan consumes `STRIPE_CLIENT` rather than instantiating
   its own client.
 
-- [ ] 1.9 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+- [x] 1.9 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
 
 ## Task 2 — Prisma schema + migration for the Stripe data model
 
@@ -357,7 +359,7 @@ related:
 
 ### Steps
 
-- [ ] 2.1 Add the two new columns to `model User` in `services/users/prisma/schema.prisma`, next to the existing `mustChangePassword` block:
+- [x] 2.1 Add the two new columns to `model User` in `services/users/prisma/schema.prisma`, next to the existing `mustChangePassword` block:
   ```prisma
     // Lazily created (spec D2) — null until the first checkout or card-add with
     // the Stripe flag on. Stripe is authoritative; this is a cache (spec D4).
@@ -369,7 +371,7 @@ related:
     stripePaymentMethods StripePaymentMethod[]
   ```
 
-- [ ] 2.2 Add the new model, following the exact shape of `UsersCognitoData` for audit fields, plus [[soft-delete]] and [[nano-id]]:
+- [x] 2.2 Add the new model, following the exact shape of `UsersCognitoData` for audit fields, plus [[soft-delete]] and [[nano-id]]:
   ```prisma
   // Local cache of a Stripe PaymentMethod, mirroring the fields Stripe actually
   // exposes (spec D3) — never a raw PAN/CVC, which never reach this service by
@@ -408,9 +410,9 @@ related:
   ```
   Fix the copy-paste typo before running anything: `createdBy` must be `String?`, not `DateTime?` — correct it to `createdBy String? @map("created_by")` to match the repo's audit-fields convention.
 
-- [ ] 2.3 Run the migration: `nvm use && pnpm --filter users exec prisma migrate dev --name add_stripe_customer_and_payment_methods`. Confirm it applies cleanly against the local dev database and that `stripeCustomerId`/`stripeCustomerData` are nullable so every existing `users` row is unaffected.
+- [x] 2.3 Run the migration: `nvm use && pnpm --filter users exec prisma migrate dev --name add_stripe_customer_and_payment_methods`. Confirm it applies cleanly against the local dev database and that `stripeCustomerId`/`stripeCustomerData` are nullable so every existing `users` row is unaffected.
 
-- [ ] 2.4 Write a test proving the flag-off case is inert, `services/users/src/features/payment-methods/stripe-payment-method.model.spec.ts`:
+- [x] 2.4 Write a test proving the flag-off case is inert, `services/users/src/features/payment-methods/stripe-payment-method.model.spec.ts`:
   ```ts
   import { describe, expect, it } from "vitest";
   import { createTestDb } from "#shared/testing/test-db";
@@ -425,7 +427,7 @@ related:
   ```
   Run `nvm use && pnpm --filter users test stripe-payment-method.model` — passes (adjust the test-db helper import to whatever this repo's existing integration tests use; do not invent a new one — grep for `createTestDb`/similar helpers already used by `register.command.spec.ts` before writing this step for real).
 
-- [ ] 2.5 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+- [x] 2.5 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
 
 ## Task 3 — `ensureStripeCustomer` (lazy creation)
 
@@ -453,7 +455,7 @@ related:
 
 ### Steps
 
-- [ ] 3.1 Write the failing spec, `services/users/src/features/payment-methods/ensure-stripe-customer.spec.ts`:
+- [x] 3.1 Write the failing spec, `services/users/src/features/payment-methods/ensure-stripe-customer.spec.ts`:
   ```ts
   import { describe, expect, it, vi } from "vitest";
   import { ensureStripeCustomer } from "./ensure-stripe-customer";
@@ -527,7 +529,7 @@ related:
   ```
   Run `nvm use && pnpm --filter users test ensure-stripe-customer` — fails, module missing.
 
-- [ ] 3.2 Implement `services/users/src/features/payment-methods/ensure-stripe-customer.ts`:
+- [x] 3.2 Implement `services/users/src/features/payment-methods/ensure-stripe-customer.ts`:
   ```ts
   import type { StripeClientHolder } from "#shared/stripe/stripe-client.provider";
   import { StripeUnavailableException } from "#shared/stripe/stripe-unavailable.exception";
@@ -567,7 +569,7 @@ related:
   ```
   Run `nvm use && pnpm --filter users test ensure-stripe-customer` — passes.
 
-- [ ] 3.3 **Wrap the Stripe call in `withStripeSpan` and emit the flow log (spec Decision
+- [x] 3.3 **Wrap the Stripe call in `withStripeSpan` and emit the flow log (spec Decision
   25).** Extend 3.2's implementation: the `stripe.client.customers.create` call moves inside
   `withStripeSpan("stripe.customer.create", { "stripe.resource_type": "customer" }, ...)`,
   setting `stripe.customer_id` via the handle once the customer comes back, and the function
@@ -604,7 +606,7 @@ related:
   `appLogger` spy in another command spec before writing this assertion for real). Run
   `nvm use && pnpm --filter users test ensure-stripe-customer` — passes.
 
-- [ ] 3.4 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+- [x] 3.4 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
 
 ## Task 4 — Users payment-method commands/queries (CQRS)
 
@@ -624,7 +626,7 @@ related:
 
 ### Steps
 
-- [ ] 4.1 Write the failing spec for the setup-intent command, `create-setup-intent.command.spec.ts`, dispatched through `CommandBus` per [[cqrs]]:
+- [x] 4.1 Write the failing spec for the setup-intent command, `create-setup-intent.command.spec.ts`, dispatched through `CommandBus` per [[cqrs]]:
   ```ts
   import { Test } from "@nestjs/testing";
   import { CqrsModule, CommandBus } from "@nestjs/cqrs";
@@ -671,7 +673,7 @@ related:
   ```
   Run `nvm use && pnpm --filter users test create-setup-intent.command` — fails, module missing.
 
-- [ ] 4.2 Implement `create-setup-intent.command.ts`:
+- [x] 4.2 Implement `create-setup-intent.command.ts`:
   ```ts
   import { Inject } from "@nestjs/common";
   import { type ICommandHandler, CommandHandler } from "@nestjs/cqrs";
@@ -720,7 +722,7 @@ related:
   ```
   Run `nvm use && pnpm --filter users test create-setup-intent.command` — passes.
 
-- [ ] 4.3 Write the failing spec for listing, `list-payment-methods.query.spec.ts`, then implement `list-payment-methods.query.ts` reading only the local `StripePaymentMethod` table (never Stripe — spec D4: "listing reads local"):
+- [x] 4.3 Write the failing spec for listing, `list-payment-methods.query.spec.ts`, then implement `list-payment-methods.query.ts` reading only the local `StripePaymentMethod` table (never Stripe — spec D4: "listing reads local"):
   ```ts
   // list-payment-methods.query.ts
   import { Inject } from "@nestjs/common";
@@ -763,7 +765,7 @@ related:
   ```
   Run `nvm use && pnpm --filter users test list-payment-methods.query` — passes once test doubles are added mirroring 4.1's shape.
 
-- [ ] 4.4 Write the failing spec for attach, `attach-payment-method.command.spec.ts`, then implement `attach-payment-method.command.ts`. This is the confirm-and-persist route (`POST /v1/users/me/payment-methods`), taking the tokenized `pm_...` from the confirmed SetupIntent, attaching it to the customer, and writing the local row in the same response (spec D3, D11):
+- [x] 4.4 Write the failing spec for attach, `attach-payment-method.command.spec.ts`, then implement `attach-payment-method.command.ts`. This is the confirm-and-persist route (`POST /v1/users/me/payment-methods`), taking the tokenized `pm_...` from the confirmed SetupIntent, attaching it to the customer, and writing the local row in the same response (spec D3, D11):
   ```ts
   // attach-payment-method.command.ts
   import { Inject } from "@nestjs/common";
@@ -827,7 +829,7 @@ related:
   ```
   Add `stripePaymentMethod: "stpm"` to `MODEL_ID_PREFIXES` in `services/users/src/shared/id/nano-id.ts` per [[nano-id]]'s registered-prefix table.
 
-- [ ] 4.5 Write the failing spec for detach, `detach-payment-method.command.spec.ts`, asserting **ownership**: a `pm_...` belonging to another user's customer is rejected before any Stripe call:
+- [x] 4.5 Write the failing spec for detach, `detach-payment-method.command.spec.ts`, asserting **ownership**: a `pm_...` belonging to another user's customer is rejected before any Stripe call:
   ```ts
   it("rejects a payment method that does not belong to the caller", async () => {
     const db = {
@@ -892,9 +894,9 @@ related:
   ```
   Run `nvm use && pnpm --filter users test detach-payment-method.command` — passes.
 
-- [ ] 4.6 Write the failing spec for set-default, `set-default-payment-method.command.spec.ts`, with the same ownership check, then implement `set-default-payment-method.command.ts` calling `stripe.client.customers.update(customerId, { invoice_settings: { default_payment_method: paymentMethodId } })` and mirroring `isDefault` locally (unset on all other rows for that user, set on this one, inside a `db.$transaction`).
+- [x] 4.6 Write the failing spec for set-default, `set-default-payment-method.command.spec.ts`, with the same ownership check, then implement `set-default-payment-method.command.ts` calling `stripe.client.customers.update(customerId, { invoice_settings: { default_payment_method: paymentMethodId } })` and mirroring `isDefault` locally (unset on all other rows for that user, set on this one, inside a `db.$transaction`).
 
-- [ ] 4.7 Create the controller `payment-methods.controller.ts`, dispatching through `CommandBus`/`QueryBus` per [[cqrs]] — the controller binds the request, checks auth (existing `x-user-id`/JWT guard pattern already used by other Users controllers), and calls exactly one handler; no domain logic or Prisma calls inline:
+- [x] 4.7 Create the controller `payment-methods.controller.ts`, dispatching through `CommandBus`/`QueryBus` per [[cqrs]] — the controller binds the request, checks auth (existing `x-user-id`/JWT guard pattern already used by other Users controllers), and calls exactly one handler; no domain logic or Prisma calls inline:
   ```ts
   import { Body, Controller, Delete, Get, Headers, Param, Post, Put, UseGuards } from "@nestjs/common";
   import { CommandBus, QueryBus } from "@nestjs/cqrs";
@@ -950,11 +952,11 @@ related:
   ```
   Note: `@CurrentUser()`, `AuthGuard`, and the exact request-binding decorators must match whatever this service's existing authenticated controllers already use (e.g. `users.controller.ts`'s `GET /v1/users/me`) — copy that file's decorator names verbatim rather than the placeholders shown here if they differ.
 
-- [ ] 4.8 Register `PaymentMethodsController` and all five handlers in a new `payment-methods.module.ts`, and import it into the app module **only when `STRIPE_ENABLED` is true** (conditional module registration, or a guard inside each route per Task 1's `StripeUnavailableException` — pick whichever mechanism this NestJS version's existing conditional-module precedent uses; if none exists, mount unconditionally and rely on `StripeUnavailableException`/503 from Task 1, since the spec's requirement is "not mounted when off" as the intent, and 503-on-every-call is an acceptable literal reading only if true conditional mounting isn't already precedented in this codebase — confirm against `env.schema.ts` consumers before choosing).
+- [x] 4.8 Register `PaymentMethodsController` and all five handlers in a new `payment-methods.module.ts`, and import it into the app module **only when `STRIPE_ENABLED` is true** (conditional module registration, or a guard inside each route per Task 1's `StripeUnavailableException` — pick whichever mechanism this NestJS version's existing conditional-module precedent uses; if none exists, mount unconditionally and rely on `StripeUnavailableException`/503 from Task 1, since the spec's requirement is "not mounted when off" as the intent, and 503-on-every-call is an acceptable literal reading only if true conditional mounting isn't already precedented in this codebase — confirm against `env.schema.ts` consumers before choosing).
 
-- [ ] 4.9 Update `services/users/openapi.yaml` per [[openapi-specs]], adding all five paths under `/v1/users/me/payment-methods*` with request/response schemas matching the interfaces above.
+- [x] 4.9 Update `services/users/openapi.yaml` per [[openapi-specs]], adding all five paths under `/v1/users/me/payment-methods*` with request/response schemas matching the interfaces above.
 
-- [ ] 4.10 **Wrap each handler's Stripe call in `withStripeSpan` and emit its flow log (spec
+- [x] 4.10 **Wrap each handler's Stripe call in `withStripeSpan` and emit its flow log (spec
   Decision 25).** Extend each of 4.2–4.6's implementations, one call site each:
   - `CreateSetupIntentHandler` — `withStripeSpan("stripe.setup_intent.create", {
     "stripe.resource_type": "setup_intent" }, ...)` around `setupIntents.create`, then
@@ -980,7 +982,7 @@ related:
   set-default) that the expected `app_event` is logged on success. Run
   `nvm use && pnpm --filter users test` (payment-methods handlers) — passes.
 
-- [ ] 4.11 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+- [x] 4.11 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
 
 ## Task 5 — Stripe webhook endpoint (reconciliation)
 
@@ -994,7 +996,7 @@ related:
 
 ### Steps
 
-- [ ] 5.1 Write the failing spec asserting signature rejection BEFORE any processing, `stripe-webhook.controller.spec.ts`:
+- [x] 5.1 Write the failing spec asserting signature rejection BEFORE any processing, `stripe-webhook.controller.spec.ts`:
   ```ts
   it("returns 400 and never dispatches a command when the signature is invalid", async () => {
     const commandBus = { execute: vi.fn() };
@@ -1018,7 +1020,7 @@ related:
   ```
   Run `nvm use && pnpm --filter users test stripe-webhook.controller` — fails, module missing.
 
-- [ ] 5.2 Implement `stripe-webhook.controller.ts`. It must receive the **raw** request body (Fastify raw-body plugin, matching whatever this service already uses for the existing `POST /v1/webhooks/cognito` — copy that route's raw-body wiring verbatim rather than reinventing it):
+- [x] 5.2 Implement `stripe-webhook.controller.ts`. It must receive the **raw** request body (Fastify raw-body plugin, matching whatever this service already uses for the existing `POST /v1/webhooks/cognito` — copy that route's raw-body wiring verbatim rather than reinventing it):
   ```ts
   import { BadRequestException, Body, Controller, Headers, Inject, Post } from "@nestjs/common";
   import { CommandBus } from "@nestjs/cqrs";
@@ -1065,11 +1067,11 @@ related:
   ```
   Run `nvm use && pnpm --filter users test stripe-webhook.controller` — passes.
 
-- [ ] 5.3 Write the failing spec for `reconcile-payment-method.command.ts`, asserting: `payment_method.detached` and `customer.updated` with no matching `default_payment_method` soft-delete/no-op appropriately, and `payment_method.attached`/`updated`/`automatically_updated` upsert the local row (never hard-delete). Then implement it using `db.stripePaymentMethod.upsert` keyed on `stripePaymentMethodId`, and on `detached`, soft-delete (`deletedAt: new Date()`) rather than removing the row — per Decision 4's "never hard-deleted".
+- [x] 5.3 Write the failing spec for `reconcile-payment-method.command.ts`, asserting: `payment_method.detached` and `customer.updated` with no matching `default_payment_method` soft-delete/no-op appropriately, and `payment_method.attached`/`updated`/`automatically_updated` upsert the local row (never hard-delete). Then implement it using `db.stripePaymentMethod.upsert` keyed on `stripePaymentMethodId`, and on `detached`, soft-delete (`deletedAt: new Date()`) rather than removing the row — per Decision 4's "never hard-deleted".
 
-- [ ] 5.4 Add `POST /v1/users/stripe/webhook` to `services/users/openapi.yaml` per [[openapi-specs]], documented as public/unauthenticated with a `stripe-signature` header requirement.
+- [x] 5.4 Add `POST /v1/users/stripe/webhook` to `services/users/openapi.yaml` per [[openapi-specs]], documented as public/unauthenticated with a `stripe-signature` header requirement.
 
-- [ ] 5.5 **Emit `stripe_webhook_received` and log signature failures without the signature or
+- [x] 5.5 **Emit `stripe_webhook_received` and log signature failures without the signature or
   body (spec Decision 25).** Extend 5.2's `handle` method: on successful `constructEvent`, log
   `app_event=stripe_webhook_received` (INFO) with `event.type` and `event.id` as fields, before
   dispatching to `commandBus`. On the signature-verification catch branch (already present in
@@ -1092,7 +1094,7 @@ related:
   ```
   Run `nvm use && pnpm --filter users test stripe-webhook.controller` — passes.
 
-- [ ] 5.6 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+- [x] 5.6 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
 
 ## Task 6 — Extend `e2e-cleanup` to Stripe
 
@@ -1104,15 +1106,15 @@ related:
 
 ### Steps
 
-- [ ] 6.1 Read the existing `DELETE /v1/users/e2e-cleanup` handler in full before editing — locate it with `grep -rln "e2e-cleanup\|E2eCleanup" services/users/src`.
+- [x] 6.1 Read the existing `DELETE /v1/users/e2e-cleanup` handler in full before editing — locate it with `grep -rln "e2e-cleanup\|E2eCleanup" services/users/src`.
 
-- [ ] 6.2 Write a failing spec asserting that, for every user row carrying `"E2E Source"` with a non-null `stripeCustomerId`, `stripe.client.customers.del(stripeCustomerId)` is called, and that a user with no `stripeCustomerId` is skipped without error (Stripe never called for it).
+- [x] 6.2 Write a failing spec asserting that, for every user row carrying `"E2E Source"` with a non-null `stripeCustomerId`, `stripe.client.customers.del(stripeCustomerId)` is called, and that a user with no `stripeCustomerId` is skipped without error (Stripe never called for it).
 
-- [ ] 6.3 Implement: extend the existing handler to, after (or alongside) its current soft-delete pass, iterate tagged rows with a `stripeCustomerId` and call `stripe.client.customers.del(...)` wrapped in `withStripeSpan("stripe.customer.delete", { "stripe.resource_type": "customer" }, ...)` (spec Decision 25 — this is still an outbound Stripe call and gets the same span treatment as every other one in this plan), guarding with `if (!this.stripe.client) return;` at the top so cleanup is a no-op when Stripe isn't configured, never a failure. No new `app_event` is introduced for this path — e2e-cleanup is test-only infrastructure, not a user-facing flow, so the span alone (for debugging a stuck CI sandbox) is sufficient per Decision 25's scope.
+- [x] 6.3 Implement: extend the existing handler to, after (or alongside) its current soft-delete pass, iterate tagged rows with a `stripeCustomerId` and call `stripe.client.customers.del(...)` wrapped in `withStripeSpan("stripe.customer.delete", { "stripe.resource_type": "customer" }, ...)` (spec Decision 25 — this is still an outbound Stripe call and gets the same span treatment as every other one in this plan), guarding with `if (!this.stripe.client) return;` at the top so cleanup is a no-op when Stripe isn't configured, never a failure. No new `app_event` is introduced for this path — e2e-cleanup is test-only infrastructure, not a user-facing flow, so the span alone (for debugging a stuck CI sandbox) is sufficient per Decision 25's scope.
 
-- [ ] 6.4 Run `nvm use && pnpm --filter users test` (full suite) — confirm nothing else broke.
+- [x] 6.4 Run `nvm use && pnpm --filter users test` (full suite) — confirm nothing else broke.
 
-- [ ] 6.5 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+- [x] 6.5 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
 
 ## Task 7 — gRPC: `stripe_customer_id` on `UserResponse`
 
@@ -1124,7 +1126,7 @@ related:
 
 ### Steps
 
-- [ ] 7.1 Add field 6 to `proto/users.proto`'s `UserResponse`:
+- [x] 7.1 Add field 6 to `proto/users.proto`'s `UserResponse`:
   ```proto
   message UserResponse {
     string id = 1;
@@ -1139,15 +1141,15 @@ related:
   }
   ```
 
-- [ ] 7.2 Regenerate/hand-update the Users Node gRPC server's `GetUserById` handler to populate `stripe_customer_id: user.stripeCustomerId ?? ""`, matching the existing empty-string-for-absent convention documented in the proto file's `Address` comment.
+- [x] 7.2 Regenerate/hand-update the Users Node gRPC server's `GetUserById` handler to populate `stripe_customer_id: user.stripeCustomerId ?? ""`, matching the existing empty-string-for-absent convention documented in the proto file's `Address` comment.
 
-- [ ] 7.3 Regenerate/hand-update the Orders .NET gRPC client consumer to read `response.StripeCustomerId` (empty string means "no Stripe customer yet" — Orders must treat `""` as null/absent, never call Stripe with it).
+- [x] 7.3 Regenerate/hand-update the Orders .NET gRPC client consumer to read `response.StripeCustomerId` (empty string means "no Stripe customer yet" — Orders must treat `""` as null/absent, never call Stripe with it).
 
-- [ ] 7.4 Write or extend a unit test on each side: Users' gRPC handler spec asserts `stripe_customer_id` round-trips correctly for both a set and an unset `stripeCustomerId`; Orders' gRPC client test asserts an empty string maps to `null`/absent in its own `IUserDirectory` DTO.
+- [x] 7.4 Write or extend a unit test on each side: Users' gRPC handler spec asserts `stripe_customer_id` round-trips correctly for both a set and an unset `stripeCustomerId`; Orders' gRPC client test asserts an empty string maps to `null`/absent in its own `IUserDirectory` DTO.
 
-- [ ] 7.5 Run `nvm use && pnpm --filter users test` and (from `services/orders`) `dotnet test` — confirm both pass.
+- [x] 7.5 Run `nvm use && pnpm --filter users test` and (from `services/orders`) `dotnet test` — confirm both pass.
 
-- [ ] 7.6 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+- [x] 7.6 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
 
 ## GATE — stop point before Orders work
 
@@ -1157,11 +1159,13 @@ Tasks 1–7 complete the Users side of this milestone; it is independently testa
 
 **Files:**
 - Modify: `services/orders/src/Orders.Api/Program.cs` (StripeClient registration + `AddSource("orders-stripe")`), the order-creation endpoint and its command handler (`grep -rln "POST.*orders\|CreateOrder" services/orders/src/Orders.Api`), `services/orders/src/Orders.Domain` (payment snapshot fields on the order aggregate)
-- Create: an EF Core migration for the payment snapshot columns, `services/orders/src/Orders.Infrastructure/Observability/StripeActivitySource.cs`
-- Test: xUnit tests for the order-creation handler (mocking `StripeClient`), `Testcontainers-MySQL` integration test, observability assertions per step 9.10
+- Create: an EF Core migration for the payment snapshot columns, a second EF Core migration for
+  the `IdempotencyKey` column + unique index (step 9.10b),
+  `services/orders/src/Orders.Infrastructure/Observability/StripeActivitySource.cs`
+- Test: xUnit tests for the order-creation handler (mocking `StripeClient`), `Testcontainers-MySQL` integration test, observability assertions per step 9.10, idempotency-key tests per step 9.10b
 
 **Interfaces:**
-- Consumes: `UserResponse.stripe_customer_id` (Task 7), `paymentMethodId` in the `POST /v1/orders` request body (new field).
+- Consumes: `UserResponse.stripe_customer_id` (Task 7), `paymentMethodId` in the `POST /v1/orders` request body (new field), `Idempotency-Key` request header (new, required when `STRIPE_ENABLED=true` — step 9.10b).
 - Produces:
   ```csharp
   public sealed record PaymentSnapshot(
@@ -1176,11 +1180,15 @@ Tasks 1–7 complete the Users side of this milestone; it is independently testa
       int? CardExpYear,
       string PaymentRawPayload);
   ```
-  Consumed by Task 10 (refund path) and the order read models.
+  Consumed by Task 10 (refund path) and the order read models. **Card fields come from the
+  charge, not PaymentMethods** (spec Decision D, user, 2026-09-22): step 9.7 expands
+  `latest_charge` on the PaymentIntent create call and reads
+  `latest_charge.payment_method_details.card`, because Orders' restricted key (Task 14's
+  permission table) has no PaymentMethods access at all.
 
 ### Steps
 
-- [ ] 9.1 Register `StripeClient` as a per-instance singleton in `Program.cs`, next to the existing gRPC client registration block, reading the key via `builder.Configuration["STRIPE_SECRET_KEY"]` following the exact fail-fast-with-generation-escape shape already used for `EVENTS_TOPIC_ARN`:
+- [x] 9.1 Register `StripeClient` as a per-instance singleton in `Program.cs`, next to the existing gRPC client registration block, reading the key via `builder.Configuration["STRIPE_SECRET_KEY"]` following the exact fail-fast-with-generation-escape shape already used for `EVENTS_TOPIC_ARN`:
   ```csharp
   // Stripe (spec D18): per-instance StripeClient, never the deprecated global
   // StripeConfiguration.ApiKey pattern. STRIPE_ENABLED gates whether it charges
@@ -1201,9 +1209,9 @@ Tasks 1–7 complete the Users side of this milestone; it is independently testa
   never exported, same trap `WorkflowTracer`'s and `SnsEventPublisher`'s comments already warn
   about: `.WithTracing(tracing => tracing.AddSource("orders-stripe"))`.
 
-- [ ] 9.2 Add the EF Core migration for the payment snapshot columns on the order aggregate (`PaymentIntentId`, `PaymentStatus`, `AmountCents`, `Currency`, `PaymentMethodId`, `CardBrand`, `CardLast4`, `CardExpMonth`, `CardExpYear`, `PaymentRawPayload`), all nullable so existing orders are unaffected: `dotnet ef migrations add AddStripePaymentSnapshot --project services/orders/src/Orders.Infrastructure --startup-project services/orders/src/Orders.Api`.
+- [x] 9.2 Add the EF Core migration for the payment snapshot columns on the order aggregate (`PaymentIntentId`, `PaymentStatus`, `AmountCents`, `Currency`, `PaymentMethodId`, `CardBrand`, `CardLast4`, `CardExpMonth`, `CardExpYear`, `PaymentRawPayload`), all nullable so existing orders are unaffected: `dotnet ef migrations add AddStripePaymentSnapshot --project services/orders/src/Orders.Infrastructure --startup-project services/orders/src/Orders.Api`.
 
-- [ ] 9.3 Write the failing xUnit test for the 400-when-missing case:
+- [x] 9.3 Write the failing xUnit test for the 400-when-missing case:
   ```csharp
   [Fact]
   public async Task CreateOrder_WithStripeEnabledAndNoPaymentMethodId_Returns400()
@@ -1219,7 +1227,7 @@ Tasks 1–7 complete the Users side of this milestone; it is independently testa
   ```
   Run `dotnet test --filter CreateOrder_WithStripeEnabledAndNoPaymentMethodId_Returns400` — fails (endpoint doesn't validate this yet).
 
-- [ ] 9.4 Write the failing xUnit test for the flag-off passthrough:
+- [x] 9.4 Write the failing xUnit test for the flag-off passthrough:
   ```csharp
   [Fact]
   public async Task CreateOrder_WithStripeDisabled_IgnoresPaymentMethodIdAndSucceeds()
@@ -1234,11 +1242,11 @@ Tasks 1–7 complete the Users side of this milestone; it is independently testa
   }
   ```
 
-- [ ] 9.5 Write the failing xUnit test for the charge-then-persist happy path, mocking `StripeClient`'s `PaymentIntentService.CreateAsync` to return a succeeded PaymentIntent, and asserting: (a) `off_session: true, confirm: true` were passed, (b) `payment_method_types` was NOT set on the request options, (c) the idempotency key passed equals a value derived from the order id generated before the call, (d) the persisted order carries the full payment snapshot, (e) the order is persisted only AFTER the charge call returns (assert via call-order on the mocks, e.g. a `Sequence`/`InSequence` verification if this repo's test doubles support it, or by asserting the charge mock throws and no order row is written — see 9.6).
+- [x] 9.5 Write the failing xUnit test for the charge-then-persist happy path, mocking `StripeClient`'s `PaymentIntentService.CreateAsync` to return a succeeded PaymentIntent, and asserting: (a) `off_session: true, confirm: true` were passed, (b) `payment_method_types` was NOT set on the request options, (c) the idempotency key passed equals a value derived from the order id generated before the call, (d) the persisted order carries the full payment snapshot, (e) the order is persisted only AFTER the charge call returns (assert via call-order on the mocks, e.g. a `Sequence`/`InSequence` verification if this repo's test doubles support it, or by asserting the charge mock throws and no order row is written — see 9.6).
 
-- [ ] 9.6 Write the failing xUnit test for a card error, mocking `StripeClient` to throw a `Stripe.StripeException` with `StripeError.Code == "card_declined"`, and asserting the endpoint returns 402 with Stripe's message in the body, and that **no order row was persisted**.
+- [x] 9.6 Write the failing xUnit test for a card error, mocking `StripeClient` to throw a `Stripe.StripeException` with `StripeError.Code == "card_declined"`, and asserting the endpoint returns 402 with Stripe's message in the body, and that **no order row was persisted**.
 
-- [ ] 9.7 Implement the order-creation handler changes:
+- [x] 9.7 Implement the order-creation handler changes:
   ```csharp
   public sealed record CreateOrderInput(IReadOnlyList<OrderLineInput> Lines, string? PaymentMethodId);
 
@@ -1267,6 +1275,11 @@ Tasks 1–7 complete the Users side of this milestone; it is independently testa
                   Confirm = true,
                   Metadata = new Dictionary<string, string> { ["order_id"] = orderId },
                   // No PaymentMethodTypes (spec D16) — dynamic payment methods stay enabled.
+                  // Expand latest_charge, NOT payment_method (spec D15/D, user
+                  // 2026-09-22): Orders' restricted key has no PaymentMethods
+                  // access at all, so the snapshot's card fields are read from
+                  // the charge, never from a PaymentMethod lookup.
+                  Expand = new List<string> { "latest_charge" },
               },
               new RequestOptions { IdempotencyKey = $"order-charge-{orderId}" },
               ct);
@@ -1279,25 +1292,26 @@ Tasks 1–7 complete the Users side of this milestone; it is independently testa
           throw new PaymentDeclinedException(ex.StripeError?.Message ?? "Your card was declined.");
       }
 
+      var card = paymentIntent.LatestCharge?.PaymentMethodDetails?.Card;
       order.ApplyPaymentSnapshot(new PaymentSnapshot(
           paymentIntent.Id,
           paymentIntent.Status,
           pricing.TotalCents,
           "usd",
           input.PaymentMethodId,
-          paymentIntent.PaymentMethod?.Card?.Brand,
-          paymentIntent.PaymentMethod?.Card?.Last4,
-          (int?)paymentIntent.PaymentMethod?.Card?.ExpMonth,
-          (int?)paymentIntent.PaymentMethod?.Card?.ExpYear,
+          card?.Brand,
+          card?.Last4,
+          (int?)card?.ExpMonth,
+          (int?)card?.ExpYear,
           JsonSerializer.Serialize(paymentIntent)));
   }
   // Persist happens here, after the above block — charge-then-persist (spec D7).
   ```
   Map `PaymentDeclinedException` to HTTP 402 in the existing exception-to-status-code middleware (locate it via `grep -rln "StatusCodes.Status4" services/orders/src/Orders.Api`, follow its existing pattern for mapping a domain exception to a status code — e.g. however the existing 409 stock-conflict exception is mapped).
 
-- [ ] 9.8 Run `dotnet test` for all of Tasks 9.3–9.6's tests — confirm they now pass.
+- [x] 9.8 Run `dotnet test` for all of Tasks 9.3–9.6's tests — confirm they now pass.
 
-- [ ] 9.9 **Server-side metadata-only card validation (Decision 21).** With `STRIPE_ENABLED=false` (plain branch), the frontend now sends `brand`, `last4`, `expMonth`, `expYear` alongside the order body (Task 11a wires this). Orders receives **no PAN and no CVC** — this validation exists so the rule is enforced in both places, not because the client's check is untrusted with card data it never had access to the sensitive parts of anyway. Write the failing xUnit test first:
+- [x] 9.9 **Server-side metadata-only card validation (Decision 21).** With `STRIPE_ENABLED=false` (plain branch), the frontend now sends `brand`, `last4`, `expMonth`, `expYear` alongside the order body (Task 11a wires this). Orders receives **no PAN and no CVC** — this validation exists so the rule is enforced in both places, not because the client's check is untrusted with card data it never had access to the sensitive parts of anyway. Write the failing xUnit test first:
   ```csharp
   [Theory]
   [InlineData("unknown_brand_xyz", "4242", 12, 2099, false)] // unknown brand rejected server-side
@@ -1341,7 +1355,7 @@ Tasks 1–7 complete the Users side of this milestone; it is independently testa
   ```
   Call it from the order-creation handler, only on the plain branch (`if (!_stripeSettings.Enabled)`), returning 400 when it fails, before any persistence. Run `dotnet test` — passes. This validator takes NO PaymentIntent/Stripe dependency, unlike Task 9's charging block — it is a pure metadata check, distinct from and unrelated to whether Stripe is configured.
 
-- [ ] 9.10 **Wrap the PaymentIntent call in a CLIENT `Activity` and emit the flow logs (spec
+- [x] 9.10 **Wrap the PaymentIntent call in a CLIENT `Activity` and emit the flow logs (spec
   Decision 25).** Before writing this step, check for an existing outbound-hop tracing helper
   in `services/orders/src/` (`grep -rln "ActivitySource\|StartActivity" services/orders/src`)
   and mirror it — `Orders.Infrastructure/Messaging/SnsEventPublisher.cs`'s
@@ -1410,23 +1424,96 @@ Tasks 1–7 complete the Users side of this milestone; it is independently testa
   never Error, with that `decline_code` as `reason`; (c) the activity's tag set never includes a
   field named `client_secret` or `raw_payload`. Run `dotnet test` — passes.
 
-- [ ] 9.11 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+- [x] 9.10b **Client-supplied `Idempotency-Key` (spec Decision 7, user decision 2026-09-22).**
+  A server-minted order id cannot make a retry idempotent — a re-POST mints a new id, so the
+  key must come from the client. Migration first: add a nullable `IdempotencyKey` column plus a
+  unique index on `(UserId, IdempotencyKey)`:
+  `dotnet ef migrations add AddOrderIdempotencyKey --project services/orders/src/Orders.Infrastructure --startup-project services/orders/src/Orders.Api`.
 
-## Task 10 — Orders: refund-on-409
+  Write the failing tests first, each asserting exactly one branch of Decision 7:
+  - [x] 9.10b.1 Missing `Idempotency-Key` header with `STRIPE_ENABLED=true` → `400
+    idempotency_key_required`. Header absent with the flag off → succeeds exactly as today
+    (header ignored).
+  - [x] 9.10b.2 Same `(user, key)` POSTed twice with an identical body → the **first** call
+    charges once; the **second** call returns the existing order (`200`, same body) and
+    `PaymentIntentService.CreateAsync` is asserted **not called** a second time.
+  - [x] 9.10b.3 Concurrent duplicate requests (same `(user, key)`, fired together) → exactly
+    one order is persisted and exactly one Stripe charge is made; the request that loses the
+    unique-index race also returns the existing order rather than erroring — assert this with
+    a test that forces the race (e.g. two handler invocations against the same in-memory/test
+    DB context, or however this repo's existing unique-constraint races are tested; grep first).
+  - [x] 9.10b.4 Replay of an already-refunded PaymentIntent: Stripe returns
+    `Idempotent-Replayed: true` for a key whose PaymentIntent was refunded by Task 10's path →
+    Orders persists **no** order and answers `409 idempotency_key_reused`.
+  - [x] 9.10b.5 Same key, different request body → Stripe's `idempotency_error` is mapped to
+    `422 idempotency_key_mismatch`.
+
+  Implement:
+  - The `Idempotency-Key` header is required (flag on) / optional-and-ignored (flag off),
+    validated for presence before any Stripe call — mirror however `paymentMethodId`'s
+    required-when-enabled check (step 9.3) is structured.
+  - Before charging, look up `(UserId, IdempotencyKey)`; if an order exists, return it directly
+    (no Stripe call).
+  - The Stripe idempotency key passed to `PaymentIntentCreateOptions`'s `RequestOptions`
+    becomes `$"order-charge-{userId}-{clientKey}"`, replacing step 9.7's
+    `$"order-charge-{orderId}"` — derived from `(user id, client key)`, not the server-minted
+    order id, so a retried or concurrent request with the same client key reaches the same
+    PaymentIntent.
+  - Persist `IdempotencyKey` on the order row alongside the payment snapshot.
+  - Detect an `Idempotent-Replayed` response whose PaymentIntent status reflects a prior refund
+    (Task 10) and answer 409 `idempotency_key_reused` without persisting an order.
+  - Map Stripe's `idempotency_error` to `422 idempotency_key_mismatch` in the same
+    exception-to-status-code middleware step 9.7 already extended for `PaymentDeclinedException`.
+
+  Wrap the idempotency-key lookup and the two new error paths in the same `stripe.payment_intent.create`
+  activity from step 9.10 — add `stripe.idempotency_key` as a tag (already specified in step
+  9.10; this step supplies its real value). Run `dotnet test` — all of 9.10b.1–9.10b.5 pass, and
+  the 9.3–9.6/9.9 suite still passes with the new required header added to those tests' requests.
+
+  **Outcome (2026-09-23, corrected against the spec's Decision 7 amendment).** The "an order
+  exists → return it directly" step above is refined: the match also compares a stored request
+  fingerprint (`idempotency_request_hash char(64)`, nullable, SHA-256 hex of a canonical,
+  version-tagged form of the order lines — merged per product and sorted — plus
+  `paymentMethodId`; **not** the shipping address, since Orders reads that server-side from the
+  Users profile rather than the request body). Same fingerprint (or no stored hash) → return the
+  existing order; different fingerprint → `422 idempotency_key_mismatch` before any Stripe call.
+  Stripe's `idempotency_error` is **not** mapped to 422 uniformly as step 9.10b.5 originally
+  described: only its `400` variant means a genuine body mismatch; its `409` variant means the
+  same key is still in flight on another request, handled by re-checking for the winning order
+  up to 3 times, 500 ms apart, then `503 payment_unavailable` with `Retry-After` if none appears
+  — see the spec's Decision 7 for the full corrected text. This in-flight path is a fallback:
+  the production Stripe SDK's own network-level retry already absorbs most 409 races before
+  Orders observes them.
+
+- [x] 9.11 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+
+## Task 10 — Orders: refund on any post-charge failure
+
+**Widened scope (spec Decision 9, user decision 2026-09-22):** the automatic refund is not
+limited to a stock-reservation 409. It covers **any** failure between a successful charge and a
+committed order — a 409 under the lock, a product removed from under the reservation, the
+price-mismatch guard rejecting a stale total, or a persistence/commit failure — because in every
+one of these the charge already succeeded and must never be left dangling. The refund uses its
+**own** idempotency key derived from the PaymentIntent id (`refund-{paymentIntentId}`),
+independent of Task 9.10b's order-creation key, so a retried refund attempt cannot double-refund.
+This task's original name ("refund-on-409") undersold the scope; the steps below cover the 409
+case as the primary test and note the other failure modes share the same refund path.
 
 **Files:**
 - Modify: the same order-creation handler from Task 9
-- Test: a dedicated xUnit test forcing the reservation to fail after a successful charge
+- Test: a dedicated xUnit test forcing the reservation to fail after a successful charge, plus
+  one test per other post-charge failure mode (product removed, price-mismatch guard,
+  persistence/commit failure) confirming each also triggers the same refund path
 
 **Interfaces:**
-- Consumes: `PaymentSnapshot` (Task 9), `StripeActivitySource` (Task 9.10), the existing stock-reservation call that can return 409.
+- Consumes: `PaymentSnapshot` (Task 9), `StripeActivitySource` (Task 9.10), the existing stock-reservation call that can return 409, and whatever other post-charge failure paths already exist (price-mismatch guard, persistence/commit).
 
 > [!warning] Highest-risk task in this plan
 > This is the repo's known review failure mode per [[phase-c-review-flow]] and [[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]]: a concurrency requirement specified from day one, shipped as an unhandled path, passing its own review because the diff is self-consistent on its own terms. **Reviewers must tick this task off against Decision 9 in the spec directly, not just read the diff** — ordinary tests structurally do not exercise concurrency, so the only proof this works is the explicit test in step 10.1, not the absence of a crash elsewhere. Per spec Decision 25, this is also the path that must be answerable from the logs alone — step 10.4's `app_event=payment_refunded` line, not just the refund call succeeding, is what makes "was the dangling charge actually refunded?" answerable without opening Stripe's dashboard.
 
 ### Steps
 
-- [ ] 10.1 Write the failing xUnit test that forces the exact failure sequence: charge succeeds, THEN the stock reservation call returns 409, and assert a refund was issued for the exact `PaymentIntentId` charged:
+- [x] 10.1 Write the failing xUnit test that forces the exact failure sequence: charge succeeds, THEN the stock reservation call returns 409, and assert a refund was issued for the exact `PaymentIntentId` charged:
   ```csharp
   [Fact]
   public async Task CreateOrder_WhenReservationConflictsAfterSuccessfulCharge_RefundsTheCharge()
@@ -1459,7 +1546,7 @@ Tasks 1–7 complete the Users side of this milestone; it is independently testa
   The exact seam for `WithReservationThatConflictsAfterCharge()` must be added to the existing `WebApplicationFactory` test fixture — locate the stock-reservation call site first (`grep -rln "409\|StockReservation\|Conflict" services/orders/src/Orders.Domain services/orders/src/Orders.Infrastructure`) and add a way to inject a reservation service that throws a conflict exception, mirroring however this repo's existing 409 test (if any) already fakes that failure.
   Run `dotnet test --filter CreateOrder_WhenReservationConflictsAfterSuccessfulCharge_RefundsTheCharge` — fails, no refund logic exists yet.
 
-- [ ] 10.2 Implement the refund path in the order-creation handler, wrapping the reservation call in a try/catch that runs only when a charge has already succeeded in this request:
+- [x] 10.2 Implement the refund path in the order-creation handler, wrapping the reservation call in a try/catch that runs only when a charge has already succeeded in this request:
   ```csharp
   PaymentIntent? paymentIntent = null;
   if (_stripeSettings.Enabled)
@@ -1475,21 +1562,50 @@ Tasks 1–7 complete the Users side of this milestone; it is independently testa
   {
       if (paymentIntent is not null)
       {
-          // CONTRACT: A charge must never be left dangling (spec D9). This is
-          // the ONLY path that refunds — a reservation conflict occurring
-          // BEFORE any charge (Stripe disabled, or reservation checked first
-          // in some other flow) has nothing to refund.
+          // CONTRACT: A charge must never be left dangling (spec D9, widened
+          // 2026-09-22). This same catch/refund path also covers a removed
+          // product, the price-mismatch guard, and a persistence/commit
+          // failure after a successful charge — not only a stock conflict. A
+          // reservation conflict occurring BEFORE any charge (Stripe
+          // disabled, or reservation checked first in some other flow) has
+          // nothing to refund.
           var refundService = new RefundService(_stripeClient);
           await refundService.CreateAsync(
-              new RefundCreateOptions { PaymentIntent = paymentIntent.Id }, cancellationToken: ct);
+              new RefundCreateOptions
+              {
+                  PaymentIntent = paymentIntent.Id,
+              },
+              // Own idempotency key, derived from the PaymentIntent id — independent
+              // of the order-creation key (step 9.10b) — so a retried refund attempt
+              // cannot double-refund.
+              new RequestOptions { IdempotencyKey = $"refund-{paymentIntent.Id}" },
+              cancellationToken: ct);
       }
       throw;
   }
   ```
+  The same `try`/`catch (StockConflictException)` block must be extended, or paralleled with
+  identical `catch` clauses, for the other post-charge failure types this task's widened scope
+  covers: a "product removed" exception, the price-mismatch guard's exception type, and a
+  persistence/commit failure thrown by the final save — locate each type via
+  `grep -rn "ProductRemoved\|PriceMismatch\|class.*Exception" services/orders/src/Orders.Domain`
+  and route each into the same refund block (extract it into a private
+  `RefundDanglingChargeAsync(paymentIntent, ct)` helper once more than one `catch` needs it,
+  rather than duplicating the refund call inline per exception type).
 
-- [ ] 10.3 Run `dotnet test --filter CreateOrder_WhenReservationConflictsAfterSuccessfulCharge_RefundsTheCharge` — passes. Then run the full `dotnet test` suite for `services/orders` — confirm no regression on the 9.3–9.6 tests.
+- [x] 10.2b Write failing xUnit tests for the other post-charge failure modes, one per type
+  (product removed after charge, price-mismatch guard after charge, persistence/commit failure
+  after charge), each asserting a refund was issued for the exact `PaymentIntentId` charged —
+  mirroring step 10.1's shape but forcing a different exception after the charge succeeds. Also
+  add a test asserting the refund call's `RequestOptions.IdempotencyKey` equals
+  `refund-{paymentIntentId}` (not derived from the order id), and a test that calling the same
+  failure path twice for the same PaymentIntent (e.g. a retried request hitting the same
+  post-charge failure again) issues the refund only once, proving the refund's own idempotency
+  key does its job. Run `dotnet test` — fails until 10.2's implementation covers these paths.
 
-- [ ] 10.4 **The refund gets its own span and its own `app_event`, observable independently of
+- [x] 10.3 Run `dotnet test --filter CreateOrder_WhenReservationConflictsAfterSuccessfulCharge_RefundsTheCharge` — passes. Then run the full `dotnet test` suite for `services/orders`, including the new 10.2b tests — confirm no regression on the 9.3–9.6 tests.
+
+- [x] 10.4 **The refund gets its own span and its own `app_event`, observable independently of
   the charge (spec Decision 25).** This is the highest-risk path in the whole milestone (see
   this task's header warning) precisely because it must be answerable from the logs alone —
   "was a dangling charge actually refunded?" cannot depend on also finding the original charge
@@ -1509,14 +1625,18 @@ Tasks 1–7 complete the Users side of this milestone; it is independently testa
   {
       var refundService = new RefundService(_stripeClient);
       await refundService.CreateAsync(
-          new RefundCreateOptions { PaymentIntent = paymentIntent.Id }, cancellationToken: ct);
+          new RefundCreateOptions { PaymentIntent = paymentIntent.Id },
+          // Own idempotency key (step 10.2) — independent of the order-creation
+          // key (step 9.10b) — so a retried refund attempt cannot double-refund.
+          new RequestOptions { IdempotencyKey = $"refund-{paymentIntent.Id}" },
+          cancellationToken: ct);
       refundActivity?.SetStatus(ActivityStatusCode.Ok);
 
       // CONTRACT: Carries BOTH ids on purpose — this line must answer "was the
       // dangling charge refunded?" on its own, without cross-referencing the
       // payment_charged line from a different point in the same request.
       _logger.LogInformation(
-          "Charge refunded after a post-charge reservation conflict {app_event} {order_id} {payment_intent_id}",
+          "Charge refunded after a post-charge failure {app_event} {order_id} {payment_intent_id}",
           "payment_refunded", orderId, paymentIntent.Id);
   }
   catch (Exception ex)
@@ -1527,7 +1647,7 @@ Tasks 1–7 complete the Users side of this milestone; it is independently testa
       refundActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
       _logger.LogError(
           ex,
-          "Refund FAILED after a post-charge reservation conflict — charge left dangling {app_event} {reason} {order_id} {payment_intent_id}",
+          "Refund FAILED after a post-charge failure — charge left dangling {app_event} {reason} {order_id} {payment_intent_id}",
           "payment_refunded_failed", "refund_call_failed", orderId, paymentIntent.Id);
       throw;
   }
@@ -1538,11 +1658,256 @@ Tasks 1–7 complete the Users side of this milestone; it is independently testa
   the diff against Decision 9 means confirming this line exists, not just that
   `RefundAsync`/`CreateAsync` was called. Run `dotnet test` — passes.
 
-- [ ] 10.5 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+- [x] 10.5 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+
+## Task 10c — Orders: Stripe webhook (payment reconciliation)
+
+**Spec Decision 26 (user, 2026-09-22).** This is a **second** webhook, separate from Users'
+(Decision 4/11) — Orders' payment reconciliation for orphan charges, refunds made outside the
+app, and disputes. Fulfillment stays exactly as Task 9 built it: synchronous, inside `POST
+/v1/orders`. This task adds no fulfillment path.
+
+**Files:**
+- Create: `services/orders/src/Orders.Api/StripeWebhook/StripeWebhookEndpoint.cs` (or wherever
+  this service's existing Minimal API endpoints for webhooks/public routes live — grep first,
+  `grep -rln "MapPost.*webhook\|PublicRoutes" services/orders/src/Orders.Api`),
+  `services/orders/src/Orders.Application/Stripe/ReconcilePaymentHandler.cs` (or this repo's
+  equivalent application-layer location for Orders — mirror wherever Task 9's order-creation
+  handler lives), `.spec`/xUnit tests for both
+- Modify: `services/orders/src/Orders.Api/Program.cs` (register the raw-body-reading route,
+  wire `STRIPE_WEBHOOK_SECRET`), `services/orders/openapi.yaml`,
+  `infra/environments/local/scripts/generate_env_files.py` (Orders' CUSTOM box),
+  `infra/scripts/set_stripe_webhook_secret.py` (or wherever `make stripe-webhook-secret`'s
+  script lives — see Task 14.4's note), `docker-compose.yml` (`stripe-cli`'s `--forward-to`)
+
+**Interfaces:**
+- Consumes: `StripeClient` (Task 9.1), `PaymentSnapshot`/order read model (Task 9), the same
+  `refund-{paymentIntentId}` idempotency key Task 10.2 already derives (the orphan-refund path
+  reuses this exact key — spec Decision 26 — so it and Task 10's inline refund can never both
+  succeed for the same charge).
+- Produces: `POST /v1/orders/stripe/webhook` — public, no JWT, signature-verified against
+  Orders' own `STRIPE_WEBHOOK_SECRET`.
+
+### Steps
+
+- [x] 10c.1 Write the failing tests first, one per branch of Decision 26 — the signature and
+  availability guards, then the three reconciliation cases, in this order:
+  - [x] 10c.1a Invalid `stripe-signature` → `400 invalid_signature`, and no handler is
+    dispatched — mirror Task 5.1's shape (Users' webhook spec) for the assertion structure:
+    `constructEvent`/its .NET equivalent throws, the test asserts the reconciliation handler was
+    never invoked.
+  - [x] 10c.1b `STRIPE_ENABLED=true` with `STRIPE_WEBHOOK_SECRET` unset → `503
+    stripe_unavailable`, checked **before** attempting signature verification (there is nothing
+    to verify against).
+  - [x] 10c.1c `payment_intent.succeeded` with `metadata.order_id` set, no matching order, and
+    the PaymentIntent's `created` timestamp inside the grace period (10 minutes, configurable) →
+    a non-2xx response, and assert **no** refund call was made — Stripe must retry the delivery
+    later rather than the handler racing an in-flight `POST /v1/orders`.
+  - [x] 10c.1d Same event, but `created` older than the grace period → a refund is issued with
+    idempotency key exactly `refund-{paymentIntentId}` (assert the literal key, not just that
+    `RefundAsync`/`CreateAsync` was called), and `app_event=payment_orphan_refunded` is logged
+    at WARNING with `order_id` and `payment_intent_id`.
+  - [x] 10c.1e Same event, but an order already exists for `metadata.order_id` → no refund call,
+    2xx, no reconciliation log line (this is the common case, not an error path).
+  - [x] 10c.1f The orphan-refund case (10c.1d) delivered **twice** (simulating a Stripe retry) →
+    exactly one refund is issued — the second delivery hits the same
+    `refund-{paymentIntentId}` idempotency key and is a no-op against Stripe, not a second call
+    from Orders' own perspective (assert the refund call happens at most once, or that a second
+    call with the same key is harmless per however this repo's other idempotency-key tests
+    assert that — see Task 9.10b's tests for the pattern).
+  - [x] 10c.1g `charge.refunded` with `amount_refunded == amount` → order's `PaymentStatus` set
+    to `refunded`. With `amount_refunded < amount` → `partially_refunded`.
+  - [x] 10c.1h `charge.dispute.created` → `PaymentStatus=disputed`, logged at WARNING.
+    `charge.dispute.closed` with a won outcome → reverts to `succeeded`. Lost outcome →
+    `dispute_lost`.
+  - [x] 10c.1i An event type not in the six above (e.g. `customer.created`) → 2xx, no handler
+    dispatched, no error.
+  Run the test command for whichever project houses these (`dotnet test --filter
+  StripeWebhook`) — all fail, nothing implemented yet.
+
+- [x] 10c.2 Implement the endpoint and handler covering 10c.1a–10c.1i. Follow Task 9.1's
+  `StripeClient`/`StripeSettings` registration and Task 5.2's (Users) signature-verification
+  shape translated to .NET — verify the raw body against `STRIPE_WEBHOOK_SECRET` using
+  `EventUtility.ConstructEvent` before dispatching anything, exactly mirroring Decision 4's
+  "verify before processing" rule Decision 26 restates for this second webhook. Wire the grace
+  period as a configurable value (10 minutes default) rather than a hardcoded literal, so it can
+  be shortened in tests without sleeping. Run the tests from 10c.1 — pass.
+
+- [x] 10c.3 **Observability (spec Decision 25/26).** Wrap the Stripe calls this handler makes
+  (the orphan refund) in the same `StripeActivitySource` from Task 9.10/10.4 — a
+  `stripe.refund.create` CLIENT activity, same idempotency-key tag convention as Task 10.4. Log
+  `app_event=stripe_webhook_received` with `event.type`/`event.id` on every successfully
+  verified delivery (mirroring Task 5.5's shape for Users), and the signature-failure branch
+  logs with `reason=signature_verification_failed` and **never** the `stripe-signature` header
+  or raw body — same restraint as Task 5.5. `app_event=payment_orphan_refunded` is a distinct
+  event from `payment_refunded` (Task 10.4) — the two paths must remain independently visible in
+  the logs (an orphan-refund is a different failure shape from a post-charge-failure refund,
+  even though both call the same Stripe Refunds endpoint). Run the tests — pass.
+
+- [x] 10c.4 Add `POST /v1/orders/stripe/webhook` to `services/orders/openapi.yaml`, documented
+  public/unauthenticated with a `stripe-signature` header requirement, mirroring how Task 5.4
+  documented Users' webhook.
+
+- [x] 10c.5 **Gateway route** — add to `infra/modules/api-gateway/main.tf`'s route map:
+  ```
+  orders_stripe_webhook = { key = "POST /v1/orders/stripe/webhook", path = "/v1/orders/stripe/webhook", auth = false }
+  ```
+  following the exact `key`/`path`/`auth` shape already used for Users' `stripe_webhook` entry.
+
+- [x] 10c.6 **nginx — verify, don't assume.** Read `infra/modules/compute/nginx/nginx.conf`'s
+  existing `location /v1/orders` block before touching it. **Verified 2026-09-22: no new
+  `location` block is needed** — `/v1/orders/stripe/webhook` falls under the existing prefix
+  match `location /v1/orders { proxy_pass http://orders:8080; }`, which forwards the full
+  request path unchanged to Orders. This is unlike `/v1/cart` or `/v1/products`, which needed
+  their own blocks specifically because they are top-level paths **outside** `/v1/orders`. If a
+  future reader finds this block has since been narrowed to an exact match or moved, that
+  assumption must be re-verified, not copied blindly.
+
+- [x] 10c.7 **`generate_env_files.py` — Orders' CUSTOM box.** Add `STRIPE_WEBHOOK_SECRET=`
+  (empty) to Orders' `custom_defaults` block in
+  `infra/environments/local/scripts/generate_env_files.py`, next to the existing
+  `STRIPE_ENABLED`/`STRIPE_SECRET_KEY` entries added on `feat/stripe-payments-users` (see Task
+  14.6's note — this file already seeds those two for Orders; this step adds the third). Update
+  that block's comment, which currently reads "No webhook secret: only Users receives
+  webhooks" — that sentence is no longer true as of Decision 26 and must be corrected, not left
+  contradicting the code three lines below it. Orders' env schema/config treats an empty value
+  the same as unset (flag on + no secret → 503, per Decision 13/26), matching Users' existing
+  rule.
+
+- [x] 10c.8 **`make stripe-webhook-secret` writes both files.** Read
+  `infra/environments/local/scripts/set_stripe_webhook_secret.py` (the script `Makefile`'s
+  `stripe-webhook-secret` target already calls) before editing it — it currently writes only
+  into `.env.local.users`'s CUSTOM box. Extend it to write the **same** `whsec_...` value into
+  `.env.local.orders`'s CUSTOM box too, per spec Decision 26's local-delivery paragraph: one
+  `stripe listen` process mints one signing secret, valid for every event it forwards on this
+  machine, so both services get the identical value — this is not two secrets, it is one secret
+  written to two files.
+
+- [x] 10c.9 **`stripe-cli` compose command — verify before wiring.** Per spec Decision 26, do
+  not invent a `stripe listen` flag. Before editing `docker-compose.yml`'s `stripe-cli` command
+  (Task 14.4 introduces the service; this step's forwarding target may need to change), run
+  `stripe listen --help` and confirm whether one invocation supports multiple `--forward-to`
+  destinations (one process, one secret, forwarding to both `users:3000/v1/users/stripe/webhook`
+  and `orders:8080/v1/orders/stripe/webhook`) or whether it requires **two** concurrent `stripe
+  listen` processes — in which case each mints its **own** `whsec_...`, which would contradict
+  10c.8's shared-secret write and require revisiting that step before implementing it. Record
+  which of the two is true in this step's own commit/PR description, since the spec deliberately
+  left it unresolved pending this verification.
+
+  **Outcome (2026-09-23):** `stripe listen --forward-to` accepts exactly one destination per
+  invocation, so two concurrent processes are required — one per service. This does **not**
+  produce two different secrets in the sense Decision 26 worried about: `make
+  stripe-webhook-secret` obtains the secret once via a separate `stripe listen --print-secret`
+  call and writes that one value into both services' CUSTOM boxes, so the two long-running
+  `--forward-to` processes the developer starts by hand are configured to accept the same
+  pre-written secret rather than each minting and using its own. There is no `stripe-cli`
+  compose service — Task 14.4 was dropped (see Task 14 below) once this was resolved. See
+  Decision 10's amendment and [[stripe-sandbox-setup]] for the exact commands.
+
+- [x] 10c.10 Leave the work uncommitted in the working tree and report what changed — the main
+  session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+
+## Task 10d — Webhook defense in depth (URL token + IP allowlist)
+
+**Spec Decision 27 (user, 2026-09-22).** Both webhooks (Users' from Task 5, Orders' from Task
+10c) gain two more layers on top of the existing `Stripe-Signature` check: a per-service URL
+token appended to the route, and an allowlist of Stripe's published webhook source IPs. Both
+layers are enforced in the services themselves — nginx is local-only and AWS WAF does not
+attach to the HTTP APIs this repo uses. Order of checks, before any body parsing: IP allowlist →
+URL token → signature. Write every rejection test first.
+
+**Files:**
+- Modify (Users): the webhook route file from Task 5 (grep `stripe/webhook` under
+  `services/users/src`), `services/users/src/config/env.schema.ts`, the webhook route's
+  `.spec.ts`
+- Modify (Orders): `services/orders/src/Orders.Api/StripeWebhook/StripeWebhookEndpoint.cs` (Task
+  10c.2's file, or wherever it actually landed), Orders' settings/env binding, its xUnit tests
+- Modify (infra): `infra/modules/api-gateway/main.tf` (both webhook route entries' `key` and
+  integration `path`), `infra/environments/local/scripts/generate_env_files.py` (both services'
+  AUTO box — `STRIPE_WEBHOOK_ALLOWED_CIDRS`, `STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS=0`),
+  `infra/environments/local/scripts/set_stripe_webhook_secret.py` (or wherever Task 10c.8 left
+  `make stripe-webhook-secret` — extend it to also mint/preserve each service's
+  `STRIPE_WEBHOOK_URL_TOKEN`), `docker-compose.yml` (`stripe-cli`'s `--forward-to` targets gain
+  the token path)
+- Modify (E2E): the existing Users webhook internal + gateway specs (Task 5/8's tests) move to
+  the token path; add the new rejection cases below
+
+**Interfaces:**
+- Consumes: Task 5's Users webhook route, Task 10c's Orders webhook route, Decision 27's env
+  vars (`STRIPE_WEBHOOK_URL_TOKEN`, `STRIPE_WEBHOOK_ALLOWED_CIDRS`,
+  `STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS`).
+- Produces: `POST /v1/users/stripe/webhook/{token}` and `POST
+  /v1/orders/stripe/webhook/{token}`, replacing the bare `/webhook` paths Tasks 5 and 10c
+  created. No other route changes.
+
+### Steps
+
+- [x] 10d.1 **Failing tests first, Users.** Write the rejection cases before touching the route:
+  - [x] 10d.1a Wrong or missing `{token}` → `404`, the framework's normal not-found shape (assert
+    the body is indistinguishable from an unmapped route, not a custom "invalid token" payload).
+  - [x] 10d.1b `STRIPE_ENABLED=true` with `STRIPE_WEBHOOK_URL_TOKEN` unset → `503
+    stripe_unavailable`.
+  - [x] 10d.1c Correct token but source IP outside `STRIPE_WEBHOOK_ALLOWED_CIDRS` → `403
+    forbidden_source`, and assert `app_event=stripe_webhook_received`,
+    `reason=source_ip_not_allowed`, and the source IP are logged at WARNING.
+  - [x] 10d.1d Correct token, allowed IP, valid signature → 2xx, unchanged from Task 5's existing
+    behavior (regression check that layering the two new guards in front does not break the
+    happy path).
+  - [x] 10d.1e The token never appears in any log line or span attribute across 10d.1a–10d.1d —
+    assert against the logger/tracer test doubles already used in Task 1.7's spec, not a new
+    harness.
+  Run `nvm use && pnpm --filter users test` for the webhook spec — all new cases fail.
+
+- [x] 10d.2 Implement Users' side: extend the env schema with the three new vars (mirroring Task
+  1.1's pattern), change the route path to append `/:token` (or this framework's equivalent),
+  add the IP-allowlist check (reading `STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS` to pick the right
+  address) and the constant-time token comparison ahead of the existing signature verification,
+  in that order. Redact the route to its template (`…/webhook/{token}`) in any access log/span
+  that would otherwise record the concrete path. Run 10d.1's tests — pass.
+
+- [x] 10d.3 **Failing tests first, Orders.** Mirror 10d.1a–10d.1e in xUnit against Task 10c's
+  endpoint (`10d.3a`–`10d.3e`), same five cases, same assertions translated to this service's
+  test/logging idioms. Run — all fail.
+
+- [x] 10d.4 Implement Orders' side, mirroring 10d.2's shape: route path gains the token segment,
+  IP allowlist and token checks ahead of Task 10c.2's signature verification, redaction on any
+  access log/activity that would record the concrete path. Run 10d.3's tests — pass.
+
+- [x] 10d.5 **Infra — gateway routes.** Update both webhook entries in
+  `infra/modules/api-gateway/main.tf` so their `key` and integration `path` carry the `{token}`
+  segment, e.g. `users_stripe_webhook = { key = "POST /v1/users/stripe/webhook/{token}", path =
+  "/v1/users/stripe/webhook/{token}", auth = false }`, and the equivalent for Orders' entry from
+  Task 10c.5. Confirm the nginx prefix blocks (`location /v1/users`, `location /v1/orders`) still
+  forward the longer path unchanged — no new `location` block needed, same reasoning as Task
+  10c.6.
+
+- [x] 10d.6 **Infra — env generator.** Add `STRIPE_WEBHOOK_ALLOWED_CIDRS` and
+  `STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS=0` to both services' AUTO box in
+  `infra/environments/local/scripts/generate_env_files.py` — the local value per Decision 27
+  includes the published Stripe IPs plus loopback/private ranges, since `stripe listen` forwards
+  from the developer's own machine.
+
+- [x] 10d.7 **Infra — `make stripe-webhook-secret` also mints the URL tokens.** Extend the script
+  from Task 10c.8 to generate `STRIPE_WEBHOOK_URL_TOKEN` (≥ 32 random URL-safe bytes) into each
+  service's CUSTOM box when absent, preserving an existing value rather than rotating it
+  silently, and print the two `stripe listen --forward-to` commands with the tokens masked
+  unless the caller explicitly asks to reveal them.
+
+- [x] 10d.8 **E2E — move existing specs to the token path.** Update Task 5/8's Users webhook
+  internal and gateway Playwright specs to target `.../webhook/{token}` using the token the test
+  environment's CUSTOM box provides. Add the new rejection cases: wrong token → 404; disallowed
+  IP → 403, where the test can control the source address. Note for the gateway-E2E case: locally
+  the request arrives from a private address, so the 403 case is exercised at the
+  unit/integration layer (10d.1c/10d.3c) and, where the gateway E2E environment's source IP is
+  actually controllable, also at that layer — do not fabricate a gateway-E2E 403 case against an
+  uncontrollable source IP.
+
+- [x] 10d.9 Leave the work uncommitted in the working tree and report what changed — the main
+  session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
 
 ## GATE — stop point before Web work
 
-Task 11 (web) posts `paymentMethodId` to `POST /v1/orders`, which does not behave correctly until Tasks 9–10 are merged. **Present the Tasks 9–10 batch for review per [[phase-c-review-flow]] and wait for merge before starting Task 11.** Task 13 (plain-branch card validation) touches only pure functions and the plain branch — it does not depend on Tasks 9–10 and may be implemented in parallel with this wait. Task 12 (profile Payment methods tab) reuses Task 11's `SavedCardRow`/`PaymentMethodsApi`, so it must wait for Task 11 to land first, not merely for this GATE — see Task 12's header note. All three of Tasks 11, 12, and 13's PRs are batched together for review at this same stop point, since all touch `checkout-payment.html`/`.ts`, `profile.ts`/`.html`, or a component either composes.
+Task 11 (web) posts `paymentMethodId` to `POST /v1/orders`, which does not behave correctly until Tasks 9–10 (and 10c–10d) are merged. **Present the Tasks 9–10d batch for review per [[phase-c-review-flow]] and wait for merge before starting Task 11.** Task 10c (Orders' own Stripe webhook, payment reconciliation) and Task 10d (webhook defense in depth, both services) have no dependency on Task 11/12/13 and join this same batch — 10c depends only on Task 9's `PaymentSnapshot`/order model and Task 10's refund idempotency key, and 10d depends only on Task 5 (Users' webhook) and 10c (Orders' webhook), all already merged by the time 10c/10d are implemented within this batch. Task 13 (plain-branch card validation) touches only pure functions and the plain branch — it does not depend on Tasks 9–10d and may be implemented in parallel with this wait. Task 12 (profile Payment methods tab) reuses Task 11's `SavedCardRow`/`PaymentMethodsApi`, so it must wait for Task 11 to land first, not merely for this GATE — see Task 12's header note. All three of Tasks 11, 12, and 13's PRs are batched together for review at this same stop point, since all touch `checkout-payment.html`/`.ts`, `profile.ts`/`.html`, or a component either composes.
 
 ## Task 11 — Web: `SavedCardRow` component + Payment Element checkout flow
 
@@ -1552,7 +1917,7 @@ Task 11 (web) posts `paymentMethodId` to `POST /v1/orders`, which does not behav
 - Test: `saved-card-row.spec.ts`, component specs for `payment-method-selector` and `new-card-block`, an updated spec for `checkout-payment`
 
 **Interfaces:**
-- Consumes: `GET/POST/DELETE/PUT /v1/users/me/payment-methods*` (Task 4), `POST /v1/orders` with `paymentMethodId` (Task 9).
+- Consumes: `GET/POST/DELETE/PUT /v1/users/me/payment-methods*` (Task 4), `POST /v1/orders` with `paymentMethodId` and the `Idempotency-Key` header (Task 9, step 9.10b).
 - Produces:
   ```ts
   // apps/web/src/app/shared/ui/saved-card-row.ts — vPwZ1 in the .pen, reused
@@ -1798,6 +2163,20 @@ Task 11 (web) posts `paymentMethodId` to `POST /v1/orders`, which does not behav
   );
   ```
   (`OrdersApi.createOrder` gains an optional `paymentMethodId` parameter forwarded into the POST body — modify its signature accordingly and update every existing call site.)
+
+- [ ] 11.10b **Generate and send the `Idempotency-Key` header (spec Decision 7, user decision
+  2026-09-22).** Per the client contract: generate ONE key (`crypto.randomUUID()`) per checkout
+  attempt when `pay()` is first invoked; reuse that same key only when retrying after a network
+  error, a timeout, or a 5xx from the same attempt; generate a fresh key after any definitive
+  response (any 2xx or 4xx), including a 402 decline — a declined card is a definitive response
+  the buyer will correct and resubmit, not a transient failure to retry blindly. Store the
+  current key in a signal alongside `selectedPaymentMethodId`, reset it to a new UUID whenever
+  `pay()` completes with a 2xx/4xx. `OrdersApi.createOrder` sends it as the `Idempotency-Key`
+  request header (not a body field) on every `POST /v1/orders` call, through `ApiClient` per
+  [[browser-rum]] (a raw `fetch()` would bypass the interceptor and the header both). Write a
+  spec asserting: the header is present and unchanged across a simulated retry after a network
+  error, and a **new** header value appears on the next `pay()` call after a successful order or
+  a 402. Run `nvm use && pnpm --filter web test checkout-payment` — passes.
 
 - [ ] 11.11 Confirm `devFill()` remains unchanged and does not touch `selectedPaymentMethodId` or the Stripe branch — it stays scoped to `addressModel`/`cardModel` exactly as today (the plain branch), per Decision "Constraints" in the Web section.
 
@@ -2227,9 +2606,9 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
 
 ### Steps
 
-- [ ] 14.1 Add the new Users routes (`/v1/users/me/payment-methods*`, `/v1/users/stripe/webhook`) to `infra/modules/api-gateway/main.tf`'s route map, following the existing route-block pattern for other `/v1/users/*` routes.
+- [x] 14.1 Add the new Users routes (`/v1/users/me/payment-methods*`, `/v1/users/stripe/webhook/{token}`) to `infra/modules/api-gateway/main.tf`'s route map, following the existing route-block pattern for other `/v1/users/*` routes. The webhook entry's `key` and integration `path` both carry the `{token}` segment per Decision 27; if Task 14 lands before Task 10d, seed the bare `/v1/users/stripe/webhook` shape here and let Task 10d.5 add the `{token}` segment — do not block Task 14 on Task 10d's ordering. Orders' own webhook route (`POST /v1/orders/stripe/webhook/{token}`) is added by Task 10c.5/10d.5, not here — it is listed in this plan's Self-review coverage table under Decisions 26/27, not duplicated in this task.
 
-- [ ] 14.2 Add a `location` block for `/v1/users/stripe/webhook` (and the payment-methods paths, if they need a distinct block from the existing `/v1/users/` catch-all) in `infra/modules/compute/nginx/nginx.conf`. Per the spec's Infra section, a missing `location` block for a new top-level path silently falls through to `location /`, which routes to Users — verify the new paths already fall under an existing `/v1/users/` block rather than needing a new one, and only add a new block if they do not.
+- [ ] 14.2 Verify whether `/v1/users/stripe/webhook/{token}` and the payment-methods paths need a `location` block distinct from the existing `/v1/users/` catch-all in `infra/modules/compute/nginx/nginx.conf` — per the spec's Infra section, a missing `location` block for a new top-level path silently falls through to `location /`, which routes to Users. Both fall under the existing `location /` block (Users is the default backend), so no new block is expected here; confirm against the file rather than assuming. (Orders' webhook path is verified separately, in Task 10c.6, against `location /v1/orders` — a different block, since Orders is not the nginx default.)
 
 - [ ] 14.3 Add the CSP header change to `apps/web`'s nginx config, allowing `https://*.stripe.com` in `script-src`, `frame-src`, and `connect-src`:
   ```
@@ -2237,7 +2616,13 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
   ```
   (merge into the existing directive rather than replacing it — preserve every existing source already listed for each directive).
 
-- [ ] 14.4 Add the `stripe-cli` service to `docker-compose.yml` behind `profiles: [stripe]`, following the `observability`/`preview` precedent:
+- [ ] ~~14.4~~ **DROPPED (Decision 10 amendment, 2026-09-23)** — reason: local webhook delivery
+  is two host-side `stripe listen` processes launched by hand, not a `stripe-cli` compose
+  service; there is nothing for this step to add. Kept below for history; do not implement it.
+
+  <details><summary>Original step text (superseded)</summary>
+
+  Add the `stripe-cli` service to `docker-compose.yml` behind `profiles: [stripe]`, following the `observability`/`preview` precedent, as a starting point:
   ```yaml
   stripe-cli:
     image: stripe/stripe-cli:latest
@@ -2249,9 +2634,31 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
   ```
   Note in a comment above it: `stripe listen` prints its own `whsec_...` signing secret on startup, different from the Dashboard's — using the Dashboard secret locally fails webhook signature verification with a 400 that looks like a code bug, not an infra one. That printed secret must be copied by hand into `STRIPE_WEBHOOK_SECRET` in the CUSTOM box of `.env.local.users`.
 
-- [ ] 14.5 Add `make stripe-up` and `make stripe-logs` targets to the `Makefile`, mirroring the existing `observability-up`/`observability-*` targets' shape (`docker compose --profile stripe up -d` / `docker compose logs -f stripe-cli`).
+  **This command forwards to Users only — it is not yet complete.** Orders needs delivery too
+  (spec Decision 26), and Task 10c.9 is where the exact shape of the fix is decided: whether one
+  `stripe listen` invocation can carry a second `--forward-to` to
+  `orders:8080/v1/orders/stripe/webhook`, or whether a second `stripe-cli`-like service/process
+  is needed. Land this step's single-destination command first (Task 14 has no dependency on
+  Task 10c and may land first in the review batch); Task 10c.9 verifies against `stripe listen
+  --help` and updates this block accordingly rather than guessing the flag here. Once Task 10d
+  lands, both `--forward-to` targets additionally carry each service's `{token}` segment
+  (Decision 27) — Task 10d.7 is where `make stripe-webhook-secret` starts minting and printing
+  those tokens, and this compose block's forward-to URLs are updated there, not here.
 
-- [ ] 14.6 Add every new variable to `.env.example` with a comment explaining AUTO vs CUSTOM per [[env-files]]: `STRIPE_ENABLED` (AUTO-generated default `false`), `STRIPE_SECRET_KEY` (CUSTOM, hand-injected `rk_...`), `STRIPE_WEBHOOK_SECRET` (CUSTOM, hand-injected `whsec_...` from `stripe listen`'s own output), `NG_APP_STRIPE_PUBLISHABLE_KEY` (CUSTOM, the publishable `pk_...` key, safe for the bundle).
+  </details>
+
+- [ ] ~~14.5~~ **DROPPED (Decision 10 amendment, 2026-09-23)** — reason: no `stripe-cli` compose
+  service exists to target, so there is nothing for `make stripe-up`/`make stripe-logs` to start
+  or tail; `make stripe-webhook-secret` (already implemented) is the actual entry point, and it
+  prints the two `stripe listen` commands to run by hand instead.
+
+  <details><summary>Original step text (superseded)</summary>
+
+  Add `make stripe-up` and `make stripe-logs` targets to the `Makefile`, mirroring the existing `observability-up`/`observability-*` targets' shape (`docker compose --profile stripe up -d` / `docker compose logs -f stripe-cli`).
+
+  </details>
+
+- [x] 14.6 Add every new variable to `.env.example` with a comment explaining AUTO vs CUSTOM per [[env-files]]: `STRIPE_ENABLED` (CUSTOM, default `false`, hand-flipped in place — **not** AUTO-generated, see the revised decision below), `STRIPE_SECRET_KEY` (CUSTOM, hand-injected `rk_...`), `STRIPE_WEBHOOK_SECRET` (CUSTOM, hand-injected `whsec_...` from `stripe listen`'s own output), `NG_APP_STRIPE_PUBLISHABLE_KEY` (CUSTOM, the publishable `pk_...` key, safe for the bundle). Task 10d adds three more, not this step: `STRIPE_WEBHOOK_URL_TOKEN` (CUSTOM, per-service, minted by `make stripe-webhook-secret`) and `STRIPE_WEBHOOK_ALLOWED_CIDRS`/`STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS` (AUTO, per Decision 27) — listed here only so `.env.example` is not treated as finished before Task 10d lands.
 
   **Decision (user, 2026-09-22 — revised, supersedes the same-day decision below):**
   `infra/environments/local/scripts/generate_env_files.py` seeds three keys into the **CUSTOM**
@@ -2268,9 +2675,10 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
   at boot.
 
   This is already implemented on `feat/stripe-payments-users` (generator + schema) — Task 14
-  no longer needs to add it for Users. What remains here is **Orders**: when Orders gains its
-  Stripe env vars (Task 9/14), its equivalent keys must follow the same rule — seeded empty in
-  the CUSTOM box, empty treated as unset.
+  no longer needs to add it for Users. Orders' equivalent `STRIPE_ENABLED`/`STRIPE_SECRET_KEY`
+  seeding is likewise already in place (verified in `generate_env_files.py`'s Orders block).
+  What remained unseeded for Orders — `STRIPE_WEBHOOK_SECRET`, since Orders had no webhook
+  until Decision 26 — is added by **Task 10c.7**, not here; this step does not duplicate it.
 
   Override precedence (verified 2026-09-22 with `docker compose config`) still holds as a fact
   about this repo's env-file layering — Compose keeps the **last** duplicate key in one
@@ -2307,11 +2715,11 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
 
 ### Steps
 
-- [ ] 15.1 Write internal E2E specs against `localhost:3000` (Users) covering: create setup-intent, attach a card (using Stripe's test PaymentMethod token flow against the CI sandbox per Decision 17), list, set default, detach, and the webhook signature-rejection path (a request with a bad `stripe-signature` header gets 400). Tag every created row with `x-e2e-source: true` and confirm `E2E_TESTING_ENABLED` gates it, per [[testing]]'s "E2E cleanup by tag" mechanism.
+- [ ] 15.1 Write internal E2E specs against `localhost:3000` (Users) covering: create setup-intent, attach a card (using Stripe's test PaymentMethod token flow against the CI sandbox per Decision 17), list, set default, detach, and the webhook signature-rejection path (a request with a bad `stripe-signature` header gets 400). Tag every created row with `x-e2e-source: true` and confirm `E2E_TESTING_ENABLED` gates it, per [[testing]]'s "E2E cleanup by tag" mechanism. The URL-token and IP-allowlist rejection cases (Decision 27) are Task 10d.8's responsibility, not this step's — this step targets the route at whatever path it has once Task 10d has landed, and does not duplicate 10d's own rejection tests.
 
-- [ ] 15.2 Write internal E2E specs against `localhost:3001` (Orders) covering: `POST /v1/orders` with a valid `paymentMethodId` succeeds and returns an order with a payment snapshot; with the flag on and `paymentMethodId` omitted, returns 400; with a Stripe test card that triggers a decline (`4000000000000002`), returns 402; the metadata-only card validation from Task 9.9 (known/unknown brand, expired/valid, malformed `last4`); and the concurrency scenario from Task 10.1 reproduced at the HTTP layer if feasible, or explicitly noted as covered only at the unit level with a comment pointing to Task 10.1's test name.
+- [ ] 15.2 Write internal E2E specs against `localhost:3001` (Orders) covering: `POST /v1/orders` with a valid `paymentMethodId` and `Idempotency-Key` succeeds and returns an order with a payment snapshot; with the flag on and `paymentMethodId` omitted, returns 400; with the flag on and the `Idempotency-Key` header omitted, returns 400 `idempotency_key_required` (step 9.10b); with a Stripe test card that triggers a decline (`4000000000000002`), returns 402; the metadata-only card validation from Task 9.9 (known/unknown brand, expired/valid, malformed `last4`); the same `(user, key)` POSTed twice returns the existing order on the second call and Stripe is charged exactly once (step 9.10b.2); and the concurrency scenario from Task 10.1 reproduced at the HTTP layer if feasible, or explicitly noted as covered only at the unit level with a comment pointing to Task 10.1's test name.
 
-- [ ] 15.3 Write the gateway E2E spec with a real Cognito JWT covering the full Stripe-branch UI journey: log in, go to checkout, add a card via the mounted Payment Element (fill Stripe's test iframe using Playwright's frame-locator APIs against the CI sandbox), see it appear in the selector, switch to it, and pay. Assert on a genuine 401→success sequence if a route is initially unwired: per the spec's Infra section, a 404 carrying the gateway's own `{"message":"Not Found"}` body means the request never reached the service (fix the gateway/nginx wiring from Task 13), while a 401 after fixing it is the **correct** intermediate signal that the route resolved and reached the authorizer.
+- [ ] 15.3 Write the gateway E2E spec with a real Cognito JWT covering the full Stripe-branch UI journey: log in, go to checkout, add a card via the mounted Payment Element (fill Stripe's test iframe using Playwright's frame-locator APIs against the CI sandbox), see it appear in the selector, switch to it, and pay. Assert on a genuine 401→success sequence if a route is initially unwired: per the spec's Infra section, a 404 carrying the gateway's own `{"message":"Not Found"}` body means the request never reached the service (fix the gateway/nginx wiring from Task 13), while a 401 after fixing it is the **correct** intermediate signal that the route resolved and reached the authorizer. Include at least the two idempotency cases named in the CLAUDE.md-driven scope for this milestone: (a) missing `Idempotency-Key` header with the flag on returns 400 through the real gateway; (b) replaying the same checkout request (same `Idempotency-Key`, e.g. by resubmitting after simulating a network drop) returns the same order rather than a second charge, verified by asserting only one order appears in the buyer's order history after both requests.
 
 - [ ] 15.4 Write a second gateway E2E spec covering the **plain-branch** card validation from Task 13 (Decision 21): with `STRIPE_ENABLED=false`, typing an invalid card number (e.g. `4242 4242 4242 4241`) into the plain form leaves the Pay button disabled; correcting it to `4242 4242 4242 4242` with a valid future expiry and a 3-digit CVC enables Pay and a successful order follows. This is independent of Task 15.3's Stripe-branch journey — it exercises the branch the Payment Element never touches.
 
@@ -2351,14 +2759,14 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
 
 ## Execution notes
 
-- Per [[phase-c-review-flow]], issues for Tasks 1–7 and Tasks 9–15 chain without per-merge prompts; PRs are batched for review at each of the two GATEs above, and nothing is auto-merged — the user reviews and merges each batch explicitly. Task 13 (plain-branch card validation) may be worked in parallel with the Task 9–10 wait, since it has no dependency on them, but its PR still joins the second batch. Task 12 (profile Payment methods tab) reuses `SavedCardRow` and `PaymentMethodsApi` from Task 11, so it must be ordered after Task 11 within the second batch, not worked in parallel with it.
+- Per [[phase-c-review-flow]], issues for Tasks 1–7 and Tasks 9–15 (including 10c and 10d) chain without per-merge prompts; PRs are batched for review at each of the two GATEs above, and nothing is auto-merged — the user reviews and merges each batch explicitly. Task 10c (Orders' own Stripe webhook) has no dependency on Tasks 11–13 and may be worked in any order relative to them within the second batch, provided it lands after Tasks 9–10 (it consumes Task 9's order model and Task 10's refund idempotency key). Task 10d (webhook defense in depth) depends on both Task 5 (Users' webhook) and Task 10c (Orders' webhook) and lands after both within the second batch. Task 13 (plain-branch card validation) may be worked in parallel with the Task 9–10 wait, since it has no dependency on them, but its PR still joins the second batch. Task 12 (profile Payment methods tab) reuses `SavedCardRow` and `PaymentMethodsApi` from Task 11, so it must be ordered after Task 11 within the second batch, not worked in parallel with it.
 - The Linear issues for this milestone do not exist yet. Once `linear-pm` creates them, a milestone-plan note is required at `docs/plans/stripe-payments-milestone.md` per [[milestone-plan]] (task-sequence table, dependency table, and dependency diagram) — this superpowers plan documents *how* to implement each task, not the milestone's cross-issue dependency structure, which is what that note is for.
 - The user injects the restricted keys (`rk_...` for each service) and the webhook secret by hand into the CUSTOM box of `.env.local.users` and `.env.local.orders` — never the AUTO box. The dedicated local-dev and CI Stripe sandboxes (Decision 17) are a prerequisite of Task 1: without a sandbox and its keys, Task 1's `STRIPE_ENABLED=true` path cannot be exercised past the "no key" branch. See [[stripe-sandbox-setup]] for the step-by-step procedure to obtain both sandboxes and their keys.
 - All design tokens this milestone's six new frames use (Decisions 22–24, Task 11's `SavedCardRow`, Task 12's profile tab) already exist in `apps/web/src/styles.css` — no task in this plan adds a token or touches `styles.css`.
 
 ## Self-review
 
-**Spec coverage** — all 24 decisions map to at least one task:
+**Spec coverage** — all 27 decisions (plus Decision D) map to at least one task:
 
 | Decision | Task(s) |
 |---|---|
@@ -2368,9 +2776,9 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
 | 4 (drift mitigation / webhook) | 5 |
 | 5 (Orders payment snapshot) | 9 |
 | 6 (gRPC stripe_customer_id) | 7, 9 |
-| 7 (charge-then-persist) | 9 |
+| 7 (charge-then-persist; client-supplied Idempotency-Key) | 9 (step 9.10b), 11 (step 11.10b), 15 (steps 15.2–15.3) |
 | 8 (402 on card errors) | 9 |
-| 9 (refund-on-409) | 10 |
+| 9 (refund on any post-charge failure, own idempotency key) | 10 (widened scope, step 10.2/10.2b) |
 | 10 (Stripe CLI, not a tunnel) | 14 |
 | 11 (E2E doesn't wait on webhook) | 15 (design already reflected in Task 4's attach flow) |
 | 12 (E2E tagged in Stripe too) | 3, 4, 6, 15 |
@@ -2386,11 +2794,14 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
 | 22 (payment methods managed from profile too) | 12 |
 | 23 (checkout can add a card inline; save-card checkbox gates attach) | 11 (Task 11.14–11.16), 15 (gateway E2E, step 15.5) |
 | 24 (expired saved card shown, not hidden) | 11 (`SavedCardRow`'s expired state, Task 11.1–11.2), 12 (profile Cards List reuses it), 15 (component spec, step 15.6) |
-| 25 (Stripe calls join the logs/traces cascade) | 1 (`withStripeSpan` foundation, steps 1.7–1.8), 3 (step 3.3), 4 (step 4.10), 5 (step 5.5), 6 (step 6.3), 9 (step 9.10), 10 (step 10.4), 11 (step 11.17), 12 (step 12.8), 15 (step 15.10) |
+| 25 (Stripe calls join the logs/traces cascade) | 1 (`withStripeSpan` foundation, steps 1.7–1.8), 3 (step 3.3), 4 (step 4.10), 5 (step 5.5), 6 (step 6.3), 9 (step 9.10), 10 (step 10.4), 10c (step 10c.3), 11 (step 11.17), 12 (step 12.8), 15 (step 15.10) |
+| 26 (Orders gets its own Stripe webhook, payment reconciliation) | 10c |
+| 27 (webhook defense in depth: URL token + Stripe IP allowlist) | 10d |
+| D (Orders' key never reads PaymentMethods; snapshot reads `latest_charge`) | 9 (step 9.7), 14 (permission table cross-reference) |
 
 **Placeholder scan:** no "TBD"/"similar to Task N" shortcuts remain except explicitly-flagged repo-verification steps (4.8's conditional-module choice, 4.7's decorator names, 9.1/10.1's exact mock/fixture APIs, 13.9's exact signal-forms `validate()` signature, 11.1's "verify exact utility spelling against styles.css") — each names the exact `grep` to run and the exact existing file to copy from, rather than leaving the shape undefined.
 
-**Type consistency:** `StripeClientHolder` (Task 1) is the single shape threaded through Tasks 3, 4, 5, 6; `PaymentMethodView` (Task 4.3) is what Task 11's `PaymentMethodsApi.list()` consumes; `SavedCardView`/`SavedCardRow` (Task 11.1) is the single component both Task 11's checkout selector and Task 12's profile Cards List mount, never rebuilt per surface; `PaymentSnapshot` (Task 9) is what Task 10's refund path reads `PaymentIntentId` from; `stripe_customer_id` (Task 7) is the exact field both Task 9's gRPC read and Task 4/5's local persistence trace back to; `CardBrand`/`detectCardBrand`/`isValidCardNumber`/`isValidCvc`/`isValidExpiry` (Task 13) are the exact names Task 11's `checkout-payment.ts` imports and Task 13.7's `numeric-input.ts` rewrite depends on; the `{ brand, last4, expMonth, expYear }` metadata shape is identical between Task 11.13 (sender) and Task 9.9 (`CardMetadataValidator`, receiver); `withStripeSpan` (Task 1.8) is the single Node-side span helper Tasks 3, 4, 5, and 6 all wrap their Stripe calls in, and `StripeActivitySource` (Task 9.10) is its .NET-side sibling, consumed unchanged by Task 10's refund span.
+**Type consistency:** `StripeClientHolder` (Task 1) is the single shape threaded through Tasks 3, 4, 5, 6; `PaymentMethodView` (Task 4.3) is what Task 11's `PaymentMethodsApi.list()` consumes; `SavedCardView`/`SavedCardRow` (Task 11.1) is the single component both Task 11's checkout selector and Task 12's profile Cards List mount, never rebuilt per surface; `PaymentSnapshot` (Task 9) is what Task 10's refund path reads `PaymentIntentId` from; `stripe_customer_id` (Task 7) is the exact field both Task 9's gRPC read and Task 4/5's local persistence trace back to; `CardBrand`/`detectCardBrand`/`isValidCardNumber`/`isValidCvc`/`isValidExpiry` (Task 13) are the exact names Task 11's `checkout-payment.ts` imports and Task 13.7's `numeric-input.ts` rewrite depends on; the `{ brand, last4, expMonth, expYear }` metadata shape is identical between Task 11.13 (sender) and Task 9.9 (`CardMetadataValidator`, receiver); `withStripeSpan` (Task 1.8) is the single Node-side span helper Tasks 3, 4, 5, and 6 all wrap their Stripe calls in, and `StripeActivitySource` (Task 9.10) is its .NET-side sibling, consumed unchanged by Task 10's refund span; the client-generated `Idempotency-Key` header (Task 11.10b, sender) is the exact header Task 9.10b's Orders handler reads and persists as `IdempotencyKey`, and the Stripe idempotency key it derives (`order-charge-{userId}-{clientKey}`, Task 9.10b) is distinct in shape and purpose from the refund's own key (`refund-{paymentIntentId}`, Task 10.2) — the two are never confused or reused for each other. The refund key is itself shared, not distinct, across two call sites: Task 10.2's inline post-charge refund and Task 10c.1d's orphan-charge refund both derive `refund-{paymentIntentId}` from the same PaymentIntent id, deliberately, so the two paths can never both succeed at refunding the same charge. `latest_charge.payment_method_details.card` (Task 9.7, spec Decision D) is the single source `PaymentSnapshot`'s `CardBrand`/`CardLast4`/`CardExpMonth`/`CardExpYear` fields read from — never a PaymentMethods lookup, since Orders' restricted key (Task 14) has none.
 
 ## Related
 
@@ -2406,7 +2817,9 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
 - [[audit-fields]] — the standard audit columns on `stripe_payment_methods` (Task 2).
 - [[nano-id]] — the primary-key convention for `stripe_payment_methods` (Task 2, Task 4.4).
 - [[money-representation]] — the amount/currency representation Orders' payment snapshot follows (Task 9).
-- [[local-dev]] — the `profiles:`-gated optional-service pattern `stripe-cli` follows (Task 14).
+- [[local-dev]] — the local-dev workflow `make stripe-webhook-secret` follows; webhook delivery
+  is two host-side `stripe listen` processes, not a `profiles:`-gated compose service (Task
+  10c.9's outcome, Decision 10's amendment).
 - [[skills-catalog]] — the Agent Skills installation mechanism already used for `stripe-best-practices`/`stripe-docs`.
 - [[stripe-sandbox-setup]] — the operator-facing procedure for the sandboxes and keys the Execution notes call a prerequisite of Task 1.
 - [[logging-context]] — the shared log context, `app_event` flow-log convention, and

@@ -13,6 +13,11 @@ paths:
         - Orders
       summary: 'Create an order for the caller, decrementing product stock.'
       operationId: CreateOrder
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          schema:
+            type: string
       requestBody:
         content:
           application/json:
@@ -26,14 +31,26 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OrderDto'
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderDto'
         '400':
           description: Bad Request
         '401':
           description: Unauthorized
+        '402':
+          description: Payment Required
         '404':
           description: Not Found
         '409':
           description: Conflict
+        '422':
+          description: Unprocessable Entity
+        '503':
+          description: Service Unavailable
   /v1/orders/my-orders:
     get:
       tags:
@@ -153,6 +170,42 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/E2eCleanupResponse'
+  '/v1/orders/stripe/webhook/{token}':
+    post:
+      tags:
+        - webhooks
+      summary: 'Stripe payment-reconciliation webhook: orphan charges, refunds and disputes (only mapped when STRIPE_ENABLED).'
+      operationId: StripeWebhook
+      parameters:
+        - name: token
+          in: path
+          description: 'STRIPE_WEBHOOK_URL_TOKEN, a secret embedded in the URL registered with Stripe.'
+          required: true
+          schema:
+            type: string
+        - name: Stripe-Signature
+          in: header
+          description: HMAC signature Stripe computes over the raw request body.
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StripeWebhookResponse'
+        '400':
+          description: Bad Request
+        '403':
+          description: Forbidden
+        '404':
+          description: Not Found
+        '409':
+          description: Conflict
+        '503':
+          description: Service Unavailable
   /v1/products:
     get:
       tags:
@@ -221,6 +274,36 @@ paths:
           description: Unauthorized
 components:
   schemas:
+    CardMetadataRequest:
+      required:
+        - brand
+        - last4
+        - expMonth
+        - expYear
+      type: object
+      properties:
+        brand:
+          type:
+            - 'null'
+            - string
+        last4:
+          type:
+            - 'null'
+            - string
+        expMonth:
+          pattern: '^-?(?:0|[1-9]\d*)$'
+          type:
+            - 'null'
+            - integer
+            - string
+          format: int32
+        expYear:
+          pattern: '^-?(?:0|[1-9]\d*)$'
+          type:
+            - 'null'
+            - integer
+            - string
+          format: int32
     CartDto:
       required:
         - id
@@ -322,6 +405,14 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/CreateOrderLine'
+        paymentMethodId:
+          type:
+            - 'null'
+            - string
+        card:
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/CardMetadataRequest'
     E2eCleanupResponse:
       required:
         - deleted
@@ -560,6 +651,13 @@ components:
           format: int32
         blurhash:
           type: string
+    StripeWebhookResponse:
+      required:
+        - received
+      type: object
+      properties:
+        received:
+          type: boolean
     TrackingDto:
       required:
         - id
@@ -635,5 +733,6 @@ tags:
   - name: health
   - name: internal
   - name: e2e
+  - name: webhooks
   - name: Products
   - name: Cart

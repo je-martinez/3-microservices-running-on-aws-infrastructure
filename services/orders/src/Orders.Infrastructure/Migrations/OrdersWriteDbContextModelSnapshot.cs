@@ -17,7 +17,7 @@ namespace Orders.Infrastructure.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "9.0.0")
+                .HasAnnotation("ProductVersion", "10.0.12")
                 .HasAnnotation("Relational:MaxIdentifierLength", 64);
 
             MySqlModelBuilderExtensions.AutoIncrementColumns(modelBuilder);
@@ -212,6 +212,27 @@ namespace Orders.Infrastructure.Migrations
                         .HasColumnType("varchar(28)")
                         .HasColumnName("id");
 
+                    b.Property<long?>("AmountCents")
+                        .HasColumnType("bigint")
+                        .HasColumnName("amount_cents");
+
+                    b.Property<string>("CardBrand")
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)")
+                        .HasColumnName("card_brand");
+
+                    b.Property<int?>("CardExpMonth")
+                        .HasColumnType("int")
+                        .HasColumnName("card_exp_month");
+
+                    b.Property<int?>("CardExpYear")
+                        .HasColumnType("int")
+                        .HasColumnName("card_exp_year");
+
+                    b.Property<string>("CardLast4")
+                        .HasColumnType("char(4)")
+                        .HasColumnName("card_last4");
+
                     b.Property<string>("CognitoSub")
                         .IsRequired()
                         .HasMaxLength(255)
@@ -227,6 +248,10 @@ namespace Orders.Infrastructure.Migrations
                         .HasColumnType("varchar(28)")
                         .HasColumnName("created_by");
 
+                    b.Property<string>("Currency")
+                        .HasColumnType("char(3)")
+                        .HasColumnName("currency");
+
                     b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("datetime(6)")
                         .HasColumnName("deleted_at");
@@ -236,9 +261,37 @@ namespace Orders.Infrastructure.Migrations
                         .HasColumnType("varchar(28)")
                         .HasColumnName("deleted_by");
 
+                    b.Property<string>("IdempotencyKey")
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("idempotency_key");
+
+                    b.Property<string>("IdempotencyRequestHash")
+                        .HasColumnType("char(64)")
+                        .HasColumnName("idempotency_request_hash");
+
                     b.Property<string>("OrderNumber")
                         .HasColumnType("char(12)")
                         .HasColumnName("order_number");
+
+                    b.Property<string>("PaymentIntentId")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)")
+                        .HasColumnName("payment_intent_id");
+
+                    b.Property<string>("PaymentMethodId")
+                        .HasMaxLength(255)
+                        .HasColumnType("varchar(255)")
+                        .HasColumnName("payment_method_id");
+
+                    b.Property<string>("PaymentRawPayload")
+                        .HasColumnType("json")
+                        .HasColumnName("payment_raw_payload");
+
+                    b.Property<string>("PaymentStatus")
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)")
+                        .HasColumnName("payment_status");
 
                     b.Property<string>("ShippingAddress")
                         .HasColumnType("json")
@@ -296,8 +349,15 @@ namespace Orders.Infrastructure.Migrations
                         .IsUnique()
                         .HasDatabaseName("ux_order_order_number");
 
+                    b.HasIndex("PaymentIntentId")
+                        .HasDatabaseName("idx_order_payment_intent_id");
+
                     b.HasIndex("UserId")
                         .HasDatabaseName("idx_order_user_id");
+
+                    b.HasIndex("UserId", "IdempotencyKey")
+                        .IsUnique()
+                        .HasDatabaseName("ux_order_user_idempotency_key");
 
                     b.ToTable("order", (string)null);
                 });

@@ -29,14 +29,21 @@ Object.assign(process.env, {
   STRIPE_ENABLED: "true",
   STRIPE_SECRET_KEY: "sk_test_123",
   STRIPE_WEBHOOK_SECRET: "whsec_real_factory_test",
+  STRIPE_WEBHOOK_URL_TOKEN: "tok_real_factory_5f0c1d2e3a4b5c6d7e8f9a0b1c2d3e4f",
+  STRIPE_WEBHOOK_ALLOWED_CIDRS: "127.0.0.0/8",
+  STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS: "0",
 });
 
 const { afterAll, beforeAll, describe, expect, it } = await import("vitest");
 type NestFastifyApplication = import("@nestjs/platform-fastify").NestFastifyApplication;
+const { symbols } = await import("pino");
 const Stripe = (await import("stripe")).default;
 const { createNestApp } = await import("../../src/main.ts");
+const { appLogger } = await import("#shared/logging/app-logger");
 
 const WEBHOOK_SECRET = "whsec_real_factory_test";
+const URL_TOKEN = "tok_real_factory_5f0c1d2e3a4b5c6d7e8f9a0b1c2d3e4f";
+const WEBHOOK_URL = `/v1/users/stripe/webhook/${URL_TOKEN}`;
 
 // Signs fixtures only — never used as the app's own client, so the signature
 // exercises the SAME verification path a real Stripe delivery would.
@@ -77,7 +84,7 @@ describe("Stripe webhook through the real createNestApp() factory", () => {
 
     const response = await app.inject({
       method: "POST",
-      url: "/v1/users/stripe/webhook",
+      url: WEBHOOK_URL,
       headers: { "content-type": "application/json", "stripe-signature": signature },
       payload,
     });
@@ -89,5 +96,68 @@ describe("Stripe webhook through the real createNestApp() factory", () => {
   it("still 401s a user-scoped payment-methods route with no x-user-id (the global AuthGuard is active, not bypassed wholesale)", async () => {
     const response = await app.inject({ method: "GET", url: "/v1/users/me/payment-methods" });
     expect(response.statusCode).toBe(401);
+  });
+
+  it("answers a wrong token with exactly the body of a genuinely unmapped route", async () => {
+    const wrongToken = await app.inject({ method: "POST", url: "/v1/users/stripe/webhook/tok_guess", payload: {} });
+    const unmapped = await app.inject({ method: "POST", url: "/v1/users/stripe/hooks/tok_guess", payload: {} });
+
+    expect(wrongToken.statusCode).toBe(404);
+    expect(unmapped.statusCode).toBe(404);
+    expect(wrongToken.json()).toEqual({
+      ...unmapped.json(),
+      message: unmapped.json().message.replace("/hooks/", "/webhook/"),
+    });
+  });
+
+  it("no longer serves the bare /v1/users/stripe/webhook path", async () => {
+    const response = await app.inject({ method: "POST", url: "/v1/users/stripe/webhook", payload: {} });
+    expect(response.statusCode).toBe(404);
+  });
+
+  it("never writes the URL token to any log line, across accepted and rejected deliveries", async () => {
+    const lines: string[] = [];
+    const loggers = [appLogger, app.getHttpAdapter().getInstance().log] as unknown as Record<symbol, unknown>[];
+    const originals = loggers.map((l) => l[symbols.streamSym]);
+    for (const l of loggers) l[symbols.streamSym] = { write: (s: string) => lines.push(s) };
+
+    try {
+      const { payload, signature } = signedPayload({
+        id: "evt_real_factory_2",
+        object: "event",
+        type: "charge.succeeded",
+        data: { object: { id: "ch_2", object: "charge" } },
+      });
+      const headers = { "content-type": "application/json" };
+      const accepted = await app.inject({
+        method: "POST",
+        url: WEBHOOK_URL,
+        headers: { ...headers, "stripe-signature": signature },
+        payload,
+      });
+      const badSignature = await app.inject({
+        method: "POST",
+        url: WEBHOOK_URL,
+        headers: { ...headers, "stripe-signature": "bad" },
+        payload,
+      });
+      const badSource = await app.inject({
+        method: "POST",
+        url: WEBHOOK_URL,
+        remoteAddress: "6.6.6.6",
+        headers,
+        payload,
+      });
+      const badJson = await app.inject({ method: "POST", url: WEBHOOK_URL, headers, payload: "{not json" });
+
+      expect([accepted, badSignature, badSource, badJson].map((r) => r.statusCode)).toEqual([200, 400, 403, 400]);
+    } finally {
+      loggers.forEach((l, i) => (l[symbols.streamSym] = originals[i]));
+    }
+
+    // Guards against a vacuous pass: the capture really saw the request lines.
+    expect(lines.some((l) => l.includes("/v1/users/stripe/webhook"))).toBe(true);
+    const leaking = lines.filter((l) => l.includes(URL_TOKEN));
+    expect(leaking, leaking.join("\n")).toEqual([]);
   });
 });

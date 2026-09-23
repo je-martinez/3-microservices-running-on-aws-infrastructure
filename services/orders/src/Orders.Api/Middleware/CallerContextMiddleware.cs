@@ -20,7 +20,7 @@ public sealed class CallerContextMiddleware(RequestDelegate next)
         var sub = ctx.Request.Headers["x-user-id"].FirstOrDefault();
         var routePath = (ctx.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText;
 
-        if (sub is null && !PublicRoutes.IsPublic(ctx.Request.Method, routePath))
+        if (sub is null && !PublicRoutes.IsPublic(ctx.Request.Method, routePath, ctx.Request.Path))
         {
             ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
             return;

@@ -58,3 +58,48 @@ describe("envSchema — Stripe keys treat empty/whitespace as absent", () => {
     expect(() => envSchema.parse({ ...baseEnv, STRIPE_ENABLED: "maybe" })).toThrow();
   });
 });
+
+describe("envSchema — Stripe webhook defense-in-depth keys", () => {
+  it.each(["", "   "])("STRIPE_WEBHOOK_URL_TOKEN=%j becomes undefined", (value) => {
+    const result = envSchema.parse({ ...baseEnv, STRIPE_WEBHOOK_URL_TOKEN: value });
+    expect(result.STRIPE_WEBHOOK_URL_TOKEN).toBeUndefined();
+  });
+
+  it("a real STRIPE_WEBHOOK_URL_TOKEN parses through", () => {
+    const result = envSchema.parse({ ...baseEnv, STRIPE_WEBHOOK_URL_TOKEN: "tok_x" });
+    expect(result.STRIPE_WEBHOOK_URL_TOKEN).toBe("tok_x");
+  });
+
+  it.each(["", "   "])("STRIPE_WEBHOOK_ALLOWED_CIDRS=%j becomes undefined", (value) => {
+    const result = envSchema.parse({ ...baseEnv, STRIPE_WEBHOOK_ALLOWED_CIDRS: value });
+    expect(result.STRIPE_WEBHOOK_ALLOWED_CIDRS).toBeUndefined();
+  });
+
+  it("a well-formed STRIPE_WEBHOOK_ALLOWED_CIDRS parses through", () => {
+    const raw = "3.18.12.63,127.0.0.0/8,::1";
+    const result = envSchema.parse({ ...baseEnv, STRIPE_WEBHOOK_ALLOWED_CIDRS: raw });
+    expect(result.STRIPE_WEBHOOK_ALLOWED_CIDRS).toBe(raw);
+  });
+
+  it("a malformed STRIPE_WEBHOOK_ALLOWED_CIDRS fails at boot", () => {
+    expect(() =>
+      envSchema.parse({ ...baseEnv, STRIPE_WEBHOOK_ALLOWED_CIDRS: "10.0.0.0/40" }),
+    ).toThrow();
+  });
+
+  it.each([undefined, "", "   "])("STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS=%j defaults to 0", (value) => {
+    const result = envSchema.parse({ ...baseEnv, STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS: value });
+    expect(result.STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS).toBe(0);
+  });
+
+  it("STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS parses an integer", () => {
+    const result = envSchema.parse({ ...baseEnv, STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS: "2" });
+    expect(result.STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS).toBe(2);
+  });
+
+  it.each(["-1", "1.5", "abc"])("STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS=%j fails validation", (value) => {
+    expect(() =>
+      envSchema.parse({ ...baseEnv, STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS: value }),
+    ).toThrow();
+  });
+});

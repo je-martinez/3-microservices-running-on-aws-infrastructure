@@ -25,6 +25,7 @@ related:
   - "[[nginx-njs-x-user-id-injection]]"
   - "[[2026-09-21-a-round-invariant-delay-on-one-resource-type-is-the-client-not-the-server]]"
   - "[[2026-09-22-a-pruned-cache-that-came-over-the-network-is-not-free]]"
+  - "[[2026-09-22-terraform-side-files-are-per-checkout]]"
 ---
 
 # Local Dev — Floci
@@ -354,6 +355,10 @@ re-applied — see the sibling section above ([[floci-rds-apigw-limits]]).
 - [[cognito-pre-token-lambda]] — the Lambda deployed as part of this stack's Cognito module.
 - [[2026-09-21-a-round-invariant-delay-on-one-resource-type-is-the-client-not-the-server]] — why the SQS resources inside `infra-up` take exactly 25s each, and why that is not fixable by Floci configuration.
 - [[2026-09-22-a-pruned-cache-that-came-over-the-network-is-not-free]] — why `make clean`'s prunes are not free to repeat, and the `warm-images`/`warm-nuget` targets `bootstrap-converge` runs to avoid re-fetching over the network.
+- [[2026-09-22-terraform-side-files-are-per-checkout]] — why symlinking `.terraform-cognito`/
+  `.terraform-docdb`/`.terraform-redis` side files between checkouts (instead of regenerating
+  them from the live Floci resources) broke the JWT authorizer with a stale client id, and the
+  related nginx bind-mount-path gotcha when applying from a worktree.
 - [[terraform-modules]] — the real module inventory composed by `infra/environments/local`.
 - [[local-dev-ministack]] — the superseded Ministack runbook this note replaces.
 - [[2026-07-15-orders-gateway-integration-design]] — the design behind routing Orders through

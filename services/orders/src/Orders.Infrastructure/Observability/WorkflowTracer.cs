@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Orders.Application.Payments;
 
 namespace Orders.Infrastructure.Observability;
 
@@ -36,7 +37,10 @@ public class WorkflowTracer : IWorkflowTracer
             activity?.SetStatus(ActivityStatusCode.Ok);
             return result;
         }
-        catch (Exception ex)
+        // CONTRACT: A PaymentDeclinedException bypasses this catch — a declined card is the
+        // buyer's outcome, not a fault, so the span keeps status Unset and records no exception.
+        // Every other exception is still ERROR. See [[2026-09-19-stripe-payments-design]]
+        catch (Exception ex) when (ex is not PaymentDeclinedException)
         {
             activity?.AddException(ex);
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);

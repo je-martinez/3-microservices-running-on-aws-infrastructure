@@ -149,6 +149,24 @@ TRACKING_CARRIER_API_KEY = "local-dev-carrier-key"
 # See [[floci-rds-apigw-limits]]
 E2E_QUERY_TOKEN = "local-e2e-query-token"
 
+# Stripe's published webhook source IPs (docs.stripe.com/ips, "Webhook
+# notifications"), plus loopback and private ranges because `stripe listen`
+# forwards from this machine straight to the service port.
+# WARNING: Stripe can change its list — refresh it from ips_webhooks.json.
+# See [[2026-09-19-stripe-payments-design]]
+STRIPE_WEBHOOK_IPS = (
+    "3.18.12.63", "3.130.192.231", "13.235.14.237", "13.235.122.149",
+    "18.211.135.69", "35.154.171.200", "52.15.183.38", "54.88.130.119",
+    "54.88.130.237", "54.187.174.169", "54.187.205.235", "54.187.216.72",
+    "35.157.207.129", "3.69.109.8", "3.120.168.93",
+)
+LOCAL_SOURCE_CIDRS = (
+    "127.0.0.0/8", "::1/128", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+)
+STRIPE_WEBHOOK_ALLOWED_CIDRS = ",".join(STRIPE_WEBHOOK_IPS + LOCAL_SOURCE_CIDRS)
+# Local delivery reaches the service socket directly — no proxy to skip.
+STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS = "0"
+
 # WORKAROUND(local): Do NOT require the phase-2 output during bootstrap; phase 2
 # has not run and env generation fails. This exact host-facing fallback matches
 # the static phase-2 bucket name; using `floci` renders broken email images.
@@ -384,6 +402,8 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # for a fast feedback loop; real AWS uses 60s, matching
                 # CloudWatch's standard resolution and its per-call billing.
                 "METRICS_INTERVAL_MS": METRICS_INTERVAL_MS,
+                "STRIPE_WEBHOOK_ALLOWED_CIDRS": STRIPE_WEBHOOK_ALLOWED_CIDRS,
+                "STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS": STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS,
             },
             custom_defaults={
                 "PORT": "3000",
@@ -397,13 +417,15 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # so a per-machine choice survives `make env-file` — and so the
                 # load-test A/B can flip it without a regeneration undoing it.
                 "CACHE_ENABLED": "true",
-                # Stripe kill switch plus its two hand-injected secrets (a
-                # restricted rk_test_ key, and the whsec_ that `stripe listen`
-                # prints). Seeded empty so the keys are visible; Users reads an
-                # empty value as unset. See [[stripe-sandbox-setup]]
+                # Stripe kill switch plus its hand-injected secrets (a restricted
+                # rk_test_ key; the whsec_ and the webhook URL token, both
+                # written by `make stripe-webhook-secret`). Seeded empty so the
+                # keys are visible; Users reads an empty value as unset.
+                # See [[stripe-sandbox-setup]]
                 "STRIPE_ENABLED": "false",
                 "STRIPE_SECRET_KEY": "",
                 "STRIPE_WEBHOOK_SECRET": "",
+                "STRIPE_WEBHOOK_URL_TOKEN": "",
             },
         ),
         # --- orders service --------------------------------------------------
@@ -448,6 +470,8 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # Interval for the orders_total gauge BackgroundService. See the
                 # users block above for why local and AWS differ.
                 "METRICS_INTERVAL_MS": METRICS_INTERVAL_MS,
+                "STRIPE_WEBHOOK_ALLOWED_CIDRS": STRIPE_WEBHOOK_ALLOWED_CIDRS,
+                "STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS": STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS,
             },
             custom_defaults={
                 "SEED_ON_STARTUP": "true",
@@ -457,6 +481,16 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # so a per-machine choice survives `make env-file` — and so the
                 # load-test A/B can flip it without a regeneration undoing it.
                 "CACHE_ENABLED": "true",
+                # Stripe kill switch plus Orders' own hand-injected secrets: a
+                # restricted rk_test_ key (never Users' key); the whsec_ and
+                # Orders' own webhook URL token, both written by
+                # `make stripe-webhook-secret`. Seeded empty so the keys are
+                # visible; Orders reads an empty value as unset (503).
+                # See [[stripe-sandbox-setup]]
+                "STRIPE_ENABLED": "false",
+                "STRIPE_SECRET_KEY": "",
+                "STRIPE_WEBHOOK_SECRET": "",
+                "STRIPE_WEBHOOK_URL_TOKEN": "",
             },
         ),
         # --- tracking service ------------------------------------------------

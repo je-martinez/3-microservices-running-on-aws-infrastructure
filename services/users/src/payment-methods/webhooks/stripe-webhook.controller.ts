@@ -2,7 +2,7 @@ import { BadRequestException, Controller, Headers, HttpCode, Inject, Post, Req }
 import type { RawBodyRequest } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
 import { CommandBus } from "@nestjs/cqrs";
-import { ApiHeader, ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
+import { ApiHeader, ApiOperation, ApiParam, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { AppConfigService } from "#config/config.module";
 import { Public } from "#shared/auth/public.decorator";
 import type { StripeClientHolder } from "#shared/stripe/stripe-client.provider";
@@ -12,9 +12,10 @@ import { appLogger } from "#shared/logging/app-logger";
 import { ReconcilePaymentMethodCommand, RECONCILED_TYPES } from "../commands/reconcile-payment-method.command.ts";
 
 // CONTRACT: PUBLIC at the API Gateway — Stripe has no Cognito JWT to present,
-// so the global AuthGuard would 401 every delivery. The `stripe-signature`
-// header, verified against the raw body BEFORE any dispatch, is the only
-// guard. See [[2026-09-19-stripe-payments-design]]
+// so the global AuthGuard would 401 every delivery. StripeWebhookGate checks
+// the source IP and the `:token` segment before the body is parsed; this
+// handler then verifies `stripe-signature` against the raw body BEFORE any
+// dispatch. See [[2026-09-19-stripe-payments-design]]
 @ApiTags("webhooks")
 @Controller("v1/users/stripe")
 export class StripeWebhookController {
@@ -24,12 +25,16 @@ export class StripeWebhookController {
     private readonly config: AppConfigService,
   ) {}
 
-  @Post("webhook")
+  @Post("webhook/:token")
   @Public()
   @HttpCode(200)
   @ApiOperation({
     operationId: "stripeWebhook",
     summary: "Stripe payment-method/customer webhook (reconciliation)",
+  })
+  @ApiParam({
+    name: "token",
+    description: "Secret URL token (STRIPE_WEBHOOK_URL_TOKEN). Never logged.",
   })
   @ApiHeader({
     name: "stripe-signature",
@@ -46,6 +51,15 @@ export class StripeWebhookController {
     },
   })
   @ApiResponse({ status: 400, schema: { $ref: "#/components/schemas/Error" } })
+  @ApiResponse({
+    status: 403,
+    description: "Source IP not in STRIPE_WEBHOOK_ALLOWED_CIDRS (`forbidden_source`).",
+    schema: { $ref: "#/components/schemas/Error" },
+  })
+  @ApiResponse({
+    status: 404,
+    description: "Missing or wrong URL token — the same response as an unmapped route.",
+  })
   @ApiResponse({ status: 503, schema: { $ref: "#/components/schemas/Error" } })
   async handle(
     @Req() req: RawBodyRequest<FastifyRequest>,

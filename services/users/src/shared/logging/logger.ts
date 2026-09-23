@@ -1,6 +1,15 @@
 import type { LoggerOptions } from "pino";
 import { trace } from "@opentelemetry/api";
 import { getLogContext } from "./log-context.ts";
+import { redactWebhookToken } from "../observability/redact-webhook-token.ts";
+
+type SerializableRequest = {
+  method?: string;
+  url?: string;
+  host?: string;
+  ip?: string;
+  socket?: { remotePort?: number };
+};
 
 // CONTRACT: Active span IDs must format as lowercase hex (32-char trace_id, 16-char span_id).
 // Omit keys when no active span exists (never emit all-zeros or nulls).
@@ -28,6 +37,17 @@ export function buildLoggerOptions(opts: {
       deployment_environment: opts.environment,
     },
     messageKey: "message",
+    // Fastify merges this over its default `req` serializer, which writes the
+    // raw URL. See redactWebhookToken.
+    serializers: {
+      req: (req: SerializableRequest) => ({
+        method: req.method,
+        url: redactWebhookToken(req.url ?? ""),
+        host: req.host,
+        remoteAddress: req.ip,
+        remotePort: req.socket?.remotePort,
+      }),
+    },
     timestamp: () => `,"timestamp":"${new Date().toISOString()}"`,
     formatters: {
       // Drop Pino's default numeric level; emit OTel-aligned fields instead.

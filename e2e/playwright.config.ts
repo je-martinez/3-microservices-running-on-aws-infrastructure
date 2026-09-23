@@ -50,6 +50,17 @@ if (fs.existsSync(trackingEnvPath)) {
   }
 }
 
+// CONTRACT: Take Orders' STRIPE_WEBHOOK_URL_TOKEN by name and RENAME it. `.env.local.users`
+// already sets STRIPE_WEBHOOK_URL_TOKEN to Users' own token, so under the shared name one
+// token silently shadows the other and the cross-service 404 spec tests nothing.
+const ordersEnvPath = path.join(repoRoot, ".env.local.orders");
+if (fs.existsSync(ordersEnvPath)) {
+  const ordersEnv = dotenv.parse(fs.readFileSync(ordersEnvPath, "utf8"));
+  if (ordersEnv.STRIPE_WEBHOOK_URL_TOKEN) {
+    process.env.ORDERS_STRIPE_WEBHOOK_URL_TOKEN ??= ordersEnv.STRIPE_WEBHOOK_URL_TOKEN;
+  }
+}
+
 // Sanity check: confirm the literal `$default` segment survived loading.
 if (process.env.API_GATEWAY_URL) {
   console.log(`[playwright.config] API_GATEWAY_URL loaded: ${process.env.API_GATEWAY_URL}`);

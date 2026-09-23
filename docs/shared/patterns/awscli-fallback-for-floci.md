@@ -4,7 +4,7 @@ type: pattern
 area: infra
 status: active
 created: 2026-07-12
-updated: 2026-09-21
+updated: 2026-09-22
 tags:
   - type/pattern
   - area/infra
@@ -15,6 +15,7 @@ related:
   - "[[cognito-pre-token-lambda]]"
   - "[[execution-log-for-provisioning-scripts]]"
   - "[[2026-09-21-a-round-invariant-delay-on-one-resource-type-is-the-client-not-the-server]]"
+  - "[[2026-09-22-terraform-side-files-are-per-checkout]]"
 ---
 
 # awscli fallback for Floci gaps
@@ -121,3 +122,6 @@ local bootstrap time, so it remains a documented option rather than a third veri
   pattern's scripts so a failure can be traced to a specific script, resource, and attempt.
 - [[2026-09-21-a-round-invariant-delay-on-one-resource-type-is-the-client-not-the-server]] — the
   investigated-but-not-applied third case: SQS's 25-second provider waiter.
+- [[2026-09-22-terraform-side-files-are-per-checkout]] — the `.terraform-cognito/*-client.json`
+  side file this pattern's script writes is per-checkout; symlinking it across worktrees fed a
+  stale Cognito client into the API Gateway authorizer.
