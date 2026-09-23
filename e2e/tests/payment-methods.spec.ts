@@ -1,7 +1,14 @@
 import { test, expect } from "@playwright/test";
-import Stripe from "stripe";
 import { apiClient } from "../support/api-client.js";
 import { makeUser } from "../support/chance-factory.js";
+import {
+  BAD_SIGNATURE,
+  WRONG_TOKEN,
+  missingWebhookConfig,
+  postWebhook,
+  signedEvent,
+  webhookToken,
+} from "../support/stripe-webhook.js";
 
 // CONTRACT: Every request goes through apiClient(), which already sends
 // `X-E2E-Source: true` (see api-client.ts) — every user and Stripe customer
@@ -161,45 +168,63 @@ test("pm_card_chargeDeclined is declined on attach: 402, and never appears in th
 });
 
 test.describe("stripe webhook", () => {
-  const secret = process.env.STRIPE_WEBHOOK_SECRET;
-  const secretMissingReason =
-    "STRIPE_WEBHOOK_SECRET is not set (or empty) — hand-injected into .env.local.users' " +
-    "CUSTOM box per docs/infrastructure/runbooks/stripe-sandbox-setup.md. Both webhook " +
-    "tests need it: without it the running Users instance answers 503 stripe_unavailable " +
-    "before it ever checks the signature, for the bad-signature case too.";
-
+  // WHY: The 403 forbidden_source path is unit-tested only. Every local caller is a
+  // private address the allowlist admits, and X-Forwarded-For is ignored at 0 trusted hops.
   test.beforeEach(() => {
-    test.skip(!secret, secretMissingReason);
+    const missing = missingWebhookConfig();
+    test.skip(missing !== null, missing ?? "");
   });
 
-  test("bad stripe-signature is rejected 400 invalid_signature", async () => {
-    const api = await apiClient();
-    const res = await api.post("/v1/users/stripe/webhook", {
-      headers: { "stripe-signature": "t=1,v1=deadbeef" },
-      data: { id: "evt_bad", type: "charge.succeeded" },
+  // charge.succeeded is deliberately NOT in RECONCILED_TYPES (reconcile-payment-method.command.ts):
+  // it exercises the "received but not dispatched to a command" branch, not reconciliation.
+  const unreconciledEvent = () => signedEvent("charge.succeeded", { id: `ch_${Date.now()}`, object: "charge" });
+
+  test("right token, bad stripe-signature is rejected 400 invalid_signature", async () => {
+    const res = await postWebhook(await apiClient(), "users", webhookToken("users"), {
+      payload: JSON.stringify({ id: "evt_bad", type: "charge.succeeded" }),
+      signature: BAD_SIGNATURE,
     });
-    expect(res.status()).toBe(400);
-    expect(await res.json()).toEqual({ error: "invalid_signature" });
+    expect(res.status, res.body).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({ error: "invalid_signature" });
   });
 
-  test("a correctly signed, non-reconciled event is accepted 200 received:true", async () => {
-    // charge.succeeded is deliberately NOT in RECONCILED_TYPES
-    // (reconcile-payment-method.command.ts) — it exercises the "received but
-    // not dispatched to a command" branch, not reconciliation.
-    const payload = JSON.stringify({
-      id: `evt_${Date.now()}`,
-      object: "event",
-      type: "charge.succeeded",
-      data: { object: { id: `ch_${Date.now()}` } },
-    });
-    const header = Stripe.webhooks.generateTestHeaderString({ payload, secret: secret! });
+  test("right token, correctly signed non-reconciled event is accepted 200 received:true", async () => {
+    const res = await postWebhook(await apiClient(), "users", webhookToken("users"), unreconciledEvent());
+    expect(res.status, res.body).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ received: true });
+  });
 
+  // CONTRACT: Each 404 case first proves the route IS mapped (right token → 400). Users'
+  // wrong-token 404 is byte-identical to an unmapped route's by design, so without that
+  // control this passes with STRIPE_ENABLED off or the route deleted.
+  test("a wrong token answers the framework's not-found 404, even with a valid signature", async () => {
     const api = await apiClient();
-    const res = await api.post("/v1/users/stripe/webhook", {
-      headers: { "stripe-signature": header, "content-type": "application/json" },
-      data: payload,
+    const event = unreconciledEvent();
+    const control = await postWebhook(api, "users", webhookToken("users"), { ...event, signature: BAD_SIGNATURE });
+    expect(control.status, `control with the right token: ${control.body}`).toBe(400);
+
+    const res = await postWebhook(api, "users", WRONG_TOKEN, event);
+    expect(res.status, res.body).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({
+      statusCode: 404,
+      error: "Not Found",
+      message: `Cannot POST /v1/users/stripe/webhook/${WRONG_TOKEN}`,
     });
-    expect(res.status()).toBe(200);
-    expect(await res.json()).toEqual({ received: true });
+  });
+
+  test("Orders' token on the Users route is 404 — each service holds its own token", async () => {
+    expect(webhookToken("orders") === webhookToken("users"), "Users and Orders share one URL token").toBe(false);
+    const api = await apiClient();
+    const event = unreconciledEvent();
+    const control = await postWebhook(api, "users", webhookToken("users"), { ...event, signature: BAD_SIGNATURE });
+    expect(control.status, `control with the right token: ${control.body}`).toBe(400);
+
+    const res = await postWebhook(api, "users", webhookToken("orders"), event);
+    expect(res.status, res.body).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({
+      statusCode: 404,
+      error: "Not Found",
+      message: "Cannot POST /v1/users/stripe/webhook/[REDACTED]",
+    });
   });
 });

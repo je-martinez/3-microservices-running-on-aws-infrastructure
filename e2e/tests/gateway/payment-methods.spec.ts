@@ -1,11 +1,19 @@
 import { test, expect, type APIRequestContext } from "@playwright/test";
 import { getGatewayToken } from "../../support/auth.js";
 import { gatewayClient } from "../../support/gateway-client.js";
+import {
+  BAD_SIGNATURE,
+  WRONG_TOKEN,
+  missingWebhookConfig,
+  postWebhook,
+  signedEvent,
+  webhookToken,
+} from "../../support/stripe-webhook.js";
 
 // Gateway E2E for the Users payment-method routes and the Stripe webhook, with a real
 // Cognito JWT through API_GATEWAY_URL. Proves each route resolves, carries the JWT
 // identity through to Users, and returns the service's shape; the exhaustive cases
-// (declines, cross-user attach, signed webhooks) live in ../payment-methods.spec.ts.
+// (declines, cross-user attach) live in ../payment-methods.spec.ts.
 // Shapes come from services/users/openapi.yaml. gatewayClient() sends X-E2E-Source,
 // so e2e-cleanup deletes each user AND its Stripe customer.
 
@@ -94,18 +102,51 @@ test.describe("payment methods", () => {
   });
 });
 
-test("POST v1/users/stripe/webhook is public and reaches Users", async () => {
-  // CONTRACT: Accept only Users' {error} shape — 400 invalid_signature with a webhook
-  // secret configured, 503 stripe_unavailable without one. Do NOT widen this to any
-  // 4xx: the gateway's own 404 {"message":"Not Found"} (route missing) or a 401
-  // (route marked auth = true) would then pass. Signed events are covered internally.
-  const api = await gatewayClient();
-  const res = await api.post("v1/users/stripe/webhook", {
-    headers: { "stripe-signature": "t=1,v1=deadbeef", "content-type": "application/json" },
-    data: { id: "evt_gateway_probe", type: "charge.succeeded" },
+// CONTRACT: Assert Users' exact bodies, never "any 4xx". The gateway's own 404
+// {"message":"Not Found"} (route missing), a 401 (route marked auth = true) or a dropped
+// {token} param would all pass a looser check. The webhook takes no JWT: gatewayClient()
+// is called without one. The 403 forbidden_source path is unit-tested only — every local
+// caller is a private address, and X-Forwarded-For is ignored at 0 trusted hops.
+test.describe("stripe webhook", () => {
+  test.beforeEach(() => {
+    const missing = missingWebhookConfig();
+    test.skip(missing !== null, missing ?? "");
   });
-  const body = await res.text();
-  const expected: Record<number, string> = { 400: "invalid_signature", 503: "stripe_unavailable" };
-  expect(Object.keys(expected).map(Number), `unexpected ${res.status()}: ${body}`).toContain(res.status());
-  expect(JSON.parse(body), `status ${res.status()}`).toEqual({ error: expected[res.status()] });
+
+  const unreconciledEvent = () => signedEvent("charge.succeeded", { id: `ch_${Date.now()}`, object: "charge" });
+
+  test("right token, bad stripe-signature reaches Users: 400 invalid_signature", async () => {
+    const res = await postWebhook(await gatewayClient(), "users", webhookToken("users"), {
+      ...unreconciledEvent(),
+      signature: BAD_SIGNATURE,
+    });
+    expect(res.status, res.body).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({ error: "invalid_signature" });
+  });
+
+  test("right token, correctly signed event survives the gateway byte-for-byte: 200 received:true", async () => {
+    const res = await postWebhook(await gatewayClient(), "users", webhookToken("users"), unreconciledEvent());
+    expect(res.status, res.body).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ received: true });
+  });
+
+  test("a wrong token is Users' not-found 404, not the gateway's", async () => {
+    const res = await postWebhook(await gatewayClient(), "users", WRONG_TOKEN, unreconciledEvent());
+    expect(res.status, res.body).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({
+      statusCode: 404,
+      error: "Not Found",
+      message: `Cannot POST /v1/users/stripe/webhook/${WRONG_TOKEN}`,
+    });
+  });
+
+  test("Orders' token on the Users route is 404", async () => {
+    const res = await postWebhook(await gatewayClient(), "users", webhookToken("orders"), unreconciledEvent());
+    expect(res.status, res.body).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({
+      statusCode: 404,
+      error: "Not Found",
+      message: "Cannot POST /v1/users/stripe/webhook/[REDACTED]",
+    });
+  });
 });
