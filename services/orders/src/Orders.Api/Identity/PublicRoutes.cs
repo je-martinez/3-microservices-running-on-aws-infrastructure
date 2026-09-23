@@ -1,3 +1,5 @@
+using Orders.Api.Endpoints;
+
 namespace Orders.Api.Identity;
 
 // Routes that don't require x-user-id. The auth middleware lets these through.
@@ -37,8 +39,10 @@ public static class PublicRoutes
         // RoutePattern.RawText, so a concrete path here never matches and every call 401s.
         || (string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase)
             && routePath == "/v1/orders/{orderId}/cache-invalidation")
-        // Stripe's webhook carries no identity; its handler verifies the Stripe-Signature
-        // before touching anything. Mapped only under STRIPE_ENABLED, like e2e-cleanup above.
+        // Stripe's webhook carries no identity; its handler checks the source IP, the URL token
+        // and the Stripe-Signature before touching anything. Mapped only under STRIPE_ENABLED.
+        // CONTRACT: Keep the {token} PATTERN public — off this list a wrong token answers 401 from
+        // here instead of the handler's 404.
         || (string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase)
-            && routePath == "/v1/orders/stripe/webhook");
+            && routePath == StripeWebhookEndpoints.Route);
 }

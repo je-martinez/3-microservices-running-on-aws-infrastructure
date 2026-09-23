@@ -7,6 +7,7 @@ using Orders.Api.Endpoints;
 using Orders.Api.Identity;
 using Orders.Api.Logging;
 using Orders.Api.Middleware;
+using Orders.Api.Payments;
 using Orders.Application.Abstractions;
 using Orders.Application.Messaging;
 using Orders.Application.Identity;
@@ -54,7 +55,11 @@ builder.Services.AddOpenTelemetry()
             new KeyValuePair<string, object>("deployment.environment.name", deploymentEnvironment),
         ]))
     .WithTracing(tracing => tracing
-        .AddAspNetCoreInstrumentation()
+        // CONTRACT: Keep this enrich hook — the Stripe webhook's path carries its URL token, a
+        // secret, and url.path would otherwise export it verbatim.
+        // See [[2026-09-19-stripe-payments-design]]
+        .AddAspNetCoreInstrumentation(options =>
+            options.EnrichWithHttpRequest = StripeWebhookEndpoints.RedactSpan)
         .AddHttpClientInstrumentation()
         .AddEntityFrameworkCoreInstrumentation()
         // What makes SnsEventPublisher's PublishAsync produce a CLIENT span.
@@ -91,6 +96,7 @@ builder.Host.UseSerilog((_, services, cfg) => cfg
     .MinimumLevel.Override("Microsoft.AspNetCore.Routing.EndpointMiddleware", Serilog.Events.LogEventLevel.Warning)
     .MinimumLevel.Override("Microsoft.AspNetCore.Http.Result", Serilog.Events.LogEventLevel.Warning)
     .Enrich.With(new LogContextEnricher(services.GetRequiredService<IHttpContextAccessor>()))
+    .Enrich.With(new RequestPathRedactionEnricher())
     .WriteTo.Console(new SchemaLogFormatter("orders", deploymentEnvironment)));
 
 // Read side (read replica in prod; same MySQL locally). ADO connection string.
@@ -237,6 +243,10 @@ builder.Services.AddSingleton(new StripeWebhookSettings(
     string.IsNullOrWhiteSpace(stripeWebhookSecret) ? null : stripeWebhookSecret,
     TimeSpan.FromSeconds(builder.Configuration.GetValue(
         "STRIPE_ORPHAN_GRACE_PERIOD_SECONDS", StripeWebhookSettings.DefaultOrphanGracePeriodSeconds))));
+// WARNING: STRIPE_ENABLED with no URL token or no valid allowlist still boots — the webhook answers 503.
+var stripeWebhookAccess = StripeWebhookAccess.FromConfiguration(
+    builder.Configuration, out var stripeWebhookAccessProblems);
+builder.Services.AddSingleton(stripeWebhookAccess);
 builder.Services.AddScoped(sp => new StripeWebhookService(
     sp.GetRequiredService<OrdersWriteDbContext>(),
     sp.GetRequiredService<StripePaymentCharger>(),
@@ -438,6 +448,14 @@ if (stripeWebhookSecretMissing && !isDocumentGeneration)
         "STRIPE_ENABLED is true but STRIPE_WEBHOOK_SECRET is not set. The Stripe webhook will answer 503.");
 }
 
+if (stripeEnabled && !isDocumentGeneration)
+{
+    foreach (var problem in stripeWebhookAccessProblems)
+    {
+        app.Logger.LogWarning("STRIPE_ENABLED is true but {problem}. The Stripe webhook will answer 503.", problem);
+    }
+}
+
 // WHY: Open AmbientRequestId here — UseSerilogRequestLogging runs on unwind after inner
 // middleware, so a scope opened deeper would drop request_id from "request completed".
 app.Use(async (_, next) =>
@@ -468,7 +486,8 @@ app.UseSerilogRequestLogging(options =>
         diag.Set("http_request_method", http.Request.Method);
         diag.Set(
             "http_route",
-            (http.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText ?? http.Request.Path.Value);
+            (http.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText
+                ?? StripeWebhookEndpoints.RedactPath(http.Request.Path.Value));
         diag.Set("http_response_status_code", http.Response.StatusCode);
         // NO trace_id here. LogContextEnricher supplies the real OTel trace id
         // from Activity.Current; it uses AddPropertyIfAbsent, so a value set on
