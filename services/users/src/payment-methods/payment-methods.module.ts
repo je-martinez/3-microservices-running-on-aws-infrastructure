@@ -10,6 +10,7 @@ import { ListPaymentMethodsHandler } from "./queries/list-payment-methods.query.
 import { PaymentMethodsController } from "./http/payment-methods.controller.ts";
 import { ReconcilePaymentMethodHandler } from "./commands/reconcile-payment-method.command.ts";
 import { StripeWebhookController } from "./webhooks/stripe-webhook.controller.ts";
+import { StripeWebhookGate } from "./webhooks/stripe-webhook-gate.ts";
 
 // CONTRACT: `@Global()` makes STRIPE_CLIENT visible to UsersModule's
 // e2e-cleanup command without UsersModule importing this module — the two
@@ -29,6 +30,7 @@ import { StripeWebhookController } from "./webhooks/stripe-webhook.controller.ts
     ListPaymentMethodsHandler,
     ReconcilePaymentMethodHandler,
     CurrentUserInterceptor,
+    StripeWebhookGate,
   ],
   exports: [stripeClientProvider],
 })

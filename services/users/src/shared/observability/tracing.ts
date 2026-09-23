@@ -7,6 +7,7 @@ import { resourceFromAttributes } from "@opentelemetry/resources";
 import { NodeSDK } from "@opentelemetry/sdk-node";
 import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
 import { PrismaInstrumentation } from "@prisma/instrumentation";
+import { redactFastifyRequestSpan, redactIncomingSpanAttributes } from "./redact-webhook-token.ts";
 
 // CONTRACT: This module MUST load before anything else in the process. The
 // auto-instrumentations patch modules as they are require()d, so anything loaded
@@ -38,6 +39,7 @@ const sdk = new NodeSDK({
       // Pure noise at this scale: every file read becomes a span and buries the
       // HTTP/gRPC/Prisma spans that describe the request.
       "@opentelemetry/instrumentation-fs": { enabled: false },
+      "@opentelemetry/instrumentation-http": { startIncomingSpanHook: redactIncomingSpanAttributes },
     }),
     // CONTRACT: Keep this registered here with `registerOnInitialization`. Without
     // it every server span is named after the bare method ("POST"), because
@@ -46,7 +48,10 @@ const sdk = new NodeSDK({
     // Registering from main.ts instead only works if it beats every route
     // definition, which forfeits this file's load-order guarantee.
     // See [[logging-context]]
-    new FastifyOtelInstrumentation({ registerOnInitialization: true }),
+    new FastifyOtelInstrumentation({
+      registerOnInitialization: true,
+      requestHook: redactFastifyRequestSpan,
+    }),
   ],
 });
 

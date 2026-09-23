@@ -711,7 +711,7 @@ paths:
       summary: "Set a payment method as the caller's default"
       tags:
         - payment-methods
-  "/v1/users/stripe/webhook":
+  "/v1/users/stripe/webhook/{token}":
     post:
       operationId: stripeWebhook
       parameters:
@@ -721,6 +721,11 @@ paths:
           required: true
           schema:
             type: string
+        - name: token
+          required: true
+          in: path
+          description: "Secret URL token (STRIPE_WEBHOOK_URL_TOKEN). Never logged."
+          schema: {}
       responses:
         "200":
           description: ""
@@ -740,6 +745,14 @@ paths:
             "application/json":
               schema:
                 "$ref": "#/components/schemas/Error"
+        "403":
+          description: "Source IP not in STRIPE_WEBHOOK_ALLOWED_CIDRS (`forbidden_source`)."
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: "Missing or wrong URL token — the same response as an unmapped route."
         "503":
           description: ""
           content:
