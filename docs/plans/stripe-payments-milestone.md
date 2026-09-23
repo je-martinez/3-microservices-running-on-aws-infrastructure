@@ -164,6 +164,9 @@ CUSTOM box per [[env-files]] (step 11.4b, currently pending), and the web checko
 
 ### P2/P3 — open, not yet fixed
 
+- **In progress:** identity metadata on every Stripe object (Decision 12, user, 2026-09-23) — Customer,
+  PaymentIntent, and Refund carry `user_id`/`cognito_sub` (plus `order_id` on Orders' objects) — is being
+  implemented on branch `feat/stripe-metadata-identity`.
 - **Blocking (Task 15, three-test-layers rule):** internal E2E and gateway E2E for Orders'
   `POST /v1/orders` Stripe path do not exist yet. Per [[testing]] and the repo's "a new route is
   not done when the service serves it" rule, this milestone is not done without them.

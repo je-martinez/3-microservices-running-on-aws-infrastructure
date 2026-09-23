@@ -309,12 +309,37 @@ This paragraph covers fulfillment only. Orders gets its **own** webhook too, but
 narrower purpose — payment *reconciliation*, the same role Users' webhook already plays for
 card state — see Decision 26.
 
-### 12. E2E data is tagged in Stripe too
-Reusing the existing mechanism: when `x-e2e-source: true` AND `E2E_TESTING_ENABLED` are both
-set, the Stripe customer and payment method are created with `metadata.e2e_source: "true"`,
-and local rows carry the `"E2E Source"` tag. The existing `DELETE /v1/users/e2e-cleanup` is
-extended to also delete those Stripe-side customers — otherwise the Stripe test account
-accumulates garbage every run.
+### 12. Every Stripe object carries the owner's identity in metadata; E2E data is tagged too
+
+**Identity metadata (Decision, user, 2026-09-23).** Every Stripe object either service creates
+carries the owner's identity in `metadata`, so any object found in the Stripe Dashboard can be
+traced back to a user without querying our database. Only identifiers go to Stripe as metadata
+— never names, addresses, or order contents. A key whose value is unknown is **omitted, never
+sent empty**. The key name for the Cognito subject is `cognito_sub` everywhere, matching the
+repo-wide convention. Existing Customers are not backfilled — this applies to objects created
+from 2026-09-23 onward.
+
+**Stripe metadata by object:**
+
+| Service | Object | Metadata keys |
+|---|---|---|
+| Users | Customer | `user_id` (internal `usr_...` id), `cognito_sub`, plus `e2e_source: "true"` on E2E users (below) |
+| Orders | PaymentIntent | `order_id`, `user_id`, `cognito_sub` |
+| Orders | Refund | `order_id`, `user_id`, `cognito_sub` |
+
+For the Refund row: the inline refund (Decision 9's post-charge-failure path) takes these three
+values from the caller's own request context; the webhook's orphan refund (Decision 26) copies
+them from the PaymentIntent's own `metadata` instead, since that path has no caller context. Both
+paths send identical refund parameters despite the different source, because they share the same
+idempotency key, `refund-{paymentIntentId}` (Decision 9/26) — Stripe rejects a replay of that key
+with different parameters, so the two call sites must agree on what they send, not just on the
+key.
+
+**E2E tagging.** Reusing the existing mechanism: when `x-e2e-source: true` AND
+`E2E_TESTING_ENABLED` are both set, the Stripe customer and payment method are created with
+`metadata.e2e_source: "true"`, and local rows carry the `"E2E Source"` tag. The existing `DELETE
+/v1/users/e2e-cleanup` is extended to also delete those Stripe-side customers — otherwise the
+Stripe test account accumulates garbage every run.
 
 ### 13. Graceful degradation on missing key
 Each service's restricted API key (Decision 15) is injected by hand into the CUSTOM box of
