@@ -18,6 +18,8 @@ public sealed class StripePaymentChargerTests : IDisposable
 {
     private const string CustomerId = "cus_test";
     private const long AmountCents = 4250;
+    private const string UserId = "usr_test";
+    private const string CognitoSub = "sub-test";
 
     private readonly List<Activity> _stopped = new();
     private readonly ActivityListener _listener;
@@ -151,7 +153,7 @@ public sealed class StripePaymentChargerTests : IDisposable
         var charger = ChargerOver(stripe);
 
         await Assert.ThrowsAsync<PaymentDeclinedException>(() =>
-            charger.ChargeAsync(_orderId, AmountCents, stripeCustomerId: null, FakeStripeHandler.PaymentMethodId, ChargeKey, default));
+            charger.ChargeAsync(Metadata, AmountCents, stripeCustomerId: null, FakeStripeHandler.PaymentMethodId, ChargeKey, default));
 
         Assert.Empty(stripe.Requests);
         var line = Assert.Single(_logger.Entries);
@@ -179,12 +181,80 @@ public sealed class StripePaymentChargerTests : IDisposable
     }
 
     [Fact]
+    public async Task A_charge_carries_the_order_and_the_callers_identity_as_metadata()
+    {
+        var stripe = FakeStripeHandler.Succeeding();
+
+        await ChargeAsync(ChargerOver(stripe));
+
+        var request = Assert.Single(stripe.Charges);
+        Assert.Equal(
+            new Dictionary<string, string> { ["order_id"] = _orderId, ["user_id"] = UserId, ["cognito_sub"] = CognitoSub },
+            request.Metadata);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public async Task An_unknown_identity_is_omitted_from_the_metadata_never_sent_empty(string? unknown)
+    {
+        var stripe = FakeStripeHandler.Succeeding();
+        var charger = ChargerOver(stripe);
+        var metadata = new PaymentMetadata(_orderId, unknown, unknown);
+
+        await charger.ChargeAsync(metadata, AmountCents, CustomerId, FakeStripeHandler.PaymentMethodId, ChargeKey, default);
+        await charger.RefundAsync(metadata, FakeStripeHandler.PaymentIntentId);
+
+        Assert.All(
+            stripe.Charges.Concat(stripe.Refunds),
+            r => Assert.Equal(new Dictionary<string, string> { ["order_id"] = _orderId }, r.Metadata));
+    }
+
+    [Fact]
+    public async Task A_refund_carries_the_same_metadata_as_the_charge_it_refunds()
+    {
+        var stripe = FakeStripeHandler.Succeeding();
+        var charger = ChargerOver(stripe);
+
+        await ChargeAsync(charger);
+        await charger.RefundAsync(Metadata, FakeStripeHandler.PaymentIntentId);
+
+        Assert.Equal(Assert.Single(stripe.Charges).Metadata, Assert.Single(stripe.Refunds).Metadata);
+    }
+
+    [Fact]
+    public void Metadata_read_back_from_stripe_rebuilds_the_same_parameters_whatever_the_key_order()
+    {
+        var fromStripe = new Dictionary<string, string>
+        {
+            ["cognito_sub"] = CognitoSub,
+            ["unrelated"] = "x",
+            ["user_id"] = UserId,
+            ["order_id"] = _orderId,
+        };
+
+        var rebuilt = PaymentMetadata.FromStripe(_orderId, fromStripe);
+
+        Assert.Equal(Metadata, rebuilt);
+        Assert.Equal(new[] { "order_id", "user_id", "cognito_sub" }, rebuilt.ToStripe().Keys);
+    }
+
+    [Fact]
+    public void Metadata_from_an_older_payment_intent_without_identity_keys_omits_them()
+    {
+        var rebuilt = PaymentMetadata.FromStripe(_orderId, new Dictionary<string, string> { ["order_id"] = _orderId });
+
+        Assert.Equal(new Dictionary<string, string> { ["order_id"] = _orderId }, rebuilt.ToStripe());
+    }
+
+    [Fact]
     public async Task A_refund_opens_its_own_client_span_and_logs_payment_refunded_with_both_ids()
     {
         var stripe = FakeStripeHandler.Succeeding();
         var charger = ChargerOver(stripe);
 
-        var refunded = await charger.RefundAsync(_orderId, FakeStripeHandler.PaymentIntentId);
+        var refunded = await charger.RefundAsync(Metadata, FakeStripeHandler.PaymentIntentId);
 
         Assert.True(refunded);
         var request = Assert.Single(stripe.Refunds);
@@ -214,7 +284,7 @@ public sealed class StripePaymentChargerTests : IDisposable
     {
         var charger = ChargerOver(FakeStripeHandler.SucceedingWithFailingRefund());
 
-        var refunded = await charger.RefundAsync(_orderId, FakeStripeHandler.PaymentIntentId);
+        var refunded = await charger.RefundAsync(Metadata, FakeStripeHandler.PaymentIntentId);
 
         Assert.False(refunded);
         var line = Assert.Single(_logger.Entries);
@@ -240,8 +310,8 @@ public sealed class StripePaymentChargerTests : IDisposable
         var stripe = FakeStripeHandler.Succeeding();
         var charger = ChargerOver(stripe);
 
-        Assert.True(await charger.RefundAsync(_orderId, FakeStripeHandler.PaymentIntentId));
-        Assert.True(await charger.RefundAsync(_orderId, FakeStripeHandler.PaymentIntentId));
+        Assert.True(await charger.RefundAsync(Metadata, FakeStripeHandler.PaymentIntentId));
+        Assert.True(await charger.RefundAsync(Metadata, FakeStripeHandler.PaymentIntentId));
 
         Assert.Equal(2, stripe.Refunds.Count());
         Assert.All(stripe.Refunds, r => Assert.Equal($"refund-{FakeStripeHandler.PaymentIntentId}", r.IdempotencyKey));
@@ -254,8 +324,8 @@ public sealed class StripePaymentChargerTests : IDisposable
         var stripe = FakeStripeHandler.Succeeding();
         var charger = ChargerOver(stripe);
 
-        Assert.True(await charger.RefundAsync(_orderId, FakeStripeHandler.PaymentIntentId));
-        Assert.True(await charger.RefundOrphanAsync(_orderId, FakeStripeHandler.PaymentIntentId));
+        Assert.True(await charger.RefundAsync(Metadata, FakeStripeHandler.PaymentIntentId));
+        Assert.True(await charger.RefundOrphanAsync(Metadata, FakeStripeHandler.PaymentIntentId));
 
         Assert.All(stripe.Refunds, r => Assert.Equal($"refund-{FakeStripeHandler.PaymentIntentId}", r.IdempotencyKey));
         Assert.Equal(1, stripe.RefundsExecuted);
@@ -272,7 +342,7 @@ public sealed class StripePaymentChargerTests : IDisposable
     {
         var charger = ChargerOver(FakeStripeHandler.SucceedingWithAlreadyRefunded());
 
-        var refunded = await charger.RefundOrphanAsync(_orderId, FakeStripeHandler.PaymentIntentId);
+        var refunded = await charger.RefundOrphanAsync(Metadata, FakeStripeHandler.PaymentIntentId);
 
         Assert.True(refunded);
         Assert.Equal(ActivityStatusCode.Ok, ThisRefundsSpan().Status);
@@ -296,7 +366,9 @@ public sealed class StripePaymentChargerTests : IDisposable
         new(FakeStripeHandler.ClientFor(stripe), _logger);
 
     private Task<Orders.Domain.Payments.PaymentSnapshot> ChargeAsync(StripePaymentCharger charger) =>
-        charger.ChargeAsync(_orderId, AmountCents, CustomerId, FakeStripeHandler.PaymentMethodId, ChargeKey, default);
+        charger.ChargeAsync(Metadata, AmountCents, CustomerId, FakeStripeHandler.PaymentMethodId, ChargeKey, default);
+
+    private PaymentMetadata Metadata => new(_orderId, UserId, CognitoSub);
 
     // WHY: Unique per test — the span listener is process-wide, and spans are matched on this key.
     private string ChargeKey => StripePaymentCharger.ChargeIdempotencyKeyFor("usr_test", _orderId);

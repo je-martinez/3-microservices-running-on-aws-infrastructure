@@ -474,7 +474,14 @@ public sealed class StripeWebhookTests : IDisposable
         Assert.Equal($"refund-{_paymentIntentId}", refund.IdempotencyKey);
         Assert.Equal(_paymentIntentId, refund.Form["payment_intent"]);
         Assert.False(refund.Form.ContainsKey("amount"));
-        Assert.Equal(_orderId, refund.Form["metadata[order_id]"]);
+        Assert.Equal(
+            new Dictionary<string, string>
+            {
+                ["order_id"] = _orderId,
+                ["user_id"] = PaymentIntentUserId,
+                ["cognito_sub"] = PaymentIntentCognitoSub,
+            },
+            refund.Metadata);
 
         var line = Assert.Single(_chargerLog.Entries);
         Assert.Equal(LogLevel.Warning, line.Level);
@@ -486,6 +493,59 @@ public sealed class StripeWebhookTests : IDisposable
         Assert.Equal(ActivityKind.Client, span.Kind);
         Assert.Equal(ActivityStatusCode.Ok, span.Status);
         Assert.Same(span, line.Activity);
+    }
+
+    [Fact]
+    public async Task An_orphan_from_an_older_payment_intent_without_identity_keys_refunds_with_order_id_only()
+    {
+        var stripe = FakeStripeHandler.Succeeding();
+        var client = ClientFor(stripe);
+        var body = PaymentIntentSucceeded(
+            createdAgo: TimeSpan.FromHours(1),
+            metadata: new Dictionary<string, string> { ["order_id"] = _orderId });
+
+        var response = await PostAsync(client, body, Sign(body, WebhookSecret));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(
+            new Dictionary<string, string> { ["order_id"] = _orderId },
+            Assert.Single(stripe.Refunds).Metadata);
+    }
+
+    [Fact]
+    public async Task An_inline_refund_and_a_later_orphan_refund_of_one_payment_intent_send_identical_parameters()
+    {
+        // CONTRACT: Both paths share refund-{pi}, and Stripe answers a repeat whose parameters
+        // differ with 400 idempotency_error — the orphan refund would then fail on every delivery.
+        var productId = await InsertProductAsync();
+        var stripe = FakeStripeHandler.Succeeding(paymentIntentId: _paymentIntentId);
+        stripe.OnRequest = _ => SetStockAsync(productId, 0);
+        var host = HostFor(stripe);
+        var buyer = host.CreateClient();
+        buyer.DefaultRequestHeaders.Add("x-user-id", OrdersApiFactory.KnownCognitoSub);
+        buyer.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
+
+        var order = await buyer.PostAsJsonAsync("/v1/orders", new
+        {
+            lines = new[] { new { productId, quantity = 1 } },
+            paymentMethodId = FakeStripeHandler.PaymentMethodId,
+        });
+        Assert.Equal(HttpStatusCode.Conflict, order.StatusCode);
+
+        // WHY: The event carries the metadata Stripe stored from the charge, in reverse order —
+        // the webhook must not depend on the order Stripe serializes it in.
+        var charge = Assert.Single(stripe.Charges);
+        var stored = charge.Metadata.Reverse().ToDictionary(kv => kv.Key, kv => kv.Value);
+        var body = PaymentIntentSucceeded(createdAgo: TimeSpan.FromHours(1), metadata: stored);
+        var response = await PostAsync(host.CreateClient(), body, Sign(body, WebhookSecret));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var refunds = stripe.Refunds.ToArray();
+        Assert.Equal(2, refunds.Length);
+        Assert.Equal(refunds[0].IdempotencyKey, refunds[1].IdempotencyKey);
+        Assert.Equal(refunds[0].Body, refunds[1].Body);
+        Assert.Equal(1, stripe.RefundsExecuted);
+        Assert.Equal(3, refunds[0].Metadata.Count);
     }
 
     [Fact]
@@ -818,7 +878,11 @@ public sealed class StripeWebhookTests : IDisposable
         });
     }
 
-    private string PaymentIntentSucceeded(TimeSpan createdAgo, bool withOrderId = true) =>
+    private const string PaymentIntentUserId = "usr_webhookbuyer";
+    private const string PaymentIntentCognitoSub = "sub-webhook-buyer";
+
+    private string PaymentIntentSucceeded(
+        TimeSpan createdAgo, bool withOrderId = true, Dictionary<string, string>? metadata = null) =>
         Event("payment_intent.succeeded", new
         {
             id = _paymentIntentId,
@@ -827,7 +891,14 @@ public sealed class StripeWebhookTests : IDisposable
             currency = "usd",
             status = "succeeded",
             created = DateTimeOffset.UtcNow.Subtract(createdAgo).ToUnixTimeSeconds(),
-            metadata = withOrderId ? new Dictionary<string, string> { ["order_id"] = _orderId } : new(),
+            metadata = metadata ?? (withOrderId
+                ? new Dictionary<string, string>
+                {
+                    ["order_id"] = _orderId,
+                    ["user_id"] = PaymentIntentUserId,
+                    ["cognito_sub"] = PaymentIntentCognitoSub,
+                }
+                : new()),
         }, out _);
 
     private string ChargeRefunded(long amount, long amountRefunded) =>
@@ -853,6 +924,32 @@ public sealed class StripeWebhookTests : IDisposable
             payment_intent = _paymentIntentId,
             status,
         }, out _);
+
+    // WHY: A product of its own — the factory's shared product is drained by the whole collection.
+    private async Task<string> InsertProductAsync()
+    {
+        await using var db = _factory.NewWriteContext();
+        var id = NanoId.NewId(NanoId.ProductPrefix);
+        db.Products.Add(new Orders.Domain.Entities.Product
+        {
+            Id = id,
+            Name = "Webhook Widget",
+            Description = "d",
+            UnitPriceCents = 2500,
+            UnitsInStock = 10,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+        return id;
+    }
+
+    private async Task SetStockAsync(string productId, int stock)
+    {
+        await using var db = _factory.NewWriteContext();
+        await db.Database.ExecuteSqlRawAsync(
+            "UPDATE product SET units_in_stock = {0} WHERE id = {1}", stock, productId);
+    }
 
     private async Task InsertOrderAsync(string status)
     {

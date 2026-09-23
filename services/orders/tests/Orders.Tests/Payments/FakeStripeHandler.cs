@@ -8,12 +8,20 @@ using Stripe;
 namespace Orders.Tests.Payments;
 
 /// <summary>What the Stripe SDK put on the wire for one call.</summary>
+/// <param name="Body">The form body exactly as sent — what Stripe compares on an idempotent repeat.</param>
 public sealed record CapturedStripeRequest(
     HttpMethod Method,
     string Path,
     Dictionary<string, StringValues> Form,
     string? IdempotencyKey,
-    string? StripeVersion);
+    string? StripeVersion,
+    string Body)
+{
+    /// <summary>The <c>metadata[...]</c> entries, keyed without the wrapper.</summary>
+    public Dictionary<string, string> Metadata =>
+        Form.Where(f => f.Key.StartsWith("metadata[", StringComparison.Ordinal) && f.Key.EndsWith(']'))
+            .ToDictionary(f => f.Key["metadata[".Length..^1], f => f.Value.ToString());
+}
 
 /// <summary>
 /// The transport under a REAL <see cref="StripeClient"/>: records each request and answers with
@@ -78,17 +86,18 @@ public sealed class FakeStripeHandler : HttpMessageHandler
     // WHY: Includes client_secret on purpose — the snapshot must drop it and telemetry must never
     // carry it. payment_method is a bare id, as Stripe returns it unexpanded; the card details
     // live only on the expanded latest_charge.
-    public static FakeStripeHandler Succeeding(string status = "succeeded", bool withLatestCharge = true) =>
+    public static FakeStripeHandler Succeeding(
+        string status = "succeeded", bool withLatestCharge = true, string paymentIntentId = PaymentIntentId) =>
         new(r => (HttpStatusCode.OK, JsonSerializer.Serialize(new
         {
-            id = PaymentIntentId,
+            id = paymentIntentId,
             @object = "payment_intent",
             amount = long.Parse(r.Form["amount"].ToString()),
             currency = "usd",
             status,
             client_secret = ClientSecret,
             customer = r.Form["customer"].ToString(),
-            metadata = new { order_id = r.Form["metadata[order_id]"].ToString() },
+            metadata = r.Metadata,
             payment_method = PaymentMethodId,
             latest_charge = withLatestCharge
                 ? new
@@ -227,7 +236,8 @@ public sealed class FakeStripeHandler : HttpMessageHandler
             request.RequestUri!.AbsolutePath,
             QueryHelpers.ParseQuery(content),
             request.Headers.TryGetValues("Idempotency-Key", out var keys) ? keys.Single() : null,
-            request.Headers.TryGetValues("Stripe-Version", out var versions) ? versions.Single() : null);
+            request.Headers.TryGetValues("Stripe-Version", out var versions) ? versions.Single() : null,
+            content);
         lock (Requests)
         {
             Requests.Add(captured);

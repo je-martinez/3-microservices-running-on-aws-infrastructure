@@ -170,6 +170,7 @@ public class CreateOrderService
         var orderId = clientKey is null
             ? NanoId.NewId(NanoId.OrderPrefix)
             : NanoId.DerivedId(NanoId.OrderPrefix, $"{userId}\n{clientKey}");
+        var paymentMetadata = new PaymentMetadata(orderId, userId, caller.CognitoSub);
 
         // CONTRACT: Charge BEFORE persisting and OUTSIDE the transaction below. After it, a
         // failed charge leaves an order nobody paid for; inside it, the FOR UPDATE locks are
@@ -184,7 +185,7 @@ public class CreateOrderService
             try
             {
                 payment = await _charger.ChargeAsync(
-                    orderId, amountCents, caller.StripeCustomerId, paymentMethodId,
+                    paymentMetadata, amountCents, caller.StripeCustomerId, paymentMethodId,
                     StripePaymentCharger.ChargeIdempotencyKeyFor(userId, clientKey!), ct);
             }
             catch (Exception ex) when (ex is IdempotencyKeyReusedException or IdempotencyKeyMismatchException)
@@ -245,7 +246,7 @@ public class CreateOrderService
             {
                 if (payment is not null && winner.PaymentIntentId != payment.PaymentIntentId)
                 {
-                    await _charger.RefundAsync(orderId, payment.PaymentIntentId);
+                    await _charger.RefundAsync(paymentMetadata, payment.PaymentIntentId);
                 }
 
                 return ReplayOrReject(winner, requestHash);
@@ -253,7 +254,7 @@ public class CreateOrderService
 
             if (payment is not null)
             {
-                await _charger.RefundAsync(orderId, payment.PaymentIntentId);
+                await _charger.RefundAsync(paymentMetadata, payment.PaymentIntentId);
             }
 
             throw;

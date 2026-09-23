@@ -51,7 +51,7 @@ public class StripePaymentCharger
     /// <exception cref="IdempotencyKeyInFlightException">Another request with the key is still in flight.</exception>
     /// <exception cref="PaymentUnavailableException">No key configured, or any other Stripe failure.</exception>
     public async Task<PaymentSnapshot> ChargeAsync(
-        string orderId,
+        PaymentMetadata metadata,
         long amountCents,
         string? stripeCustomerId,
         string paymentMethodId,
@@ -62,6 +62,8 @@ public class StripePaymentCharger
         {
             throw new PaymentUnavailableException("stripe_not_configured");
         }
+
+        var orderId = metadata.OrderId;
 
         // WHY: No customer means no saved card can exist, so the pm_ cannot be the caller's.
         if (stripeCustomerId is null)
@@ -91,7 +93,9 @@ public class StripePaymentCharger
                     PaymentMethod = paymentMethodId,
                     OffSession = true,
                     Confirm = true,
-                    Metadata = new Dictionary<string, string> { ["order_id"] = orderId },
+                    // CONTRACT: Nothing per-request in here — a retry of (user, key) must send
+                    // identical parameters or Stripe rejects it as a mismatch.
+                    Metadata = metadata.ToStripe(),
                     // CONTRACT: Expand latest_charge, NEVER payment_method — that needs
                     // PaymentMethods read, and Orders' restricted key must not touch saved cards.
                     // The charge carries the same brand/last4/expiry. See [[stripe-sandbox-setup]]
@@ -197,8 +201,8 @@ public class StripePaymentCharger
     /// refund error thrown here would replace it. A failed refund leaves a real dangling charge,
     /// so it is logged at ERROR with both ids. See [[2026-09-19-stripe-payments-design]]
     /// </remarks>
-    public Task<bool> RefundAsync(string orderId, string paymentIntentId) =>
-        RefundCoreAsync(orderId, paymentIntentId, orphan: false);
+    public Task<bool> RefundAsync(PaymentMetadata metadata, string paymentIntentId) =>
+        RefundCoreAsync(metadata, paymentIntentId, orphan: false);
 
     /// <summary>
     /// Refunds, in full, a succeeded charge the Stripe webhook found with no order behind it.
@@ -207,13 +211,16 @@ public class StripePaymentCharger
     /// <remarks>
     /// CONTRACT: Do NOT give this path its own idempotency key — it shares
     /// <see cref="RefundIdempotencyKeyFor"/> with <see cref="RefundAsync"/>, so the webhook and
-    /// the inline refund can never both refund one charge. See [[2026-09-19-stripe-payments-design]]
+    /// the inline refund can never both refund one charge — so <paramref name="metadata"/> comes
+    /// from the PaymentIntent's own, via <see cref="PaymentMetadata.FromStripe"/>.
+    /// See [[2026-09-19-stripe-payments-design]]
     /// </remarks>
-    public Task<bool> RefundOrphanAsync(string orderId, string paymentIntentId) =>
-        RefundCoreAsync(orderId, paymentIntentId, orphan: true);
+    public Task<bool> RefundOrphanAsync(PaymentMetadata metadata, string paymentIntentId) =>
+        RefundCoreAsync(metadata, paymentIntentId, orphan: true);
 
-    private async Task<bool> RefundCoreAsync(string orderId, string paymentIntentId, bool orphan)
+    private async Task<bool> RefundCoreAsync(PaymentMetadata metadata, string paymentIntentId, bool orphan)
     {
+        var orderId = metadata.OrderId;
         const string operation = "stripe.refund.create";
         var idempotencyKey = RefundIdempotencyKeyFor(paymentIntentId);
 
@@ -231,7 +238,7 @@ public class StripePaymentCharger
                 new RefundCreateOptions
                 {
                     PaymentIntent = paymentIntentId,
-                    Metadata = new Dictionary<string, string> { ["order_id"] = orderId },
+                    Metadata = metadata.ToStripe(),
                 },
                 new RequestOptions { IdempotencyKey = idempotencyKey },
                 CancellationToken.None);

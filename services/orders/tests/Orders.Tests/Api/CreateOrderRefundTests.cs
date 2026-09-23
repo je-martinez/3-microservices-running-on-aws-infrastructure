@@ -147,7 +147,14 @@ public partial class CreateOrderStripeTests
         Assert.Equal($"refund-{FakeStripeHandler.PaymentIntentId}", refund.IdempotencyKey);
         Assert.False(refund.Form.ContainsKey("amount"));
         var orderId = charge.Form["metadata[order_id]"].ToString();
-        Assert.Equal(orderId, refund.Form["metadata[order_id]"]);
+        Assert.Equal(
+            new Dictionary<string, string>
+            {
+                ["order_id"] = orderId,
+                ["user_id"] = OrdersApiFactory.KnownUserId,
+                ["cognito_sub"] = OrdersApiFactory.KnownCognitoSub,
+            },
+            refund.Metadata);
         return orderId;
     }
 
