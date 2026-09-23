@@ -5,7 +5,8 @@ import type { Db } from "#shared/db/prisma";
 // runtime class; an erased type import makes the token `undefined` and the
 // injector fails at BOOTSTRAP, not at compile time. See [[dependency-injection]]
 import { CacheGateway } from "#shared/cache/cache-gateway";
-import { DB } from "#shared/tokens";
+import type { StripeClientHolder } from "#shared/stripe/stripe-client.provider";
+import { DB, STRIPE_CLIENT } from "#shared/tokens";
 import { CaptureCognitoIdentityCommand } from "#features/users/webhooks/capture-cognito-identity";
 import { E2eCleanupCommand } from "#features/users/http/e2e-cleanup";
 import { E2eIdentityQuery } from "#features/users/http/e2e-identity";
@@ -38,9 +39,16 @@ const e2eProviders = e2eEnabled
   ? [
       {
         provide: E2eCleanupCommand,
-        inject: [DB, CacheGateway],
-        useFactory: (db: Db, cacheGateway: CacheGateway) =>
-          new E2eCleanupCommand({ db, cacheGateway }),
+        // CONTRACT: STRIPE_CLIENT is `optional: true` — this command exists
+        // whenever E2E_TESTING_ENABLED is set, independent of STRIPE_ENABLED.
+        // PaymentMethodsModule (which provides STRIPE_CLIENT) is a sibling
+        // under AppModule, never imported here, so the token is only visible
+        // at all because that module is @Global() when mounted; when it is
+        // not mounted, `optional: true` resolves this to `undefined` instead
+        // of failing DI resolution at bootstrap. See [[dependency-injection]]
+        inject: [DB, CacheGateway, { token: STRIPE_CLIENT, optional: true }],
+        useFactory: (db: Db, cacheGateway: CacheGateway, stripe: StripeClientHolder | undefined) =>
+          new E2eCleanupCommand({ db, cacheGateway, stripe }),
       },
       {
         provide: E2eIdentityQuery,

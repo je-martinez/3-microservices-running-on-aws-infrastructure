@@ -149,8 +149,8 @@
     ],
     "services/users/src/config/env.schema.ts": [
       {
-        "fingerprint": "6ef111637d23",
-        "message": "density: 56% (47/84) exceeds 50% for typescript"
+        "fingerprint": "6f777394a606",
+        "message": "density: 54% (57/105) exceeds 50% for typescript"
       }
     ],
     "services/users/src/shared/db/sql-logging.ts": [

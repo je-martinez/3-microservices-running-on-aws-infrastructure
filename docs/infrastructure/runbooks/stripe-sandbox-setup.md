@@ -4,13 +4,14 @@ type: runbook
 area: infra
 status: active
 created: 2026-09-21
-updated: 2026-09-21
+updated: 2026-09-22
 integration-status: not-started
 verified-on: null
 verified-by: null
 tags: [type/runbook, area/infra, status/active]
 related:
   - "[[2026-09-19-stripe-payments-design]]"
+  - "[[2026-09-19-stripe-payments]]"
   - "[[env-files]]"
   - "[[local-dev]]"
   - "[[secret-rotation]]"
@@ -109,7 +110,10 @@ Read the `whsec_...` value from that container's startup log via `make stripe-lo
 ## 4. Where each value goes
 
 Every value below goes in the **CUSTOM box**, never the AUTO box — `make env-file` rewrites
-the AUTO box from Terraform outputs on every run ([[env-files]]).
+the AUTO box from Terraform outputs on every run ([[env-files]]). `make env-file` seeds
+`STRIPE_ENABLED=false`, `STRIPE_SECRET_KEY=` and `STRIPE_WEBHOOK_SECRET=` into
+`.env.local.users`'s CUSTOM box when they are absent, so you fill them in place (empty =
+unset).
 
 | Value | File | Box |
 |---|---|---|
@@ -117,8 +121,15 @@ the AUTO box from Terraform outputs on every run ([[env-files]]).
 | `STRIPE_SECRET_KEY=rk_test_...` (Users' restricted key) | `.env.local.users` | CUSTOM |
 | `STRIPE_SECRET_KEY=rk_test_...` (Orders' restricted key — a **different** key) | `.env.local.orders` | CUSTOM |
 | `STRIPE_WEBHOOK_SECRET=whsec_...` (from `stripe listen`) | `.env.local.users` | CUSTOM |
-| `NG_APP_STRIPE_PUBLISHABLE_KEY=pk_test_...` | `apps/web/.env` | — (public, see below) |
-| `NG_APP_STRIPE_ENABLED=true` | `apps/web/.env`, and `docker-compose.yml`'s web build arg (currently hardcoded `"false"`) | — |
+| `NG_APP_STRIPE_PUBLISHABLE_KEY=pk_test_...` | `apps/web/.env` (until Task 11 lands, below) | — (public, see below) |
+| `NG_APP_STRIPE_ENABLED=true` | `apps/web/.env`, and `docker-compose.yml`'s web build arg (currently hardcoded `"false"`, until Task 11 lands, below) | — |
+
+> [!note] After [[2026-09-19-stripe-payments]] Task 11 lands
+> Both rows above move: `NG_APP_STRIPE_ENABLED` and `NG_APP_STRIPE_PUBLISHABLE_KEY` (plus every
+> other `NG_APP_*` the web Dockerfile declares) come from the root `.env`'s CUSTOM box, seeded
+> per-key by `make env-file` — not from a hand-maintained `apps/web/.env` or a hardcoded compose
+> literal. See [[env-files]]'s "Web `NG_APP_*` build args" section. Until that task lands, the
+> instructions above are still the correct, current procedure.
 
 The publishable key is on the same Dashboard API keys page as the restricted keys. It is
 **public** — it ships inside the compiled web bundle and is readable by anyone in devtools —
@@ -159,6 +170,9 @@ Practice rolling a key ahead of any incident so the procedure is not learned liv
 
 - [[2026-09-19-stripe-payments-design]] — Decisions 10, 13, 15, and 17, which this runbook
   operationalizes.
+- [[2026-09-19-stripe-payments]] — Task 11 step 11.4b, which moves the two web `NG_APP_*`
+  rows in section 4 from a hand-maintained `apps/web/.env`/hardcoded compose literal to the
+  root `.env`'s CUSTOM box.
 - [[env-files]] — the AUTO/CUSTOM box convention governing where every value in section 4 lives.
 - [[local-dev]] — the `profiles:`-gated optional-service pattern `stripe-cli` follows.
 - [[secret-rotation]] — general credential rotation mechanics referenced from section 7.

@@ -19,14 +19,14 @@ enum AuthType {
 }
 
 model User {
-  id          String    @id
-  email       String
-  cognitoSub  String?   @unique @map("cognito_sub")
-  fullName    String    @map("full_name")
-  address     Json?
-  phoneNumber String?   @map("phone_number")
-  tags        String[]  @default([])
-  authType    AuthType  @default(PASSWORD) @map("auth_type")
+  id                 String   @id
+  email              String
+  cognitoSub         String?  @unique @map("cognito_sub")
+  fullName           String   @map("full_name")
+  address            Json?
+  phoneNumber        String?  @map("phone_number")
+  tags               String[] @default([])
+  authType           AuthType @default(PASSWORD) @map("auth_type")
   // Forced password change. A boolean the FRONTEND reads off GET /v1/users/me
   // to know it must send the user through PATCH /v1/users/me/password before
   // letting them do anything else. It is a FLAG, not a credential: the
@@ -40,18 +40,23 @@ model User {
   //
   // Defaults to false so every pre-existing row keeps its current behaviour,
   // exactly like `authType` did.
-  mustChangePassword Boolean @default(false) @map("must_change_password")
+  mustChangePassword Boolean  @default(false) @map("must_change_password")
 
-  createdBy   String?   @map("created_by")
-  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedBy   String?   @map("updated_by")
-  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedBy   String?   @map("deleted_by")
-  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
+  // Lazily created (spec D2) — null until the first checkout or card-add with
+  // the Stripe flag on. Stripe is authoritative; this is a cache (spec D4).
+  stripeCustomerId   String? @unique @map("stripe_customer_id")
+  stripeCustomerData Json?   @map("stripe_customer_data")
 
-  cognitoData UsersCognitoData?
+  createdBy String?   @map("created_by")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedBy String?   @map("updated_by")
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedBy String?   @map("deleted_by")
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  @@map("users")
+  cognitoData          UsersCognitoData?
+  stripePaymentMethods StripePaymentMethod[]
+
   // Scoped to LIVE rows only. A soft-deleted user keeps their real email (no
   // tombstoning — preserving the historical value is the requirement), so a plain
   // @unique would permanently burn the address and make re-registration
@@ -62,6 +67,7 @@ model User {
   // indexes, Postgres does.
   @@unique([email], where: raw("deleted_at IS NULL"))
   @@index([deletedAt])
+  @@map("users")
 }
 
 // 1:1 identity snapshot per user. Upserted on every accepted webhook event.
@@ -80,11 +86,11 @@ model UsersCognitoData {
   deletedBy     String?   @map("deleted_by")
   deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  user   User                 @relation(fields: [userId], references: [id])
+  user   User                @relation(fields: [userId], references: [id])
   events UsersCognitoEvent[]
 
-  @@map("users_cognito_data")
   @@index([deletedAt])
+  @@map("users_cognito_data")
 }
 
 // Event log. `messageId` is derived (spec D4): sha256(sub + ":" + triggerSource).
@@ -104,8 +110,8 @@ model UsersCognitoEvent {
 
   data UsersCognitoData @relation(fields: [cognitoSub], references: [cognitoSub])
 
-  @@map("users_cognito_events")
   @@index([deletedAt])
+  @@map("users_cognito_events")
 }
 
 // One in-app notification, rendered at write time.
@@ -119,19 +125,19 @@ model UsersCognitoEvent {
 // no tint and no "View order" CTA.
 // See [[2026-09-10-in-app-notifications-design]]
 model Notification {
-  id String @id
+  id       String    @id
   // CONTRACT: No foreign key to User.id, unlike the sibling tables. A
   // TRACKING_STATUS_CHANGED can arrive for a user row that does not exist yet or
   // is soft-deleted, and an FK would turn that into an insert failure retried to
   // the DLQ. The row is stored; the GET filters by the authenticated user and
   // simply never serves it.
-  userId String @map("user_id")
+  userId   String    @map("user_id")
   // "WELCOME" | "ORDER_STATUS". A column, not a `metadata` key: it drives the
   // toast eyebrow and the CTA and is needed on every row — structure, not detail.
   // Deliberately a plain String, not an enum, so a new variant needs no migration.
-  type  String
-  title String
-  body  String
+  type     String
+  title    String
+  body     String
   // { status?, order_id?, order_number?, occurred_at }
   // CONTRACT: `occurred_at` lives here and is therefore NOT indexable. Acceptable
   // because ordering is by `createdAt` and the list caps at 50. Ordering by
@@ -139,7 +145,7 @@ model Notification {
   metadata Json
   // A timestamp, not an isRead boolean — the same shape as deletedAt, and it
   // answers "when" as well as "whether".
-  readAt DateTime? @map("read_at") @db.Timestamptz(6)
+  readAt   DateTime? @map("read_at") @db.Timestamptz(6)
 
   // CONTRACT: `createdBy` is NON-NULLABLE here, unlike the sibling tables. The
   // consumer runs OUTSIDE any request, so the AsyncLocalStorage actor the
@@ -153,9 +159,47 @@ model Notification {
   deletedBy String?   @map("deleted_by")
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  @@map("notifications")
   // Serves both the filtered list and the unread count: every query is scoped to
   // one user and then split on read/unread.
   @@index([userId, readAt])
   @@index([deletedAt])
+  @@map("notifications")
+}
+
+// Local cache of a Stripe PaymentMethod, mirroring the fields Stripe actually
+// exposes (spec D3) — never a raw PAN/CVC, which never reach this service by
+// Stripe's own design. Stripe is authoritative (spec D4): a webhook upserts
+// this row, and a card deleted in Stripe is soft-deleted here, never
+// hard-deleted, so historical orders referencing it still resolve.
+model StripePaymentMethod {
+  id                    String  @id
+  stripePaymentMethodId String  @unique @map("stripe_payment_method_id")
+  userId                String  @map("user_id")
+  // Stripe's `PaymentMethod.type` (spec D16: dynamic payment methods) — "card",
+  // "link", "us_bank_account", etc. Always present; the fields below are not.
+  type                  String
+  brand                 String?
+  last4                 String?
+  expMonth              Int?    @map("exp_month")
+  expYear               Int?    @map("exp_year")
+  funding               String?
+  country               String?
+  fingerprint           String?
+  billingName           String? @map("billing_name")
+  billingEmail          String? @map("billing_email")
+  billingAddress        Json?   @map("billing_address")
+  isDefault             Boolean @default(false) @map("is_default")
+  rawPayload            Json    @map("raw_payload")
+
+  createdBy String?   @map("created_by")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedBy String?   @map("updated_by")
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedBy String?   @map("deleted_by")
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, deletedAt])
+  @@map("stripe_payment_methods")
 }

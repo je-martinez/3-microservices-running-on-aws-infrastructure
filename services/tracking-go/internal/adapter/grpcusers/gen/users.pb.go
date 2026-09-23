@@ -171,9 +171,13 @@ type UserResponse struct {
 	// PII. This response is guarded by the x-api-key interceptor on the Users gRPC
 	// surface — it is no longer only an identity lookup. NEVER log this message,
 	// the same way plaintext email is never logged (see [[logging-context]]).
-	Address       *Address `protobuf:"bytes,5,opt,name=address,proto3" json:"address,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Address *Address `protobuf:"bytes,5,opt,name=address,proto3" json:"address,omitempty"`
+	// Null Stripe customer serializes as "" (proto3 has no null for strings).
+	// NOT exposed on GET /v1/users/me (spec D6) — this field exists only for
+	// Orders' server-to-server lookup.
+	StripeCustomerId string `protobuf:"bytes,6,opt,name=stripe_customer_id,json=stripeCustomerId,proto3" json:"stripe_customer_id,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *UserResponse) Reset() {
@@ -241,6 +245,13 @@ func (x *UserResponse) GetAddress() *Address {
 	return nil
 }
 
+func (x *UserResponse) GetStripeCustomerId() string {
+	if x != nil {
+		return x.StripeCustomerId
+	}
+	return ""
+}
+
 var File_users_proto protoreflect.FileDescriptor
 
 const file_users_proto_rawDesc = "" +
@@ -255,14 +266,15 @@ const file_users_proto_rawDesc = "" +
 	"\x05state\x18\x04 \x01(\tR\x05state\x12\x18\n" +
 	"\acountry\x18\x05 \x01(\tR\acountry\x12\x1f\n" +
 	"\vpostal_code\x18\x06 \x01(\tR\n" +
-	"postalCode\"\x9f\x01\n" +
+	"postalCode\"\xcd\x01\n" +
 	"\fUserResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12\x1b\n" +
 	"\tfull_name\x18\x03 \x01(\tR\bfullName\x12\x1f\n" +
 	"\vcognito_sub\x18\x04 \x01(\tR\n" +
 	"cognitoSub\x12+\n" +
-	"\aaddress\x18\x05 \x01(\v2\x11.users.v1.AddressR\aaddress2L\n" +
+	"\aaddress\x18\x05 \x01(\v2\x11.users.v1.AddressR\aaddress\x12,\n" +
+	"\x12stripe_customer_id\x18\x06 \x01(\tR\x10stripeCustomerId2L\n" +
 	"\x05Users\x12C\n" +
 	"\vGetUserById\x12\x1c.users.v1.GetUserByIdRequest\x1a\x16.users.v1.UserResponseB\xb4\x01\n" +
 	"\fcom.users.v1B\n" +

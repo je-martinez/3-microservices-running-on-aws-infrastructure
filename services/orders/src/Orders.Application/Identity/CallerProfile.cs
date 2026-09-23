@@ -2,8 +2,9 @@ namespace Orders.Application.Identity;
 
 /// <summary>
 /// The caller as Users knows them, from one <c>GetUserById</c> round trip: the internal
-/// <c>usr_</c> id order creation stamps, the email and name ORDER_CREATED needs, and the
-/// address it snapshots (<c>null</c> when none is on file).
+/// <c>usr_</c> id order creation stamps, the email and name ORDER_CREATED needs, the
+/// address it snapshots (<c>null</c> when none is on file), and the Stripe customer id
+/// charges against (<c>null</c> until the caller has one).
 /// CONTRACT: <c>FullName</c> is non-nullable, defaulting to <c>""</c> — proto3 has no null,
 /// so a nameless user arrives empty rather than absent. Nulling it has the consumer reject
 /// the envelope and costs the buyer their confirmation email.
@@ -14,7 +15,8 @@ public sealed record CallerProfile(
     string InternalUserId,
     string Email,
     string FullName,
-    CallerAddress? Address);
+    CallerAddress? Address,
+    string? StripeCustomerId = null);
 
 /// <summary>
 /// A delivery address as it crosses the Users boundary, with the wire encoding already

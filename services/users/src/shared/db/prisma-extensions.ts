@@ -159,6 +159,7 @@ export const RESULT_EXTENSIONS = {
   usersCognitoData: isDeletedField,
   usersCognitoEvent: isDeletedField,
   notification: isDeletedField,
+  stripePaymentMethod: isDeletedField,
 } as const;
 
 // CONTRACT: Keep the callback form of `defineExtension` — the soft-delete rewrite
@@ -250,9 +251,10 @@ function excludeSoftDeleted(args: { where?: Record<string, unknown> | null }): v
 // map matches the schema, so an unlisted relation fails CI.
 // See [[soft-delete]]
 export const MODEL_RELATIONS: Record<string, Record<string, string>> = {
-  User: { cognitoData: "UsersCognitoData" },
+  User: { cognitoData: "UsersCognitoData", stripePaymentMethods: "StripePaymentMethod" },
   UsersCognitoData: { user: "User", events: "UsersCognitoEvent" },
   UsersCognitoEvent: { data: "UsersCognitoData" },
+  StripePaymentMethod: { user: "User" },
 };
 
 // Injects `deletedAt: null` at the top-level `where`, then recurses into nested

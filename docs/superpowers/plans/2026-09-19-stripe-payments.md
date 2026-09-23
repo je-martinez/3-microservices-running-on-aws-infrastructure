@@ -4,7 +4,7 @@ type: plan
 area: shared
 status: draft
 created: 2026-09-19
-updated: 2026-09-21
+updated: 2026-09-22
 tags: [type/plan, area/shared, status/draft]
 propagates-to:
   - "[[2026-09-19-stripe-payments-design]]"
@@ -1547,7 +1547,7 @@ Task 11 (web) posts `paymentMethodId` to `POST /v1/orders`, which does not behav
 ## Task 11 — Web: `SavedCardRow` component + Payment Element checkout flow
 
 **Files:**
-- Modify: `apps/web/src/env.d.ts`, `apps/web/src/app/core/config/app-config.ts`, `apps/web/src/app/features/checkout/checkout-payment.ts`, `apps/web/src/app/features/checkout/checkout-payment.html`
+- Modify: `apps/web/src/env.d.ts`, `apps/web/src/app/core/config/app-config.ts`, `apps/web/src/app/features/checkout/checkout-payment.ts`, `apps/web/src/app/features/checkout/checkout-payment.html`, `docker-compose.yml`, `apps/web/Dockerfile`, `infra/environments/local/scripts/generate_env_files.py`
 - Create: `apps/web/src/app/shared/ui/saved-card-row.ts` (+ `.html`), `apps/web/src/app/features/checkout/payment-method-selector.ts` (+ `.html`), `apps/web/src/app/features/checkout/new-card-block.ts` (+ `.html`), `apps/web/src/app/core/api/payment-methods-api.ts`
 - Test: `saved-card-row.spec.ts`, component specs for `payment-method-selector` and `new-card-block`, an updated spec for `checkout-payment`
 
@@ -1705,6 +1705,32 @@ Task 11 (web) posts `paymentMethodId` to `POST /v1/orders`, which does not behav
   ```ts
   stripePublishableKey: import.meta.env.NG_APP_STRIPE_PUBLISHABLE_KEY ?? null,
   ```
+  Treat an empty string the same as unset (`?? null` alone does not catch `""`) — mirror the
+  Users rule that a seeded-empty Stripe value means unset, per [[env-files]].
+
+- [ ] 11.4b **No `NG_APP_*` web build arg is hardcoded in `docker-compose.yml`.**
+  **Decision (user, 2026-09-22):** every `NG_APP_*` the web Dockerfile declares as an `ARG` is
+  passed by compose interpolation from the generated root `.env`
+  (`NG_APP_X: "${NG_APP_X}"`), and `make env-file` generates/seeds every one of them:
+  - **AUTO box** (generator-owned, derived — never hand-edited): `NG_APP_API_GATEWAY_URL`
+    (`/v1`) and the WS URL (`NG_APP_WS_URL: "${WS_URL:-}"` — keep the existing `WS_URL`
+    interpolation name; do not rename it without updating every reference).
+  - **CUSTOM box**, seeded per key with the existing `custom_defaults` mechanism (per-machine
+    choices, preserved across regeneration): `NG_APP_STRIPE_ENABLED=false`,
+    `NG_APP_STRIPE_PUBLISHABLE_KEY=` (empty — the `pk_test_...` key is public by design but
+    still per-developer/sandbox), `NG_APP_GEOCODE_ENABLED` (seed with today's compose default,
+    `true`), and `NG_APP_RUM_ENABLED` (check how it is passed today and seed the same way).
+  - Update `infra/environments/local/scripts/generate_env_files.py`'s root-`.env` block (today
+    documented as "ONLY what compose interpolates", four AUTO vars — see [[env-files]]) to add
+    the CUSTOM box above, and update `docker-compose.yml`'s `web.build.args` to interpolate
+    every one of these from `.env` instead of the literals currently there
+    (`NG_APP_STRIPE_ENABLED: "false"`, `NG_APP_GEOCODE_ENABLED: "true"`).
+  - **These are BUILD-time values**: changing one still needs `docker compose build web` — a
+    plain restart re-serves the old bundle.
+  - This step is where `NG_APP_STRIPE_PUBLISHABLE_KEY` moves from a hand-edited
+    `apps/web/.env` (as [[stripe-sandbox-setup]] describes until this task lands) to the root
+    `.env` CUSTOM box seeded by `make env-file`. Cross-reference Task 14 step 14.6 (Users'
+    seeded, empty-means-unset Stripe keys) — the two mechanisms must stay consistent.
 
 - [ ] 11.5 Write the failing spec for `payment-method-selector.ts` asserting: it lists saved cards from `PaymentMethodsApi.list()`, preselects the default, exposes a `selectedPaymentMethodId` output, and shows the Payment Element (mounted against a SetupIntent client_secret from `PaymentMethodsApi.createSetupIntent()`) when the user has zero cards or clicks "Add card".
 
@@ -2197,7 +2223,7 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
 ## Task 14 — Infra, compose and CSP
 
 **Files:**
-- Modify: `infra/modules/api-gateway/main.tf`, `infra/modules/compute/nginx/nginx.conf`, `apps/web`'s nginx config (locate via `find apps/web -iname "nginx*.conf"`), `docker-compose.yml`, `Makefile`, `.env.example`
+- Modify: `infra/modules/api-gateway/main.tf`, `infra/modules/compute/nginx/nginx.conf`, `apps/web`'s nginx config (locate via `find apps/web -iname "nginx*.conf"`), `docker-compose.yml`, `Makefile`, `.env.example`, `infra/environments/local/scripts/generate_env_files.py`
 
 ### Steps
 
@@ -2226,6 +2252,48 @@ This task does NOT depend on Tasks 9–10 being merged (it touches only the plai
 - [ ] 14.5 Add `make stripe-up` and `make stripe-logs` targets to the `Makefile`, mirroring the existing `observability-up`/`observability-*` targets' shape (`docker compose --profile stripe up -d` / `docker compose logs -f stripe-cli`).
 
 - [ ] 14.6 Add every new variable to `.env.example` with a comment explaining AUTO vs CUSTOM per [[env-files]]: `STRIPE_ENABLED` (AUTO-generated default `false`), `STRIPE_SECRET_KEY` (CUSTOM, hand-injected `rk_...`), `STRIPE_WEBHOOK_SECRET` (CUSTOM, hand-injected `whsec_...` from `stripe listen`'s own output), `NG_APP_STRIPE_PUBLISHABLE_KEY` (CUSTOM, the publishable `pk_...` key, safe for the bundle).
+
+  **Decision (user, 2026-09-22 — revised, supersedes the same-day decision below):**
+  `infra/environments/local/scripts/generate_env_files.py` seeds three keys into the **CUSTOM**
+  box of `.env.local.users` when they are absent — `STRIPE_ENABLED=false`,
+  `STRIPE_SECRET_KEY=` (empty), `STRIPE_WEBHOOK_SECRET=` (empty) — using the existing per-key
+  `custom_defaults` mechanism (same precedent as `CACHE_ENABLED`). Existing values are never
+  overwritten, and a commented-out key is not re-seeded. The developer fills the two secrets
+  and flips the flag in place, per [[env-files]]. `STRIPE_ENABLED` is **not** emitted in the
+  AUTO box — one location only, no duplicate key between AUTO and CUSTOM.
+
+  Users' env schema treats an empty or whitespace-only value for these three keys as unset:
+  `STRIPE_ENABLED` defaults to `false`; an empty secret behaves as absent (flag on + no key →
+  Stripe routes answer 503, per the design spec's Decision 13) instead of failing validation
+  at boot.
+
+  This is already implemented on `feat/stripe-payments-users` (generator + schema) — Task 14
+  no longer needs to add it for Users. What remains here is **Orders**: when Orders gains its
+  Stripe env vars (Task 9/14), its equivalent keys must follow the same rule — seeded empty in
+  the CUSTOM box, empty treated as unset.
+
+  Override precedence (verified 2026-09-22 with `docker compose config`) still holds as a fact
+  about this repo's env-file layering — Compose keeps the **last** duplicate key in one
+  `env_file`, `dotenv` keeps the **first** — but it matters less here now, since there is no
+  AUTO/CUSTOM duplicate for `STRIPE_ENABLED` to order.
+
+  <details>
+  <summary>Superseded same-day decision (2026-09-22, kept for history)</summary>
+
+  `infra/environments/local/scripts/generate_env_files.py`
+  emits `STRIPE_ENABLED=false` in the AUTO-GENERATED box of `.env.local.users` (and
+  `.env.local.orders`), so the default is visible in the generated file rather than only in
+  `.env.example`. `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are **never** emitted by the
+  generator — not even as empty placeholders — and live only in the CUSTOM box, hand-injected
+  per [[env-files]].
+
+  Why no empty placeholders: Users' env schema declares
+  `STRIPE_SECRET_KEY: z.string().min(1).optional()` (Task 1.1), so an absent key is a valid
+  boot state (Stripe routes answer 503, per Decision 13) while an empty `STRIPE_SECRET_KEY=`
+  fails Zod's `.min(1)` validation and the service does not boot at all — a strictly worse
+  failure mode than the one the flag is meant to degrade into.
+
+  </details>
 
 - [ ] 14.7 Run `nvm use && node scripts/validate-vault.mjs` is not applicable here (infra-only task); instead run this repo's existing Terraform validation/lint step for the touched modules if one exists (`grep -n "^validate\|^plan" Makefile`), and `docker compose config --profile stripe` to confirm the new compose service parses.
 

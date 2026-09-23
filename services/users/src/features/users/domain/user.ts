@@ -7,6 +7,10 @@ export interface UserRow {
   // `findByIdOrCognitoSub` (a select-less findFirst), so the gRPC surface can
   // expose it as `cognito_sub`.
   cognitoSub: string | null;
+  // Present on every raw row (select-less `findFirst`), like `cognitoSub`. Only
+  // the gRPC surface exposes it (`stripe_customer_id`, "" when null) — never the
+  // HTTP layer (spec D6). See `src/users/http/serializers.ts`.
+  stripeCustomerId: string | null;
   address: unknown | null;
   phoneNumber: string | null;
   tags: string[];
