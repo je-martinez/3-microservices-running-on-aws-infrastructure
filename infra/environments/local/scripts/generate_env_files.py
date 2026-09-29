@@ -42,6 +42,9 @@ FLOCI_HOST = "floci"
 # See [[2026-09-04-web-gateway-integration-design]]
 WEB_PROXY_CONTAINER_HOST = f"{FLOCI_HOST}:4566"
 WEB_PROXY_HOST_TARGET = "http://localhost:4566"
+# The base path the bundle hangs every gateway call off, resolved by the two
+# proxies above. Floci's per-apply <api-id> stays out of the bundle entirely.
+WEB_API_GATEWAY_BASE_PATH = "/v1"
 
 # The collector's HOST-published RUM port (docker-compose.yml). `ng serve`
 # runs outside Docker, so it must reach 4319 the same way it reaches Floci on
@@ -318,6 +321,28 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # restart re-serves the old bundle. It carries the api id Floci
                 # remints on every apply. See [[web-app-env-config]]
                 "WS_URL": ws_url,
+                # CONTRACT: RELATIVE, never an absolute gateway origin. Nothing
+                # in this repo sends CORS headers, so an absolute origin is
+                # blocked at the preflight on every request; nginx proxies /v1
+                # same-origin instead. See [[web-app-env-config]]
+                "NG_APP_API_GATEWAY_URL": WEB_API_GATEWAY_BASE_PATH,
+            },
+            custom_defaults={
+                # CONTRACT: Each is a BUILD ARG of the web image, so changing
+                # one needs `docker compose build web` — a restart re-serves the
+                # old bundle. See [[env-files]]
+                #
+                # CONTRACT: CUSTOM, never generated — the AUTO box is rewritten
+                # every run, and these are per-machine choices.
+                "NG_APP_STRIPE_ENABLED": "false",
+                # The pk_test_ key is PUBLIC by design — @ngx-env compiles every
+                # NG_APP_* into the bundle — but it is still per-developer, one
+                # per Stripe sandbox. Seeded EMPTY, which app-config.ts reads as
+                # unset: card entry stays off rather than calling loadStripe("")
+                # and failing on every mount. See [[stripe-sandbox-setup]]
+                "NG_APP_STRIPE_PUBLISHABLE_KEY": "",
+                "NG_APP_GEOCODE_ENABLED": "true",
+                "NG_APP_RUM_ENABLED": "false",
             },
         ),
         # --- infra: terraform outputs, for the E2E suite and for humans ------

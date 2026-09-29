@@ -21,6 +21,11 @@ ARG NG_APP_STRIPE_ENABLED=false
 # browser and throws before Angular boots — a blank page, not a missing flag.
 # See [[2026-09-04-web-gateway-integration-design]]
 ARG NG_APP_API_GATEWAY_URL=/v1
+# The PUBLISHABLE pk_test_ key, and the only Stripe value that may enter the
+# bundle — a secret or restricted key here would be readable in devtools. Empty
+# default: app-config.ts reads it as unset and leaves card entry off, rather than
+# handing loadStripe("") a key it rejects on every mount.
+ARG NG_APP_STRIPE_PUBLISHABLE_KEY=
 # A FLAG, never the key. The Geoapify key is server-side only (nginx appends it
 # in apps/web/nginx.conf); this only tells the app whether to offer the
 # autocomplete at all. Default false so an unconfigured checkout gets the plain
@@ -63,6 +68,8 @@ ARG NG_APP_STRIPE_ENABLED
 ENV NG_APP_STRIPE_ENABLED=$NG_APP_STRIPE_ENABLED
 ARG NG_APP_API_GATEWAY_URL
 ENV NG_APP_API_GATEWAY_URL=$NG_APP_API_GATEWAY_URL
+ARG NG_APP_STRIPE_PUBLISHABLE_KEY
+ENV NG_APP_STRIPE_PUBLISHABLE_KEY=$NG_APP_STRIPE_PUBLISHABLE_KEY
 ARG NG_APP_GEOCODE_ENABLED
 ENV NG_APP_GEOCODE_ENABLED=$NG_APP_GEOCODE_ENABLED
 ARG NG_APP_WS_URL
