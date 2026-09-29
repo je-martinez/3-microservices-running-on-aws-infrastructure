@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-08-27
-updated: 2026-09-11
+updated: 2026-09-29
 tags:
   - type/convention
   - area/shared
@@ -49,7 +49,9 @@ and 30 still name the removed Jaeger. That axis is governed by "State, not histo
 
 This convention applies to comments in `.tf`, `.py`, `.ts`, `.js`, `.mjs`, `.cs`, and `.go`
 source files. It does not apply to `docs/` vault notes, generated files, or vendored code.
-`spike/` is excluded as throwaway, and `.claude/skills/` as vendored content.
+Excluded by path: `spike/` as throwaway, `.claude/skills/` and its `.agents/skills/` mirror as
+vendored content, `.claude/worktrees/` because those are checkouts of this repo and every violation
+would otherwise be counted once per worktree, and `e2e/load-tests/target/` as Gatling run output.
 
 ## Rule
 
@@ -361,6 +363,16 @@ excluded, an `--all` run reported **2142** violations from it and swamped the re
 That noise was pre-existing — those are `.js` files, unrelated to the HTML change — and surfaced
 only because `--all` is rarely run.
 
+The next instance was `.claude/worktrees/` (181 violations) and `e2e/load-tests/target/` (40),
+which made `make lint-comments` fail with 221 new violations while every touched file was clean.
+Both are excluded by **path prefix** in `EXCLUDE_PATH_PREFIXES` (`scripts/validate-comments.py`).
+Choice rule: `EXCLUDE_DIR_NAMES` matches a bare directory *name* anywhere in the tree, so use it
+only for names that are unambiguously generated (`node_modules`, `.terraform`). When the leaf name
+is generic (`target`, `build`, `out`, `tmp`), use `EXCLUDE_PATH_PREFIXES` so a future legitimate
+directory of that name is not silently exempted. After widening any exclusion, feed the linter a
+deliberately bad canary file and confirm it still fails. See
+[[2026-09-29-repo-wide-gates-must-exclude-generated-and-duplicated-trees]].
+
 The baseline freezes existing violations, so `make lint-comments` reports **0 new** and exits 0.
 A freshly introduced 14-line block is caught as 1 new violation. Measured on 2026-09-10, a full
 `--all` run scans **1,306 files** and finds **107 violations across 58 files** — `length` 85,
@@ -420,3 +432,5 @@ baseline shrinks monotonically.
 - [[2026-09-11-plans-locate-tests-by-name-not-by-importer]] — comment density and block-length
   limits are properties of the file, not of an individual plan-dictated block; run the linter on
   the whole file after applying a plan's comments, not just on the new block.
+- [[2026-09-29-repo-wide-gates-must-exclude-generated-and-duplicated-trees]] — why worktrees and
+  Gatling output are excluded by path prefix, and the canary check to run after widening an exclusion.

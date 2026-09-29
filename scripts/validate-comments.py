@@ -45,10 +45,19 @@ EXCLUDE_DIR_NAMES = frozenset(
     }
 )
 
-# spike/ is throwaway; .claude/skills/ and its .agents/skills/ mirror are vendored
-# skill content, not our source. Go carries no exclusion — services/tracking-go/
-# is linted like every other language.
-EXCLUDE_PATH_PREFIXES = ("spike/", ".claude/skills/", ".agents/skills/")
+# CONTRACT: Excluded by PATH, not name: each leaf below is too generic for
+# EXCLUDE_DIR_NAMES. `.claude/worktrees/` copies our own source, so `--all`
+# counts every violation once per worktree; `e2e/load-tests/target/` is Gatling
+# output, ~40 more per run. Both gitignored, so the gate otherwise reports
+# hundreds nobody wrote — and a gate that always fails stops being run.
+# Go is NOT excluded: services/tracking-go/ is linted like every language.
+EXCLUDE_PATH_PREFIXES = (
+    "spike/",  # throwaway
+    ".claude/skills/",  # vendored skill content, not our source
+    ".agents/skills/",  # the mirror of the above
+    ".claude/worktrees/",  # git worktrees: a second copy of our own source
+    "e2e/load-tests/target/",  # Gatling run output
+)
 
 LANG_BY_SUFFIX = {
     ".tf": "hcl",
