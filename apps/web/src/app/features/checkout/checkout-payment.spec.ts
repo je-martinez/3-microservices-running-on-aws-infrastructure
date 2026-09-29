@@ -6,21 +6,33 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { Router, provideRouter } from '@angular/router';
 import {
+  LucideApple,
   LucideBuilding2,
   LucideCheck,
   LucideChevronLeft,
   LucideCreditCard,
+  LucideInfo,
+  LucideLink,
   LucideMap,
   LucideMapPin,
   LucidePhone,
+  LucidePlus,
   LucideRefreshCw,
   LucideShieldCheck,
   LucideShoppingBag,
+  LucideTrash2,
   LucideTriangleAlert,
   provideLucideIcons,
 } from '@lucide/angular';
 
+import { of } from 'rxjs';
+import type { Stripe, StripeElements } from '@stripe/stripe-js';
+
 import { CheckoutPaymentPage } from './checkout-payment';
+import { PaymentMethodsApi } from '../../core/api/payment-methods-api';
+import { StripeLoader } from '../../core/payments/stripe-loader';
+import { APP_CONFIG } from '../../core/config/app-config';
+import type { PaymentMethodView } from '../../core/api/types';
 import { DevFillButton } from '../../core/dev/dev-fill-button';
 import type { DevData } from '../../core/dev/dev-fill';
 import { USER, awaitRequest, fillField, settle } from '../auth/testing';
@@ -51,9 +63,62 @@ const DEV_DATA: DevData = {
   otpCode: '123456',
 };
 
+const SAVED_CARD: PaymentMethodView = {
+  id: 'pm_saved',
+  type: 'card',
+  brand: 'visa',
+  last4: '4242',
+  expMonth: 4,
+  expYear: 2038,
+  isDefault: true,
+};
+
+/** A Payment Element that mounts without reaching js.stripe.com. */
+function fakeStripe(): Stripe {
+  const element = { mount: () => undefined, unmount: () => undefined, on: () => element };
+  const elements = {
+    create: () => element,
+    getElement: () => element,
+  } as unknown as StripeElements;
+  return {
+    elements: () => elements,
+    confirmSetup: vi.fn().mockResolvedValue({ setupIntent: { payment_method: 'pm_new' } }),
+  } as unknown as Stripe;
+}
+
 describe('CheckoutPaymentPage', () => {
   let fixture: ComponentFixture<CheckoutPaymentPage>;
   let controller: HttpTestingController;
+  /** What the faked list() answers; a test reassigns it BEFORE render(). */
+  let savedCards: PaymentMethodView[] = [SAVED_CARD];
+
+  const STRIPE_ENABLED = APP_CONFIG.stripeEnabled;
+
+  /**
+   * CONTRACT: Restore this in `afterEach`. APP_CONFIG is a module-level const
+   * shared by every spec in the run, so a redefinition left in place leaks the
+   * flag into unrelated files — which then pass or fail by test ORDER.
+   */
+  function withStripeEnabled(enabled: boolean): void {
+    Object.defineProperty(APP_CONFIG, 'stripeEnabled', {
+      value: enabled,
+      configurable: true,
+      writable: false,
+    });
+  }
+
+  function pay(): void {
+    root().querySelector<HTMLButtonElement>('[data-testid="checkout-pay"]')?.click();
+  }
+
+  /**
+   * CONTRACT: Stub `navigate` in any test that flushes a SUCCESSFUL order. The
+   * real navigation mounts the next route, whose own GET /v1/cart then trips
+   * `controller.verify()` in afterEach with a failure naming this test.
+   */
+  function stubNavigate(): void {
+    vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+  }
 
   beforeEach(async () => {
     TestBed.configureTestingModule({
@@ -63,18 +128,36 @@ describe('CheckoutPaymentPage', () => {
         provideRouter([]),
         ...SCREEN_TEST_PROVIDERS,
         provideLucideIcons(
+          LucideApple,
           LucideBuilding2,
           LucideCheck,
           LucideChevronLeft,
           LucideCreditCard,
+          LucideInfo,
+          LucideLink,
           LucideMap,
           LucideMapPin,
           LucidePhone,
+          LucidePlus,
           LucideRefreshCw,
           LucideShieldCheck,
           LucideShoppingBag,
+          LucideTrash2,
           LucideTriangleAlert,
         ),
+        // Inert while `stripeEnabled` is false — the Stripe branch renders
+        // nothing that injects either, so the plain-branch tests are unaffected.
+        {
+          provide: PaymentMethodsApi,
+          useValue: {
+            list: () => of(savedCards),
+            createSetupIntent: () => of({ clientSecret: 'seti_1_secret_abc' }),
+            attach: () => of({ id: 'pm_new' }),
+            remove: () => of(undefined),
+            setDefault: () => of(undefined),
+          },
+        },
+        { provide: StripeLoader, useValue: { load: () => Promise.resolve(fakeStripe()) } },
       ],
     });
     await TestBed.compileComponents();
@@ -83,6 +166,8 @@ describe('CheckoutPaymentPage', () => {
   });
 
   afterEach(() => {
+    withStripeEnabled(STRIPE_ENABLED);
+    savedCards = [SAVED_CARD];
     controller.verify({ ignoreCancelled: true });
     TestBed.resetTestingModule();
   });
@@ -109,6 +194,34 @@ describe('CheckoutPaymentPage', () => {
       address,
       ...overrides,
     });
+  }
+
+  /** A card the plain branch accepts: Luhn-valid Visa, unexpired, 3-digit CVC. */
+  const VALID_CARD = {
+    number: '4242424242424242',
+    expiry: '1230',
+    cvc: '123',
+    holder: 'Jane Doe',
+  };
+
+  /**
+   * Types into the plain branch's raw inputs, driving the same `(input)`
+   * handlers a buyer does — the formatting and the validators both hang off
+   * them, so setting the model directly would test neither.
+   */
+  function fillCard(card: Partial<typeof VALID_CARD> = {}): void {
+    const values = { ...VALID_CARD, ...card };
+    const type = (testId: string, value: string): void => {
+      const input = root().querySelector<HTMLInputElement>(`[data-testid="${testId}"]`);
+      if (!input) throw new Error(`No card input with test id ${testId}`);
+      input.value = value;
+      input.dispatchEvent(new Event('input'));
+    };
+    type('card-number', values.number);
+    type('card-expiry', values.expiry);
+    type('card-cvc', values.cvc);
+    type('card-holder', values.holder);
+    fixture.detectChanges();
   }
 
   /** Creates the page, deferred so each test can seed its own session first. */
@@ -295,13 +408,18 @@ describe('CheckoutPaymentPage', () => {
 
     (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
     await settle(fixture);
+    fillCard();
 
     root().querySelector<HTMLButtonElement>('[data-testid="checkout-pay"]')?.click();
     await settle(fixture);
 
     const order = await awaitRequest(fixture, controller, '/v1/orders');
     expect(order.request.method).toBe('POST');
-    expect(order.request.body).toEqual({ lines: [{ productId: 'prd_V1StGXR8Z5', quantity: 2 }] });
+    // `toMatchObject`, not `toEqual`: the typed card rides along as metadata,
+    // and this test is about the LINES being sent explicitly.
+    expect(order.request.body).toMatchObject({
+      lines: [{ productId: 'prd_V1StGXR8Z5', quantity: 2 }],
+    });
     order.flush({ id: 'ord_3kLpQx8vRn' });
     await settle(fixture);
 
@@ -323,6 +441,7 @@ describe('CheckoutPaymentPage', () => {
     render();
     (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
     await settle(fixture);
+    fillCard();
 
     root().querySelector<HTMLButtonElement>('[data-testid="checkout-pay"]')?.click();
     await settle(fixture);
@@ -643,9 +762,221 @@ describe('CheckoutPaymentPage', () => {
     });
     await settle(fixture);
 
+    // The card is the plain branch's OTHER gate, so it is filled here to isolate
+    // the address one this test is about.
+    fillCard();
+
     expect(root().querySelector<HTMLButtonElement>('[data-testid="checkout-pay"]')?.disabled).toBe(
       false,
     );
+  });
+
+
+  /**
+   * CONTRACT: One key per checkout ATTEMPT, sent as a HEADER. Orders reads it off
+   * the headers, so a body field is ignored and the retry below would create a
+   * second order and a second charge.
+   */
+  it('sends an Idempotency-Key header on POST /orders', async () => {
+    render();
+    stubNavigate();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+    fillCard();
+
+    pay();
+    await settle(fixture);
+
+    const order = await awaitRequest(fixture, controller, '/v1/orders');
+    expect(order.request.headers.get('Idempotency-Key')).toBeTruthy();
+    order.flush({ id: 'ord_1' });
+    await settle(fixture);
+  });
+
+  /**
+   * CONTRACT: A retry after a TRANSIENT failure reuses the SAME key — that is
+   * the whole point of it. A fresh key on a 5xx retry charges the buyer twice
+   * for one attempt when the first request had in fact reached Orders.
+   */
+  it('reuses the same key when retrying after a 5xx', async () => {
+    render();
+    stubNavigate();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+    fillCard();
+
+    pay();
+    await settle(fixture);
+    const first = await awaitRequest(fixture, controller, '/v1/orders');
+    const key = first.request.headers.get('Idempotency-Key');
+    first.flush({ message: 'boom' }, { status: 503, statusText: 'Service Unavailable' });
+    await settle(fixture);
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    pay();
+    await settle(fixture);
+    const retry = await awaitRequest(fixture, controller, '/v1/orders');
+
+    expect(retry.request.headers.get('Idempotency-Key')).toBe(key);
+    retry.flush({ id: 'ord_1' });
+    await settle(fixture);
+  });
+
+  /**
+   * CONTRACT: A 402 is a DEFINITIVE answer, so the next attempt gets a FRESH
+   * key. Reusing it makes Stripe replay the declined result: the buyer corrects
+   * the card, resubmits, and is declined again by the cached response.
+   */
+  it('mints a new key after a 402 decline', async () => {
+    render();
+    stubNavigate();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+    fillCard();
+
+    pay();
+    await settle(fixture);
+    const first = await awaitRequest(fixture, controller, '/v1/orders');
+    const key = first.request.headers.get('Idempotency-Key');
+    first.flush(
+      { error: 'Your card was declined.' },
+      { status: 402, statusText: 'Payment Required' },
+    );
+    await settle(fixture);
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    pay();
+    await settle(fixture);
+    const retry = await awaitRequest(fixture, controller, '/v1/orders');
+
+    expect(retry.request.headers.get('Idempotency-Key')).not.toBe(key);
+    retry.flush({ id: 'ord_1' });
+    await settle(fixture);
+  });
+
+  /** Stripe's own actionable sentence passes through, not a generic message. */
+  it("surfaces a 402 decline using the service's own message", async () => {
+    render();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+    fillCard();
+
+    pay();
+    await settle(fixture);
+    (await awaitRequest(fixture, controller, '/v1/orders')).flush(
+      { error: 'Your card was declined.' },
+      { status: 402, statusText: 'Payment Required' },
+    );
+    await settle(fixture);
+
+    expect(root().textContent).toContain('Your card was declined.');
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+  });
+
+  /**
+   * CONTRACT: brand/last4/expiry ONLY. The PAN and the CVC never leave the
+   * browser — a body carrying either puts this repo in PCI scope.
+   */
+  it('sends the typed card as metadata on the plain branch, never the PAN', async () => {
+    render();
+    stubNavigate();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    fixture.debugElement.queryAll(By.directive(DevFillButton))[0].componentInstance.filled.emit({
+      ...DEV_DATA,
+      cardNumber: '4242424242424242',
+      cardExpiry: '09 / 28',
+      cardCvc: '321',
+    });
+    await settle(fixture);
+    // The dev fill does not mark the fields touched, and `canPay` reads validity
+    // rather than touched state — typing the same card is what gates paying.
+    fillCard({ expiry: '0928' });
+
+    pay();
+    await settle(fixture);
+    const order = await awaitRequest(fixture, controller, '/v1/orders');
+
+    expect(order.request.body).toMatchObject({
+      card: { brand: 'visa', last4: '4242', expMonth: 9, expYear: 2028 },
+    });
+    const serialized = JSON.stringify(order.request.body);
+    expect(serialized).not.toContain('4242424242424242');
+    expect(serialized).not.toContain('321');
+    order.flush({ id: 'ord_1' });
+    await settle(fixture);
+  });
+
+  /**
+   * CONTRACT: An untyped card reaches POST /orders as NO request at all, not as
+   * a body without `card` — the plain branch is gated on a valid card, so
+   * `cardMetadata()` is never asked for metadata it has none of.
+   */
+  it('issues no order at all while no card number has been typed', async () => {
+    render();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    pay();
+    await settle(fixture);
+
+    // No POST /orders was issued: verify() would report it as unexpected.
+    controller.verify();
+  });
+
+  it('renders the payment-method selector in place of the static card', async () => {
+    withStripeEnabled(true);
+    render();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    expect(root().querySelector('app-payment-method-selector')).not.toBeNull();
+    expect(root().textContent).toContain('Visa ···· 4242');
+    expect(root().querySelector('[data-testid="checkout-plain"]')).toBeNull();
+  });
+
+  /**
+   * CONTRACT: On the Stripe branch a selected card is required as well as an
+   * address — charging with no payment method answers 402, after the buyer has
+   * already watched a spinner.
+   */
+  it('blocks paying until a card is selected', async () => {
+    withStripeEnabled(true);
+    savedCards = [];
+    render();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    expect(root().querySelector<HTMLButtonElement>('[data-testid="checkout-pay"]')?.disabled).toBe(
+      true,
+    );
+  });
+
+  it('sends the selected paymentMethodId and no card metadata', async () => {
+    withStripeEnabled(true);
+    render();
+    stubNavigate();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    expect(root().querySelector<HTMLButtonElement>('[data-testid="checkout-pay"]')?.disabled).toBe(
+      false,
+    );
+
+    pay();
+    await settle(fixture);
+    const order = await awaitRequest(fixture, controller, '/v1/orders');
+
+    expect(order.request.body).toEqual({
+      lines: [{ productId: 'prd_V1StGXR8Z5', quantity: 2 }],
+      paymentMethodId: 'pm_saved',
+    });
+    order.flush({ id: 'ord_1' });
+    await settle(fixture);
   });
 
   /** The stepper's state per label, read off the rendered `data-*` attributes. */
@@ -789,6 +1120,140 @@ describe('CheckoutPaymentPage', () => {
     expect(root().textContent).not.toContain('Calle Duarte 87');
     // Nothing was sent: verify() reports any PATCH as unexpected.
     controller.verify();
+  });
+
+  /**
+   * CONTRACT: The plain branch is gated on a VALID card, the way the Stripe
+   * branch is gated on a selected one. Both branches stay gated — an ungated
+   * plain branch posts `card` metadata Orders answers 400 to, after the buyer
+   * has watched a spinner. See [[2026-09-19-stripe-payments-design]]
+   */
+  it('disables Pay on the plain branch while the card is invalid', async () => {
+    render();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    // Luhn-invalid: Visa's 16 digits with the last one transposed.
+    fillCard({ number: '4242424242424241' });
+
+    expect(root().querySelector<HTMLButtonElement>('[data-testid="checkout-pay"]')?.disabled).toBe(
+      true,
+    );
+  });
+
+  it('disables Pay on the plain branch while no card has been typed', async () => {
+    render();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    expect(root().querySelector<HTMLButtonElement>('[data-testid="checkout-pay"]')?.disabled).toBe(
+      true,
+    );
+  });
+
+  it('enables Pay on the plain branch once the card is valid', async () => {
+    render();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    fillCard();
+
+    expect(root().querySelector<HTMLButtonElement>('[data-testid="checkout-pay"]')?.disabled).toBe(
+      false,
+    );
+  });
+
+  /**
+   * CONTRACT: The CVC is re-validated against the NUMBER's brand. A 3-digit
+   * code stays typed while the number becomes an Amex, and paying then sends an
+   * expiry and last4 for a card the buyer mistyped the code of.
+   */
+  it('rejects a 3-digit code once the number becomes an Amex', async () => {
+    render();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    fillCard({ number: '378282246310005', cvc: '123' });
+    expect(root().querySelector<HTMLButtonElement>('[data-testid="checkout-pay"]')?.disabled).toBe(
+      true,
+    );
+
+    fillCard({ number: '378282246310005', cvc: '1234' });
+    expect(root().querySelector<HTMLButtonElement>('[data-testid="checkout-pay"]')?.disabled).toBe(
+      false,
+    );
+  });
+
+  it('rejects an expiry month outside 01-12 and a past one', async () => {
+    render();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    fillCard({ expiry: '1330' });
+    expect(root().querySelector<HTMLButtonElement>('[data-testid="checkout-pay"]')?.disabled).toBe(
+      true,
+    );
+
+    fillCard({ expiry: '0120' });
+    expect(root().querySelector<HTMLButtonElement>('[data-testid="checkout-pay"]')?.disabled).toBe(
+      true,
+    );
+  });
+
+  /**
+   * CONTRACT: `required` alone counts a value of spaces as present, so the
+   * holder pairs it with /\S/ exactly as street and city do above — without it
+   * a card "held" by four spaces pays.
+   */
+  it('rejects a cardholder name of spaces', async () => {
+    render();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    fillCard({ holder: '   ' });
+
+    expect(root().querySelector<HTMLButtonElement>('[data-testid="checkout-pay"]')?.disabled).toBe(
+      true,
+    );
+  });
+
+  it('leaves the Stripe branch gated on a selected card, not on the card form', async () => {
+    withStripeEnabled(true);
+    savedCards = [];
+    render();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    // No card fields render here at all, so the plain-branch rule must not
+    // reach this branch — and the selector reports none selected.
+    expect(root().querySelector('[data-testid="card-number"]')).toBeNull();
+    expect(root().querySelector<HTMLButtonElement>('[data-testid="checkout-pay"]')?.disabled).toBe(
+      true,
+    );
+  });
+
+  it('shows an inline message on a card field the buyer has touched', async () => {
+    render();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    fillCard({ number: '4242424242424241' });
+
+    expect(root().querySelector('[data-testid="card-number-error"]')?.textContent).toContain(
+      'valid card number',
+    );
+  });
+
+  /** A pristine form does not greet the buyer in red before they have typed. */
+  it('holds every card message back until its field is touched', async () => {
+    render();
+    (await awaitRequest(fixture, controller, '/v1/cart')).flush(cart([cartLine()]));
+    await settle(fixture);
+
+    expect(root().querySelector('[data-testid="card-number-error"]')).toBeNull();
+    expect(root().querySelector('[data-testid="card-expiry-error"]')).toBeNull();
+    expect(root().querySelector('[data-testid="card-cvc-error"]')).toBeNull();
+    expect(root().querySelector('[data-testid="card-holder-error"]')).toBeNull();
   });
 
   /** The disabled Pay button states its one clearable blocker, not nothing. */

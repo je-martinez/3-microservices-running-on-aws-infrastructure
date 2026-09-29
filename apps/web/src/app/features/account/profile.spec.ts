@@ -5,13 +5,36 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { provideRouter } from '@angular/router';
+import {
+  LucideApple,
+  LucideCheck,
+  LucideCreditCard,
+  LucideLink,
+  LucideTrash2,
+  provideLucideIcons,
+} from '@lucide/angular';
+import { of } from 'rxjs';
+import type { Stripe, StripeElements } from '@stripe/stripe-js';
 
 import { ProfilePage } from './profile';
+import { APP_CONFIG } from '../../core/config/app-config';
+import { PaymentMethodsApi } from '../../core/api/payment-methods-api';
+import { StripeLoader } from '../../core/payments/stripe-loader';
 import { SessionStore } from '../../core/auth/session-store';
 import { StreetAutocomplete } from '../../shared/ui/street-autocomplete';
 import { awaitRequest, fillField, settle, textOf, USER } from '../auth/testing';
 
-import { SCREEN_TEST_PROVIDERS } from '../../shared/testing/fixtures';
+import { SCREEN_TEST_ICONS, SCREEN_TEST_PROVIDERS } from '../../shared/testing/fixtures';
+
+/** A Stripe stub whose Payment Element mounts without an iframe. */
+function fakeStripe(): Stripe {
+  const element = { mount: () => undefined, unmount: () => undefined, on: () => element };
+  const elements = { create: () => element, getElement: () => element } as unknown as StripeElements;
+  return {
+    elements: () => elements,
+    confirmSetup: vi.fn().mockResolvedValue({ setupIntent: { payment_method: 'pm_new' } }),
+  } as unknown as Stripe;
+}
 
 const ME = '/v1/users/me';
 
@@ -34,6 +57,21 @@ describe('ProfilePage', () => {
   let fixture: ComponentFixture<ProfilePage>;
   let controller: HttpTestingController;
 
+  const STRIPE_ENABLED = APP_CONFIG.stripeEnabled;
+
+  /**
+   * CONTRACT: Restore this in `afterEach`. APP_CONFIG is a module-level const
+   * shared by every spec in the run, so a redefinition left in place leaks the
+   * flag into unrelated files — which then pass or fail by test ORDER.
+   */
+  function withStripeEnabled(enabled: boolean): void {
+    Object.defineProperty(APP_CONFIG, 'stripeEnabled', {
+      value: enabled,
+      configurable: true,
+      writable: false,
+    });
+  }
+
   beforeEach(async () => {
     TestBed.configureTestingModule({
       providers: [
@@ -41,6 +79,31 @@ describe('ProfilePage', () => {
         provideHttpClientTesting(),
         provideRouter([]),
         ...SCREEN_TEST_PROVIDERS,
+        // CONTRACT: Merge into ONE provideLucideIcons call, never add a second.
+        // It is a plain `useValue` over a single token, so a later call REPLACES
+        // the registry — the symptom is "Unable to resolve icon 'map-pin'" from a
+        // screen whose own icons this file never touched.
+        provideLucideIcons(
+          ...SCREEN_TEST_ICONS,
+          LucideApple,
+          LucideCheck,
+          LucideCreditCard,
+          LucideLink,
+          LucideTrash2,
+        ),
+        // Inert while `stripeEnabled` is false — the tab renders nothing that
+        // injects either, so the single-view tests are unaffected.
+        {
+          provide: PaymentMethodsApi,
+          useValue: {
+            list: () => of([]),
+            createSetupIntent: () => of({ clientSecret: 'seti_1_secret_abc' }),
+            attach: () => of({ id: 'pm_new' }),
+            remove: () => of(undefined),
+            setDefault: () => of(undefined),
+          },
+        },
+        { provide: StripeLoader, useValue: { load: () => Promise.resolve(fakeStripe()) } },
       ],
     });
     await TestBed.compileComponents();
@@ -48,6 +111,7 @@ describe('ProfilePage', () => {
   });
 
   afterEach(() => {
+    withStripeEnabled(STRIPE_ENABLED);
     controller.verify({ ignoreCancelled: true });
     TestBed.resetTestingModule();
   });
@@ -302,5 +366,32 @@ describe('ProfilePage', () => {
     await settle(fixture);
 
     expect(TestBed.inject(SessionStore).user()).toEqual(MORGAN);
+  });
+
+  /**
+   * CONTRACT: With STRIPE_ENABLED off the profile keeps its pre-milestone
+   * single-view shape — no Tabs frame and no SAVED CARDS section. Rendering the
+   * tab greyed out instead offers card management the backend routes refuse.
+   * See [[2026-09-19-stripe-payments-design]]
+   */
+  it('renders no payment-methods tab while STRIPE_ENABLED is off', async () => {
+    withStripeEnabled(false);
+    create();
+    (await awaitRequest(fixture, controller, ME)).flush(MORGAN);
+    await settle(fixture);
+
+    expect(root().querySelector('app-payment-methods-tab')).toBeNull();
+    expect(root().querySelector('[data-testid="tab-payment-methods"]')).toBeNull();
+    expect(root().textContent).toContain('Morgan Reyes');
+  });
+
+  it('mounts the payment-methods tab while STRIPE_ENABLED is on', async () => {
+    withStripeEnabled(true);
+    create();
+    (await awaitRequest(fixture, controller, ME)).flush(MORGAN);
+    await settle(fixture);
+
+    expect(root().querySelector('app-payment-methods-tab')).not.toBeNull();
+    expect(root().querySelector('[data-testid="tab-payment-methods"]')).not.toBeNull();
   });
 });

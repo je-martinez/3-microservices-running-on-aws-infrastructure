@@ -1,5 +1,5 @@
 import { Component, computed, inject, signal, ChangeDetectionStrategy } from '@angular/core';
-import { form, maxLength, pattern, required, FormField } from '@angular/forms/signals';
+import { form, maxLength, pattern, required, validate, FormField } from '@angular/forms/signals';
 import { Router, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import {
@@ -20,6 +20,7 @@ import { UsersApi } from '../../core/api/users-api';
 import { SessionStore } from '../../core/auth/session-store';
 import { CartStore } from '../../core/cart/cart-store';
 import { authErrorMessage } from '../auth/auth-errors';
+import { ApiError } from '../../core/http/api-client';
 import { CartLine } from '../../shared/ui/cart-line';
 import { Field } from '../../shared/ui/field';
 import { PhoneField } from '../../shared/ui/phone-field';
@@ -27,6 +28,14 @@ import { StreetAutocomplete } from '../../shared/ui/street-autocomplete';
 import { DevFillButton } from '../../core/dev/dev-fill-button';
 import type { DevData } from '../../core/dev/dev-fill';
 import { digitsOnly, groupCardDigits } from '../../shared/ui/numeric-input';
+import {
+  detectCardBrand,
+  isValidCardNumber,
+  isValidCvc,
+  isValidExpiry,
+} from '../../shared/ui/card-validation';
+import { PaymentMethodSelector } from './payment-method-selector';
+import type { CardMetadataRequest } from '../../core/api/orders-api';
 
 /** The visible delivery-address fields; `country` is derived, never typed. */
 interface AddressForm {
@@ -54,6 +63,8 @@ const EMPTY_ADDRESS_FORM: AddressForm = {
   postalCode: '',
   phoneNumber: '',
 };
+
+const CARD_HOLDER_MESSAGE = 'Enter the name on the card';
 
 const EMPTY_CARD_FORM: CardForm = {
   cardNumber: '',
@@ -83,6 +94,7 @@ const EMPTY_CARD_FORM: CardForm = {
     PhoneField,
     StreetAutocomplete,
     DevFillButton,
+    PaymentMethodSelector,
     LucideChevronLeft,
     LucideCreditCard,
     LucideDynamicIcon,
@@ -108,6 +120,19 @@ export class CheckoutPaymentPage {
 
   protected readonly placing = signal(false);
   protected readonly checkoutError = signal<string | null>(null);
+
+  /** The saved card `pay()` charges; null until the selector reports one. */
+  protected readonly selectedPaymentMethodId = signal<string | null>(null);
+
+  /**
+   * CONTRACT: ONE key per checkout ATTEMPT, reused only when retrying the SAME
+   * attempt after a network error, a timeout or a 5xx. A definitive answer — any
+   * 2xx or 4xx, a 402 decline included — mints a fresh one, because Stripe
+   * replays the cached result for a reused key: the buyer corrects the card,
+   * resubmits, and is declined again by the response from the old card.
+   * See [[2026-09-19-stripe-payments-design]]
+   */
+  private readonly idempotencyKey = signal(crypto.randomUUID());
 
   protected readonly itemCount = computed(() => this.cart.itemCount());
 
@@ -147,9 +172,10 @@ export class CheckoutPaymentPage {
   });
 
   /**
-   * CONTRACT: Local state only — nothing submits these, and the Stripe path
-   * renders no fields at all. They exist so the dev fill can populate a form a
-   * developer is looking at, which is why this form carries no validators.
+   * CONTRACT: The PAN and the CVC live here and go NOWHERE — `cardMetadata()`
+   * sends brand, last4 and the expiry only. These validators exist so the buyer
+   * reads an inline message instead of a rejected order; Orders mirrors them on
+   * the metadata it does receive. See [[2026-09-19-stripe-payments-design]]
    *
    * CONTRACT: Its inputs stay RAW `<input>`s driven by the handlers below, NOT
    * `[formField]` — the directive reads the element's raw value and would undo
@@ -157,7 +183,37 @@ export class CheckoutPaymentPage {
    * `4242424242424242`. See [[2026-09-07-dev-form-autofill]]
    */
   protected readonly cardModel = signal<CardForm>(EMPTY_CARD_FORM);
-  protected readonly cardForm = form(this.cardModel);
+  protected readonly cardForm = form(this.cardModel, (path) => {
+    // CONTRACT: `required` counts a value of spaces as present, so the holder
+    // pairs it with /\S/ exactly as street and city do — otherwise a card held
+    // by four spaces pays. See [[2026-09-10-signal-forms-required-accepts-whitespace]]
+    required(path.cardHolder, { message: CARD_HOLDER_MESSAGE });
+    pattern(path.cardHolder, /\S/, { message: CARD_HOLDER_MESSAGE });
+
+    // The field carries the GROUPED value, so the digits come out of it before
+    // any length or checksum rule can read it.
+    validate(path.cardNumber, ({ value }) =>
+      isValidCardNumber(digitsOnly(value()))
+        ? null
+        : { kind: 'cardNumber', message: 'Enter a valid card number' },
+    );
+
+    validate(path.cardExpiry, ({ value }) => {
+      const [month, year] = splitExpiry(value());
+      return month !== null && year !== null && isValidExpiry(month, year, new Date())
+        ? null
+        : { kind: 'cardExpiry', message: 'Enter a valid expiry date' };
+    });
+
+    // CONTRACT: Reads the brand off the NUMBER, not off this field. Amex wants
+    // four digits, so a 3-digit code already typed must turn invalid the moment
+    // the number becomes an Amex.
+    validate(path.cardCvc, ({ value }) =>
+      isValidCvc(value(), detectCardBrand(digitsOnly(this.cardModel().cardNumber)))
+        ? null
+        : { kind: 'cardCvc', message: 'Enter a valid security code' },
+    );
+  });
 
   protected readonly savingAddress = signal(false);
   protected readonly addressError = signal<string | null>(null);
@@ -222,6 +278,16 @@ export class CheckoutPaymentPage {
   );
 
   /**
+   * The message each card field shows, mirroring `app-field`'s rule above: an
+   * error stays hidden until its field is TOUCHED, so a pristine form does not
+   * greet the buyer in red before they have typed anything.
+   */
+  protected readonly cardNumberError = computed(() => firstError(this.cardForm.cardNumber()));
+  protected readonly cardExpiryError = computed(() => firstError(this.cardForm.cardExpiry()));
+  protected readonly cardCvcError = computed(() => firstError(this.cardForm.cardCvc()));
+  protected readonly cardHolderError = computed(() => firstError(this.cardForm.cardHolder()));
+
+  /**
    * CONTRACT: Every figure here is the server's `formatted` string, rendered
    * verbatim. Re-deriving one from `cents` shows an amount a cent away from
    * what is actually charged — the server rounds tax per line.
@@ -245,11 +311,27 @@ export class CheckoutPaymentPage {
    */
   protected readonly canPay = computed(
     () =>
-      this.cart.canCheckout() && !this.cart.saving() && !this.placing() && this.address() !== null,
+      this.cart.canCheckout() &&
+      !this.cart.saving() &&
+      !this.placing() &&
+      this.address() !== null &&
+      // CONTRACT: The Stripe branch also needs a card. Charging with no payment
+      // method answers 402 after the buyer has already watched a spinner.
+      (!this.stripeEnabled() || this.selectedPaymentMethodId() !== null) &&
+      // CONTRACT: BOTH branches are gated, each on the card surface it renders.
+      // The plain branch's own fields are the only card it has, so an invalid
+      // one must not reach POST /orders — Orders re-validates the metadata and
+      // answers 400. The Payment Element validates its own fields, so this rule
+      // deliberately stops at the plain branch.
+      (this.stripeEnabled() || this.cardForm().valid()),
   );
 
   constructor() {
     void this.cart.load();
+  }
+
+  protected onCardSelected(id: string | null): void {
+    this.selectedPaymentMethodId.set(id);
   }
 
   /**
@@ -282,10 +364,16 @@ export class CheckoutPaymentPage {
     });
   }
 
+  /**
+   * CONTRACT: Every handler below marks its own field touched. Nothing else
+   * does — these inputs are raw, not `[formField]`-bound — and an untouched
+   * field renders no message however invalid it is.
+   */
   protected onCardNumberInput(element: HTMLInputElement): void {
     const value = groupCardDigits(element.value);
     element.value = value;
     this.cardForm.cardNumber().value.set(value);
+    this.cardForm.cardNumber().markAsTouched();
   }
 
   protected onCardExpiryInput(element: HTMLInputElement): void {
@@ -293,16 +381,19 @@ export class CheckoutPaymentPage {
     const value = digits.length > 2 ? `${digits.slice(0, 2)} / ${digits.slice(2)}` : digits;
     element.value = value;
     this.cardForm.cardExpiry().value.set(value);
+    this.cardForm.cardExpiry().markAsTouched();
   }
 
   protected onCardCvcInput(element: HTMLInputElement): void {
     const value = digitsOnly(element.value, 4);
     element.value = value;
     this.cardForm.cardCvc().value.set(value);
+    this.cardForm.cardCvc().markAsTouched();
   }
 
   protected onCardHolderInput(element: HTMLInputElement): void {
     this.cardForm.cardHolder().value.set(element.value);
+    this.cardForm.cardHolder().markAsTouched();
   }
 
   /**
@@ -453,16 +544,32 @@ export class CheckoutPaymentPage {
 
     this.placing.set(true);
     this.checkoutError.set(null);
+    const stripe = this.stripeEnabled();
     try {
-      const order = await firstValueFrom(this.ordersApi.createOrder(lines));
+      const order = await firstValueFrom(
+        this.ordersApi.createOrder(lines, {
+          idempotencyKey: this.idempotencyKey(),
+          ...(stripe
+            ? { paymentMethodId: this.selectedPaymentMethodId() }
+            : this.cardMetadata()),
+        }),
+      );
+      this.idempotencyKey.set(crypto.randomUUID());
       this.cart.forgetAfterCheckout();
       // CONTRACT: `justPlaced` rides in navigation state, NOT a query param, so
       // the success banner cannot be resurrected by sharing or bookmarking the
       // order URL. See [[angular-component-authoring]]
       await this.router.navigate(['/orders', order.id], { state: { justPlaced: true } });
     } catch (error: unknown) {
+      // CONTRACT: A 4xx is DEFINITIVE, so the key is retired; a 5xx or a
+      // transport failure (status 0) may have reached Orders, so the SAME key
+      // must ride the retry or the buyer is charged twice for one attempt.
+      if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
+        this.idempotencyKey.set(crypto.randomUUID());
+      }
       // 409 is the race `canCheckout` cannot rule out: stock went in the gap
-      // between reading the cart and charging it.
+      // between reading the cart and charging it. A 402 needs no entry here —
+      // Stripe's own actionable sentence is what `detail` already resolves to.
       this.checkoutError.set(
         authErrorMessage(error, {
           409: 'Someone bought the last one while you were checking out. Adjust your cart and try again.',
@@ -473,4 +580,68 @@ export class CheckoutPaymentPage {
       this.placing.set(false);
     }
   }
+
+  /**
+   * What the buyer typed, minus everything that must not leave the browser.
+   *
+   * CONTRACT: brand, last4 and the expiry ONLY — never the PAN, never the CVC.
+   * A body carrying either puts this repo in PCI scope, and Orders validates
+   * these four fields only while STRIPE_ENABLED is false.
+   * See [[2026-09-19-stripe-payments-design]]
+   */
+  private cardMetadata(): { card: CardMetadataRequest } | Record<string, never> {
+    const values = this.cardModel();
+    const digits = digitsOnly(values.cardNumber, 19);
+    if (digits === '') return {};
+
+    const [expMonth, expYear] = splitExpiry(values.cardExpiry);
+    const brand = detectCardBrand(digits);
+    return {
+      card: {
+        brand: brand === 'unknown' ? null : brand,
+        last4: digits.length >= 4 ? digits.slice(-4) : null,
+        expMonth,
+        expYear,
+      },
+    };
+  }
+}
+
+/** The field's first message, or null while it is untouched or valid. */
+function firstError(field: {
+  touched: () => boolean;
+  errors: () => readonly { readonly message?: string }[];
+}): string | null {
+  return field.touched() ? (field.errors()[0]?.message ?? null) : null;
+}
+
+/**
+ * The design's one `MM / YY` field as a month/year pair, null where a part is
+ * still half-typed.
+ *
+ * CONTRACT: The SINGLE place the typed expiry is parsed — the validator and the
+ * metadata sent to Orders must agree on what `12 / 3` means, or the form accepts
+ * a card whose `expMonth`/`expYear` then arrive as null and answer 400.
+ * See [[2026-09-19-stripe-payments-design]]
+ */
+function splitExpiry(value: string): [number | null, number | null] {
+  const [month, year] = value.split('/').map((part) => part.trim());
+  return [toExpiryNumber(month), toExpiryYear(year)];
+}
+
+/** Null rather than NaN for a partly typed month, which the server rejects. */
+function toExpiryNumber(value: string | undefined): number | null {
+  if (value === undefined || !/^\d{1,2}$/.test(value)) return null;
+  return Number(value);
+}
+
+/**
+ * CONTRACT: Expand the design's two-digit year to four — Orders stores the same
+ * `expYear` Stripe does, and a literal 28 reads as the year 28 AD, making every
+ * card expired.
+ */
+function toExpiryYear(value: string | undefined): number | null {
+  if (value === undefined || !/^\d{2}$|^\d{4}$/.test(value)) return null;
+  const year = Number(value);
+  return value.length === 2 ? 2000 + year : year;
 }

@@ -7,38 +7,40 @@ export interface AppConfig {
   /** Whether the Stripe payment path is offered at checkout. */
   readonly stripeEnabled: boolean;
   /**
-   * Base path for every gateway call. CONTRACT: this stays RELATIVE ("/v1").
-   * Nothing in this repo sends CORS headers, so an absolute gateway origin is
-   * blocked at the preflight; nginx and `ng serve` proxy /v1 same-origin
-   * instead. See [[2026-09-04-web-gateway-integration-design]]
+   * CONTRACT: The ONLY Stripe value allowed in the bundle — a publishable
+   * `pk_...` key, never a secret or restricted one. Null leaves card entry off
+   * even while `stripeEnabled` is true. See [[2026-09-19-stripe-payments-design]]
+   */
+  readonly stripePublishableKey: string | null;
+  /**
+   * CONTRACT: Stays RELATIVE ("/v1"). Nothing here sends CORS headers, so an
+   * absolute gateway origin is blocked at the preflight; nginx and `ng serve`
+   * proxy /v1 same-origin. See [[2026-09-04-web-gateway-integration-design]]
    */
   readonly apiGatewayUrl: string;
   /**
-   * A FLAG, not the Geoapify key: the key is server-side only, appended by nginx
-   * on the same-origin /geocode/ proxy. Off by default, so an unconfigured
-   * checkout shows a plain input rather than one that 503s on every keystroke.
+   * A FLAG, not the Geoapify key — that one is server-side only, appended by
+   * nginx on the same-origin /geocode/ proxy. Off by default: an unconfigured
+   * checkout shows a plain input, not one that 503s on every keystroke.
    */
   readonly geocodeEnabled: boolean;
   /**
-   * CONTRACT: The HOST-facing `ws_url`, never the in-network
-   * `ws_management_endpoint` — that one is the server's publish endpoint and
-   * answers a browser handshake with an S3 XML body, not an endpoint error.
-   * Empty disables the socket rather than dialling a bad URL on every boot.
+   * CONTRACT: The HOST-facing `ws_url`, never `ws_management_endpoint` — that
+   * one answers a browser handshake with an S3 XML body, not an endpoint error.
    * See [[2026-08-05-realtime-tracking-events-websocket-design]]
    */
   readonly wsUrl: string;
   /**
    * WHY: Off by default — the collector sits behind compose's `observability`
-   * profile, so default-on would spam failed exports on a plain `make up`.
+   * profile, so default-on spams failed exports on a plain `make up`.
    * See [[2026-09-19-web-rum-integration-design]]
    */
   readonly rumEnabled: boolean;
 }
 
 /**
- * CONTRACT: Nothing in this file throws, for any input — it runs at module scope,
- * before `bootstrapApplication`, so main.ts's `.catch` never fires and a throw
- * strands the user on the navy boot loader. Bad input degrades and warns.
+ * CONTRACT: Nothing here throws, for any input — it runs at module scope, so
+ * main.ts's `.catch` never fires and a throw strands the user on the boot loader.
  */
 function readString(source: unknown, key: string): string | undefined {
   if (typeof source !== 'object' || source === null) return undefined;
@@ -53,7 +55,6 @@ export const MISSING_WS_URL_WARNING =
   'unread badge) are disabled and notifications arrive only on the next page load. ' +
   'Set NG_APP_WS_URL in apps/web/.env, mirroring WS_URL from .env.local.web.';
 
-/** WHY: Exported and pure so the spec feeds it an env object, with no module resets. */
 export function parseAppConfig(
   env: unknown,
   warn: (message: string) => void = console.warn,
@@ -66,6 +67,10 @@ export function parseAppConfig(
 
   return {
     stripeEnabled: readString(env, 'NG_APP_STRIPE_ENABLED') === 'true',
+    // CONTRACT: An EMPTY string means unset — `make env-file` seeds the
+    // CUSTOM-box entry with no value, and `loadStripe("")` rejects with an
+    // opaque error rather than degrading. See [[env-files]]
+    stripePublishableKey: readString(env, 'NG_APP_STRIPE_PUBLISHABLE_KEY') || null,
     apiGatewayUrl: readString(env, 'NG_APP_API_GATEWAY_URL') || DEFAULT_API_GATEWAY_URL,
     geocodeEnabled: readString(env, 'NG_APP_GEOCODE_ENABLED') === 'true',
     wsUrl,
@@ -75,12 +80,13 @@ export function parseAppConfig(
 
 /**
  * CONTRACT: Spell each variable out as a full `import.meta.env.NG_APP_*` access.
- * @ngx-env/builder defines only those dotted expressions in esbuild, never
- * `import.meta.env` itself, so passing the bare object or destructuring it
- * ships a bundle reading `undefined` for all four — silently on the fallbacks.
+ * esbuild defines only those dotted expressions, so passing the bare object or
+ * destructuring it ships a bundle reading `undefined` for every one.
+ * See [[env-files]]
  */
 export const APP_CONFIG: AppConfig = parseAppConfig({
   NG_APP_STRIPE_ENABLED: import.meta.env.NG_APP_STRIPE_ENABLED,
+  NG_APP_STRIPE_PUBLISHABLE_KEY: import.meta.env.NG_APP_STRIPE_PUBLISHABLE_KEY,
   NG_APP_API_GATEWAY_URL: import.meta.env.NG_APP_API_GATEWAY_URL,
   NG_APP_GEOCODE_ENABLED: import.meta.env.NG_APP_GEOCODE_ENABLED,
   NG_APP_WS_URL: import.meta.env.NG_APP_WS_URL,

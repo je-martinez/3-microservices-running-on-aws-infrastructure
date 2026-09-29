@@ -1,0 +1,115 @@
+<div
+  data-testid="profile-tabs"
+  class="border-line flex h-fit w-full shrink-0 flex-row items-end justify-start gap-7 border-b px-1"
+  role="tablist"
+  aria-label="Profile sections"
+>
+  <button
+    data-testid="tab-delivery-address"
+    type="button"
+    role="tab"
+    class="text-body-lg flex h-fit w-fit shrink-0 flex-col items-start justify-start gap-md whitespace-nowrap"
+    [class.text-ink-primary]="active() === 'delivery-address'"
+    [class.font-semibold]="active() === 'delivery-address'"
+    [class.text-ink-secondary]="active() !== 'delivery-address'"
+    [attr.aria-selected]="active() === 'delivery-address'"
+    (click)="select('delivery-address')"
+  >
+    Delivery address
+    <!-- CONTRACT: The inactive indicator is `bg-transparent`, not a missing
+         element. Dropping it collapses the tab by the indicator's own height and
+         both labels jump as the buyer switches tabs. -->
+    <span
+      data-testid="tab-indicator-delivery-address"
+      class="h-hairline w-31 shrink-0 rounded-full"
+      [class.bg-brand-navy]="active() === 'delivery-address'"
+      [class.bg-transparent]="active() !== 'delivery-address'"
+    ></span>
+  </button>
+
+  <button
+    data-testid="tab-payment-methods"
+    type="button"
+    role="tab"
+    class="text-body-lg flex h-fit w-fit shrink-0 flex-col items-start justify-start gap-md whitespace-nowrap"
+    [class.text-ink-primary]="active() === 'payment-methods'"
+    [class.font-semibold]="active() === 'payment-methods'"
+    [class.text-ink-secondary]="active() !== 'payment-methods'"
+    [attr.aria-selected]="active() === 'payment-methods'"
+    (click)="select('payment-methods')"
+  >
+    Payment methods
+    <span
+      data-testid="tab-indicator-payment-methods"
+      class="h-hairline w-31 shrink-0 rounded-full"
+      [class.bg-brand-navy]="active() === 'payment-methods'"
+      [class.bg-transparent]="active() !== 'payment-methods'"
+    ></span>
+  </button>
+</div>
+
+@if (active() === 'delivery-address') {
+  <ng-content />
+} @else {
+  <div
+    data-testid="saved-cards-section"
+    class="border-line bg-surface-white flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-6"
+  >
+    <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
+      <span class="text-ink-muted text-xs font-semibold tracking-overline">SAVED CARDS</span>
+      <span data-testid="section-count" class="text-ink-secondary text-body-sm whitespace-nowrap">
+        {{ countLabel() }}
+      </span>
+    </div>
+
+    @if (loading()) {
+      <p class="text-ink-secondary text-body-sm w-full" aria-busy="true">Loading your cards…</p>
+    }
+
+    @if (cardsError(); as message) {
+      <p data-testid="cards-error" class="text-danger-red text-body-sm w-full" role="alert">
+        {{ message }}
+      </p>
+    }
+
+    @if (!showAddCard()) {
+      <div
+        data-testid="cards-list"
+        class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-xl"
+      >
+        @for (entry of entries(); track entry.card.id) {
+          <!-- CONTRACT: `selectable` stays FALSE here. A radio on the profile
+               implies a choice this screen sends nowhere — the checkout owns
+               picking a card, this tab only manages them. -->
+          <app-saved-card-row
+            [card]="entry.card"
+            [selectable]="false"
+            [expired]="entry.expired"
+            (setDefault)="onSetDefault($event)"
+            (remove)="onRemove($event)"
+          />
+        }
+      </div>
+
+      <app-button-ghost
+        data-testid="add-card-button"
+        label="Add a card"
+        icon="plus"
+        [compact]="true"
+        (clicked)="openAddCard()"
+      />
+    } @else {
+      <app-profile-add-card (cancelled)="closeAddCard()" (added)="onCardAdded()" />
+    }
+
+    <div
+      data-testid="security-note"
+      class="flex h-fit w-full shrink-0 flex-row items-center justify-start gap-base"
+    >
+      <svg lucideLock class="text-ink-muted h-icon-xs w-icon-xs shrink-0"></svg>
+      <span class="text-ink-muted text-caption flex-1">
+        Cards are stored by Stripe. 3MRAI never sees your full card number.
+      </span>
+    </div>
+  </div>
+}

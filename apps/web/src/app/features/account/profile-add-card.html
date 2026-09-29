@@ -1,0 +1,98 @@
+<div
+  data-testid="profile-add-card"
+  class="bg-surface-subtle border-brand-navy flex h-fit w-full shrink-0 flex-col items-start justify-start gap-2xl rounded-md border-[1.5px] p-4"
+>
+  <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
+    <span class="text-ink-primary text-body-lg font-semibold whitespace-nowrap">New card</span>
+    <button
+      data-testid="cancel-link"
+      type="button"
+      class="text-ink-secondary text-body-sm font-semibold whitespace-nowrap"
+      (click)="cancelled.emit()"
+    >
+      Cancel
+    </button>
+  </div>
+
+  <!-- CONTRACT: The tabs are DISPLAY only. The Payment Element decides which
+       methods are eligible and renders its own switcher inside the iframe, so a
+       tab here that filtered the Element would hide a method Stripe offered. -->
+  <div class="flex h-fit w-full shrink-0 flex-row items-start justify-start gap-2" role="tablist">
+    @for (tab of tabs; track tab.id) {
+      <span
+        [attr.data-testid]="'tab-' + tab.id"
+        role="tab"
+        class="flex h-15 flex-1 flex-col items-center justify-center gap-xs rounded-lg"
+        [class]="
+          tab.id === 'card'
+            ? 'bg-brand-orange-light border-brand-orange border-[1.5px]'
+            : 'bg-surface-white border-line border'
+        "
+        [attr.aria-selected]="tab.id === 'card'"
+      >
+        <svg
+          [lucideIcon]="tab.icon"
+          class="h-icon-md w-icon-md"
+          [class.text-brand-orange-text]="tab.id === 'card'"
+          [class.text-ink-secondary]="tab.id !== 'card'"
+        ></svg>
+        <span
+          class="text-caption whitespace-nowrap"
+          [class.text-ink-primary]="tab.id === 'card'"
+          [class.font-semibold]="tab.id === 'card'"
+          [class.text-ink-secondary]="tab.id !== 'card'"
+        >
+          {{ tab.label }}
+        </span>
+      </span>
+    }
+  </div>
+
+  <!-- CONTRACT: Stripe.js mounts its iframe INTO this div, so nothing Angular
+       renders may live inside it — a child here is wiped on mount, and the
+       four card fields then appear without the label above them. -->
+  <div data-testid="payment-element" #paymentElement class="w-full"></div>
+
+  @if (unavailable()) {
+    <p data-testid="card-entry-unavailable" class="text-ink-secondary text-body-sm w-full">
+      Card entry is unavailable right now. Please try again later.
+    </p>
+  }
+
+  <div class="flex h-fit w-full shrink-0 flex-row items-center justify-start gap-md pt-1">
+    <button
+      data-testid="default-card-checkbox"
+      type="button"
+      role="checkbox"
+      class="flex h-4.5 w-4.5 shrink-0 flex-row items-center justify-center rounded border"
+      [class.bg-brand-orange]="setAsDefault()"
+      [class.border-brand-orange]="setAsDefault()"
+      [class.border-line-strong]="!setAsDefault()"
+      [attr.aria-checked]="setAsDefault()"
+      (click)="toggleSetAsDefault()"
+    >
+      @if (setAsDefault()) {
+        <svg lucideCheck class="text-surface-white h-3 w-3"></svg>
+      }
+    </button>
+    <span class="text-ink-primary text-body leading-body flex-1 font-medium">
+      Set as my default card
+    </span>
+  </div>
+
+  @if (cardError(); as message) {
+    <p data-testid="card-error" class="text-danger-red text-body-sm w-full" role="alert">
+      {{ message }}
+    </p>
+  }
+
+  <button
+    data-testid="add-card-button-submit"
+    type="button"
+    class="bg-brand-orange text-surface-white flex h-12 w-full shrink-0 flex-row items-center justify-center gap-md rounded-md text-body-lg font-semibold disabled:opacity-50"
+    [disabled]="!canSubmit()"
+    (click)="submit()"
+  >
+    {{ submitting() ? 'Adding…' : 'Add card' }}
+  </button>
+</div>

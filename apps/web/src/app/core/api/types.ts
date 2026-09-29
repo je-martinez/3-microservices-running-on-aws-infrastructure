@@ -319,3 +319,22 @@ export interface ResolvedOrderLine extends OrderLine {
 export function joinOrderLine(line: OrderLine, catalogue: readonly Product[]): ResolvedOrderLine {
   return { ...line, product: catalogue.find((p) => p.id === line.productId) ?? null };
 }
+
+/**
+ * services/users/openapi.yaml — PaymentMethodView, one saved card.
+ *
+ * CONTRACT: `brand`, `last4`, `expMonth` and `expYear` are REQUIRED keys that
+ * carry null — Stripe fills them only for `type: 'card'`. Typing them optional
+ * lets a reader `?.` past a present-but-null value, so a non-card method
+ * renders a row reading "undefined ···· undefined" instead of a fallback.
+ * See [[2026-09-19-stripe-payments-design]]
+ */
+export interface PaymentMethodView {
+  id: string;
+  type: string;
+  brand: string | null;
+  last4: string | null;
+  expMonth: number | null;
+  expYear: number | null;
+  isDefault: boolean;
+}

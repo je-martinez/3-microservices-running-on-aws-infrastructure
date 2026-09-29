@@ -39,34 +39,40 @@ import type {
 } from '../../core/api/types';
 
 /**
+ * CONTRACT: A spec needing extra icons merges them into ONE provideLucideIcons
+ * call with these — never a second provider. The token takes a plain `useValue`,
+ * so a later call REPLACES the registry: the symptom is "Unable to resolve icon
+ * 'map-pin'" thrown from a screen the spec never touched.
+ */
+export const SCREEN_TEST_ICONS = [
+  LucideArrowLeft,
+  LucideChevronDown,
+  LucideChevronRight,
+  LucideImageOff,
+  LucideLock,
+  LucideBuilding2,
+  LucideMap,
+  LucideMapPin,
+  LucidePackage,
+  LucidePackageCheck,
+  LucidePhone,
+  LucidePlus,
+  LucideReceiptText,
+  LucideRefreshCw,
+  LucideStore,
+  LucideTimer,
+  LucideTriangleAlert,
+  LucideTruck,
+  LucideUser,
+  LucideWarehouse,
+] as const;
+
+/**
  * WHY: LucideDynamicIcon resolves an icon by NAME from the registry, so an
  * unregistered one throws at render — the screen dies before a single assertion
- * runs. This mirrors the subset app.config.ts registers for these screens.
+ * runs.
  */
-export const SCREEN_TEST_PROVIDERS: Provider[] = [
-  provideLucideIcons(
-    LucideArrowLeft,
-    LucideChevronDown,
-    LucideChevronRight,
-    LucideImageOff,
-    LucideLock,
-    LucideBuilding2,
-    LucideMap,
-    LucideMapPin,
-    LucidePackage,
-    LucidePackageCheck,
-    LucidePhone,
-    LucidePlus,
-    LucideReceiptText,
-    LucideRefreshCw,
-    LucideStore,
-    LucideTimer,
-    LucideTriangleAlert,
-    LucideTruck,
-    LucideUser,
-    LucideWarehouse,
-  ),
-];
+export const SCREEN_TEST_PROVIDERS: Provider[] = [provideLucideIcons(...SCREEN_TEST_ICONS)];
 
 /**
  * Builds a `Money` the way the server does, from cents.
