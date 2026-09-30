@@ -27,20 +27,38 @@ propagates-to:
 ## Context
 
 `apps/web/` gets build-time config from `NG_APP_*` variables that `@ngx-env/builder` 22.0.0
-inlines at COMPILE time, never at runtime. Today two `.env` files with disjoint keys serve two
-different consumers:
+inlines at COMPILE time, never at runtime. The `NG_APP_*` values also reach the web image as
+Docker build args, and the two consumers used to read different files with disjoint keys.
 
-| | root `.env` | `apps/web/.env` |
-|---|---|---|
-| Read by | `docker-compose.yml` `${VAR}` → web image build args | `@ngx-env/builder` (`pnpm dev` on :4200, `pnpm test`) |
-| Written by | `make env-file` (AUTO + CUSTOM boxes) | HAND-MAINTAINED; the generator syncs only the `NG_APP_WS_URL` line |
+Layout after this design (Decisions 9 and 10):
 
-A third file, `.env.local.web`, holds `GEOAPIFY_API_KEY`, read at request time by
-`apps/web/proxy.conf.mjs` (dev) and nginx (container).
+| | `.env.local.web` | `apps/web/.env` | root `.env` |
+|---|---|---|---|
+| Read by | compose `${VAR}` interpolation via `docker compose --env-file` (build args); nginx via `env_file:` (container start); `@ngx-env/builder` via the cascade | `@ngx-env/builder` (`pnpm dev` on :4200, `pnpm test`), first in precedence | tooling only; compose interpolates NOTHING from it |
+| Written by | `make env-file` (AUTO + CUSTOM boxes) | HAND-MAINTAINED; the generator still syncs the `NG_APP_WS_URL` line | `make env-file` (AUTO + CUSTOM boxes) |
+| Holds | six `NG_APP_*` plus `GEOAPIFY_API_KEY` | overrides only | `COGNITO_*`, `APIDOG_*`, `PENCIL_MCP_BIN`, DB ports |
 
-The concrete cost: `NG_APP_STRIPE_ENABLED` lives by hand in `apps/web/.env` and is never
-seeded. Turning Stripe on requires setting it in TWO places, and forgetting either leaves that
-environment silently without Stripe.
+Every `${...}` in `docker-compose.yml` was grepped: the only six interpolations in the whole file
+are the web's `NG_APP_*` build args. Nothing else in compose reads the root `.env`.
+
+The original cost that motivated this note: `NG_APP_STRIPE_ENABLED` lived by hand in
+`apps/web/.env` and was never seeded, so turning Stripe on required setting it in TWO places, and
+forgetting either left that environment silently without Stripe.
+
+### Why the root `.env` is no longer the base
+
+This note first proposed keeping the root `.env` as the base for `NG_APP_*`, on the premise that
+Docker Compose interpolates `${VAR}` only from the root `.env`. The user objected on a repo
+principle: every service owns its own `.env.local.<svc>`, consumed through `env_file:`, and the
+root `.env` is deprecated. The principle was right.
+
+The technical blocker was real, and is worth recording precisely. `NG_APP_*` are BUILD ARGS
+(`docker-compose.yml`), and an `env_file:` entry cannot feed a build arg: it resolves at
+container runtime, too late. Compose interpolation is the only mechanism that reaches a build
+arg. The way out was `docker compose --env-file <path>`, which moves interpolation to that file
+instead of the root `.env`. MEASURED before implementing:
+`docker compose --env-file .env.local.web config` showed all six `NG_APP_*` build args resolving
+from `.env.local.web`. See Decision 9.
 
 ## How `/v1` resolves
 
@@ -112,7 +130,8 @@ an already-set key, so first-wins means the child always beats the root.
 
 This is independent of the root-default finding above: the cascade exists either way, so the
 shadowing hazard is real either way. Resolution: cascade alone is NOT enough, it requires a
-MIGRATION. See Decisions 5 to 7.
+MIGRATION. See Decisions 5 to 7. The `--env-file` change (Decisions 9 and 10) does not
+alter this: the cascade still exists, so the hazard stands.
 
 ### BLOCKER 2 — the `NG_APP` prefix filter is unanchored and case-insensitive
 
@@ -149,11 +168,11 @@ Resolution: Decision 2.
 ### MEDIUM findings
 
 1. **No value guard on the publishable key.** `app-config.ts` reads it with no `pk_` check, and
-   the generator seeds `NG_APP_STRIPE_PUBLISHABLE_KEY=""` in the root CUSTOM box while
+   the generator seeds `NG_APP_STRIPE_PUBLISHABLE_KEY=""` in the `.env.local.web` CUSTOM box while
    `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` live in `.env.local.users` / `.env.local.orders`.
    A developer pasting an `sk_` or `rk_` key into that CUSTOM box gets it inlined by BOTH
    `pnpm dev` and `docker compose build web`. The anchored prefix cannot help, because the NAME is
-   legitimate. This design CONCENTRATES the mistake by making the root CUSTOM box the single place
+   legitimate. This design CONCENTRATES the mistake by making the `.env.local.web` CUSTOM box the single place
    people edit Stripe settings for both surfaces. Suggested mitigation, NOT yet implemented:
    reject a value matching `^(sk|rk)_` or `^whsec_` in `parseAppConfig`, in the generator, or as
    a Dockerfile assertion before `ng build`.
@@ -197,25 +216,36 @@ and on the `COPY`s and `.dockerignore` staying narrow (Decision 3).
 REPRODUCED before and after with a throwaway `docker build`: only `.env.example` now survives into
 the build context.
 
-### Decision 4 — the root `.env` AUTO box carries `NG_APP_WS_URL` beside `WS_URL` (PROPOSED, not implemented)
+### Decision 4 — SUPERSEDED: `NG_APP_WS_URL` in the root `.env` AUTO box
 
-Add `NG_APP_WS_URL` to the root `.env`'s AUTO box ALONGSIDE the existing `WS_URL`. `@ngx-env`
-filters by prefix, so it would read `WS_URL` and ignore it. Two keys, one host-facing value:
-`WS_URL` for compose interpolation, `NG_APP_WS_URL` for the cascade.
+This decision proposed adding `NG_APP_WS_URL` to the root `.env`'s AUTO box beside the existing
+`WS_URL`. It is superseded and must NOT be implemented. It was the wrong direction: it would have
+WORSENED the duplication the user objected to, by putting a second copy of a host-facing value in
+a file whose role is being reduced. It treated the root as the base instead of questioning whether
+the root should be involved at all. Decisions 9 and 10 replace it.
 
-### Decision 5 — `apps/web/.env` becomes optional and overrides-only (PROPOSED, not implemented)
+### Decision 5 — `apps/web/.env` is optional and overrides-only (PROPOSED, reframed)
 
-Once Decision 4 lands, :4200 works from the root alone, so `sync_web_ws_url` is no longer
-load-bearing for the socket. It is KEPT anyway, because it remains correct when a developer does
-keep a child file, and removing it is a separate change.
+What remains true: `apps/web/.env` is read first by the cascade and WINS over any other file
+(finding 3), so it must carry overrides only, and existing files must have their base keys
+STRIPPED (BLOCKER 1 migration).
 
-Existing `apps/web/.env` files must have their base keys STRIPPED (BLOCKER 1 migration).
+What no longer applies: the premise that the root `.env` supplies the base. `.env.local.web` now
+carries the `NG_APP_*` for the container build (via `--env-file`) and, via the cascade, for
+`pnpm dev`.
+
+`sync_web_ws_url()` still writes `NG_APP_WS_URL` into `apps/web/.env`, so that path is untouched
+by this change. For the container it is now redundant, because `.env.local.web` already carries
+the value. For `pnpm dev` it still takes effect, because `apps/web/.env` is read first by the
+cascade's precedence. It is KEPT; removing it is a separate change.
 
 ### Decision 6 — `apps/web/.env.example` is rewritten to overrides-only (PROPOSED, not implemented)
 
 Comment-only by default: no base keys, and no empty `NG_APP_*=` lines, because an empty line is
 an active override rather than an absence (BLOCKER 1). `apps/web/CLAUDE.md` is updated so
-`cp .env.example .env` is no longer the happy path.
+`cp .env.example .env` is no longer the happy path. The `.env.example` files were updated to
+describe the new layout (Decision 10), but the overrides-only rewrite proposed here is not
+claimed as done.
 
 ### Decision 7 — the generator's absent-file hint stops recommending a copy (PROPOSED, not implemented)
 
@@ -224,8 +254,43 @@ reintroduces the shadowing keys.
 
 ### Decision 8 — `.env.local.web` stays the sole home of `GEOAPIFY_API_KEY` (PROPOSED, not implemented)
 
-`.env.local.web` is NOT an `@ngx-env` input. `docs/shared/conventions/env-files.md` currently
-states otherwise and must be corrected during propagation.
+`GEOAPIFY_API_KEY` is read at request time (`apps/web/proxy.conf.mjs`, nginx) and never enters the
+bundle. `docs/shared/conventions/env-files.md` currently names `@ngx-env/builder` as a consumer of
+`.env.local.web`; that must be corrected during propagation to reflect the split between the
+`GEOAPIFY_API_KEY` request-time use and the `NG_APP_*` build-time use (Decisions 9 and 10).
+
+### Decision 9 — compose interpolates from `.env.local.web` via `--env-file` (IMPLEMENTED)
+
+The `Makefile` defines `COMPOSE := docker compose --env-file .env.local.web`, one line covering all
+15 `$(COMPOSE)` uses.
+
+`CONTRACT:` do NOT drop the `--env-file .env.local.web` flag. Without it compose reads the root
+`.env`, where the `NG_APP_*` keys no longer live, so every build arg silently falls back to its
+default and the bundle ships with Stripe and RUM off. No error, no warning.
+
+The unused `ENV_FILE := .env` definition was deleted from the `Makefile` (one definition, zero
+references, verified).
+
+Verified: `docker compose --env-file .env.local.web config` resolves all six `NG_APP_*`; running
+`config` WITHOUT the flag falls back to the defaults (the exact failure the `CONTRACT:`
+documents); `make ps` and the Makefile targets work.
+
+### Decision 10 — the six `NG_APP_*` generate into `.env.local.web` (IMPLEMENTED)
+
+`infra/environments/local/scripts/generate_env_files.py` writes:
+
+- AUTO box: `NG_APP_WS_URL` and `NG_APP_API_GATEWAY_URL`.
+- CUSTOM box: `NG_APP_STRIPE_ENABLED`, `NG_APP_STRIPE_PUBLISHABLE_KEY`, `NG_APP_GEOCODE_ENABLED`,
+  `NG_APP_RUM_ENABLED`.
+
+The root `.env` spec no longer writes any of them and its header now says tooling tokens only.
+Both `.env.example` files describe the new layout, and `.env.example`'s `.env.local.web` section
+matches the generated file key-for-key. The root `.env`'s CUSTOM box (`APIDOG_*`,
+`PENCIL_MCP_BIN`) survived regeneration.
+
+Migration detail: after the first `make env-file`, the `NG_APP_*` keys existed in BOTH files. The
+generator had stopped writing them to the root, but the root's CUSTOM box PRESERVES whatever is in
+it by design, so they were removed from the root by hand. A fresh clone does not hit this.
 
 ## Confirmed safe
 
@@ -240,32 +305,34 @@ Which file feeds which process:
 
 | File | Feeds |
 |---|---|
-| `apps/web/.env` | `pnpm dev` on :4200 only (overrides on top of the root) |
-| root `.env` | compose build args AND the cascade base (read by default, finding 2) |
-| `.env.local.web` | nginx / Geoapify proxy (request time), never the bundle |
+| `.env.local.web` | the web service TWICE, by two mechanisms resolving at different times: `env_file:` for nginx (`GEOAPIFY_API_KEY`) at container start, and `--env-file` interpolation for the `NG_APP_*` build args at image build. Also the cascade base for `pnpm dev` |
+| `apps/web/.env` | `pnpm dev` on :4200 and `pnpm test` only (overrides, read first) |
+| root `.env` | tooling tokens only; compose interpolates nothing from it |
 
-Every `make env-file` that changes WS or a flag requires RESTARTING `pnpm dev` and REBUILDING the
-web container. `NG_APP_*` is inlined at build time, and a restart re-serves the old bundle.
+Every `make env-file` that changes WS or a flag requires RESTARTING `pnpm dev` and running
+`docker compose build web`. `NG_APP_*` is inlined at build time, so a restart re-serves the old
+bundle; never restart to apply a changed `NG_APP_*`.
 
 Do not create a bare `.env.local`, `.env.production` or `.env.development` at the repo root or in
 `apps/web/`: `@ngx-env` would read them (finding 6).
 
 ## Implementation status
 
-Implemented in the working tree (uncommitted at the time of writing): Decisions 1 and 3.
-Verified after both: `pnpm test` 588/588, typecheck clean, lint clean; a Docker builder-stage
-build printed `Environment files: none` and still inlined all six `NG_APP_*` from build args, with
-the filter shown as `^(?-i:NG_APP_)`; and a lowercase `ng_app_sneaky` canary in the root `.env`
-was filtered out and did NOT reach the bundle.
+Implemented in the working tree (uncommitted at the time of writing): Decisions 1, 3, 9 and 10.
+Verified after Decisions 1 and 3: `pnpm test` 588/588, typecheck clean, lint clean; a Docker
+builder-stage build printed `Environment files: none` and still inlined all six `NG_APP_*` from
+build args, with the filter shown as `^(?-i:NG_APP_)`; and a lowercase `ng_app_sneaky` canary in
+the root `.env` was filtered out and did NOT reach the bundle. Verification for Decisions 9 and 10
+is listed under each.
 
-Decision 2 is a contract already satisfied by the current `angular.json`. Decisions 4 to 8 are
-proposals and remain to be implemented.
+Decision 2 is a contract already satisfied by the current `angular.json`. Decision 4 is
+superseded. Decisions 5 to 8 remain proposed.
 
 ## Known-stale documentation
 
 Recorded as found; these predate this design and are fixed during propagation:
 
-- Root `.env.example` still claims `.env` holds only four compose-interpolated vars.
+- Root `.env.example` claimed `.env` holds only four compose-interpolated vars; it was updated with Decision 10, verify during propagation.
 - `docs/shared/conventions/env-files.md` names `@ngx-env/builder` as a consumer of
   `.env.local.web`.
 - `docs/infrastructure/runbooks/web-app-env-config.md` says nothing bridges `WS_URL` into
@@ -273,11 +340,10 @@ Recorded as found; these predate this design and are fixed during propagation:
 
 ## Out of scope and open
 
-- **Pre-existing bug, separate from this design.** The developer's root `.env` currently holds NO
-  `NG_APP_*` keys though the generator declares five, because the CUSTOM box only seeds ABSENT
-  keys on regeneration and that file predates the Stripe additions. Consequence:
-  `docker compose build web` today falls back to Stripe OFF and an empty publishable key,
-  silently. Fixed by running `make env-file`.
+- **Pre-existing bug, now moot.** The developer's root `.env` held NO `NG_APP_*` keys though the
+  generator declared five, because a CUSTOM box only seeds ABSENT keys on regeneration. Since the
+  keys now live in `.env.local.web` and compose reads it through `--env-file`, the failure mode
+  that remains is dropping the flag (Decision 9 `CONTRACT:`).
 - **End-to-end verification on :4200 is STILL NOT done.** Floci is up, but
   `aws apigateway get-rest-apis` returns an empty list and `localhost:3004/v1/users/health`
   answers 502, so the gateway could not be exercised. The cascade is proven by build-log and
