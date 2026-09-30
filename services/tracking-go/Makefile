@@ -37,11 +37,10 @@ build: verify-toolchain ## Compile the server binary into bin/
 
 .PHONY: test
 test: verify-toolchain ## Run the full suite — FAILS without a database (see test-db)
-	@# NOT "unit tests, no external services required", which is what this target
-	@# used to claim. internal/adapter/mysql's tests need a real MySQL, and
-	@# without one they skip while the package still prints `ok`. That hollow
-	@# green already cost this migration a Wave-3A debugging session, so the
-	@# TestMain gate in internal/adapter/mysql/dbgate_test.go now FAILS the run
+	@# CONTRACT: This target REQUIRES a database — it is not a unit-only suite.
+	@# internal/adapter/mysql's tests need a real MySQL, and without one they skip
+	@# while the package still prints `ok`. That hollow green is what the TestMain
+	@# gate in internal/adapter/mysql/dbgate_test.go FAILS the run
 	@# instead. Use `make test-db` to run them, or TRACKING_SKIP_DB_TESTS=1 to
 	@# opt out deliberately.
 	$(GO) test -race $(PKG)

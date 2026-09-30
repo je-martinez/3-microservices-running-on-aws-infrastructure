@@ -753,9 +753,8 @@ clean-state: ## Tear down state like `clean`, but KEEP the Docker build cache (f
 redeploy-lambdas: scripts-setup ## Rebuild and redeploy every local Lambda from the current source
 	@# CONTRACT: Do NOT expect `docker compose` to redeploy a Lambda. The services
 	@# rebuild that way and these seven functions do not, and the failure is SILENT —
-	@# source correct, tests green, deployed function still running the old zip. It
-	@# shipped a real bug: otp_challenge_rejected kept arriving at severity 0 for days
-	@# after the fix that set severity_text landed.
+	@# source correct, tests green, deployed function still running the old zip.
+	@# Symptom: a log field the source sets arrives with its old value, for days.
 	@#
 	@# WHY: `terraform apply` would also redeploy these, but a second phase-1 apply
 	@# fails on Floci's UpdateTags. See [[floci-rds-apigw-limits]]

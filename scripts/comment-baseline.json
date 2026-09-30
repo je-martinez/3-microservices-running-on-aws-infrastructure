@@ -4,19 +4,13 @@
     ".ai/.lnai-projection.yml": [
       {
         "fingerprint": "b470a8e45620",
-        "message": "L186: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
-      }
-    ],
-    "Makefile": [
-      {
-        "fingerprint": "dd07583f6d67",
-        "message": "L638: narrative-marker: 'after the fix' narrates history; describe the current state and move the story to the vault"
+        "message": "L190: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
       }
     ],
     "apps/web/Dockerfile": [
       {
         "fingerprint": "5f47111591f8",
-        "message": "L81: length: block 9 lines (> 6) must carry a See [[vault-id]] reference"
+        "message": "L94: length: block 9 lines (> 6) must carry a See [[vault-id]] reference"
       }
     ],
     "functions/events-pipeline/Dockerfile": [
@@ -95,62 +89,12 @@
     ],
     "services/tracking-go/Makefile": [
       {
-        "fingerprint": "b8b7d3e9197a",
-        "message": "L40: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
-      },
-      {
-        "fingerprint": "b8b7d3e9197a",
-        "message": "L41: narrative-marker: 'used to' narrates history; describe the current state and move the story to the vault"
-      },
-      {
         "fingerprint": "d51d95055c14",
-        "message": "L53: length: block 21 lines exceeds hard max 12; move narrative to the vault"
+        "message": "L52: length: block 21 lines exceeds hard max 12; move narrative to the vault"
       },
       {
         "fingerprint": "fac8d1c5db19",
-        "message": "L109: length: block 14 lines exceeds hard max 12; move narrative to the vault"
-      }
-    ],
-    "services/tracking-go/internal/adapter/grpcusers/gen/users.pb.go": [
-      {
-        "fingerprint": "6e3cf72115e0",
-        "message": "L68: length: block 13 lines exceeds hard max 12; move narrative to the vault"
-      },
-      {
-        "fingerprint": "1509b1ae6a23",
-        "message": "L172: narrative-marker: 'no longer' narrates history; describe the current state and move the story to the vault"
-      },
-      {
-        "fingerprint": "8ff3203140a4",
-        "message": "L290: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
-      }
-    ],
-    "services/tracking-go/internal/adapter/grpcusers/gen/users_grpc.pb.go": [
-      {
-        "fingerprint": "fe8babbee76f",
-        "message": "L66: tag: 'NOTE:' is not in the closed set (CONTRACT, WORKAROUND(<scope>), WHY, WARNING, TODO(JE-<id>))"
-      }
-    ],
-    "services/tracking-go/internal/adapter/mysql/querier.go": [
-      {
-        "fingerprint": "da6d6991ea31",
-        "message": "density: 71% (60/84) exceeds 50% for go"
-      }
-    ],
-    "services/tracking-go/internal/openapi/testdata/python-contract-at-cutover.yaml": [
-      {
-        "fingerprint": "a088b1b85c94",
-        "message": "L1: length: block 42 lines exceeds hard max 12; move narrative to the vault"
-      },
-      {
-        "fingerprint": "a088b1b85c94",
-        "message": "L38: narrative-marker: 'no longer' narrates history; describe the current state and move the story to the vault"
-      }
-    ],
-    "services/users/src/config/env.schema.ts": [
-      {
-        "fingerprint": "6f777394a606",
-        "message": "density: 54% (57/105) exceeds 50% for typescript"
+        "message": "L108: length: block 14 lines exceeds hard max 12; move narrative to the vault"
       }
     ],
     "services/users/src/shared/db/sql-logging.ts": [
