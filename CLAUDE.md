@@ -61,6 +61,14 @@ These rules take precedence over default agent/skill behavior.
 - **Applies to anything durable**, not just big decisions: package-manager choice, naming, a gotcha that cost debugging time, a workflow correction. If the answer to "would a teammate need to know this next month?" is yes, it belongs in `docs/`.
 - The nested `CLAUDE.md` files and this one are for **rules that govern agent behaviour**; the vault is for **project knowledge**. A convention usually deserves both: the note in `docs/`, and a one-line pointer here when it changes how work is done.
 
+### Gap audit — MANDATORY before proposing a PR
+- **Before proposing any PR that closes an issue or a milestone, run the `spec-implementation-audit` skill.** It is a gate, not a suggestion, and it runs at **every** [[phase-c-review-flow]] stop point — not once at the end. A gap found after five more tasks have built on it is a refactor, not a fix.
+- It audits **three directions**, and checking one is the common mistake: **spec → code** (was every decision implemented?), **code → docs** (does the doc still describe what exists?), and **plan → repo** (do the paths and names it states exist?).
+- **`code → docs` is the one most often skipped and the one that does active harm.** A doc keeping a value the code has corrected is worse than no doc: the next person "aligns the code with the plan" and reintroduces the bug. The Stripe milestone's plan and spec both specified a CSP wildcard that cannot work, while the shipped nginx config had the correct origins.
+- **Why it cannot be left to ordinary review:** a requirement dropped in implementation leaves NO trace. The shipped code is self-consistent, passes review on its own terms, and its tests cover what was built rather than what was specified. Reviewing a diff answers "is this correct?"; only this audit answers "does it do everything it was asked to do?". **Concurrency requirements are the highest-risk case**, since ordinary tests structurally do not exercise them. See [[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]].
+- Re-run after closing gaps: closing one routinely reveals another.
+- A gap that is a real code defect rather than doc drift **gets its own change and its own review** — never a silent fix inside a propagation pass.
+
 ### Documentation propagation — superpowers output must feed the vault
 - `docs/superpowers/{specs,plans}/` is where decisions are **made**; the organized vault (`docs/domains/`, `docs/shared/`, `docs/infrastructure/`, `docs/00-overview/`) is where they **live**. A spec/plan is **not done when written** — it is done when its decisions have propagated into the category folders they belong to.
 - **Before proposing the PR that closes an issue or milestone**, propagate: update/create the target notes, link bidirectionally, and bump each target's `updated:`. Route vault writes through `obsidian-vault` (sole writer of `docs/`).

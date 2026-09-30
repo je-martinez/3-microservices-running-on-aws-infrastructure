@@ -4,7 +4,7 @@ type: lesson
 area: orders
 status: active
 created: 2026-08-26
-updated: 2026-08-26
+updated: 2026-09-30
 tags:
   - type/lesson
   - area/orders
@@ -18,6 +18,7 @@ related:
   - "[[2026-08-25-preview-must-mirror-charging-roundings-application-point]]"
   - "[[2026-08-25-reads-are-not-exempt-from-observability]]"
   - "[[testing]]"
+  - "[[phase-c-review-flow]]"
 ---
 
 # The spec said the retry was required; the code shipped without it, and review checked the diff, not the spec, against itself
@@ -98,6 +99,10 @@ corresponding line of code, rather than judging the diff purely on its own merit
   the fix for each is different. The first is fixed by correcting a note. The second is fixed by
   changing how review is performed — a process change, not a content change.
 
+## Resolution
+
+The process change this note calls for now exists as the `spec-implementation-audit` skill, required by [[phase-c-review-flow]] before any batch of PRs is presented for review and before the milestone's feature→main PR. It checks spec → code, code → docs, and plan → repo. The Stripe milestone (2026-09-30) shipped with seven gaps found by this audit and by none of the per-task reviews before it.
+
 ## Related
 
 - [[2026-08-25-cart-endpoints-design]] — the spec whose Concurrency section specified the
@@ -119,3 +124,4 @@ corresponding line of code, rather than judging the diff purely on its own merit
 - [[testing]] — the three/four-layer testing convention this finding shows is necessary but not
   sufficient: none of those layers, however complete, is designed to catch a requirement that
   was specified and never implemented, only requirements that were implemented incorrectly.
+- [[phase-c-review-flow]] — requires the `spec-implementation-audit` skill before each batch of PRs and before the milestone close; the mechanism this lesson lacked.
