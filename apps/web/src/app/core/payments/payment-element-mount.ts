@@ -39,6 +39,13 @@ export async function mountPaymentElement(
   elements
     .create('payment', {
       wallets: { applePay: 'never', googlePay: 'never', link: 'never' },
+      // CONTRACT: Card is the only method this flow accepts, so the buyer must
+      // never have to pick it. `defaultCollapsed: false` opens the form on
+      // mount, and `radios: 'if_multiple'` drops the selector entirely at one
+      // method. Left undefined, Stripe chooses the layout it judges best for
+      // conversion, which can collapse a single-method Element behind a row
+      // the buyer has to click.
+      layout: { type: 'accordion', defaultCollapsed: false, radios: 'if_multiple' },
     })
     .mount(target);
   return { ok: true, stripe, elements };
