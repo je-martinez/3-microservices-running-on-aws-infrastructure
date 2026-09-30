@@ -18,7 +18,9 @@ fi
 # gated by `make lint-comments` alone and passes every commit — which is how an
 # Angular template kept a narrative block through review.
 staged_paths=()
+all_staged=()
 while IFS= read -r -d '' path; do
+  all_staged+=("$path")
   case "$path" in
     *.tf | *.tfvars | *.py | *.ts | *.tsx | *.js | *.mjs | *.jsx | *.cs | *.go | \
     *.html | *.yml | *.yaml | Makefile* | */Makefile* | Dockerfile* | */Dockerfile* | \
@@ -27,10 +29,6 @@ while IFS= read -r -d '' path; do
       ;;
   esac
 done < <(git diff --cached --name-only --diff-filter=ACMR -z --)
-
-if (( ${#staged_paths[@]} == 0 )); then
-  exit 0
-fi
 
 temp_root=$(mktemp -d "${TMPDIR:-/tmp}/3mrai-comment-lint.XXXXXX")
 trap 'rm -rf "$temp_root"' EXIT
@@ -50,6 +48,29 @@ fi
 if [[ -z "$python_bin" ]]; then
   echo "ERROR: Python 3 is required to lint staged code comments" >&2
   exit 1
+fi
+
+# CONTRACT: The secret scan reads EVERY staged path, not the comment linter's
+# suffix list. A key pasted into a .md, a .json or a shell script is the same
+# leak as one in a .ts, and scanning the index rather than the worktree is what
+# makes `git add` the moment it is caught.
+secret_paths=()
+for path in "${all_staged[@]}"; do
+  secret_path="$temp_root/secrets/$path"
+  mkdir -p "$(dirname "$secret_path")"
+  if git show ":$path" >"$secret_path" 2>/dev/null; then
+    secret_paths+=("$secret_path")
+  fi
+done
+
+if (( ${#secret_paths[@]} > 0 )); then
+  "$python_bin" "$repo_root/scripts/validate-secrets.py" \
+    --strip "$temp_root/secrets/" \
+    "${secret_paths[@]}" || exit 1
+fi
+
+if (( ${#staged_paths[@]} == 0 )); then
+  exit 0
 fi
 
 "$python_bin" "$repo_root/scripts/validate-comments.py" \
