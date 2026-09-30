@@ -107,7 +107,6 @@ rules:
 # above: those ship inside Claude Code plugins and have no config to project.
 mcp:
   drawio: universal
-  apidog: universal
 
   # pencil: stdio server behind scripts/pencil_mcp.py, which resolves the Pen
   # desktop binary per platform — no Claude Code dependency, so the config

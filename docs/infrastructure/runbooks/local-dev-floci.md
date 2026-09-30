@@ -4,7 +4,7 @@ type: runbook
 area: infra
 status: active
 created: 2026-07-12
-updated: 2026-09-22
+updated: 2026-09-30
 integration-status: verified
 verified-on: 2026-07-15
 verified-by: Jose E. Martinez
@@ -210,7 +210,8 @@ Run `make help` at any time for the authoritative, current list.
 
 `make env-file` (invoked automatically by `infra-up`, and therefore by `bootstrap`) rewrites
 **only** a labeled AUTO-GENERATED block inside `./.env` — every other line (manually-added
-vars, e.g. `APIDOG_ACCESS_TOKEN`) is preserved untouched. The block currently contains:
+vars, e.g. a personal token for an external tool) is preserved untouched. The block currently
+contains:
 
 - `COGNITO_USER_POOL_ID`
 - `COGNITO_CLIENT_ID`

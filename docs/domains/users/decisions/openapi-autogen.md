@@ -8,7 +8,7 @@ deciders: ["Jose E. Martinez"]
 supersedes: null
 superseded-by: null
 created: 2026-07-28
-updated: 2026-07-28
+updated: 2026-09-30
 tags: [type/adr, area/users, status/accepted]
 related:
   - "[[users-service-design]]"
@@ -22,7 +22,7 @@ related:
 
 ## Context
 
-`services/users/openapi.yaml` — the contract imported into Apidog (see
+`services/users/openapi.yaml` — the contract consumed by API clients (see
 [[mcp-servers]]) — was hand-written, so it drifted from the real routes the moment
 `routes.ts` changed. Handlers also cast `req.body as {...}` with no runtime validation.
 
@@ -52,7 +52,7 @@ related:
 
 - The spec can no longer drift silently: a route change without a matching schema update
   fails the spec-integrity test (`app.swagger()` must expose all routes + the `User`
-  component) before it fails in Apidog.
+  component) before it fails in an API client.
 - Endpoints gained real runtime input validation (400 on malformed bodies) as a
   side-effect of the same schemas, closing a pre-existing gap.
 - Any later Users route or schema change must regenerate and commit `openapi.yaml` in

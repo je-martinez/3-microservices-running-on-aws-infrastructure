@@ -4,7 +4,7 @@ type: plan
 area: users
 status: draft
 created: 2026-07-10
-updated: 2026-07-10
+updated: 2026-09-30
 tags:
   - type/plan
   - area/users
@@ -631,9 +631,9 @@ nvm use && pnpm lint && pnpm build && pnpm test && pnpm generate:openapi && git 
 ```
 Expected: lint PASS, build PASS, all tests PASS, generator writes the file, and `git diff` on `openapi.yaml` is EMPTY (regeneration is deterministic — the committed file already matches). A non-empty diff means generation is non-deterministic or the last commit was stale — investigate before finishing.
 
-- [ ] **Step 2: Confirm the Apidog import path still holds**
+- [ ] **Step 2: Confirm the API-client import path still holds**
 
-The generated `services/users/openapi.yaml` is what gets imported into Apidog (Import Data → OpenAPI). No code change — just confirm the file exists and parsed OK in Task 5. The [[mcp-servers]] runbook already documents this flow.
+The generated `services/users/openapi.yaml` is what gets imported into an API client (Import Data → OpenAPI). No code change — just confirm the file exists and parsed OK in Task 5. The [[mcp-servers]] runbook already documents this flow.
 
 ---
 

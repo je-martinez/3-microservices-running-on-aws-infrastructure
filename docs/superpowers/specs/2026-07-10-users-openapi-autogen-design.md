@@ -4,7 +4,7 @@ type: spec
 area: users
 status: draft
 created: 2026-07-10
-updated: 2026-07-10
+updated: 2026-09-30
 tags:
   - type/spec
   - area/users
@@ -22,9 +22,9 @@ propagates-to:
 
 ## Problem
 
-The Users service exposes its API contract to Apidog via an OpenAPI file at
+The Users service exposes its API contract to API clients via an OpenAPI file at
 `services/users/openapi.yaml`. That file is currently **hand-written**, so it
-drifts from the real routes the moment anyone edits `routes.ts`. The Apidog MCP
+drifts from the real routes the moment anyone edits `routes.ts`. The spec-reading MCP
 server is read-only (it only reads whatever spec the project holds — see
 [[mcp-servers]]), so the spec's fidelity is entirely on us.
 
@@ -79,7 +79,7 @@ Zod schemas (schemas.ts)
         │                      │
         │             app.swagger({ yaml: true })
         │                      │
-        └────────  pnpm generate:openapi ──> writeFileSync ──> services/users/openapi.yaml ──> import into Apidog
+        └────────  pnpm generate:openapi ──> writeFileSync ──> services/users/openapi.yaml ──> import into an API client
 ```
 
 The production `server.ts` is unchanged and does no disk I/O. Only the
@@ -198,7 +198,7 @@ Run as `nvm use && pnpm generate:openapi` from `services/users/`.
 
 - The hand-written `services/users/openapi.yaml` is **replaced** by the generated
   file at the same path — now a build artifact, still committed and imported into
-  Apidog (Import Data → OpenAPI). See [[mcp-servers]] for the Apidog import flow.
+  an API client (Import Data → OpenAPI). See [[mcp-servers]] for the project's MCP servers.
 - The generated spec is pinned to OpenAPI `3.1.0` to match the current file.
 
 ## Open questions / risks

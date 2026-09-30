@@ -4,7 +4,7 @@ type: spec
 area: users
 status: draft
 created: 2026-09-19
-updated: 2026-09-19
+updated: 2026-09-30
 tags: [type/spec, area/users, status/draft]
 propagates-to:
   - "[[users-service-design]]"
@@ -311,7 +311,7 @@ a JSON Schema fragment, fed into `@nestjs/swagger`'s document builder in place o
 `@nestjs/swagger`'s document builder is the one piece not yet proven** — it belongs
 in Phase 1 of the migration plan below, not the last phase, because
 `services/users/openapi.yaml` is a committed artifact under a GOLDEN RULE
-(`services/users/CLAUDE.md` §2a) imported into Apidog, and the migration should not
+(`services/users/CLAUDE.md` §2a) consumed by API clients, and the migration should not
 reach Phase 5's cut-over gate having deferred verification of its generation
 mechanism to the end.
 
@@ -326,7 +326,7 @@ diff of the newly generated document against the current committed
 `openapi.yaml`, performed as an explicit acceptance step — not "it builds without
 errors." The current generator prunes components nothing `$ref`s
 (`pruneOrphanComponents` in `routes.ts`); whatever replaces it must reproduce that
-behavior, or the Apidog import degrades with unreferenced schema noise.
+behavior, or the API-client import degrades with unreferenced schema noise.
 ## Architecture
 
 ### Module layout

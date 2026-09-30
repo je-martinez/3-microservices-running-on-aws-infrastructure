@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-08-06
-updated: 2026-09-22
+updated: 2026-09-30
 tags: [type/spec, area/shared, status/active]
 related: ["[[2026-06-26-implementation-workflow-design]]", "[[git-workflow]]", "[[doc-propagation]]"]
 propagates-to:
@@ -226,7 +226,7 @@ Three things make committing safe rather than noisy:
   files, verified by hashing. Generated files that churn would be intolerable in review; these
   do not churn.
 - **It is small** — 24 files, roughly 96 KB.
-- **No secrets travel.** MCP configs carry the `${APIDOG_PROJECT_ID}` placeholder, never a
+- **No secrets travel.** MCP configs carry a `${VAR}` placeholder, never a
   literal value.
 
 And one thing makes it *necessary* rather than merely nice: **every provider's `skills/` and
@@ -301,7 +301,7 @@ tooling other providers lack. The manifest carries the list.
 
 This is where lnai delivers direct value. A single declaration in `.ai/settings.json` renders
 `.mcp.json`, `.codex/config.toml`, `.vscode/mcp.json`, and `.gemini/settings.json` in their
-native formats. The schema supports `${VAR}` interpolation, so `$APIDOG_PROJECT_ID` travels
+native formats. The schema supports `${VAR}` interpolation, so a secret's placeholder travels
 without hardcoding a token.
 
 Plugin-provided MCP servers (Linear, `aws-dev-toolkit`, `context7`) do **not** live in

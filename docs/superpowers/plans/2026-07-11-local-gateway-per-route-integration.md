@@ -4,7 +4,7 @@ type: plan
 area: infra
 status: draft
 created: 2026-07-11
-updated: 2026-07-11
+updated: 2026-09-30
 tags:
   - type/plan
   - area/infra
@@ -300,7 +300,7 @@ Run:
 ```bash
 grep -E "API_GATEWAY_URL|COGNITO_" .env
 ```
-Expected: an `API_GATEWAY_URL=http://localhost:4566/restapis/<api-id>/$default/_user_request_` line (literal `$default`, real api-id), plus the Cognito box. Also confirm the manual `APIDOG_*` lines are still present (preserved outside the box).
+Expected: an `API_GATEWAY_URL=http://localhost:4566/restapis/<api-id>/$default/_user_request_` line (literal `$default`, real api-id), plus the Cognito box. Also confirm the manually-added lines are still present (preserved outside the box).
 
 - [ ] **Step 3: Health + public POST through the gateway**
 
@@ -334,9 +334,9 @@ docker logs "$NGINX" 2>&1 | tail -6
 ```
 Expected: log lines show `GET /v1/health`, `POST /v1/users/register` (real paths), NOT `GET /`.
 
-- [ ] **Step 6: (optional) Point the Apidog spec server at the gateway**
+- [ ] **Step 6: (optional) Point the spec's server at the gateway**
 
-Not required for this plan, but note: `services/users/openapi.yaml`'s `server` is `http://localhost:3000` (direct). The gateway-routed base is now in `.env` as `API_GATEWAY_URL`. Updating the spec's server is a follow-up if gateway-routed Apidog testing is wanted (see the mcp-servers runbook).
+Not required for this plan, but note: `services/users/openapi.yaml`'s `server` is `http://localhost:3000` (direct). The gateway-routed base is now in `.env` as `API_GATEWAY_URL`. Updating the spec's server is a follow-up if gateway-routed API-client testing is wanted (see the mcp-servers runbook).
 
 ---
 
@@ -349,7 +349,7 @@ Not required for this plan, but note: `services/users/openapi.yaml`'s `server` i
 - Terraform owns URIs, no bootstrap patch → Task 4. ✓
 - `make env-file` writes reachable gateway URL from `api_id` → Task 3 (+ Task 2 exposes `api_id`). ✓
 - End-to-end validation incl. JWT 401 → Task 5. ✓
-- Preserve `APIDOG_*` in `.env` → Task 5 Step 2 assertion (the box mechanism already preserves out-of-box lines). ✓
+- Preserve the manually-added lines in `.env` → Task 5 Step 2 assertion (the box mechanism already preserves out-of-box lines). ✓
 
 **Placeholder scan:** No TBD/TODO. `<api-id>`/`<path>` are URL templates, not gaps.
 

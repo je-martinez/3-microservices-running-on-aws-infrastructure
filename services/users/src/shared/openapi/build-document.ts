@@ -39,7 +39,7 @@ import {
 
 // CONTRACT: Zod schemas are the single source of truth for BOTH validation and
 // OpenAPI shape. Each lands as a NAMED component so every route resolves to a
-// $ref — an inline anonymous schema imports into Apidog as an unnamed blob.
+// $ref — an inline anonymous schema imports as an unnamed blob.
 // Names match services/users/openapi.yaml (minus the orphan NotificationInput
 // twin Fastify's type provider emits). See [[openapi-specs]]
 //
@@ -91,7 +91,7 @@ function toOpenApiSchema(schema: ZodType): Record<string, unknown> {
 }
 
 // Drops components nothing $refs — same behaviour as pruneOrphanComponents in
-// the Fastify generator this replaces. Unreferenced schemas are Apidog noise.
+// the Fastify generator this replaces. Unreferenced schemas are spec noise.
 // Iterate until stable: a component only reached from another orphan (e.g.
 // Notification via a pruned NotificationsPage) must fall too.
 function pruneOrphans(document: OpenAPIObject): OpenAPIObject {
@@ -140,7 +140,7 @@ export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
 
   // CONTRACT: NotificationsPage.items must $ref Notification — `reused: "inline"`
   // above would embed the item schema and the pruner would drop Notification as
-  // an orphan. Match the Fastify artifact Apidog already imports.
+  // an orphan. Match the Fastify artifact API clients already import.
   const page = document.components.schemas.NotificationsPage as
     | { properties?: { items?: { items?: unknown } } }
     | undefined;

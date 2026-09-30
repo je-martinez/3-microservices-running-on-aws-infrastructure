@@ -58,7 +58,7 @@ every time. Cross-cutting rules are **referenced**, never duplicated.
 
 `services/users/openapi.yaml` is **generated from Zod schemas** via
 `src/shared/openapi/generate-openapi.ts` (`z.toJSONSchema` + Nest document builder), and it
-is the artifact imported into Apidog. It only stays correct if it is regenerated after the
+is the artifact consumed by API clients. It only stays correct if it is regenerated after the
 schemas change.
 
 **Whenever you add/remove an HTTP route, or change any route's schema — its body,

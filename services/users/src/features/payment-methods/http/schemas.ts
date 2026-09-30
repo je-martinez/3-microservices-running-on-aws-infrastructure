@@ -37,7 +37,7 @@ export const AttachPaymentMethodResultSchema = z.object({
 });
 
 // Named components rather than inline anonymous schemas, so the generated spec
-// shows proper models in Apidog. See [[openapi-specs]]
+// shows proper models in API clients. See [[openapi-specs]]
 z.globalRegistry.add(AttachPaymentMethodInputSchema, { id: "AttachPaymentMethod" });
 z.globalRegistry.add(SetupIntentResultSchema, { id: "SetupIntentResult" });
 z.globalRegistry.add(PaymentMethodViewSchema, { id: "PaymentMethodView" });

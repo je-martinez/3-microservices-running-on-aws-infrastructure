@@ -4,7 +4,7 @@ type: plan
 area: users
 status: draft
 created: 2026-09-19
-updated: 2026-09-19
+updated: 2026-09-30
 tags:
   - type/plan
   - area/users
@@ -3210,7 +3210,7 @@ describe("generated OpenAPI document", () => {
           const schema = (entry as never as {
             content?: { "application/json"?: { schema?: Record<string, unknown> } };
           })?.content?.["application/json"]?.schema;
-          // An inline anonymous object is the failure: Apidog shows it as an
+          // An inline anonymous object is the failure: a client shows it as an
           // unnamed blob instead of a reusable component.
           if (schema && !("$ref" in schema)) inlined.push(`${method.toUpperCase()} ${path}`);
         }
@@ -3228,7 +3228,7 @@ describe("generated OpenAPI document", () => {
     );
 
     // The current generator prunes components nothing $refs; whatever replaces
-    // it must too, or the Apidog import degrades with unreferenced noise.
+    // it must too, or the client import degrades with unreferenced noise.
     expect(orphans).toEqual([]);
   });
 
@@ -3278,7 +3278,7 @@ import {
 
 // CONTRACT: The Zod schemas stay the single source of truth for BOTH validation
 // and the OpenAPI shape. Each is registered as a NAMED component so every route
-// resolves to a $ref — an inline anonymous schema imports into Apidog as an
+// resolves to a $ref — an inline anonymous schema imports as an
 // unnamed blob. See [[openapi-specs]]
 const COMPONENTS: Record<string, ZodType> = {
   User: UserSchema,
@@ -3296,7 +3296,7 @@ const COMPONENTS: Record<string, ZodType> = {
 };
 
 // Drops components nothing references, matching pruneOrphanComponents in the
-// generator this replaces — an unreferenced schema is noise in the Apidog import.
+// generator this replaces — an unreferenced schema is noise in the client import.
 function pruneOrphans(document: OpenAPIObject): OpenAPIObject {
   const schemas = document.components?.schemas;
   if (!schemas) return document;
@@ -3361,7 +3361,7 @@ cd services/users && nvm use && cp openapi.yaml /tmp/openapi.fastify.yaml
 pnpm run generate:openapi && diff /tmp/openapi.fastify.yaml openapi.yaml
 ```
 
-**This diff is the acceptance step, not "it ran without errors."** `openapi.yaml` is a committed artifact under a GOLDEN RULE (`services/users/CLAUDE.md` §2a) imported into Apidog. Expected differences: the description's "Fastify" → "NestJS". **Any route, component, or `$ref` that differs is a defect to fix here.** Restore the committed file if the diff is not clean, and report the differences.
+**This diff is the acceptance step, not "it ran without errors."** `openapi.yaml` is a committed artifact under a GOLDEN RULE (`services/users/CLAUDE.md` §2a) consumed by API clients. Expected differences: the description's "Fastify" → "NestJS". **Any route, component, or `$ref` that differs is a defect to fix here.** Restore the committed file if the diff is not clean, and report the differences.
 
 - [ ] **Step 7: Run the test and leave the work in the working tree**
 
