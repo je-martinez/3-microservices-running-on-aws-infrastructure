@@ -1,6 +1,6 @@
 <button
   type="button"
-  class="bg-surface-white border-line-strong text-brand-navy rounded-md px-4xl inline-flex w-full items-center justify-center gap-md border font-semibold"
+  class="bg-surface-white border-line-strong text-brand-navy rounded-md px-4xl inline-flex w-full items-center justify-center gap-md border font-semibold whitespace-nowrap"
   [class.h-control-base]="compact()"
   [class.text-body-lg]="compact()"
   [class.h-field]="!compact()"
@@ -9,7 +9,10 @@
   [class.opacity-50]="disabled()"
   (click)="clicked.emit()"
 >
+  <!-- WARNING: Keep `shrink-0`. Once the label stops wrapping it claims the
+       width first, and a flex icon without this collapses to a sliver. -->
   <svg
+    class="shrink-0"
     [lucideIcon]="icon()"
     [class.text-subtitle]="compact()"
     [class.text-title]="!compact()"
