@@ -168,8 +168,16 @@ describe('CheckoutPaymentPage', () => {
   afterEach(() => {
     withStripeEnabled(STRIPE_ENABLED);
     savedCards = [SAVED_CARD];
-    controller.verify({ ignoreCancelled: true });
-    TestBed.resetTestingModule();
+    // CONTRACT: Reset the TestBed BEFORE verifying. `verify()` throws on an
+    // unexpected open request, and a throw here skips whatever follows it — so
+    // verifying first leaves the module instantiated and every later test dies
+    // in `beforeEach` with "already been instantiated", burying the one real
+    // failure under a cascade in this file and the next.
+    try {
+      controller.verify({ ignoreCancelled: true });
+    } finally {
+      TestBed.resetTestingModule();
+    }
   });
 
   /** The saved address the signed-in profile carries by default. */

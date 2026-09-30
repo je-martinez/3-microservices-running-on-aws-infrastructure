@@ -153,6 +153,20 @@ parsed **once**, in `src/app/core/config/app-config.ts`, into the typed
 is truthy), so parsing it in one place instead of at each call site is what
 keeps that from becoming a bug. Every other file reads `APP_CONFIG`.
 
+**Tests read NO env file, and that is deliberate.** `angular.json`'s `build`
+target reads `../../.env.local.web`, which is generated per developer and
+git-ignored — so a suite inheriting it passes or fails by whatever flags that
+machine happens to have on. The `test` target therefore points at a `build`
+configuration named `test` whose only difference is `ngxEnv.files: []`, leaving
+every `NG_APP_*` undefined and every flag `false`. A spec that needs a flag ON
+turns it on explicitly and restores it in `afterEach`.
+
+Do NOT put `ngxEnv` on the `test` target itself: `@ngx-env/builder:unit-test`
+sets `additionalProperties: false` and the build fails with
+`must NOT have additional properties(ngxEnv)`. It takes its environment from its
+`buildTarget`, which is why the indirection exists.
+See [[2026-09-30-a-test-suite-that-reads-the-developers-env-file]]
+
 ## 2d. GOLDEN RULE — forms are Signal Forms schemas
 
 Every form in this app is an Angular **Signal Forms** schema: a `model` signal

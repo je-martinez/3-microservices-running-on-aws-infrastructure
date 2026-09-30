@@ -58,6 +58,15 @@
               "optimization": false,
               "extractLicenses": false,
               "sourceMap": true
+            },
+            "test": {
+              "optimization": false,
+              "extractLicenses": false,
+              "sourceMap": true,
+              "ngxEnv": {
+                "prefix": "^(?-i:NG_APP_)",
+                "files": []
+              }
             }
           },
           "defaultConfiguration": "production"
@@ -82,7 +91,8 @@
           "options": {
             "setupFiles": [
               "src/test-setup.ts"
-            ]
+            ],
+            "buildTarget": "::test"
           }
         },
         "lint": {
