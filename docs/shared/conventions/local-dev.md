@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-03
-updated: 2026-09-22
+updated: 2026-09-30
 tags:
   - type/convention
   - area/shared
@@ -58,6 +58,9 @@ list. Key targets:
   targets a torn-down machine re-fetches base images and NuGet packages over the network on
   every rebuild, and public registries throttle a repeat client — see
   [[2026-09-22-a-pruned-cache-that-came-over-the-network-is-not-free]].
+- **Stripe (local webhook delivery):** `make stripe-webhook-secret` — writes the Stripe CLI's
+  local webhook signing secret into `.env.local.users` and `.env.local.orders` (CUSTOM box). It
+  is the entry point [[stripe-sandbox-setup]] names for wiring `stripe listen` to the services.
 - **Observability:** `make observability-up` / `make observability-down` — opt-in OpenObserve
   + OTel collector stack. OpenObserve is now the single backend for **both** logs and traces
   (Jaeger was removed 2026-08-21 — see [[ADR-0019-distributed-tracing-opentelemetry]] Amendment).
@@ -120,6 +123,8 @@ a new service needs local testing.
 
 ## Related
 
+- [[2026-09-19-stripe-payments]] — the plan that added `make stripe-webhook-secret`.
+- [[stripe-sandbox-setup]] — the operator runbook that calls `make stripe-webhook-secret` the actual entry point.
 - [[ADR-0017-floci-local]]
 - [[local-dev-floci]]
 - [[git-workflow]]

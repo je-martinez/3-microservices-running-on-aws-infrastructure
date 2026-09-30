@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-09-30
 tags: [type/convention, area/shared, status/active]
 related:
   - "[[testing]]"
@@ -25,8 +25,8 @@ When they accept, the window opens on the monitor they chose: the **built-in dis
 ## Why the rule exists
 
 Playwright windows steal focus, can land on an unpredictable monitor, and interrupt whatever the
-user is doing on their machine. Four specs in this repo launch headed browsers
-(`cart-drawer-animation`, `popover-overflow`, `scrollbar-gutter`, `cart-drawer-first-open`), so a
+user is doing on their machine. Five specs in this repo launch headed browsers
+(`cart-drawer-animation`, `popover-overflow`, `scrollbar-gutter`, `cart-drawer-first-open`, `gateway-session`), so a
 plain suite run pops several windows with no warning.
 
 The user raised this three times over two days (2026-09-02 to 2026-09-04) before it was handled

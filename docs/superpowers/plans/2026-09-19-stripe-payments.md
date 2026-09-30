@@ -10,13 +10,9 @@ propagates-to:
   - "[[2026-09-19-stripe-payments-design]]"
   - "[[testing]]"
   - "[[env-files]]"
-  - "[[git-workflow]]"
   - "[[phase-c-review-flow]]"
-  - "[[cqrs]]"
   - "[[angular-component-authoring]]"
   - "[[openapi-specs]]"
-  - "[[soft-delete]]"
-  - "[[audit-fields]]"
   - "[[nano-id]]"
   - "[[money-representation]]"
   - "[[local-dev]]"
@@ -76,9 +72,9 @@ related:
 ## Task 1 — Stripe client foundation in Users
 
 **Files:**
-- Create: `services/users/src/shared/stripe/stripe-client.provider.ts`, `services/users/src/shared/stripe/stripe-client.provider.spec.ts`, `services/users/src/shared/tokens.ts` (extend, do not recreate), `services/users/src/shared/observability/stripe-tracing.ts`, `services/users/src/shared/observability/stripe-tracing.spec.ts`
+- Create: `services/users/src/shared/stripe/stripe-client.provider.ts`, `services/users/tests/shared/stripe-client-provider.test.ts`, `services/users/src/shared/tokens.ts` (extend, do not recreate), `services/users/src/shared/observability/stripe-tracing.ts`, `services/users/tests/observability/stripe-tracing.test.ts`
 - Modify: `services/users/src/config/env.schema.ts`
-- Test: `services/users/src/shared/stripe/stripe-client.provider.spec.ts`, `services/users/src/shared/observability/stripe-tracing.spec.ts`
+- Test: `services/users/tests/shared/stripe-client-provider.test.ts`, `services/users/tests/observability/stripe-tracing.test.ts`
 
 **Interfaces:**
 - Consumes: `services/users/src/config/env.schema.ts`'s existing `E2E_TESTING_ENABLED` boolean-from-string pattern (`z.enum(["true","false"]).default("false").transform((v) => v === "true")`).
@@ -120,7 +116,7 @@ related:
   export const STRIPE_CLIENT = Symbol("STRIPE_CLIENT");
   ```
 
-- [x] 1.3 Write the failing spec first, `services/users/src/shared/stripe/stripe-client.provider.spec.ts`:
+- [x] 1.3 Write the failing spec first, `services/users/tests/shared/stripe-client-provider.test.ts`:
   ```ts
   import { describe, expect, it, vi } from "vitest";
   import { buildStripeClientHolder } from "./stripe-client.provider";
@@ -238,7 +234,7 @@ related:
   ```
 
 - [x] 1.7 **Stripe observability foundation (spec Decision 25).** Write the failing spec first,
-  `services/users/src/shared/observability/stripe-tracing.spec.ts`, asserting a span is
+  `services/users/tests/observability/stripe-tracing.test.ts`, asserting a span is
   created with the right name/kind/attributes and that a thrown error sets ERROR status:
   ```ts
   import { SpanKind, SpanStatusCode } from "@opentelemetry/api";
@@ -352,7 +348,9 @@ related:
 **Files:**
 - Modify: `services/users/prisma/schema.prisma`
 - Create: a Prisma migration under `services/users/prisma/migrations/`
-- Test: `services/users/src/shared/db/prisma-extensions.spec.ts` (extend, if it covers new models) or a new `services/users/src/features/payment-methods/stripe-payment-method.model.spec.ts`
+- Test: `services/users/tests/shared/db/stripe-payment-method-migration.test.ts`
+
+  > Path note: every Users test lives in `services/users/tests/` with a `.test.ts` suffix (there are no colocated specs), and the Nest implementation lives in `services/users/src/payment-methods/`. Only the Zod request schemas stay under `services/users/src/payment-methods/http/schemas.ts`, because the Nest migration spec deliberately reuses them.
 
 **Interfaces:**
 - Produces the `StripePaymentMethod` Prisma model and `User.stripeCustomerId` / `User.stripeCustomerData` columns consumed by Tasks 3–6.
@@ -412,7 +410,7 @@ related:
 
 - [x] 2.3 Run the migration: `nvm use && pnpm --filter users exec prisma migrate dev --name add_stripe_customer_and_payment_methods`. Confirm it applies cleanly against the local dev database and that `stripeCustomerId`/`stripeCustomerData` are nullable so every existing `users` row is unaffected.
 
-- [x] 2.4 Write a test proving the flag-off case is inert, `services/users/src/features/payment-methods/stripe-payment-method.model.spec.ts`:
+- [x] 2.4 Write a test proving the flag-off case is inert, `services/users/tests/shared/db/stripe-payment-method-migration.test.ts`:
   ```ts
   import { describe, expect, it } from "vitest";
   import { createTestDb } from "#shared/testing/test-db";
@@ -425,15 +423,15 @@ related:
     });
   });
   ```
-  Run `nvm use && pnpm --filter users test stripe-payment-method.model` — passes (adjust the test-db helper import to whatever this repo's existing integration tests use; do not invent a new one — grep for `createTestDb`/similar helpers already used by `register.command.spec.ts` before writing this step for real).
+  Run `nvm use && pnpm --filter users test stripe-payment-method-migration` — passes (adjust the test-db helper import to whatever this repo's existing integration tests use; do not invent a new one — grep for `createTestDb`/similar helpers already used by `register.command.test.ts` before writing this step for real).
 
 - [x] 2.5 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
 
 ## Task 3 — `ensureStripeCustomer` (lazy creation)
 
 **Files:**
-- Create: `services/users/src/features/payment-methods/ensure-stripe-customer.ts`, `services/users/src/features/payment-methods/ensure-stripe-customer.spec.ts`
-- Test: `services/users/src/features/payment-methods/ensure-stripe-customer.spec.ts`
+- Create: `services/users/src/payment-methods/ensure-stripe-customer.ts`, `services/users/tests/payment-methods/ensure-stripe-customer.test.ts`
+- Test: `services/users/tests/payment-methods/ensure-stripe-customer.test.ts`
 
 **Interfaces:**
 - Consumes: `STRIPE_CLIENT` (`StripeClientHolder`, Task 1), `DB` (`Db`, Prisma client with `stripeCustomerId`/`stripeCustomerData`, Task 2).
@@ -455,7 +453,7 @@ related:
 
 ### Steps
 
-- [x] 3.1 Write the failing spec, `services/users/src/features/payment-methods/ensure-stripe-customer.spec.ts`:
+- [x] 3.1 Write the failing spec, `services/users/tests/payment-methods/ensure-stripe-customer.test.ts`:
   ```ts
   import { describe, expect, it, vi } from "vitest";
   import { ensureStripeCustomer } from "./ensure-stripe-customer";
@@ -529,7 +527,7 @@ related:
   ```
   Run `nvm use && pnpm --filter users test ensure-stripe-customer` — fails, module missing.
 
-- [x] 3.2 Implement `services/users/src/features/payment-methods/ensure-stripe-customer.ts`:
+- [x] 3.2 Implement `services/users/src/payment-methods/ensure-stripe-customer.ts`:
   ```ts
   import type { StripeClientHolder } from "#shared/stripe/stripe-client.provider";
   import { StripeUnavailableException } from "#shared/stripe/stripe-unavailable.exception";
@@ -611,9 +609,9 @@ related:
 ## Task 4 — Users payment-method commands/queries (CQRS)
 
 **Files:**
-- Create: `services/users/src/features/payment-methods/commands/create-setup-intent.command.ts`, `.../commands/attach-payment-method.command.ts`, `.../commands/detach-payment-method.command.ts`, `.../commands/set-default-payment-method.command.ts`, `.../queries/list-payment-methods.query.ts`, plus a `.spec.ts` per handler, `services/users/src/features/payment-methods/payment-methods.controller.ts`, `services/users/src/features/payment-methods/payment-methods.module.ts`
+- Create: `services/users/src/payment-methods/commands/create-setup-intent.command.ts`, `.../commands/attach-payment-method.command.ts`, `.../commands/detach-payment-method.command.ts`, `.../commands/set-default-payment-method.command.ts`, `.../queries/list-payment-methods.query.ts`, plus a `.test.ts` per handler under `services/users/tests/payment-methods/`, `services/users/src/payment-methods/http/payment-methods.controller.ts`, `services/users/src/payment-methods/payment-methods.module.ts`
 - Modify: `services/users/openapi.yaml`
-- Test: one `.spec.ts` per command/query handler, dispatched through the real `CommandBus`/`QueryBus`
+- Test: one `.test.ts` per command/query handler, dispatched through the real `CommandBus`/`QueryBus`
 
 **Interfaces:**
 - Consumes: `ensureStripeCustomer` (Task 3), `STRIPE_CLIENT` (Task 1), `StripePaymentMethod` Prisma model (Task 2).
@@ -626,7 +624,7 @@ related:
 
 ### Steps
 
-- [x] 4.1 Write the failing spec for the setup-intent command, `create-setup-intent.command.spec.ts`, dispatched through `CommandBus` per [[cqrs]]:
+- [x] 4.1 Write the failing spec for the setup-intent command, `services/users/tests/payment-methods/create-setup-intent.command.test.ts`, dispatched through `CommandBus` per [[cqrs]]:
   ```ts
   import { Test } from "@nestjs/testing";
   import { CqrsModule, CommandBus } from "@nestjs/cqrs";
@@ -722,7 +720,7 @@ related:
   ```
   Run `nvm use && pnpm --filter users test create-setup-intent.command` — passes.
 
-- [x] 4.3 Write the failing spec for listing, `list-payment-methods.query.spec.ts`, then implement `list-payment-methods.query.ts` reading only the local `StripePaymentMethod` table (never Stripe — spec D4: "listing reads local"):
+- [x] 4.3 Write the failing spec for listing, `services/users/tests/payment-methods/list-payment-methods.query.test.ts`, then implement `list-payment-methods.query.ts` reading only the local `StripePaymentMethod` table (never Stripe — spec D4: "listing reads local"):
   ```ts
   // list-payment-methods.query.ts
   import { Inject } from "@nestjs/common";
@@ -765,7 +763,7 @@ related:
   ```
   Run `nvm use && pnpm --filter users test list-payment-methods.query` — passes once test doubles are added mirroring 4.1's shape.
 
-- [x] 4.4 Write the failing spec for attach, `attach-payment-method.command.spec.ts`, then implement `attach-payment-method.command.ts`. This is the confirm-and-persist route (`POST /v1/users/me/payment-methods`), taking the tokenized `pm_...` from the confirmed SetupIntent, attaching it to the customer, and writing the local row in the same response (spec D3, D11):
+- [x] 4.4 Write the failing spec for attach, `services/users/tests/payment-methods/attach-payment-method.command.test.ts`, then implement `attach-payment-method.command.ts`. This is the confirm-and-persist route (`POST /v1/users/me/payment-methods`), taking the tokenized `pm_...` from the confirmed SetupIntent, attaching it to the customer, and writing the local row in the same response (spec D3, D11):
   ```ts
   // attach-payment-method.command.ts
   import { Inject } from "@nestjs/common";
@@ -829,7 +827,7 @@ related:
   ```
   Add `stripePaymentMethod: "stpm"` to `MODEL_ID_PREFIXES` in `services/users/src/shared/id/nano-id.ts` per [[nano-id]]'s registered-prefix table.
 
-- [x] 4.5 Write the failing spec for detach, `detach-payment-method.command.spec.ts`, asserting **ownership**: a `pm_...` belonging to another user's customer is rejected before any Stripe call:
+- [x] 4.5 Write the failing spec for detach, `services/users/tests/payment-methods/detach-payment-method.command.test.ts`, asserting **ownership**: a `pm_...` belonging to another user's customer is rejected before any Stripe call:
   ```ts
   it("rejects a payment method that does not belong to the caller", async () => {
     const db = {
@@ -894,7 +892,7 @@ related:
   ```
   Run `nvm use && pnpm --filter users test detach-payment-method.command` — passes.
 
-- [x] 4.6 Write the failing spec for set-default, `set-default-payment-method.command.spec.ts`, with the same ownership check, then implement `set-default-payment-method.command.ts` calling `stripe.client.customers.update(customerId, { invoice_settings: { default_payment_method: paymentMethodId } })` and mirroring `isDefault` locally (unset on all other rows for that user, set on this one, inside a `db.$transaction`).
+- [x] 4.6 Write the failing spec for set-default, `services/users/tests/payment-methods/set-default-payment-method.command.test.ts`, with the same ownership check, then implement `set-default-payment-method.command.ts` calling `stripe.client.customers.update(customerId, { invoice_settings: { default_payment_method: paymentMethodId } })` and mirroring `isDefault` locally (unset on all other rows for that user, set on this one, inside a `db.$transaction`).
 
 - [x] 4.7 Create the controller `payment-methods.controller.ts`, dispatching through `CommandBus`/`QueryBus` per [[cqrs]] — the controller binds the request, checks auth (existing `x-user-id`/JWT guard pattern already used by other Users controllers), and calls exactly one handler; no domain logic or Prisma calls inline:
   ```ts
@@ -987,7 +985,7 @@ related:
 ## Task 5 — Stripe webhook endpoint (reconciliation)
 
 **Files:**
-- Create: `services/users/src/features/payment-methods/stripe-webhook.controller.ts`, `services/users/src/features/payment-methods/commands/reconcile-payment-method.command.ts`, `.spec.ts` for both
+- Create: `services/users/src/payment-methods/webhooks/stripe-webhook.controller.ts`, `services/users/src/payment-methods/commands/reconcile-payment-method.command.ts`, plus `services/users/tests/payment-methods/stripe-webhook.controller.test.ts` and `.../reconcile-payment-method.command.test.ts`
 - Modify: `services/users/openapi.yaml`
 
 **Interfaces:**
@@ -996,7 +994,7 @@ related:
 
 ### Steps
 
-- [x] 5.1 Write the failing spec asserting signature rejection BEFORE any processing, `stripe-webhook.controller.spec.ts`:
+- [x] 5.1 Write the failing spec asserting signature rejection BEFORE any processing, `services/users/tests/payment-methods/stripe-webhook.controller.test.ts`:
   ```ts
   it("returns 400 and never dispatches a command when the signature is invalid", async () => {
     const commandBus = { execute: vi.fn() };
@@ -1677,7 +1675,7 @@ app, and disputes. Fulfillment stays exactly as Task 9 built it: synchronous, in
 - Modify: `services/orders/src/Orders.Api/Program.cs` (register the raw-body-reading route,
   wire `STRIPE_WEBHOOK_SECRET`), `services/orders/openapi.yaml`,
   `infra/environments/local/scripts/generate_env_files.py` (Orders' CUSTOM box),
-  `infra/scripts/set_stripe_webhook_secret.py` (or wherever `make stripe-webhook-secret`'s
+  `infra/environments/local/scripts/set_stripe_webhook_secret.py` (or wherever `make stripe-webhook-secret`'s
   script lives — see Task 14.4's note), `docker-compose.yml` (`stripe-cli`'s `--forward-to`)
 
 **Interfaces:**
@@ -1819,7 +1817,7 @@ URL token → signature. Write every rejection test first.
 **Files:**
 - Modify (Users): the webhook route file from Task 5 (grep `stripe/webhook` under
   `services/users/src`), `services/users/src/config/env.schema.ts`, the webhook route's
-  `.spec.ts`
+  test (`services/users/tests/payment-methods/stripe-webhook.controller.test.ts`)
 - Modify (Orders): `services/orders/src/Orders.Api/StripeWebhook/StripeWebhookEndpoint.cs` (Task
   10c.2's file, or wherever it actually landed), Orders' settings/env binding, its xUnit tests
 - Modify (infra): `infra/modules/api-gateway/main.tf` (both webhook route entries' `key` and

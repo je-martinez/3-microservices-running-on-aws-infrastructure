@@ -173,7 +173,7 @@ trace attribute, never the concrete value.
 `STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS` are written into both services' **AUTO** box by
 `make env-file` — unlike the restricted keys and the URL token, these are not hand-injected
 secrets. Locally, the allowlist is Stripe's published webhook IPs **plus** loopback and private
-ranges (`127.0.0.0/8`, `::1`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), because
+ranges (`127.0.0.0/8`, `::1/128`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), because
 `stripe listen` forwards from the developer's own machine straight to the service port; local
 trusted hops = `0`.
 

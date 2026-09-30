@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-09-20
-updated: 2026-09-20
+updated: 2026-09-30
 tags:
   - type/convention
   - area/shared
@@ -134,6 +134,14 @@ checklist per trigger, and the concrete failure each rule prevents.
   back to its page — grouping a screen's calls is a `page_route` filter, not a hierarchy, and the
   page span and the calls it links are separate traces, not one waterfall.
 
+## Surfaces added by the Stripe payments milestone
+
+The Payment Element checkout (new-card and saved-card branches) and the profile payment-methods
+screen ([[2026-09-19-stripe-payments]], roughly 36 web files) are browser surfaces covered by
+this convention. They call the gateway through `ApiClient` and are verified **in the OpenObserve
+viewer** like any other new surface — a green component test does not show that their gateway
+calls appear as `RUM - <method> <route>` spans.
+
 ## Known limitations — current facts, not aspirations
 
 - **`cognito_sub` is never emitted.** The app never decodes the JWT client-side, so no
@@ -147,6 +155,7 @@ checklist per trigger, and the concrete failure each rule prevents.
 
 ## Related
 
+- [[2026-09-19-stripe-payments]] — the Stripe milestone whose checkout and payment-methods screens are covered above.
 - [[2026-09-19-web-rum-integration-design]] — the design this convention generalises into a
   standing checklist.
 - [[logging-context]] — the shared PII/redaction rules browser error logging follows.

@@ -28,7 +28,7 @@ the contract consumed by API clients (Users, Tracking) / Datadog (Orders); see [
 changes, and nothing catches it until a consumer builds against it. This reasoning is
 recorded in full in [[openapi-autogen]] (Users' ADR) — reference it, don't restate it.
 
-## Per-service generator (Users updated 2026-09-19; Orders/Tracking verified 2026-08-14)
+## Per-service generator (Users updated 2026-09-19, Stripe routes added 2026-09-30; Orders/Tracking verified 2026-08-14)
 
 | Service | Stack | Command | Mechanism |
 |---|---|---|---|
@@ -101,7 +101,8 @@ anonymous caller outright. Fixed 2026-08-14.
 A committed artifact goes stale silently, so each service pins it with a test that
 regenerates and compares:
 
-- **Users** — `tests/features/users/http/routes.test.ts` ("openapi spec generation").
+- **Users** — `tests/openapi/openapi.test.ts`. Its `generate:openapi` covers the Stripe routes
+  (`/v1/users/me/payment-methods*` and the webhook) added by [[2026-09-19-stripe-payments]].
 - **Tracking** — `tests/test_openapi_spec.py`. Compares **parsed** documents, not raw text —
   a re-wrapped description is not a contract change; it also pins per-route auth headers and
   the documented `401`s.
@@ -118,6 +119,7 @@ incomplete change — same standing as the three-layer testing rule in [[testing
 
 ## Related
 
+- [[2026-09-19-stripe-payments]] — Users' `generate:openapi` was updated for the Stripe payment-method routes.
 - [[versioning]] — `info.version` follows this convention's API-versioning rule.
 - [[testing]] — the three-layer testing rule this note's "incomplete change" standard mirrors,
   and the `e2e-cleanup` mechanism behind the `e2e` tag.

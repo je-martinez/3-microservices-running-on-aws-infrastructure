@@ -4,7 +4,7 @@ type: plan
 area: shared
 status: active
 created: 2026-09-19
-updated: 2026-09-23
+updated: 2026-09-30
 tags:
   - type/plan
   - area/shared
@@ -39,7 +39,7 @@ plan lives in [[2026-09-19-stripe-payments]] (superpowers plan); the design in
 
 **Feature branch:** `feature/stripe-payments`, fed by `feat/stripe-payments-users` (merged, PR
 [#84](https://github.com/je-martinez/3-microservices-running-on-aws-infrastructure/pull/84)) and
-`feat/stripe-payments-orders` (open, PR
+`feat/stripe-payments-orders` (merged, PR
 [#85](https://github.com/je-martinez/3-microservices-running-on-aws-infrastructure/pull/85)).
 
 **Goal:** turn `NG_APP_STRIPE_ENABLED` from a static UI swap into a real integration — saved
@@ -66,7 +66,7 @@ flowchart TD
     GATE1{{"GATE 1 — PR #84 merged into feature/stripe-payments"}}
     UsersWave --> GATE1
 
-    subgraph OrdersWave["Orders — Tasks 9, 9.10b, 10, 10c, 10d (PR #85, open)"]
+    subgraph OrdersWave["Orders — Tasks 9, 9.10b, 10, 10c, 10d (merged, PR #85)"]
         T9["9 / PaymentIntent on order creation"]
         T910b["9.10b / idempotency + replay guards"]
         T10["10 / refund on any post-charge failure"]
@@ -77,10 +77,10 @@ flowchart TD
 
     GATE1 --> T9
 
-    GATE2{{"GATE 2 — PR #85 open, review pending"}}
+    GATE2{{"GATE 2 — PR #85 merged into feature/stripe-payments"}}
     OrdersWave --> GATE2
 
-    subgraph WebWave["Web — Tasks 11, 12, 13 (not started)"]
+    subgraph WebWave["Web — Tasks 11, 12, 13 (done)"]
         T11["11 / SavedCardRow + Payment Element checkout"]
         T12["12 / Profile — Payment methods tab"]
         T13["13 / Card-field validation, plain branch"]
@@ -91,7 +91,7 @@ flowchart TD
     GATE2 --> T12
     GATE1 -.->|"13 has no Orders dependency"| T13
 
-    T14["14 / Infra, compose and CSP (partially done)"]
+    T14["14 / Infra, compose and CSP"]
     GATE1 --> T14
 
     T15["15 / The three test layers"]
@@ -100,13 +100,8 @@ flowchart TD
     T14 --> T15
 
     class T1,T2,T3,T4,T5,T6,T7 done;
-    class T9,T910b,T10,T10c,T10d review;
-    class T11,T12,T13,T15 todo;
-    class T14 partial;
+    class T9,T910b,T10,T10c,T10d,T11,T12,T13,T14,T15 done;
     classDef done fill:#1f6f43,color:#fff,stroke:#144d2e;
-    classDef review fill:#8a6d00,color:#fff,stroke:#5c4900;
-    classDef todo fill:#5a5a5a,color:#fff,stroke:#3a3a3a;
-    classDef partial fill:#3b5b8c,color:#fff,stroke:#2a4166;
 ```
 
 ## Status table
@@ -126,17 +121,17 @@ flowchart TD
 | 10 | Orders: refund on any post-charge failure | DONE | [#85](https://github.com/je-martinez/3-microservices-running-on-aws-infrastructure/pull/85) |
 | 10c | Orders: Stripe webhook (payment reconciliation) | DONE | [#85](https://github.com/je-martinez/3-microservices-running-on-aws-infrastructure/pull/85) |
 | 10d | Webhook defense in depth (URL token + IP allowlist) | DONE | [#85](https://github.com/je-martinez/3-microservices-running-on-aws-infrastructure/pull/85) |
-| — | **GATE 2** — Orders → `feature/stripe-payments` | IN REVIEW | [#85](https://github.com/je-martinez/3-microservices-running-on-aws-infrastructure/pull/85) (open) |
-| 11 | Web: `SavedCardRow` component + Payment Element checkout flow | NOT STARTED | — |
-| 12 | Web: Profile — Payment methods tab | NOT STARTED | — |
-| 13 | Card-field validation on the plain branch | NOT STARTED (no Orders dependency — may run in parallel with GATE 2) | — |
-| 14 | Infra, compose and CSP | PARTIALLY DONE — env generation, `make stripe-webhook-secret`, gateway routes landed in #84/#85; CSP header, remaining `.env.example` cleanup outstanding | #84, #85 |
-| 15 | The three test layers | NOT STARTED (Orders' internal + gateway E2E for the Stripe charge path is the blocking gap — see Gap backlog) | — |
+| — | **GATE 2** — Orders → `feature/stripe-payments` | PASSED | [#85](https://github.com/je-martinez/3-microservices-running-on-aws-infrastructure/pull/85) |
+| 11 | Web: `SavedCardRow` component + Payment Element checkout flow | DONE | — |
+| 12 | Web: Profile — Payment methods tab | DONE | — |
+| 13 | Card-field validation on the plain branch | DONE | — |
+| 14 | Infra, compose and CSP | DONE — env generation, `make stripe-webhook-secret` and gateway routes landed in #84/#85; the CSP header shipped in `0919e6c7` | #84, #85 |
+| 15 | The three test layers | DONE — includes `e2e/tests/order-payment.spec.ts` | — |
 
-**Deferred to Task 11**, not dropped: the web `NG_APP_*` build args move to the root `.env`'s
-CUSTOM box per [[env-files]] (step 11.4b, currently pending), and the web checkout must send an
-`Idempotency-Key` header on `POST /v1/orders` per [[2026-09-19-stripe-payments-design]] Decision
-7 — Task 11 wires this, it does not exist yet.
+**Shipped with Task 11**: the web `NG_APP_*` build args live in `.env.local.web`'s CUSTOM box per
+[[env-files]] (step 11.4b), and the web checkout sends an `Idempotency-Key` header on
+`POST /v1/orders` per [[2026-09-19-stripe-payments-design]] Decision 7 — the client sends it and
+Orders reads it.
 
 ## Gap backlog
 
@@ -266,21 +261,11 @@ convention; superseded the moment the described worktree is deleted or the branc
 
 ## Next steps
 
-1. Review and merge PR #85 (Orders — Tasks 9, 9.10b, 10, 10c, 10d) into `feature/stripe-payments`
-   — GATE 2.
-2. Re-apply nginx from the main checkout once `feature/stripe-payments` has both services merged,
+1. Re-apply nginx from the main checkout once `feature/stripe-payments` has both services merged,
    per "Local environment state" above.
-3. Start Task 13 (card-field validation, plain branch) — no Orders dependency, can run now.
-4. Start Task 11 (web checkout flow) once GATE 2 passes; wire the `Idempotency-Key` header and
-   move `NG_APP_*` build args per step 11.4b.
-5. Task 12 (profile payment methods tab) follows Task 11 (shares `SavedCardRow`).
-6. Task 14's remaining pieces: CSP header on `apps/web`'s nginx config, and any `.env.example`
-   entries not yet covered by the P1 fix above.
-7. Task 15: write Orders' internal E2E and gateway E2E for the Stripe charge path — this is what
-   currently blocks calling the milestone done, per [[testing]]'s three-layer gate.
-8. Pay down the doc-propagation gap backlog above before proposing the PR that closes this
+2. Pay down the doc-propagation gap backlog above before merging the PR that closes this
    milestone, per [[doc-propagation]].
-9. Once a Linear milestone exists for this work, backfill `issue/<ID>` tags and inline links here
+3. Once a Linear milestone exists for this work, backfill `issue/<ID>` tags and inline links here
    per [[linear-references]] and [[milestone-plan]].
 
 ## Related
