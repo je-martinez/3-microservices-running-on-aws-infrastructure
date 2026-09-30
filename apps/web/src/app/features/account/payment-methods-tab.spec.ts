@@ -194,6 +194,49 @@ describe('PaymentMethodsTab', () => {
     expect(expiry?.className).toContain('text-danger-red');
   });
 
+  /**
+   * Decision 24's three states in the profile's own list. The same three rows the
+   * checkout renders, minus the radio — so `selectable` being false must not cost
+   * the list its default badge, its set-default link or its expired styling.
+   */
+  it('renders the default, plain and expired states side by side, all radio-free', async () => {
+    const root = await render([
+      card({ id: 'pm_default', isDefault: true }),
+      card({ id: 'pm_other', last4: '5556' }),
+      card({ id: 'pm_expired', last4: '0005', expMonth: 1, expYear: 2020 }),
+    ]);
+    await openPaymentMethods(root);
+
+    const [defaultRow, plainRow, expiredRow] = rows(root).map((host) => ({
+      row: host.querySelector('[data-testid="saved-card-row"]'),
+      bubble: host.querySelector('[data-testid="brand-bubble"]'),
+      expiry: host.querySelector('[data-testid="card-expiry"]'),
+      badge: host.querySelector('[data-testid="default-badge"]'),
+      setDefault: host.querySelector('[data-testid="set-default-link"]'),
+      remove: host.querySelector('[data-testid="remove-button"]'),
+      radio: host.querySelector('[data-testid="radio"]'),
+    }));
+
+    expect(defaultRow.badge).not.toBeNull();
+    expect(defaultRow.setDefault).toBeNull();
+
+    expect(plainRow.badge).toBeNull();
+    expect(plainRow.setDefault).not.toBeNull();
+
+    // CONTRACT: An expired card keeps its Remove button and loses its
+    // set-default link. Removing it is the buyer's own call (Decision 24 deletes
+    // nothing automatically), but promoting it to default is not offered.
+    expect(expiredRow.bubble?.className).toContain('bg-surface-subtle');
+    expect(expiredRow.expiry?.className).toContain('text-danger-red');
+    expect(expiredRow.setDefault).toBeNull();
+    expect(expiredRow.remove).not.toBeNull();
+
+    expect(
+      [defaultRow.radio, plainRow.radio, expiredRow.radio],
+      'a radio reached the profile list — `selectable` must stay false here',
+    ).toEqual([null, null, null]);
+  });
+
   it('shows the security note', async () => {
     const root = await render([card()]);
     await openPaymentMethods(root);

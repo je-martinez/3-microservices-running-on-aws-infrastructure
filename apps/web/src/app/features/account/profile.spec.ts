@@ -382,7 +382,14 @@ describe('ProfilePage', () => {
 
     expect(root().querySelector('app-payment-methods-tab')).toBeNull();
     expect(root().querySelector('[data-testid="tab-payment-methods"]')).toBeNull();
+    // The Tabs FRAME itself, and the section behind it, named separately — the
+    // tab button could go while its tablist and card section stayed.
+    expect(root().querySelector('[data-testid="profile-tabs"]')).toBeNull();
+    expect(root().querySelector('[data-testid="saved-cards-section"]')).toBeNull();
+    expect(root().textContent).not.toContain('SAVED CARDS');
+    // The single view still renders, so "absent" is the gate and not a dead screen.
     expect(root().textContent).toContain('Morgan Reyes');
+    expect(root().textContent).toContain('DELIVERY ADDRESS');
   });
 
   it('mounts the payment-methods tab while STRIPE_ENABLED is on', async () => {

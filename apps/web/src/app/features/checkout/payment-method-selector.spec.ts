@@ -179,6 +179,87 @@ describe('PaymentMethodSelector', () => {
     expect(expiry?.className).toContain('text-danger-red');
   });
 
+  /**
+   * Decision 24's three states in ONE list, which is how the buyer meets them.
+   * Each row is asserted by position, so a state leaking across rows — an
+   * expired row dimming the live one, a default badge on every card — fails
+   * here where a single-row render cannot see it.
+   */
+  it('renders the selected-default, unselected and expired states side by side', async () => {
+    const root = await render([
+      card({ id: 'pm_default', isDefault: true }),
+      card({ id: 'pm_other', last4: '5556' }),
+      card({ id: 'pm_expired', last4: '0005', expMonth: 1, expYear: 2020 }),
+    ]);
+
+    const [selectedRow, plainRow, expiredRow] = rows(root).map((host) => ({
+      row: host.querySelector('[data-testid="saved-card-row"]'),
+      bubble: host.querySelector('[data-testid="brand-bubble"]'),
+      expiry: host.querySelector('[data-testid="card-expiry"]'),
+      badge: host.querySelector('[data-testid="default-badge"]'),
+      setDefault: host.querySelector('[data-testid="set-default-link"]'),
+      radio: host.querySelector('[data-testid="radio"]'),
+    }));
+
+    // 1. Selected + default: subtle fill, navy stroke, badge, no set-default link.
+    expect(selectedRow.row?.className).toContain('bg-surface-subtle');
+    expect(selectedRow.row?.className).toContain('border-brand-navy');
+    expect(selectedRow.badge).not.toBeNull();
+    expect(selectedRow.setDefault).toBeNull();
+
+    // 2. Unselected, not default: line stroke, no badge, a set-default link.
+    expect(plainRow.row?.className).toContain('border-line');
+    expect(plainRow.row?.className).not.toContain('border-brand-navy');
+    expect(plainRow.badge).toBeNull();
+    expect(plainRow.setDefault).not.toBeNull();
+
+    // 3. Expired: dimmed bubble, danger expiry, an inert radio, and NO
+    // set-default link — an expired card cannot become the default either.
+    expect(expiredRow.bubble?.className).toContain('bg-surface-subtle');
+    expect(expiredRow.expiry?.className).toContain('text-danger-red');
+    expect(expiredRow.expiry?.className).toContain('font-semibold');
+    expect(expiredRow.radio?.getAttribute('aria-disabled')).toBe('true');
+    expect(expiredRow.setDefault).toBeNull();
+  });
+
+  /**
+   * CONTRACT: Clicking an expired row's radio in the LIVE list emits nothing and
+   * leaves the standing selection alone. The row spec proves the component emits
+   * nothing; this proves the selector does not then reassign `selectedId` to it,
+   * which would hand `pay()` a card the PaymentIntent declines.
+   * See [[2026-09-19-stripe-payments-design]]
+   */
+  it('keeps the live selection when an expired row is clicked', async () => {
+    const selected: (string | null)[] = [];
+    paymentMethods.list.mockReturnValue(
+      of([
+        card({ id: 'pm_live', isDefault: true }),
+        card({ id: 'pm_expired', expMonth: 1, expYear: 2020 }),
+      ]),
+    );
+    await TestBed.compileComponents();
+    fixture = TestBed.createComponent(PaymentMethodSelector);
+    fixture.componentInstance.selectedPaymentMethodId.subscribe((id) => selected.push(id));
+    fixture.detectChanges();
+    await settle(fixture);
+    const root = fixture.nativeElement as HTMLElement;
+
+    const expiredRadio = rows(root)[1].querySelector<HTMLElement>('[data-testid="radio"]');
+    expect(expiredRadio, 'the expired row rendered no radio to click').not.toBeNull();
+    expiredRadio?.click();
+    fixture.detectChanges();
+
+    expect(
+      selected,
+      `clicking the expired row changed the emitted selection to ${JSON.stringify(selected)} — ` +
+        'only the preselected pm_live may appear',
+    ).toEqual(['pm_live']);
+    // And the live row still carries the selection visually.
+    expect(rows(root)[0].querySelector('[data-testid="saved-card-row"]')?.className).toContain(
+      'border-brand-navy',
+    );
+  });
+
   /** Zero cards means the add-card form is the whole surface. */
   it('shows the new-card block directly when the buyer has no cards', async () => {
     const root = await render([]);

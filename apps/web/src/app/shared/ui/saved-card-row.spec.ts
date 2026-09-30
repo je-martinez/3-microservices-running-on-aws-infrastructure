@@ -147,4 +147,64 @@ describe('SavedCardRow', () => {
 
     expect(selected).toEqual([]);
   });
+
+  /**
+   * CONTRACT: The KEYBOARD reaches the same guard as the pointer. The radio binds
+   * Enter and Space alongside `click`, so a guard placed on the click handler
+   * alone leaves the expired card selectable by anyone tabbing through the list.
+   * See [[2026-09-19-stripe-payments-design]]
+   */
+  it.each(['Enter', ' '])('emits no selection from an expired row on %s', (key) => {
+    const root = render({ expired: true, selectable: true });
+    const selected: string[] = [];
+    fixture.componentInstance.cardSelected.subscribe((id: string) => selected.push(id));
+
+    query(root, 'radio')?.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+
+    expect(selected).toEqual([]);
+  });
+
+  /** The same keys DO select a live row, so the test above is a guard, not inertia. */
+  it.each(['Enter', ' '])('selects a live row on %s', (key) => {
+    const root = render({ selectable: true });
+    const selected: string[] = [];
+    fixture.componentInstance.cardSelected.subscribe((id: string) => selected.push(id));
+
+    query(root, 'radio')?.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+
+    expect(selected).toEqual(['pm_1']);
+  });
+
+  /**
+   * An expired card is not promotable: the row hides its "Set as default" link,
+   * so neither consumer offers a write that would make a declining card the
+   * default. The Remove button stays — the buyer deletes it themselves.
+   */
+  it('hides "Set as default" on an expired row but keeps Remove', () => {
+    const root = render({ expired: true, selectable: true });
+
+    expect(query(root, 'set-default-link')).toBeNull();
+    expect(query(root, 'remove-button')).not.toBeNull();
+  });
+
+  /**
+   * CONTRACT: An expired row carries the LINE stroke even while `selected` is
+   * true. A stale selection can outlive a card's expiry month, and painting it
+   * navy tells the buyer a declining card is the one about to be charged.
+   */
+  it('keeps the line stroke on an expired row even when selected', () => {
+    const root = render({ expired: true, selected: true, selectable: true });
+    const row = query(root, 'saved-card-row');
+
+    expect(row?.className).toContain('border-line');
+    expect(row?.className).not.toContain('border-brand-navy');
+  });
+
+  /** The radio is skipped by the tab sequence, matching its inert state. */
+  it('takes an expired row out of the tab order', () => {
+    expect(render({ expired: true, selectable: true }).querySelector('[data-testid="radio"]')
+      ?.getAttribute('tabindex')).toBeNull();
+    expect(render({ selectable: true }).querySelector('[data-testid="radio"]')
+      ?.getAttribute('tabindex')).toBe('0');
+  });
 });
