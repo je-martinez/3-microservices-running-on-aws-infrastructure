@@ -43,7 +43,24 @@ Commit `f945f0c9` (2026-09-29, same feature branch). Before it, `ngxEnv` declare
 
 One variable: restoring only the pre-commit `angular.json` over the current tree made the suite 604/604.
 
-The trap cuts both ways. `NG_APP_GEOCODE_ENABLED=false` produced 30 **different** failures from `street-autocomplete.spec.ts`, and both flags off gave 604/604. No single ambient value is "the right one"; the suite had been written against flags-off while the dev env has them on.
+Only `stripeEnabled` actually breaks the suite. The full 2x2 matrix:
+
+| `stripeEnabled` | `geocodeEnabled` | result |
+| --- | --- | --- |
+| false | false | 604/604 pass |
+| false | true | 604/604 pass |
+| true | false | 30 failures |
+| true | true | 30 failures |
+
+`geocodeEnabled` is orthogonal in both positions: `street-autocomplete.spec.ts` sets the flag
+BEFORE creating its fixture, because the constructor reads it once, so it is already immune.
+
+> [!warning] A measurement that overrides one variable still inherits the others
+> An earlier run overrode only `NG_APP_GEOCODE_ENABLED` and reported "30 different failures",
+> concluding geocode was a second trap. It was not: `stripeEnabled` stayed `true` from the env
+> file, so those were the SAME stripe failures — same count, same file. The only thing that
+> moved was which spec the scheduler happened to hand the cascade to. **Override every variable
+> in the matrix, or the run measures the ambient value you forgot.**
 
 ## The amplifier: teardown order
 
@@ -67,7 +84,19 @@ A `test` configuration on the `build` target whose only difference is `ngxEnv.fi
 
 Verified immune across three flag combinations (both on, both off, mixed): 604/604 each time.
 
-**Rejected alternative:** hard-coding a `false` baseline in each spec that captures ambient config. Four files do (`checkout-payment.spec.ts`, `cart-drawer.spec.ts`, `profile.spec.ts` for `stripeEnabled`; `street-autocomplete.spec.ts` for `geocodeEnabled`). It needs repeating for every new flag and cannot stop a fifth spec reintroducing the problem.
+**Rejected alternative:** hard-coding a `false` baseline in each spec that captures ambient
+config. Four files do (`checkout-payment.spec.ts`, `cart-drawer.spec.ts`, `profile.spec.ts` for
+`stripeEnabled`; `street-autocomplete.spec.ts` for `geocodeEnabled`), and only the first is
+failing today — the other three are the same idiom waiting for a flag to flip. That is the
+reason to pin the environment rather than the specs: one edit removes the whole class, while a
+per-spec baseline asks for a new correct decision every time a flag is added, and cannot stop a
+fifth spec reintroducing it. Flags already in play: `rumEnabled`, `wsUrl`,
+`stripePublishableKey`.
+
+The cost is real and worth stating: the test environment now differs from the build environment
+by design, so the suite can no longer catch a bug that only appears when a flag is ON. A spec
+that needs a flag on must turn it on explicitly — which is the point, since an assertion states
+the branch it exercises where an ambient value only inherits one.
 
 ## How to apply
 
