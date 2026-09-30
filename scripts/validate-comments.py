@@ -92,6 +92,11 @@ LANG_BY_STEM = {
     "makefile": "makefile",
     "dockerfile": "dockerfile",
     "containerfile": "dockerfile",
+    # CONTRACT: Matched by STEM, so `.env.example` and `.env.local.web.example`
+    # both resolve — their suffix is `.example`, which says nothing about the
+    # format and would claim unrelated files. The generated `.env*` files are
+    # git-ignored, so in practice this gates the committed examples alone.
+    "env": "env",
 }
 
 # One p90 gate for every language: >12 lines is a hard error (see the Length
@@ -118,6 +123,11 @@ THRESHOLDS = {
     # which stage copies what) cannot be read off the instruction.
     "makefile": {"density_warn": 0.60, "density_min_lines": 80},
     "dockerfile": {"density_warn": 0.65, "density_min_lines": 40},
+    # The committed env example is a contract whose counterpart is git-ignored,
+    # so it is read far more often than a service's own env file and carries one
+    # prohibition per variable. Density runs above YAML's for that reason; the
+    # tag budget and the >12-line hard error apply unchanged.
+    "env": {"density_warn": 0.70, "density_min_lines": 60},
 }
 
 # Blocks in 7..12 lines are allowed only when load-bearing AND referenced.
@@ -253,10 +263,12 @@ def classify(path: Path) -> str | None:
     lang = LANG_BY_SUFFIX.get(path.suffix.lower())
     if lang is not None:
         return lang
-    # `Dockerfile.dev` and `Makefile.local` reduce to the same stem as a bare
-    # `Dockerfile`/`Makefile`, so one entry covers every variant. The suffix
-    # lookup above still wins, which keeps a hypothetical `Makefile.py` Python.
-    return LANG_BY_STEM.get(path.name.split(".", 1)[0].lower())
+    # CONTRACT: `lstrip(".")` before splitting. A dotfile splits to an EMPTY stem
+    # (`.env.example` -> `""`), so a dotted format matches nothing and the gate
+    # reports `Scanned 0 file(s)` rather than an error. `Dockerfile.dev` reduces
+    # to the bare stem, so one entry covers every variant, and the suffix lookup
+    # above still wins — a hypothetical `Makefile.py` stays Python.
+    return LANG_BY_STEM.get(path.name.lstrip(".").split(".", 1)[0].lower())
 
 
 # ─── Comment scanning ───────────────────────────────────────────────────────
@@ -421,9 +433,12 @@ def _scan_python_comment(line: str, state: dict) -> str | None:
     return None
 
 
+_ENV_DECLARATION = re.compile(r"^[A-Z][A-Z0-9_]*=")
+
+
 def is_comment_line(line: str, lang: str, state: dict) -> bool:
     """Record the extracted comment body in state and report whether it exists."""
-    if lang in ("yaml", "dockerfile", "makefile"):
+    if lang in ("yaml", "dockerfile", "makefile", "env"):
         # CONTRACT: only a `#` that OPENS the line counts. These formats have no
         # block or docstring form, and a trailing `#` in them is usually data —
         # above all `target: ## help text`, the self-documenting-target shape
@@ -433,6 +448,12 @@ def is_comment_line(line: str, lang: str, state: dict) -> bool:
         if lang == "makefile" and stripped.startswith("@#"):
             stripped = stripped[1:]
         body = stripped[1:].strip() if stripped.startswith("#") else None
+        # CONTRACT: In an env file a commented-out `KEY=` is a DECLARATION, not
+        # prose — it is how a CUSTOM-box entry is shown, and the coverage check
+        # in generate_env_files.py reads it as declared. Counting it as comment
+        # text turns a run of optional keys into a bogus over-length block.
+        if lang == "env" and body is not None and _ENV_DECLARATION.match(body):
+            body = None
     elif lang == "html":
         body = _scan_html_comment(line, state)
     elif lang == "python":
