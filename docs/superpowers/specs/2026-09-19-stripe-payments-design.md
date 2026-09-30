@@ -410,6 +410,24 @@ the trap. If an explicit allowlist is ever needed, use `allowed_payment_method_t
 `payment_method_types`. The Terminal/`card_present` exception does not apply — this repo has no
 in-person payment flow.
 
+**SetupIntent narrowed to card (2026-09-30).** The prohibition above still stands:
+`payment_method_types` is never passed. On 2026-09-30, `POST /v1/users/me/payment-methods/setup-intent`
+began passing `allowed_payment_method_types: ["card"]` — the parameter this decision itself names
+for an allowlist — in `services/users/src/payment-methods/commands/create-setup-intent.command.ts`.
+The distinction between the two parameters is the point: `allowed_payment_method_types` narrows
+what the buyer can select without hardcoding the integration's method list.
+- **Why.** The Dashboard's enabled methods were reaching the buyer through the Payment Element —
+  Kakao Pay, Naver Pay, bank debit and Pix all rendered on the profile's Add-card surface. None of
+  them can be saved and re-charged off-session, which is the only thing this route exists to
+  enable: it mints a SetupIntent so Orders can charge that method later without the buyer present.
+  Offering a method that cannot fulfil that purpose is a dead end the buyer only discovers after
+  picking it.
+- **Scope.** The SetupIntent only. Orders' `paymentIntents.create` is unaffected and passes
+  neither parameter — it supplies an explicit `PaymentMethod` and confirms off-session, so it never
+  renders a selector at all (`services/orders/src/Orders.Infrastructure/Payments/StripePaymentCharger.cs`).
+- **Verified against the live sandbox.** Retrieving the created SetupIntent returns
+  `allowed_payment_method_types: ['card']` and `payment_method_types: ['card']`.
+
 **Prohibited/deprecated Stripe APIs.** Named explicitly, not left implicit, because each is the
 "obvious" thing to reach for and naming them here is cheaper than catching them in review:
 
@@ -992,11 +1010,21 @@ component `aUEDx`, not a new button), and a `Security Note` ("Cards are stored b
 3MRAI never sees your full card number."). With the flag off, none of this renders — the
 profile keeps its current single-view shape.
 
-The **Payment Element** is used by name, not the legacy Card Element and not the Payment
-Element restricted to card-only mode — both are traps Stripe's own guidance calls out. The
-Card Element is deliberately not used here because it is legacy and Stripe directs new
-integrations to the Payment Element. Side benefit: the Payment Element surfaces other eligible
-payment methods (per Decision 16's dynamic payment methods) with no extra code.
+The **Payment Element** is used by name, not the legacy Card Element. The Card Element is
+deliberately not used here because it is legacy and Stripe directs new integrations to the
+Payment Element.
+
+The add-card surfaces are card-only on purpose (see Decision 16, "SetupIntent narrowed to card"),
+and both halves are required. Server side, the SetupIntent passes
+`allowed_payment_method_types: ["card"]`. Client side, `elements.create('payment', …)` in
+`apps/web/src/app/core/payments/payment-element-mount.ts` passes
+`wallets: { applePay: 'never', googlePay: 'never', link: 'never' }`. The client half is needed
+because a wallet is not a payment method as far as the SetupIntent API is concerned: Apple Pay,
+Google Pay and Link render whenever the intent allows `card`, so restricting the intent does not
+hide them. Stripe's `elements.create` reference says so directly: "If you do not want to show a
+given wallet as a payment option, you can set its property in wallets to never." Apple Pay and
+Link are not supported by this integration — a wallet returns a token this flow never attaches to
+the customer.
 
 Constraints:
 - `stripeEnabled` is read from `APP_CONFIG`, never `import.meta.env` — that contract is defined

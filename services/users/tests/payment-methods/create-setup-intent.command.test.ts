@@ -64,7 +64,12 @@ describe("CreateSetupIntentHandler", () => {
     );
 
     expect(result).toEqual({ clientSecret: "seti_123_secret_abc" });
-    expect(create).toHaveBeenCalledWith({ customer: "cus_1" });
+    // CONTRACT: `allowed_payment_method_types`, never `payment_method_types` —
+    // spec D16 bans the latter, and only a card can be re-charged off-session.
+    expect(create).toHaveBeenCalledWith({
+      customer: "cus_1",
+      allowed_payment_method_types: ["card"],
+    });
   });
 
   it("creates the Stripe customer with the user's cognito_sub in its metadata", async () => {
@@ -132,7 +137,10 @@ describe("CreateSetupIntentHandler", () => {
     await commandBus.execute(new CreateSetupIntentCommand({ userId: "usr_1", e2eSource: false }));
 
     expect(customersCreate).not.toHaveBeenCalled();
-    expect(create).toHaveBeenCalledWith({ customer: "cus_existing" });
+    expect(create).toHaveBeenCalledWith({
+      customer: "cus_existing",
+      allowed_payment_method_types: ["card"],
+    });
   });
 
   it("throws StripeUnavailableException when the client is null", async () => {

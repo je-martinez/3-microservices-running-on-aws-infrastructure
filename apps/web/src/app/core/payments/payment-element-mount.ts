@@ -30,7 +30,17 @@ export async function mountPaymentElement(
 
   const clientSecret = await mintClientSecret();
   const elements = stripe.elements({ clientSecret });
-  elements.create('payment').mount(target);
+  // CONTRACT: Turn all three wallets OFF. A wallet is not a payment method to the
+  // SetupIntent API — Apple Pay, Google Pay and Link render whenever the intent
+  // allows `card`, so restricting the intent server-side does NOT hide them. None
+  // is supported here: the saved card must be re-chargeable off-session by Orders,
+  // and a wallet hands back a token this integration never attaches.
+  // See [[2026-09-19-stripe-payments-design]]
+  elements
+    .create('payment', {
+      wallets: { applePay: 'never', googlePay: 'never', link: 'never' },
+    })
+    .mount(target);
   return { ok: true, stripe, elements };
 }
 

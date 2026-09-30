@@ -44,12 +44,24 @@ export class CreateSetupIntentHandler implements ICommandHandler<CreateSetupInte
       e2eSource: input.e2eSource,
     });
 
-    // No payment_method_types — dynamic payment methods stay enabled (spec D16).
+    // CONTRACT: `allowed_payment_method_types`, NEVER `payment_method_types` — the
+    // ban in spec D16 is on the latter, and D16 itself names the former as the way
+    // to express an allowlist. Passing `payment_method_types` would also opt this
+    // integration out of dynamic payment methods permanently.
+    //
+    // WHY only card: the other methods the Dashboard enables (Kakao Pay, Naver Pay,
+    // bank debit, Pix) reach the buyer through the Payment Element but cannot be
+    // SAVED and re-charged off-session, which is the whole point of this route —
+    // it mints a SetupIntent so a card can be charged later without the buyer.
+    // See [[2026-09-19-stripe-payments-design]]
     const setupIntent = await withStripeSpan(
       "stripe.setup_intent.create",
       { "stripe.resource_type": "setup_intent", "stripe.customer_id": customerId },
       async (span) => {
-        const created = await client.setupIntents.create({ customer: customerId });
+        const created = await client.setupIntents.create({
+          customer: customerId,
+          allowed_payment_method_types: ["card"],
+        });
         span.setAttribute("stripe.setup_intent_id", created.id);
         return created;
       },
