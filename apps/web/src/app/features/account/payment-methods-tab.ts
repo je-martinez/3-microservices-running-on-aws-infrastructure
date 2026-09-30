@@ -54,6 +54,8 @@ export class PaymentMethodsTab {
   private readonly cards = signal<readonly PaymentMethodView[]>([]);
   /** True while the buyer chose "Add a card" over an existing list. */
   private readonly addingCard = signal(false);
+  /** The card a write is in flight for, so a second click cannot double-submit. */
+  protected readonly pendingCardId = signal<string | null>(null);
 
   protected readonly entries = computed<CardEntry[]>(() =>
     this.cards().map((card) => ({
@@ -92,11 +94,11 @@ export class PaymentMethodsTab {
   }
 
   protected async onSetDefault(id: string): Promise<void> {
-    await this.mutate(() => firstValueFrom(this.paymentMethods.setDefault(id)));
+    await this.mutate(id, () => firstValueFrom(this.paymentMethods.setDefault(id)));
   }
 
   protected async onRemove(id: string): Promise<void> {
-    await this.mutate(() => firstValueFrom(this.paymentMethods.remove(id)));
+    await this.mutate(id, () => firstValueFrom(this.paymentMethods.remove(id)));
   }
 
   /**
@@ -109,8 +111,15 @@ export class PaymentMethodsTab {
     await this.reload();
   }
 
-  /** Re-reads after a write, so `isDefault` comes from the server, not a guess. */
-  private async mutate(write: () => Promise<unknown>): Promise<void> {
+  /**
+   * Re-reads after a write, so `isDefault` comes from the server, not a guess.
+   *
+   * CONTRACT: Refuse a second write while one is in flight. Two clicks send two
+   * DELETEs that both pass the server's ownership check before either commits.
+   */
+  private async mutate(id: string, write: () => Promise<unknown>): Promise<void> {
+    if (this.pendingCardId() !== null) return;
+    this.pendingCardId.set(id);
     this.cardsError.set(null);
     try {
       await write();
@@ -118,6 +127,10 @@ export class PaymentMethodsTab {
       this.report(error);
       this.cardsError.set(authErrorMessage(error));
       return;
+    } finally {
+      // Released on BOTH paths: the catch above returns, so clearing after the
+      // try would leave the row locked for the rest of the session on a failure.
+      this.pendingCardId.set(null);
     }
     await this.reload();
   }

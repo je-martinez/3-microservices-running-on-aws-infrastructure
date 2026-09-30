@@ -172,6 +172,60 @@ describe("DetachPaymentMethodHandler", () => {
     await close();
   });
 
+  // CONTRACT: This is the shape a DOUBLE-CLICK produces, and it carries NO
+  // `code` — measured against the live API, where a detach of a nonexistent id
+  // does carry `resource_missing`. Matching only that code answered 500 to a
+  // retry the handler's own contract calls idempotent success.
+  it("reconciles idempotently when Stripe reports the PM already detached with NO error code", async () => {
+    const alreadyDetachedError = new Stripe.errors.StripeInvalidRequestError({
+      message:
+        "The payment method you provided is not attached to a customer so detachment is impossible.",
+    });
+    const detach = vi.fn().mockRejectedValue(alreadyDetachedError);
+    const deleteFn = vi.fn().mockResolvedValue({});
+    const db = {
+      stripePaymentMethod: {
+        findFirst: vi.fn().mockResolvedValue({ id: "spm_1", stripePaymentMethodId: "pm_1" }),
+        delete: deleteFn,
+      },
+    };
+    const stripeHolder = { enabled: true, client: { paymentMethods: { detach } } };
+
+    const { bus, close } = await buildBus(db, stripeHolder);
+
+    await expect(
+      bus.execute(new DetachPaymentMethodCommand({ userId: "usr_1", paymentMethodId: "pm_1" })),
+    ).resolves.toBe("detached");
+    expect(deleteFn).toHaveBeenCalledWith({ where: { id: "spm_1" } });
+    await close();
+  });
+
+  // The other half: an InvalidRequestError with its OWN code is a real failure
+  // and must still propagate, so widening the predicate did not swallow it.
+  it("still propagates an InvalidRequestError carrying a different code", async () => {
+    const parameterError = new Stripe.errors.StripeInvalidRequestError({
+      message: "Must provide customer or customer_account.",
+      code: "parameter_missing",
+    });
+    const detach = vi.fn().mockRejectedValue(parameterError);
+    const deleteFn = vi.fn().mockResolvedValue({});
+    const db = {
+      stripePaymentMethod: {
+        findFirst: vi.fn().mockResolvedValue({ id: "spm_1", stripePaymentMethodId: "pm_1" }),
+        delete: deleteFn,
+      },
+    };
+    const stripeHolder = { enabled: true, client: { paymentMethods: { detach } } };
+
+    const { bus, close } = await buildBus(db, stripeHolder);
+
+    await expect(
+      bus.execute(new DetachPaymentMethodCommand({ userId: "usr_1", paymentMethodId: "pm_1" })),
+    ).rejects.toThrow();
+    expect(deleteFn).not.toHaveBeenCalled();
+    await close();
+  });
+
   it("propagates a non-InvalidRequest Stripe error untouched (never forced into a 4xx)", async () => {
     const apiError = new Stripe.errors.StripeAPIError({ message: "internal stripe error" });
     const detach = vi.fn().mockRejectedValue(apiError);
