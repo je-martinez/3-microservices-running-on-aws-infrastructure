@@ -17,9 +17,8 @@ import type { Stripe, StripeElements } from '@stripe/stripe-js';
 import { PaymentMethodsApi } from '../../core/api/payment-methods-api';
 import { StripeLoader } from '../../core/payments/stripe-loader';
 import {
-  confirmedPaymentMethodId,
-  mountPaymentElement,
-  stripeErrorToError,
+  confirmCardSetup,
+  openCardEntry,
 } from '../../core/payments/payment-element-mount';
 import { authErrorMessage } from '../auth/auth-errors';
 
@@ -31,7 +30,6 @@ export interface ConfirmedCard {
 }
 
 
-const UNAVAILABLE = 'Card entry is unavailable right now. Please try again later.';
 
 /**
  * Design: `New Card Block` inside `Stripe Payment Element` (`wgkmW` / mobile
@@ -110,19 +108,13 @@ export class NewCardBlock {
     this.confirming.set(true);
     this.cardError.set(null);
     try {
-      const result = await stripe.confirmSetup({ elements, redirect: 'if_required' });
-      if ('error' in result && result.error) {
-        this.report(stripeErrorToError(result.error));
-        this.cardError.set(result.error.message ?? UNAVAILABLE);
+      const setup = await confirmCardSetup(stripe, elements);
+      if (!setup.ok) {
+        this.report(setup.report);
+        this.cardError.set(setup.message);
         return;
       }
-
-      const paymentMethodId = confirmedPaymentMethodId(result);
-      if (paymentMethodId === null) {
-        this.report(new Error('Stripe confirmed a SetupIntent with no payment method'));
-        this.cardError.set(UNAVAILABLE);
-        return;
-      }
+      const paymentMethodId = setup.paymentMethodId;
 
       const saved = this.saveForFuture();
       if (saved) await firstValueFrom(this.paymentMethods.attach(paymentMethodId));
@@ -141,23 +133,19 @@ export class NewCardBlock {
    * it to the list leaves one abandoned intent per page view.
    */
   private async mount(target: HTMLElement): Promise<void> {
-    try {
-      const mounted = await mountPaymentElement(
-        () => this.stripeLoader.load(),
-        async () => (await firstValueFrom(this.paymentMethods.createSetupIntent())).clientSecret,
-        target,
-      );
-      if (!mounted.ok) {
-        this.unavailable.set(true);
-        return;
-      }
-      this.stripe.set(mounted.stripe);
-      this.elements.set(mounted.elements);
-    } catch (error: unknown) {
-      this.report(error);
-      this.unavailable.set(true);
-      this.cardError.set(authErrorMessage(error));
-    }
+    await openCardEntry(
+      () => this.stripeLoader.load(),
+      async () => (await firstValueFrom(this.paymentMethods.createSetupIntent())).clientSecret,
+      target,
+      {
+        setStripe: (stripe) => this.stripe.set(stripe),
+        setElements: (elements) => this.elements.set(elements),
+        setUnavailable: () => this.unavailable.set(true),
+        setError: (message) => this.cardError.set(message),
+        report: (error) => this.report(error),
+      },
+      authErrorMessage,
+    );
   }
 
   private report(error: unknown): void {
