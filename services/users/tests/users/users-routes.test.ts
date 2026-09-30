@@ -177,6 +177,25 @@ describe("users HTTP routes", () => {
     expect(response.json().createdAt).toBe("2026-01-01T00:00:00.000Z");
   });
 
+  it("GET /v1/users/me never exposes stripeCustomerId (spec D6)", async () => {
+    queryBus.execute.mockResolvedValueOnce({
+      id: "usr_1",
+      email: "ada@example.com",
+      fullName: "Ada",
+      cognitoSub: "cognito-sub-1",
+      address: null,
+      stripeCustomerId: "cus_123",
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      deletedAt: null,
+    });
+
+    const response = await app.inject({ method: "GET", url: "/v1/users/me", headers: authed });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).not.toHaveProperty("stripeCustomerId");
+  });
+
   it("rejects an invalid login body with 400 before dispatching anything", async () => {
     const response = await app.inject({
       method: "POST",

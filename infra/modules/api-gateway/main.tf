@@ -82,6 +82,21 @@ locals {
       # `location` needed: /v1/users/logout falls under `location /`.
       logout = { key = "POST /v1/users/logout", path = "/v1/users/logout", auth = true }
 
+      # CONTRACT: Keep all five auth = true — every payment method is scoped to
+      # the caller's Stripe customer, resolved from x-user-id. No nginx
+      # `location` needed: /v1/users/me/* falls under `location /` (Users).
+      # See [[2026-09-19-stripe-payments-design]]
+      pm_setup_intent = { key = "POST /v1/users/me/payment-methods/setup-intent", path = "/v1/users/me/payment-methods/setup-intent", auth = true }
+      pm_list         = { key = "GET /v1/users/me/payment-methods", path = "/v1/users/me/payment-methods", auth = true }
+      pm_attach       = { key = "POST /v1/users/me/payment-methods", path = "/v1/users/me/payment-methods", auth = true }
+      pm_detach       = { key = "DELETE /v1/users/me/payment-methods/{id}", path = "/v1/users/me/payment-methods/{id}", auth = true }
+      pm_set_default  = { key = "PUT /v1/users/me/payment-methods/{id}/default", path = "/v1/users/me/payment-methods/{id}/default", auth = true }
+
+      # CONTRACT: Keep auth = false — Stripe presents no Cognito JWT. Users
+      # guards it itself: Stripe source-IP allowlist, the URL {token}, then the
+      # `stripe-signature` HMAC over the raw body. See [[2026-09-19-stripe-payments-design]]
+      stripe_webhook = { key = "POST /v1/users/stripe/webhook/{token}", path = "/v1/users/stripe/webhook/{token}", auth = false }
+
       # WHY: Per-service health, prefixed. nginx rewrites each to the service's
       # unprefixed /v1/health.
       users_health  = { key = "GET /v1/users/health", path = "/v1/users/health", auth = false }
@@ -92,6 +107,13 @@ locals {
       # a literal must still be a valid URL — no unsubstituted {order_id}).
       create_order = { key = "POST /v1/orders", path = "/v1/orders", auth = true }
       my_orders    = { key = "GET /v1/orders/my-orders", path = "/v1/orders/my-orders", auth = true }
+
+      # CONTRACT: Keep auth = false — Stripe presents no Cognito JWT. Orders
+      # guards it itself: Stripe source-IP allowlist, the URL {token}, then the
+      # `stripe-signature` HMAC over the raw body. nginx's `location /v1/orders`
+      # already routes it. See [[2026-09-19-stripe-payments-design]]
+      orders_stripe_webhook = { key = "POST /v1/orders/stripe/webhook/{token}", path = "/v1/orders/stripe/webhook/{token}", auth = false }
+
       # CONTRACT: A path param MUST appear in the integration `path` too. Omit it
       # and Floci drops the id, so nginx sees `GET /v1/orders` and returns 405.
       # CONTRACT: camelCase, NOT snake_case. Floci builds a Java named-capturing

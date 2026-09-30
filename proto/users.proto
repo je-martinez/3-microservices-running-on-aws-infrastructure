@@ -44,4 +44,8 @@ message UserResponse {
   // surface — it is no longer only an identity lookup. NEVER log this message,
   // the same way plaintext email is never logged (see [[logging-context]]).
   Address address = 5;
+  // Null Stripe customer serializes as "" (proto3 has no null for strings).
+  // NOT exposed on GET /v1/users/me (spec D6) — this field exists only for
+  // Orders' server-to-server lookup.
+  string stripe_customer_id = 6;
 }

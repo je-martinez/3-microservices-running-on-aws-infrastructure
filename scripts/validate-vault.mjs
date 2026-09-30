@@ -1,19 +1,12 @@
-// scripts/validate-vault.mjs
-// Validates every markdown note under docs/ (excluding .obsidian, superpowers/).
-// Checks: (1) YAML frontmatter present with required keys; (2) every [[wikilink]]
-// resolves to an existing note (by basename or vault-relative path); (3) every
-// asset embed ![[file.ext]] resolves to an existing non-.md file in the vault;
-// (4) every superpowers spec/plan declares where its decisions propagate to.
-// Exits 1 with a report on any failure.
-//
-// Notes:
-// - Frontmatter is validated only for notes NOT under SKIP dirs (.obsidian, superpowers,
-//   .trash). But wikilink targets are resolved against EVERY .md in the vault — including
-//   superpowers/ — so cross-references into the design specs/plans resolve.
-// - Asset embed targets are resolved against every non-.md file in the vault (excluding
-//   .obsidian and .trash), by bare basename or vault-relative path.
-// - Wikilinks inside inline code spans and fenced code blocks are ignored (syntax shown
-//   as an example is not a real link).
+// scripts/validate-vault.mjs — the vault gate. Exits 1 with a report.
+// Checks: (1) frontmatter with the required keys and valid enums; (2) every
+// [[wikilink]] resolves; (3) every ![[asset]] embed resolves; (4) every
+// superpowers spec/plan declares `propagates-to`. See [[doc-propagation]]
+
+// CONTRACT: Frontmatter is checked only OUTSIDE the SKIP dirs, but link targets
+// resolve against EVERY .md in the vault, superpowers/ included — narrowing
+// that set breaks every cross-reference into the design specs. Links inside
+// code spans and fences are not links.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, basename, extname, relative, sep } from "node:path";
@@ -31,25 +24,20 @@ const ENUMS = {
   status: ["draft", "active", "accepted", "superseded"],
 };
 
-// Propagation gate (see docs/shared/conventions/doc-propagation.md).
-// superpowers/ output is where decisions are MADE; the organized vault is where they LIVE.
-// Every spec/plan must declare `propagates-to:` listing the vault notes it feeds, so a
-// decision cannot be made without saying where it lands.
-//
-// The gate is PROSPECTIVE: notes created on or after PROPAGATION_EPOCH must declare it.
-// The 33 specs / 30 plans predating the rule are exempt — backfilling them is tracked
-// separately, and failing on them would have made the gate unadoptable. They are reported
-// as a debt count, not as errors.
+// CONTRACT: The propagation gate is PROSPECTIVE. A spec/plan created on or
+// after PROPAGATION_EPOCH must declare `propagates-to`; the notes predating it
+// are exempt and reported as a debt count, never as errors — failing on them
+// makes the gate unadoptable, and an unrun gate is not a gate.
+// See [[doc-propagation]]
 const PROPAGATION_EPOCH = "2026-07-28";
 const PROPAGATION_KEY = "propagates-to";
 // `propagates-to: none — <reason>` opts a note out (e.g. a spike whose outcome was
 // "don't do this"). The reason is mandatory: silent opt-out is what this gate exists to stop.
 const PROPAGATION_NONE = /^none\s*[—-]\s*\S/;
 
-// Walk the vault collecting files that match the given predicate.
-// `respectSkip` toggles whether SKIP dirs are pruned:
-//   - notes to validate  -> respectSkip = true  (don't lint superpowers/, etc.)
-//   - resolvable targets  -> respectSkip = false (but still skip .obsidian/.trash dotdirs)
+// Walk the vault collecting files matching a predicate. `respectSkip` prunes
+// SKIP dirs: true for notes to validate, false for resolvable link targets —
+// which still skip the .obsidian/.trash dotdirs.
 function walk(dir, respectSkip, predicate = () => true) {
   const out = [];
   for (const entry of readdirSync(dir)) {
@@ -63,13 +51,10 @@ function walk(dir, respectSkip, predicate = () => true) {
   return out;
 }
 
-// Minimal frontmatter parser: scalars (`key: value`) plus block sequences
-//   key:
-//     - item
-//     - item
-// Block-sequence items are collected into an array so list-valued keys (related,
-// propagates-to) can be inspected; a scalar stays a string. Inline flow lists
-// (`tags: [a, b]`) remain the raw string, which is all the required-key check needs.
+// Minimal frontmatter parser: scalars plus block sequences. Sequence items
+// become an array so list-valued keys (related, propagates-to) can be
+// inspected; a scalar stays a string, and an inline flow list (`tags: [a, b]`)
+// stays raw, which is all the required-key check needs.
 function frontmatter(text) {
   const m = text.match(/^---\n([\s\S]*?)\n---/);
   if (!m) return null;

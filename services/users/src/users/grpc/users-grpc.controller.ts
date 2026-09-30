@@ -43,6 +43,7 @@ export class UsersGrpcController {
         full_name: user.fullName,
         cognito_sub: user.cognitoSub ?? "",
         address: toGrpcAddress(user.address),
+        stripe_customer_id: user.stripeCustomerId ?? "",
       };
     });
   }

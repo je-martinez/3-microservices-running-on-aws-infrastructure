@@ -13,11 +13,10 @@ export interface LogContextStore {
    * See [[2026-08-15-request-id-correlation-design]]
    */
   request_id?: string;
-  /** Raw Cognito sub, from the x-user-id header. */
+  /** Raw sub, from the x-user-id header — NOT the `usr_` id. */
   cognito_sub?: string;
-  /** Internal `usr_` id, once identity has been resolved. */
   user_id?: string;
-  /** Non-reversible email id — safe to carry on every line. */
+  /** Non-reversible — safe to carry on every line. */
   email_hash?: string;
   /**
    * Plaintext email. ONLY set on the login/register flows, where no user_id
@@ -42,15 +41,13 @@ export interface LogContextStore {
 
 export const logContext = new AsyncLocalStorage<LogContextStore>();
 
-/** The active context, or an empty object outside a request. */
 export function getLogContext(): LogContextStore {
   return logContext.getStore() ?? {};
 }
 
 /**
- * Merge fields into the ACTIVE store, for enrichment part-way through a request.
- * No-op outside one. Mutates in place so continuations that already captured the
- * reference observe the update.
+ * No-op outside a request. Mutates in place so continuations that already
+ * captured the reference observe the update.
  */
 export function setLogContext(fields: Partial<LogContextStore>): void {
   const store = logContext.getStore();

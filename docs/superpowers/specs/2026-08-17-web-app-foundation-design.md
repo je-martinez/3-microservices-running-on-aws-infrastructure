@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-08-17
-updated: 2026-09-15
+updated: 2026-09-30
 tags: [type/spec, area/shared, status/active]
 related:
   - "[[2026-09-10-in-app-notifications-design]]"
@@ -160,7 +160,7 @@ That binary lives at an absolute path whose filename encodes the platform
 }
 ```
 
-The `.env`-sourcing wrapper mirrors the neighbouring `apidog` entry. `PENCIL_MCP_BIN` in `.env`
+The `.env`-sourcing wrapper mirrors the other MCP server entries. `PENCIL_MCP_BIN` in `.env`
 overrides the search for installs the resolver does not know about; with no Pen installed it
 exits non-zero with the paths it tried, on **stderr** — stdout is the MCP stdio channel and any
 write there would be parsed as protocol.

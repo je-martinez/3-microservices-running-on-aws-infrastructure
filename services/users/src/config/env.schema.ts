@@ -1,4 +1,13 @@
 import { z } from "zod/v4";
+import { parseAllowedSources } from "../shared/http/source-ip.ts";
+
+// CONTRACT: The generated .env.local.users seeds STRIPE_* keys EMPTY into its CUSTOM
+// box when the user hasn't opted in, and compose passes "" through as the literal
+// empty string — never omits the var. Wrap those keys' schemas with this so "" and
+// whitespace-only validate identically to the var being absent, instead of failing
+// z.string().min(1)/z.enum() and blocking boot. See [[env-files]]
+const emptyAsUnset = <T extends z.ZodType>(inner: T) =>
+  z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), inner);
 
 // CONTRACT: This schema is the service contract for its environment, kept
 // verbatim from the Fastify implementation. @nestjs/config validates against it
@@ -78,6 +87,37 @@ const schema = z.object({
   // set explicitly via METRICS_INTERVAL_MS in the generated .env.local.users.
   // Defaulted so no existing env file, test, or deployment breaks by omitting it.
   METRICS_INTERVAL_MS: z.coerce.number().int().positive().default(15_000),
+  // Kill switch for the whole Stripe integration (spec D13). Off by default so
+  // every existing deploy and every test that doesn't opt in stays untouched.
+  STRIPE_ENABLED: emptyAsUnset(
+    z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((v) => v === "true"),
+  ),
+  // A restricted key (rk_...), never a secret key. Optional: STRIPE_ENABLED=true
+  // with this absent is a valid boot state (spec D13) — the Stripe routes then
+  // answer 503 instead of taking the service down.
+  STRIPE_SECRET_KEY: emptyAsUnset(z.string().min(1).optional()),
+  STRIPE_WEBHOOK_SECRET: emptyAsUnset(z.string().min(1).optional()),
+  // Webhook defense in depth. Unset with the flag on is a valid boot state: the
+  // webhook answers 503, never allow-all. A malformed allowlist fails at boot.
+  // See [[2026-09-19-stripe-payments-design]]
+  STRIPE_WEBHOOK_URL_TOKEN: emptyAsUnset(z.string().min(1).optional()),
+  STRIPE_WEBHOOK_ALLOWED_CIDRS: emptyAsUnset(
+    z
+      .string()
+      .refine((raw) => {
+        try {
+          parseAllowedSources(raw);
+          return true;
+        } catch {
+          return false;
+        }
+      }, "must be comma-separated IPv4/IPv6 addresses or CIDRs")
+      .optional(),
+  ),
+  STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS: emptyAsUnset(z.coerce.number().int().min(0).default(0)),
 });
 
 export const envSchema = schema;

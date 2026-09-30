@@ -4,7 +4,7 @@ type: plan
 area: shared
 status: draft
 created: 2026-08-18
-updated: 2026-08-18
+updated: 2026-09-30
 tags: [type/plan, area/shared, status/draft, phase/1]
 related:
   - "[[2026-08-17-web-app-foundation-design]]"
@@ -558,7 +558,7 @@ export const APP_CONFIG: AppConfig = {
 
 - [ ] **Step 4: Document it in the root `.env.example`**
 
-Add to the CUSTOM box, beside `APIDOG_*` and `PENCIL_MCP_BIN`:
+Add to the CUSTOM box, beside `PENCIL_MCP_BIN`:
 
 ```sh
 # ─── apps/web (build-time, PUBLIC) ────────────────────────────────────────────

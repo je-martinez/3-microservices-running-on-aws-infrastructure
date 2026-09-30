@@ -52,9 +52,17 @@ services/*/src/generated
 # untracked .env.local.users sitting in the working tree would otherwise be
 # uploaded and, if any COPY caught it, baked into a layer. The committed
 # .env.example contract is not secret, so it stays.
+#
+# CONTRACT: Keep the `**/` patterns. A bare `.env` matches the CONTEXT ROOT
+# ONLY, so apps/web/.env stays uploadable and a broadened COPY bakes it into a
+# layer — and @ngx-env reads a project-local .env BEFORE the repo root, so that
+# copy would also win over the build args. See [[2026-09-29-web-env-consolidation-design]]
 .env
 .env.*
+**/.env
+**/.env.*
 !.env.example
+!**/.env.example
 
 # ── Editor / agent / docs material, never served or compiled ────────────────
 .vscode

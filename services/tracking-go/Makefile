@@ -37,11 +37,10 @@ build: verify-toolchain ## Compile the server binary into bin/
 
 .PHONY: test
 test: verify-toolchain ## Run the full suite — FAILS without a database (see test-db)
-	@# NOT "unit tests, no external services required", which is what this target
-	@# used to claim. internal/adapter/mysql's tests need a real MySQL, and
-	@# without one they skip while the package still prints `ok`. That hollow
-	@# green already cost this migration a Wave-3A debugging session, so the
-	@# TestMain gate in internal/adapter/mysql/dbgate_test.go now FAILS the run
+	@# CONTRACT: This target REQUIRES a database — it is not a unit-only suite.
+	@# internal/adapter/mysql's tests need a real MySQL, and without one they skip
+	@# while the package still prints `ok`. That hollow green is what the TestMain
+	@# gate in internal/adapter/mysql/dbgate_test.go FAILS the run
 	@# instead. Use `make test-db` to run them, or TRACKING_SKIP_DB_TESTS=1 to
 	@# opt out deliberately.
 	$(GO) test -race $(PKG)
@@ -52,25 +51,12 @@ test-cover: verify-toolchain ## Run tests and write coverage.out
 
 # ─── The real-database suite ─────────────────────────────────────────────────
 #
-# THE PORT IS NOT FIXED. Floci assigns RDS proxy ports from 7000-7099 by cluster
-# CREATION ORDER, which is not stable across applies — MySQL and Postgres have
-# been observed to swap. Hardcoding 7002 here would work until the next
-# `make floci-up` and then fail in a way that looks like a broken test.
-#
-# So the DSN is DISCOVERED, from the generated .env.local.tracking, which
-# `make env-file` writes from Terraform outputs. That file is the single place
-# the discovered port already lives; re-discovering it here would be a second
-# source that can disagree with the first.
-#
-# It read .env.local.tracking-go until the cutover, when this service took over
-# the `tracking` compose key and its env file. There is no -go file any more.
-#
-# Two rewrites are applied to the value found there:
-#   - the SQLAlchemy driver prefix `mysql+pymysql://` becomes `mysql://`, which
-#     is what internal/platform/config.MySQLDSN parses;
-#   - the compose hostname `floci` becomes 127.0.0.1, because `make test-db`
-#     runs on the HOST, outside the compose network, where `floci` does not
-#     resolve.
+# CONTRACT: DISCOVER the DSN from the generated .env.local.tracking; never
+# hardcode a port. Floci assigns RDS proxy ports by cluster creation order, so
+# a literal works until the next `make floci-up` and then fails looking like a
+# broken test. The two rewrites below reach the parser
+# (internal/platform/config.MySQLDSN) and the host, which cannot resolve
+# `floci`. See [[2026-09-30-discover-the-dsn-do-not-hardcode-the-port]]
 ENV_FILE       := ../../.env.local.tracking
 TRACKING_DB_URL = $(shell sed -n 's|^DATABASE_WRITER_URL=mysql+pymysql://|mysql://|p' $(ENV_FILE) | sed 's|@floci:|@127.0.0.1:|' | sed 's|?.*||')
 # The server DSN drops the database segment: the count and soft-delete suites
@@ -93,12 +79,10 @@ test-db-env: ## Print the discovered database DSNs without running anything
 
 .PHONY: test-db
 test-db: verify-toolchain test-db-env ## Run the FULL suite including the real-MySQL tests
-	@# BOTH variables, deliberately. This package's tests read two different ones
-	@# — TRACKING_DATABASE_URL for the creation/reads/transition suites and
-	@# TRACKING_TEST_MYSQL_DSN for the count/soft-delete suites — and setting only
-	@# one leaves the other group silently skipping. That split is exactly why the
-	@# documented skip list said "eleven tests" when a database-less run actually
-	@# skips fourteen.
+	@# CONTRACT: Set BOTH. TRACKING_DATABASE_URL drives the creation/reads/
+	@# transition suites and TRACKING_TEST_MYSQL_DSN the count/soft-delete ones;
+	@# setting one leaves the other group silently skipping. Fourteen tests, not
+	@# eleven. See [[2026-09-30-go-test-discards-a-passing-packages-output]]
 	TRACKING_DATABASE_URL='$(TRACKING_DB_URL)' \
 	TRACKING_TEST_MYSQL_DSN='$(TRACKING_DB_SERVER)' \
 	TRACKING_TEST_MYSQL_ADMIN_DSN='$(TRACKING_DB_ADMIN_SERVER)' \
@@ -106,20 +90,12 @@ test-db: verify-toolchain test-db-env ## Run the FULL suite including the real-M
 
 .PHONY: test-no-db
 test-no-db: verify-toolchain ## Run the suite WITHOUT a database, opting out explicitly and loudly
-	@# The recorded-choice path.
-	@#
-	@# THE BANNER LIVES HERE, IN MAKE, AND NOT IN THE TEST — measured, not
-	@# assumed. `go test` BUFFERS AND DISCARDS a passing package's stdout and
-	@# stderr unless -v is passed, so the gate's own opt-out warning (printed
-	@# from TestMain in internal/adapter/mysql/dbgate_test.go) is invisible in a
-	@# default run. Verified: `grep -c "DATABASE TESTS WERE SKIPPED"` returns 1
-	@# with -v and 0 without it.
-	@#
-	@# That is a real limitation of doing this from inside a test binary: the
-	@# ONLY channel Go surfaces reliably without -v is a FAILURE, and failing is
-	@# exactly what the opt-out exists not to do. So the always-visible half of
-	@# the warning is printed by make, whose output is never buffered, and the
-	@# test keeps the detailed inventory for anyone running with -v.
+	@# CONTRACT: The banner belongs HERE, in make, not in TestMain. `go test`
+	@# discards a passing package's stdout unless -v is given, so a warning
+	@# printed from the test is invisible in a default run — and the one channel
+	@# Go leaves open without -v is a FAILURE, which is what an opt-out exists
+	@# not to do. make's output is never buffered.
+	@# See [[2026-09-30-go-test-discards-a-passing-packages-output]]
 	TRACKING_SKIP_DB_TESTS=1 $(GO) test -race $(PKG); status=$$?; \
 	echo ""; \
 	echo "=============================================================================="; \

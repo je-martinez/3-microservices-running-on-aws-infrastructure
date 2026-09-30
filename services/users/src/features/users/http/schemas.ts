@@ -203,7 +203,7 @@ z.globalRegistry.add(PasswordResetConfirmedSchema, { id: "PasswordResetConfirmed
 // Request-body schemas: the provider suffixes the request variant with "Input",
 // so registering with id "Register" yields a "RegisterInput" component. Naming
 // the bodies (instead of leaving them inline/anonymous) makes them show as
-// proper, named models when the spec is imported into Apidog.
+// proper, named models when the spec is imported by an API client.
 z.globalRegistry.add(RegisterInputSchema, { id: "Register" });
 z.globalRegistry.add(RegisterPasswordlessInputSchema, { id: "RegisterPasswordless" });
 z.globalRegistry.add(LoginInputSchema, { id: "Login" });

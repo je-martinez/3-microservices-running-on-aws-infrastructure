@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-19
-updated: 2026-09-15
+updated: 2026-09-30
 tags:
   - type/convention
   - area/shared
@@ -238,6 +238,15 @@ a speculative list).
 > pattern the events-pipeline already uses, and one that survives the new SNS hop unchanged
 > because raw message delivery passes `MessageAttributes` through untouched (see
 > [[events-pipeline-design#Transport change (2026-09-15): producers now publish to SNS, not SQS directly]]).
+
+> [!info] Stripe payments (2026-09-30) — five `app_event` values and a URL-token redaction rule
+> [[2026-09-19-stripe-payments-design]] added the `app_event` values `payment_charged`,
+> `payment_declined`, `payment_refunded`, `payment_orphan_refunded` and
+> `payment_status_reconciled` to Orders' flow logs. The Stripe webhook URL carries a secret
+> **token** in its path, so it is redacted in the logger's `req` serializer and in the tracing
+> hooks (`src/shared/observability/redact-webhook-token.ts` in Users). Any new place that records
+> the request URL — a log field, a span attribute, an error message — must redact it too, or the
+> token leaks through the side door the serializer does not cover.
 
 **There is no `SUCCESS` severity, by design.** The original input asked for a `[SUCCESS]` level;
 it is not an OpenTelemetry severity (the spec defines `TRACE`/`DEBUG`/`INFO`/`WARN`/`ERROR`/
@@ -524,6 +533,7 @@ had none.
 
 ## Related
 
+- [[2026-09-19-stripe-payments]] — the Stripe payments plan that added the `payment_*` `app_event` values and the webhook URL-token redaction rule above.
 - [[2026-09-10-in-app-notifications-design]] — the three new `app_event` values on Users'
   notification consumer, and the `traceparent`-continuation pattern documented above.
 - [[users-service-design]] — where those `app_event` values are emitted, and the WebSocket push

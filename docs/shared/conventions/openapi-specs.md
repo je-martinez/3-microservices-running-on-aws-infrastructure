@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-08-14
-updated: 2026-09-19
+updated: 2026-09-30
 tags: [type/convention, area/shared, status/active]
 related:
   - "[[versioning]]"
@@ -22,13 +22,13 @@ related:
 
 Every HTTP service commits `services/<svc>/openapi.yaml` at its service root. It is a
 **generated, committed build artifact** — never hand-written and never hand-patched. It is
-the contract imported into Apidog (Users, Tracking) / Datadog (Orders); see [[mcp-servers]].
+the contract consumed by API clients (Users, Tracking) / Datadog (Orders); see [[mcp-servers]].
 
 **Why generated:** a hand-maintained spec drifts from the real routes the moment a router
 changes, and nothing catches it until a consumer builds against it. This reasoning is
 recorded in full in [[openapi-autogen]] (Users' ADR) — reference it, don't restate it.
 
-## Per-service generator (Users updated 2026-09-19; Orders/Tracking verified 2026-08-14)
+## Per-service generator (Users updated 2026-09-19, Stripe routes added 2026-09-30; Orders/Tracking verified 2026-08-14)
 
 | Service | Stack | Command | Mechanism |
 |---|---|---|---|
@@ -101,7 +101,8 @@ anonymous caller outright. Fixed 2026-08-14.
 A committed artifact goes stale silently, so each service pins it with a test that
 regenerates and compares:
 
-- **Users** — `tests/features/users/http/routes.test.ts` ("openapi spec generation").
+- **Users** — `tests/openapi/openapi.test.ts`. Its `generate:openapi` covers the Stripe routes
+  (`/v1/users/me/payment-methods*` and the webhook) added by [[2026-09-19-stripe-payments]].
 - **Tracking** — `tests/test_openapi_spec.py`. Compares **parsed** documents, not raw text —
   a re-wrapped description is not a contract change; it also pins per-route auth headers and
   the documented `401`s.
@@ -118,10 +119,12 @@ incomplete change — same standing as the three-layer testing rule in [[testing
 
 ## Related
 
+- [[2026-09-19-stripe-payments]] — Users' `generate:openapi` was updated for the Stripe payment-method routes.
 - [[versioning]] — `info.version` follows this convention's API-versioning rule.
 - [[testing]] — the three-layer testing rule this note's "incomplete change" standard mirrors,
   and the `e2e-cleanup` mechanism behind the `e2e` tag.
-- [[mcp-servers]] — Apidog/Datadog, the consumers this generated contract is imported into.
+- [[mcp-servers]] — the project's MCP servers; Datadog is the other consumer this generated
+  contract is imported into.
 - [[openapi-autogen]] — Users' ADR with the full drift-vs-generation rationale.
 - [[users-service-design]] — Users' Nest OpenAPI surface after the migration.
 - [[2026-09-19-users-nestjs-migration-design]] — `z.toJSONSchema` lock-in for Zod v4.

@@ -87,6 +87,57 @@ def _trimmed(lines: list[str]) -> list[str]:
     return lines
 
 
+class MissingCustomBox(Exception):
+    """The target file or its CUSTOM markers do not exist yet."""
+
+
+def set_custom_value(path: Path, key: str, value: str) -> None:
+    """Set `key=value` inside `path`'s CUSTOM box only, in place.
+
+    CONTRACT: Replaces an existing `key=` line (active or commented-out) in the
+    CUSTOM box; appends before CUSTOM_END if absent. Never touches the AUTO box
+    or any other CUSTOM line. A commented `# KEY=...` is replaced with the
+    active line: running this command is itself the deliberate override.
+    See [[env-files]]
+    """
+    if not path.exists():
+        raise MissingCustomBox(f"{path} does not exist. Run `make env-file` first.")
+
+    lines = path.read_text().splitlines()
+    if not any(line.startswith(CUSTOM_BEGIN) for line in lines):
+        raise MissingCustomBox(
+            f"{path} has no CUSTOM box ({CUSTOM_BEGIN!r} marker missing). "
+            "Run `make env-file` first."
+        )
+
+    out: list[str] = []
+    inside = False
+    written = False
+    for line in lines:
+        if not inside:
+            out.append(line)
+            if line.startswith(CUSTOM_BEGIN):
+                inside = True
+            continue
+
+        if line.startswith(CUSTOM_END):
+            if not written:
+                out.append(f"{key}={value}")
+                written = True
+            out.append(line)
+            inside = False
+            continue
+
+        existing_key = line.split("=", 1)[0].strip().lstrip("#").strip()
+        if "=" in line and existing_key == key:
+            out.append(f"{key}={value}")
+            written = True
+        else:
+            out.append(line)
+
+    path.write_text("\n".join(out) + ("\n" if lines and lines[-1] != "" else ""))
+
+
 def write_env_file(
     path: Path,
     *,

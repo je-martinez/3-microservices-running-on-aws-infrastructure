@@ -103,4 +103,38 @@ describe("Users gRPC surface on @nestjs/microservices", () => {
 
     await expect(call(md)).rejects.toMatchObject({ code: grpc.status.NOT_FOUND });
   });
+
+  it("round-trips stripe_customer_id when the user has one set", async () => {
+    queryBus.execute.mockResolvedValueOnce({
+      id: "usr_1",
+      email: "ada@example.com",
+      fullName: "Ada",
+      cognitoSub: "sub",
+      address: null,
+      stripeCustomerId: "cus_123",
+    });
+    const md = new grpc.Metadata();
+    md.set("x-api-key", API_KEY);
+
+    const reply = await call(md);
+
+    expect(reply.stripe_customer_id).toBe("cus_123");
+  });
+
+  it("serializes a null stripeCustomerId as an empty string (proto3 has no null)", async () => {
+    queryBus.execute.mockResolvedValueOnce({
+      id: "usr_1",
+      email: "ada@example.com",
+      fullName: "Ada",
+      cognitoSub: "sub",
+      address: null,
+      stripeCustomerId: null,
+    });
+    const md = new grpc.Metadata();
+    md.set("x-api-key", API_KEY);
+
+    const reply = await call(md);
+
+    expect(reply.stripe_customer_id).toBe("");
+  });
 });

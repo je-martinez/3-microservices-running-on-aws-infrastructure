@@ -89,64 +89,78 @@
           </div>
         </div>
 
-        <div class="border-line bg-surface-white flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-5 md:p-6">
-          <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
-            <span class="text-ink-muted text-xs font-semibold tracking-[0.09375rem]">DELIVERY ADDRESS</span>
-            <app-dev-fill-button (filled)="devFillAddress($event)" />
-          </div>
-          <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 md:flex-row">
-            <div class="w-full flex-1">
-              <app-street-autocomplete
-                label="Address Line 1"
-                icon="map-pin"
-                placeholder="Av. Rómulo Betancourt 1204"
-                help="Used as the default delivery address at checkout."
-                [formField]="profileForm.street"
-                (valueChange)="onStreetTyped($event)"
-                (addressSelected)="onAddressSuggested($event)"
-              />
-            </div>
-            <div class="w-full flex-1">
-              <app-field
-                label="Address Line 2"
-                icon="building-2"
-                placeholder="Apartment, suite, floor (optional)"
-                [formField]="profileForm.line2"
-              />
-            </div>
-          </div>
-          <app-field label="City" icon="map" [formField]="profileForm.city" />
-          <app-field label="State" icon="map" [formField]="profileForm.state" />
-          <app-field
-            label="ZIP Code"
-            type="numeric"
-            autocomplete="postal-code"
-            icon="map"
-            [formField]="profileForm.postalCode"
-            help="Used as the default delivery address at checkout."
-          />
+        <!-- CONTRACT: One template, instantiated in BOTH branches. Behind the
+             flag it is the tab's projected delivery-address panel; without it the
+             profile keeps its single-view shape. A second copy of this markup
+             drifts from the first the next time a field is added. -->
+        @if (stripeEnabled()) {
+          <app-payment-methods-tab>
+            <ng-container [ngTemplateOutlet]="deliveryAddress" />
+          </app-payment-methods-tab>
+        } @else {
+          <ng-container [ngTemplateOutlet]="deliveryAddress" />
+        }
 
-          @if (saveError(); as message) {
-            <p role="alert" class="text-danger-red w-full shrink-0 text-body-sm">{{ message }}</p>
-          }
-        </div>
-
-        <div class="flex h-fit w-full shrink-0 flex-row items-center justify-end gap-3">
-          <button
-            type="button"
-            class="h-field border-line-strong text-brand-navy flex w-35 shrink-0 flex-row items-center justify-center rounded-md border text-base font-semibold"
-            (click)="resetForm()"
-          >
-            Cancel
-          </button>
-          <div class="w-47.5">
-            <app-button-primary
-              [label]="saving() ? 'Saving…' : 'Save changes'"
-              [disabled]="!canSave()"
-              (clicked)="save()"
+        <ng-template #deliveryAddress>
+          <div class="border-line bg-surface-white flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 rounded-xl border p-5 md:p-6">
+            <div class="flex h-fit w-full shrink-0 flex-row items-center justify-between">
+              <span class="text-ink-muted text-xs font-semibold tracking-[0.09375rem]">DELIVERY ADDRESS</span>
+              <app-dev-fill-button (filled)="devFillAddress($event)" />
+            </div>
+            <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-4 md:flex-row">
+              <div class="w-full flex-1">
+                <app-street-autocomplete
+                  label="Address Line 1"
+                  icon="map-pin"
+                  placeholder="Av. Rómulo Betancourt 1204"
+                  help="Used as the default delivery address at checkout."
+                  [formField]="profileForm.street"
+                  (valueChange)="onStreetTyped($event)"
+                  (addressSelected)="onAddressSuggested($event)"
+                />
+              </div>
+              <div class="w-full flex-1">
+                <app-field
+                  label="Address Line 2"
+                  icon="building-2"
+                  placeholder="Apartment, suite, floor (optional)"
+                  [formField]="profileForm.line2"
+                />
+              </div>
+            </div>
+            <app-field label="City" icon="map" [formField]="profileForm.city" />
+            <app-field label="State" icon="map" [formField]="profileForm.state" />
+            <app-field
+              label="ZIP Code"
+              type="numeric"
+              autocomplete="postal-code"
+              icon="map"
+              [formField]="profileForm.postalCode"
+              help="Used as the default delivery address at checkout."
             />
+
+            @if (saveError(); as message) {
+              <p role="alert" class="text-danger-red w-full shrink-0 text-body-sm">{{ message }}</p>
+            }
           </div>
-        </div>
+
+          <div class="flex h-fit w-full shrink-0 flex-row items-center justify-end gap-3">
+            <button
+              type="button"
+              class="h-field border-line-strong text-brand-navy flex w-35 shrink-0 flex-row items-center justify-center rounded-md border text-base font-semibold"
+              (click)="resetForm()"
+            >
+              Cancel
+            </button>
+            <div class="w-47.5">
+              <app-button-primary
+                [label]="saving() ? 'Saving…' : 'Save changes'"
+                [disabled]="!canSave()"
+                (clicked)="save()"
+              />
+            </div>
+          </div>
+        </ng-template>
       }
     </div>
   </div>

@@ -73,6 +73,9 @@ importers:
       '@opentelemetry/semantic-conventions':
         specifier: ^1.43.0
         version: 1.43.0
+      '@stripe/stripe-js':
+        specifier: ^9.17.0
+        version: 9.17.0
       date-fns:
         specifier: 4.4.0
         version: 4.4.0
@@ -167,6 +170,9 @@ importers:
       dotenv:
         specifier: ^16.4.5
         version: 16.6.1
+      stripe:
+        specifier: 22.6.0
+        version: 22.6.0(@types/node@26.0.1)
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -479,6 +485,9 @@ importers:
       sqs-consumer:
         specifier: ^15.0.3
         version: 15.0.3(@aws-sdk/client-sqs@3.1102.0)
+      stripe:
+        specifier: 22.6.0
+        version: 22.6.0(@types/node@26.0.1)
       zod:
         specifier: ^3.23.0
         version: 3.25.76
@@ -527,7 +536,7 @@ importers:
         version: 8.63.0(eslint@10.6.0(jiti@2.7.0))(typescript@5.9.3)
       unplugin-swc:
         specifier: ^1.5.0
-        version: 1.6.0(@swc/core@1.16.2)(esbuild@0.28.2)(rolldown@1.2.0)(rollup@4.62.2)(vite@5.4.21(@types/node@26.0.1)(lightningcss@1.32.0)(sass@1.101.0)(terser@5.49.1))(webpack@5.109.2(@swc/core@1.16.2)(esbuild@0.28.2)(lightningcss@1.32.0))
+        version: 1.6.0(@swc/core@1.16.2)(esbuild@0.28.2)(rolldown@1.2.0)(rollup@4.62.2)(vite@8.1.5(@types/node@26.0.1)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.101.0)(terser@5.49.1)(tsx@4.23.0)(yaml@2.9.0))(webpack@5.109.2(@swc/core@1.16.2)(esbuild@0.28.2)(lightningcss@1.32.0))
       vitest:
         specifier: ^2.0.0
         version: 2.1.9(@types/node@26.0.1)(jsdom@28.1.0)(lightningcss@1.32.0)(sass@1.101.0)(terser@5.49.1)
@@ -5170,6 +5179,10 @@ packages:
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
+  '@stripe/stripe-js@9.17.0':
+    resolution: {integrity: sha512-uidL4OJum5kivsOAQnVfQmYLJ2zdgirtmT0zWgskASZ4TPXxpXQ0MNrzW4NsXB90uEqmPHpSEtciLFbF1QQvNA==}
+    engines: {node: '>=12.16'}
+
   '@swc-node/core@1.15.0':
     resolution: {integrity: sha512-WAerrrl087WgenB92XG4Th2t0NQFfMNLYSe0sW2cEMMqM/LQmP4rozsDJl0vuzTrbewjpKQryxFXI+aYig/dBg==}
     engines: {node: '>= 10'}
@@ -8443,6 +8456,15 @@ packages:
   strip-json-comments@3.1.1:
     resolution: {integrity: sha512-6fPc+R4ihwqP6N/aIv2f1gMH8lOVtWQHoqC4yK6oSDVVocumAsfCqjkXnqiYMhmMwS/mEHLp7Vehlt3ql6lEig==}
     engines: {node: '>=8'}
+
+  stripe@22.6.0:
+    resolution: {integrity: sha512-Ezk+WYEEwX2DLxFrKfb6coznlCMZvCaCYMNPXNHFSZkBIEzF5Hgm7RLb38q/0h9Ol5jsUJGJRorvhzAvckgfhw==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      '@types/node': '>=18'
+    peerDependenciesMeta:
+      '@types/node':
+        optional: true
 
   strtok3@10.3.5:
     resolution: {integrity: sha512-ki4hZQfh5rX0QDLLkOCj+h+CVNkqmp/CMf8v8kZpkNVK6jGQooMytqzLZYUVYIZcFZ6yDB70EfD8POcFXiF5oA==}
@@ -13483,6 +13505,8 @@ snapshots:
 
   '@standard-schema/spec@1.1.0': {}
 
+  '@stripe/stripe-js@9.17.0': {}
+
   '@swc-node/core@1.15.0(@swc/core@1.16.2)(@swc/types@0.1.28)':
     dependencies:
       '@swc/core': 1.16.2
@@ -17229,6 +17253,10 @@ snapshots:
 
   strip-json-comments@3.1.1: {}
 
+  stripe@22.6.0(@types/node@26.0.1):
+    optionalDependencies:
+      '@types/node': 26.0.1
+
   strtok3@10.3.5:
     dependencies:
       '@tokenizer/token': 0.3.0
@@ -17491,6 +17519,24 @@ snapshots:
       - vite
       - webpack
 
+  unplugin-swc@1.6.0(@swc/core@1.16.2)(esbuild@0.28.2)(rolldown@1.2.0)(rollup@4.62.2)(vite@8.1.5(@types/node@26.0.1)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.101.0)(terser@5.49.1)(tsx@4.23.0)(yaml@2.9.0))(webpack@5.109.2(@swc/core@1.16.2)(esbuild@0.28.2)(lightningcss@1.32.0)):
+    dependencies:
+      '@rollup/pluginutils': 5.4.0(rollup@4.62.2)
+      '@swc/core': 1.16.2
+      load-tsconfig: 0.2.5
+      unplugin: 3.4.0(esbuild@0.28.2)(rolldown@1.2.0)(rollup@4.62.2)(vite@8.1.5(@types/node@26.0.1)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.101.0)(terser@5.49.1)(tsx@4.23.0)(yaml@2.9.0))(webpack@5.109.2(@swc/core@1.16.2)(esbuild@0.28.2)(lightningcss@1.32.0))
+    transitivePeerDependencies:
+      - '@farmfe/core'
+      - '@rsbuild/core'
+      - '@rspack/core'
+      - bun-types-no-globals
+      - esbuild
+      - rolldown
+      - rollup
+      - unloader
+      - vite
+      - webpack
+
   unplugin@3.4.0(esbuild@0.28.2)(rolldown@1.2.0)(rollup@4.62.2)(vite@5.4.21(@types/node@26.0.1)(lightningcss@1.32.0)(sass@1.101.0)(terser@5.49.1))(webpack@5.109.2(@swc/core@1.16.2)(esbuild@0.28.2)(lightningcss@1.32.0)):
     dependencies:
       '@jridgewell/remapping': 2.3.5
@@ -17501,6 +17547,18 @@ snapshots:
       rolldown: 1.2.0
       rollup: 4.62.2
       vite: 5.4.21(@types/node@26.0.1)(lightningcss@1.32.0)(sass@1.101.0)(terser@5.49.1)
+      webpack: 5.109.2(@swc/core@1.16.2)(esbuild@0.28.2)(lightningcss@1.32.0)
+
+  unplugin@3.4.0(esbuild@0.28.2)(rolldown@1.2.0)(rollup@4.62.2)(vite@8.1.5(@types/node@26.0.1)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.101.0)(terser@5.49.1)(tsx@4.23.0)(yaml@2.9.0))(webpack@5.109.2(@swc/core@1.16.2)(esbuild@0.28.2)(lightningcss@1.32.0)):
+    dependencies:
+      '@jridgewell/remapping': 2.3.5
+      picomatch: 4.0.7
+      webpack-virtual-modules: 0.6.2
+    optionalDependencies:
+      esbuild: 0.28.2
+      rolldown: 1.2.0
+      rollup: 4.62.2
+      vite: 8.1.5(@types/node@26.0.1)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.101.0)(terser@5.49.1)(tsx@4.23.0)(yaml@2.9.0)
       webpack: 5.109.2(@swc/core@1.16.2)(esbuild@0.28.2)(lightningcss@1.32.0)
 
   update-browserslist-db@1.2.3(browserslist@4.28.7):

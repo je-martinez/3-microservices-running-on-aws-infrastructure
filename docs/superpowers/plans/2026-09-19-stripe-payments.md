@@ -1,0 +1,2847 @@
+---
+title: "Stripe Payments Implementation Plan"
+type: plan
+area: shared
+status: active
+created: 2026-09-19
+updated: 2026-09-30
+tags: [type/plan, area/shared, status/active]
+propagates-to:
+  - "[[2026-09-19-stripe-payments-design]]"
+  - "[[testing]]"
+  - "[[env-files]]"
+  - "[[phase-c-review-flow]]"
+  - "[[angular-component-authoring]]"
+  - "[[openapi-specs]]"
+  - "[[nano-id]]"
+  - "[[money-representation]]"
+  - "[[local-dev]]"
+  - "[[skills-catalog]]"
+  - "[[stripe-sandbox-setup]]"
+  - "[[browser-rum]]"
+  - "[[logging-context]]"
+related:
+  - "[[2026-09-19-stripe-payments-design]]"
+  - "[[testing]]"
+  - "[[env-files]]"
+  - "[[git-workflow]]"
+  - "[[phase-c-review-flow]]"
+  - "[[cqrs]]"
+  - "[[angular-component-authoring]]"
+  - "[[openapi-specs]]"
+  - "[[soft-delete]]"
+  - "[[audit-fields]]"
+  - "[[nano-id]]"
+  - "[[money-representation]]"
+  - "[[local-dev]]"
+  - "[[skills-catalog]]"
+  - "[[stripe-sandbox-setup]]"
+  - "[[browser-rum]]"
+  - "[[logging-context]]"
+  - "[[ADR-0009-apigw-alb-fargate]]"
+  - "[[ADR-0016-local-apigw-nginx-ecs]]"
+---
+
+# Stripe Payments Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Turn the existing `NG_APP_STRIPE_ENABLED` flag from a static UI swap into a real integration — saved cards on Users, real off-session charges on Orders, and a Payment Element checkout flow on the web app.
+
+**Architecture:** Users owns the Stripe Customer and its PaymentMethods (lazy customer creation, local cache reconciled by webhook); Orders owns the PaymentIntent, fetching `stripe_customer_id` over the existing gRPC contract and charging before persisting, with an automatic refund if the stock reservation 409s after a successful charge. The web app replaces the static "Powered by Stripe" card with a saved-card selector plus the Stripe Payment Element.
+
+**Tech Stack:** Stripe Node SDK 22.6.0 (Users, NestJS/Fastify/Prisma), Stripe .NET SDK 52.4.0 (Orders, Minimal APIs/EF Core), Stripe.js Payment Element (Angular web app), Stripe CLI (`stripe listen`) for local webhook delivery.
+
+**Spec:** `docs/superpowers/specs/2026-09-19-stripe-payments-design.md`
+
+## Global Constraints
+
+- Stripe API version pinned to `2026-08-26.dahlia` (per Decision 18).
+- SDKs: Stripe Node SDK **22.6.0** (Users), Stripe .NET SDK **52.4.0** (Orders) (per Decision 18).
+- `StripeClient` is instantiated **per-instance** in both services, never the deprecated global/module-level key pattern (`Stripe.setApiKey` / `StripeConfiguration.ApiKey = …`) (per Decision 18).
+- Each service uses its own **restricted key** (`rk_...`), one per service, never a secret key (`sk_...`); never logged, never included in error messages, never in the AUTO box of an env file — hand-injected into the CUSTOM box only (per Decisions 13, 15).
+- `payment_method_types` is never passed to any Stripe call, on either service (per Decision 16).
+- The web app uses the **Payment Element only** — never the legacy Card Element, never the Payment Element restricted to card-only mode (per Decision 16, Web section).
+- Prohibited APIs/methods, on either service: the Charges API, the Sources API, the Tokens API, the Card Element, and Stripe.js `createPaymentMethod`/`createToken` (per Decision 16's table).
+- `STRIPE_ENABLED=false` is the default, and with it off the whole repo behaves exactly as today — no mounted routes, no Stripe calls, no meaningful migrations triggered at runtime (per the spec's "Flag gate" section).
+- pnpm only — never npm/yarn, including for any new sub-project code.
+- Run `nvm use` before any Node.js command.
+- New scripts are Python by default, per the repo's scripting-language convention.
+- Every new or changed HTTP endpoint requires all three test layers — unit/integration, internal E2E, and gateway E2E with a real Cognito JWT — per [[testing]].
+
+## Task 1 — Stripe client foundation in Users
+
+**Files:**
+- Create: `services/users/src/shared/stripe/stripe-client.provider.ts`, `services/users/tests/shared/stripe-client-provider.test.ts`, `services/users/src/shared/tokens.ts` (extend, do not recreate), `services/users/src/shared/observability/stripe-tracing.ts`, `services/users/tests/observability/stripe-tracing.test.ts`
+- Modify: `services/users/src/config/env.schema.ts`
+- Test: `services/users/tests/shared/stripe-client-provider.test.ts`, `services/users/tests/observability/stripe-tracing.test.ts`
+
+**Interfaces:**
+- Consumes: `services/users/src/config/env.schema.ts`'s existing `E2E_TESTING_ENABLED` boolean-from-string pattern (`z.enum(["true","false"]).default("false").transform((v) => v === "true")`).
+- Produces:
+  ```ts
+  // services/users/src/shared/stripe/stripe-client.provider.ts
+  export const STRIPE_CLIENT = Symbol("STRIPE_CLIENT");
+
+  export interface StripeClientHolder {
+    /** Null when STRIPE_ENABLED is true but STRIPE_SECRET_KEY is absent (Decision 13). */
+    readonly client: StripeClient | null;
+    readonly enabled: boolean;
+  }
+  ```
+  Consumed by every later Users task via `@Inject(STRIPE_CLIENT) private readonly stripe: StripeClientHolder`.
+  Also produces `withStripeSpan` (`services/users/src/shared/observability/stripe-tracing.ts`,
+  step 1.8) — the Stripe analogue of `withPublishSpan`, consumed by Tasks 3, 4, 5, and 6 for
+  every outbound Stripe call (spec Decision 25).
+
+### Steps
+
+- [x] 1.1 Add the two new env vars to `services/users/src/config/env.schema.ts`, mirroring the existing `E2E_TESTING_ENABLED` pattern:
+  ```ts
+  // Kill switch for the whole Stripe integration (spec D13). Off by default so
+  // every existing deploy and every test that doesn't opt in stays untouched.
+  STRIPE_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  // A restricted key (rk_...), never a secret key. Optional: STRIPE_ENABLED=true
+  // with this absent is a valid boot state (spec D13) — the Stripe routes then
+  // answer 503 instead of taking the service down.
+  STRIPE_SECRET_KEY: z.string().min(1).optional(),
+  ```
+  Run `nvm use && pnpm --filter users test env.schema` — expect it to fail (no such test file yet is fine; confirm the schema still parses via `pnpm --filter users exec tsc --noEmit`).
+
+- [x] 1.2 Add `STRIPE_CLIENT` to `services/users/src/shared/tokens.ts` alongside the existing `DB`, `AUTH_PROVIDER`, `EVENT_PUBLISHER` tokens:
+  ```ts
+  export const STRIPE_CLIENT = Symbol("STRIPE_CLIENT");
+  ```
+
+- [x] 1.3 Write the failing spec first, `services/users/tests/shared/stripe-client-provider.test.ts`:
+  ```ts
+  import { describe, expect, it, vi } from "vitest";
+  import { buildStripeClientHolder } from "./stripe-client.provider";
+
+  describe("buildStripeClientHolder", () => {
+    it("returns a client when enabled and a key is present", () => {
+      const holder = buildStripeClientHolder(
+        { STRIPE_ENABLED: true, STRIPE_SECRET_KEY: "rk_test_123" },
+        { warn: vi.fn() },
+      );
+      expect(holder.enabled).toBe(true);
+      expect(holder.client).not.toBeNull();
+    });
+
+    it("returns a null client and logs a warning when enabled with no key", () => {
+      const warn = vi.fn();
+      const holder = buildStripeClientHolder(
+        { STRIPE_ENABLED: true, STRIPE_SECRET_KEY: undefined },
+        { warn },
+      );
+      expect(holder.enabled).toBe(true);
+      expect(holder.client).toBeNull();
+      expect(warn).toHaveBeenCalledOnce();
+    });
+
+    it("returns a null client with no warning when disabled", () => {
+      const warn = vi.fn();
+      const holder = buildStripeClientHolder(
+        { STRIPE_ENABLED: false, STRIPE_SECRET_KEY: undefined },
+        { warn },
+      );
+      expect(holder.enabled).toBe(false);
+      expect(holder.client).toBeNull();
+      expect(warn).not.toHaveBeenCalled();
+    });
+  });
+  ```
+  Run `nvm use && pnpm --filter users test stripe-client.provider` — fails, module does not exist.
+
+- [x] 1.4 Implement `services/users/src/shared/stripe/stripe-client.provider.ts`:
+  ```ts
+  import { StripeClient } from "stripe";
+
+  export const STRIPE_API_VERSION = "2026-08-26.dahlia" as const;
+
+  export interface StripeEnv {
+    STRIPE_ENABLED: boolean;
+    STRIPE_SECRET_KEY: string | undefined;
+  }
+
+  export interface StripeClientHolder {
+    readonly client: StripeClient | null;
+    readonly enabled: boolean;
+  }
+
+  interface WarnLogger {
+    warn(message: string): void;
+  }
+
+  // CONTRACT: STRIPE_ENABLED=true with no key is a valid boot state (spec D13) —
+  // the service still boots; callers check `.client` for null and answer 503.
+  export function buildStripeClientHolder(env: StripeEnv, logger: WarnLogger): StripeClientHolder {
+    if (!env.STRIPE_ENABLED) {
+      return { client: null, enabled: false };
+    }
+    if (!env.STRIPE_SECRET_KEY) {
+      logger.warn(
+        "STRIPE_ENABLED is true but STRIPE_SECRET_KEY is not set. Stripe routes will answer 503.",
+      );
+      return { client: null, enabled: true };
+    }
+    return {
+      client: new StripeClient(env.STRIPE_SECRET_KEY, { apiVersion: STRIPE_API_VERSION }),
+      enabled: true,
+    };
+  }
+  ```
+  Run `nvm use && pnpm --filter users test stripe-client.provider` — passes.
+
+- [x] 1.5 Wire it as a Nest provider consuming `ConfigService` and `appLogger`, in the same file:
+  ```ts
+  import { Inject, Injectable } from "@nestjs/common";
+  import { ConfigService } from "@nestjs/config";
+  import { appLogger } from "#shared/logging/app-logger";
+
+  export const STRIPE_CLIENT = Symbol("STRIPE_CLIENT");
+
+  export const stripeClientProvider = {
+    provide: STRIPE_CLIENT,
+    inject: [ConfigService],
+    useFactory: (config: ConfigService): StripeClientHolder =>
+      buildStripeClientHolder(
+        {
+          STRIPE_ENABLED: config.get<boolean>("STRIPE_ENABLED", false),
+          STRIPE_SECRET_KEY: config.get<string | undefined>("STRIPE_SECRET_KEY"),
+        },
+        appLogger,
+      ),
+  };
+  ```
+  Run `nvm use && pnpm --filter users test` (full suite) — passes.
+
+- [x] 1.6 Add a `StripeUnavailableException` mapped to HTTP 503, `services/users/src/shared/stripe/stripe-unavailable.exception.ts`:
+  ```ts
+  import { HttpException, HttpStatus } from "@nestjs/common";
+
+  // Thrown by any Stripe-backed route when the client holder's `.client` is
+  // null (spec D13) — flag on, key missing. Never thrown when the flag is off;
+  // those routes are not mounted at all (see Task 4).
+  export class StripeUnavailableException extends HttpException {
+    constructor() {
+      super("Stripe is not configured on this deployment.", HttpStatus.SERVICE_UNAVAILABLE);
+    }
+  }
+  ```
+
+- [x] 1.7 **Stripe observability foundation (spec Decision 25).** Write the failing spec first,
+  `services/users/tests/observability/stripe-tracing.test.ts`, asserting a span is
+  created with the right name/kind/attributes and that a thrown error sets ERROR status:
+  ```ts
+  import { SpanKind, SpanStatusCode } from "@opentelemetry/api";
+  import { describe, expect, it, vi } from "vitest";
+  import { withStripeSpan } from "./stripe-tracing";
+
+  describe("withStripeSpan", () => {
+    it("names the span after the operation, kind CLIENT, with the given attributes", async () => {
+      const result = await withStripeSpan(
+        "stripe.customer.create",
+        { "stripe.resource_type": "customer" },
+        async (handle) => {
+          handle.setAttribute("stripe.customer_id", "cus_123");
+          return "ok";
+        },
+      );
+      expect(result).toBe("ok");
+      // Assert against the in-memory span exporter this repo's other tracing
+      // specs already use (grep publish-tracing.spec.ts for the exact harness)
+      // rather than reinventing one here.
+    });
+
+    it("sets ERROR status and records the exception when fn throws, then still ends the span", async () => {
+      await expect(
+        withStripeSpan("stripe.payment_method.attach", {}, async () => {
+          throw new Error("boom");
+        }),
+      ).rejects.toThrow("boom");
+      // Assert the exported span's status.code === SpanStatusCode.ERROR and
+      // that end() was called exactly once (span left open would fail the
+      // exporter assertion in the harness referenced above).
+    });
+  });
+  ```
+  Run `nvm use && pnpm --filter users test stripe-tracing` — fails, module missing.
+
+- [x] 1.8 Implement `services/users/src/shared/observability/stripe-tracing.ts`, the Stripe
+  analogue of `withPublishSpan`
+  (`services/users/src/shared/observability/publish-tracing.ts`) — same tracer-per-module,
+  `startActiveSpan`, attributes built inside the callback, `end()` in a `finally`:
+  ```ts
+  import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
+
+  // CONTRACT: Named after the OPERATION, not the SDK surface (spec D25) — the
+  // name is what a waterfall renders, so it must say what happened. Mirrors
+  // withPublishSpan's naming reasoning. See [[logging-context]]
+  const tracer = trace.getTracer("users-stripe");
+
+  export interface StripeSpanHandle {
+    /** Attach a queryable attribute discovered only inside `fn` (e.g. a Stripe object id). */
+    setAttribute(key: string, value: string | number | boolean): void;
+  }
+
+  /**
+   * Run `fn` inside a CLIENT span named after the Stripe operation (spec D25).
+   * CLIENT, not PRODUCER — Stripe is an outbound third-party dependency, not a
+   * message publish. `span.end()` stays in a `finally`: a span left open on the
+   * exception path is never exported, with nothing to say so. Unlike
+   * `withPublishSpan`, a thrown error here IS allowed to propagate (a Stripe
+   * call failure is a real failure, not a swallowed best-effort send) — this
+   * helper still records it on the span before it does.
+   * See [[logging-context]]
+   */
+  export function withStripeSpan<T>(
+    operation: string,
+    attributes: Record<string, string | number | boolean>,
+    fn: (span: StripeSpanHandle) => Promise<T>,
+  ): Promise<T> {
+    return tracer.startActiveSpan(
+      operation,
+      {
+        kind: SpanKind.CLIENT,
+        attributes: { "stripe.operation": operation, ...attributes },
+      },
+      async (span) => {
+        const handle: StripeSpanHandle = {
+          setAttribute(key, value) {
+            span.setAttribute(key, value);
+          },
+        };
+        try {
+          const result = await fn(handle);
+          span.setStatus({ code: SpanStatusCode.OK });
+          return result;
+        } catch (err) {
+          // CONTRACT: Never a plaintext card, key, or client_secret on this
+          // span (spec D25) — callers pass only ids/metadata into `attributes`
+          // and `setAttribute`, never a raw Stripe response object.
+          span.recordException(err as Error);
+          span.setStatus({
+            code: SpanStatusCode.ERROR,
+            message: err instanceof Error ? err.message : String(err),
+          });
+          throw err;
+        } finally {
+          span.end();
+        }
+      },
+    );
+  }
+  ```
+  Run `nvm use && pnpm --filter users test stripe-tracing` — passes. Every later Users task
+  (Tasks 3, 4, 5, 6) wraps its Stripe calls in `withStripeSpan` rather than hand-rolling a span,
+  the same way every command in this plan consumes `STRIPE_CLIENT` rather than instantiating
+  its own client.
+
+- [x] 1.9 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+
+## Task 2 — Prisma schema + migration for the Stripe data model
+
+**Files:**
+- Modify: `services/users/prisma/schema.prisma`
+- Create: a Prisma migration under `services/users/prisma/migrations/`
+- Test: `services/users/tests/shared/db/stripe-payment-method-migration.test.ts`
+
+  > Path note: every Users test lives in `services/users/tests/` with a `.test.ts` suffix (there are no colocated specs), and the Nest implementation lives in `services/users/src/payment-methods/`. Only the Zod request schemas stay under `services/users/src/payment-methods/http/schemas.ts`, because the Nest migration spec deliberately reuses them.
+
+**Interfaces:**
+- Produces the `StripePaymentMethod` Prisma model and `User.stripeCustomerId` / `User.stripeCustomerData` columns consumed by Tasks 3–6.
+
+### Steps
+
+- [x] 2.1 Add the two new columns to `model User` in `services/users/prisma/schema.prisma`, next to the existing `mustChangePassword` block:
+  ```prisma
+    // Lazily created (spec D2) — null until the first checkout or card-add with
+    // the Stripe flag on. Stripe is authoritative; this is a cache (spec D4).
+    stripeCustomerId   String? @unique @map("stripe_customer_id")
+    stripeCustomerData Json?   @map("stripe_customer_data")
+  ```
+  and add the relation:
+  ```prisma
+    stripePaymentMethods StripePaymentMethod[]
+  ```
+
+- [x] 2.2 Add the new model, following the exact shape of `UsersCognitoData` for audit fields, plus [[soft-delete]] and [[nano-id]]:
+  ```prisma
+  // Local cache of a Stripe PaymentMethod, mirroring the fields Stripe actually
+  // exposes (spec D3) — never a raw PAN/CVC, which never reach this service by
+  // Stripe's own design. Stripe is authoritative (spec D4): a webhook upserts
+  // this row, and a card deleted in Stripe is soft-deleted here, never
+  // hard-deleted, so historical orders referencing it still resolve.
+  model StripePaymentMethod {
+    id                    String    @id
+    stripePaymentMethodId String    @unique @map("stripe_payment_method_id")
+    userId                String    @map("user_id")
+    brand                 String
+    last4                 String
+    expMonth              Int       @map("exp_month")
+    expYear               Int       @map("exp_year")
+    funding               String
+    country                String?
+    fingerprint           String?
+    billingName           String?   @map("billing_name")
+    billingEmail          String?   @map("billing_email")
+    billingAddress        Json?     @map("billing_address")
+    isDefault             Boolean   @default(false) @map("is_default")
+    rawPayload            Json      @map("raw_payload")
+
+    createdBy DateTime? @map("created_by")
+    createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+    updatedBy String?   @map("updated_by")
+    updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+    deletedBy String?   @map("deleted_by")
+    deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+    user User @relation(fields: [userId], references: [id])
+
+    @@map("stripe_payment_methods")
+    @@index([userId, deletedAt])
+  }
+  ```
+  Fix the copy-paste typo before running anything: `createdBy` must be `String?`, not `DateTime?` — correct it to `createdBy String? @map("created_by")` to match the repo's audit-fields convention.
+
+- [x] 2.3 Run the migration: `nvm use && pnpm --filter users exec prisma migrate dev --name add_stripe_customer_and_payment_methods`. Confirm it applies cleanly against the local dev database and that `stripeCustomerId`/`stripeCustomerData` are nullable so every existing `users` row is unaffected.
+
+- [x] 2.4 Write a test proving the flag-off case is inert, `services/users/tests/shared/db/stripe-payment-method-migration.test.ts`:
+  ```ts
+  import { describe, expect, it } from "vitest";
+  import { createTestDb } from "#shared/testing/test-db";
+
+  describe("StripePaymentMethod migration", () => {
+    it("leaves existing users rows with null stripe columns", async () => {
+      const db = await createTestDb();
+      const user = await db.user.findFirst();
+      expect(user?.stripeCustomerId ?? null).toBeNull();
+    });
+  });
+  ```
+  Run `nvm use && pnpm --filter users test stripe-payment-method-migration` — passes (adjust the test-db helper import to whatever this repo's existing integration tests use; do not invent a new one — grep for `createTestDb`/similar helpers already used by `register.command.test.ts` before writing this step for real).
+
+- [x] 2.5 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+
+## Task 3 — `ensureStripeCustomer` (lazy creation)
+
+**Files:**
+- Create: `services/users/src/payment-methods/ensure-stripe-customer.ts`, `services/users/tests/payment-methods/ensure-stripe-customer.test.ts`
+- Test: `services/users/tests/payment-methods/ensure-stripe-customer.test.ts`
+
+**Interfaces:**
+- Consumes: `STRIPE_CLIENT` (`StripeClientHolder`, Task 1), `DB` (`Db`, Prisma client with `stripeCustomerId`/`stripeCustomerData`, Task 2).
+- Produces:
+  ```ts
+  export interface EnsureStripeCustomerInput {
+    userId: string;
+    email: string;
+    e2eSource: boolean; // true only when x-e2e-source header AND E2E_TESTING_ENABLED
+  }
+
+  export async function ensureStripeCustomer(
+    stripe: StripeClientHolder,
+    db: Db,
+    input: EnsureStripeCustomerInput,
+  ): Promise<string>; // returns stripeCustomerId, throws StripeUnavailableException if stripe.client is null
+  ```
+  Consumed by Task 4 (setup-intent route) and Task 9 (Orders, indirectly via gRPC).
+
+### Steps
+
+- [x] 3.1 Write the failing spec, `services/users/tests/payment-methods/ensure-stripe-customer.test.ts`:
+  ```ts
+  import { describe, expect, it, vi } from "vitest";
+  import { ensureStripeCustomer } from "./ensure-stripe-customer";
+  import { StripeUnavailableException } from "#shared/stripe/stripe-unavailable.exception";
+
+  function fakeDb(user: { stripeCustomerId: string | null }) {
+    return {
+      user: {
+        findUniqueOrThrow: vi.fn().mockResolvedValue(user),
+        update: vi.fn().mockImplementation(({ data }) => Promise.resolve({ ...user, ...data })),
+      },
+    } as any;
+  }
+
+  describe("ensureStripeCustomer", () => {
+    it("creates a customer once and persists it when none exists", async () => {
+      const create = vi.fn().mockResolvedValue({ id: "cus_123", email: "a@b.com" });
+      const stripe = { enabled: true, client: { customers: { create } } } as any;
+      const db = fakeDb({ stripeCustomerId: null });
+
+      const id = await ensureStripeCustomer(stripe, db, {
+        userId: "usr_1",
+        email: "a@b.com",
+        e2eSource: false,
+      });
+
+      expect(id).toBe("cus_123");
+      expect(create).toHaveBeenCalledWith({
+        email: "a@b.com",
+        metadata: { user_id: "usr_1" },
+      });
+      expect(db.user.update).toHaveBeenCalledOnce();
+    });
+
+    it("reuses the existing customer id without calling Stripe again", async () => {
+      const create = vi.fn();
+      const stripe = { enabled: true, client: { customers: { create } } } as any;
+      const db = fakeDb({ stripeCustomerId: "cus_existing" });
+
+      const id = await ensureStripeCustomer(stripe, db, {
+        userId: "usr_1",
+        email: "a@b.com",
+        e2eSource: false,
+      });
+
+      expect(id).toBe("cus_existing");
+      expect(create).not.toHaveBeenCalled();
+    });
+
+    it("tags metadata.e2e_source only when e2eSource is true", async () => {
+      const create = vi.fn().mockResolvedValue({ id: "cus_e2e" });
+      const stripe = { enabled: true, client: { customers: { create } } } as any;
+      const db = fakeDb({ stripeCustomerId: null });
+
+      await ensureStripeCustomer(stripe, db, { userId: "usr_1", email: "a@b.com", e2eSource: true });
+
+      expect(create).toHaveBeenCalledWith({
+        email: "a@b.com",
+        metadata: { user_id: "usr_1", e2e_source: "true" },
+      });
+    });
+
+    it("throws StripeUnavailableException when the client is null", async () => {
+      const stripe = { enabled: true, client: null } as any;
+      const db = fakeDb({ stripeCustomerId: null });
+      await expect(
+        ensureStripeCustomer(stripe, db, { userId: "usr_1", email: "a@b.com", e2eSource: false }),
+      ).rejects.toBeInstanceOf(StripeUnavailableException);
+    });
+  });
+  ```
+  Run `nvm use && pnpm --filter users test ensure-stripe-customer` — fails, module missing.
+
+- [x] 3.2 Implement `services/users/src/payment-methods/ensure-stripe-customer.ts`:
+  ```ts
+  import type { StripeClientHolder } from "#shared/stripe/stripe-client.provider";
+  import { StripeUnavailableException } from "#shared/stripe/stripe-unavailable.exception";
+  import type { Db } from "#shared/db/prisma";
+
+  export interface EnsureStripeCustomerInput {
+    userId: string;
+    email: string;
+    e2eSource: boolean;
+  }
+
+  // Idempotent (spec D2): returns the existing stripeCustomerId when present,
+  // otherwise creates one and persists it. Called lazily — never from
+  // registration — so a Stripe outage never blocks sign-up.
+  export async function ensureStripeCustomer(
+    stripe: StripeClientHolder,
+    db: Db,
+    input: EnsureStripeCustomerInput,
+  ): Promise<string> {
+    if (!stripe.client) throw new StripeUnavailableException();
+
+    const user = await db.user.findUniqueOrThrow({ where: { id: input.userId } });
+    if (user.stripeCustomerId) return user.stripeCustomerId;
+
+    const metadata: Record<string, string> = { user_id: input.userId };
+    if (input.e2eSource) metadata.e2e_source = "true";
+
+    const customer = await stripe.client.customers.create({ email: input.email, metadata });
+
+    await db.user.update({
+      where: { id: input.userId },
+      data: { stripeCustomerId: customer.id, stripeCustomerData: customer as unknown as object },
+    });
+
+    return customer.id;
+  }
+  ```
+  Run `nvm use && pnpm --filter users test ensure-stripe-customer` — passes.
+
+- [x] 3.3 **Wrap the Stripe call in `withStripeSpan` and emit the flow log (spec Decision
+  25).** Extend 3.2's implementation: the `stripe.client.customers.create` call moves inside
+  `withStripeSpan("stripe.customer.create", { "stripe.resource_type": "customer" }, ...)`,
+  setting `stripe.customer_id` via the handle once the customer comes back, and the function
+  logs `app_event=stripe_customer_created` (INFO) with `user_id` and `email_hash` (never the
+  raw email — [[logging-context]]) after the DB write succeeds:
+  ```ts
+  import { withStripeSpan } from "#shared/observability/stripe-tracing";
+  import { hashEmail } from "#shared/auth/hash-email"; // use this service's existing hasher
+  import { appLogger } from "#shared/logging/app-logger";
+
+  // ... inside ensureStripeCustomer, replacing the bare `stripe.client.customers.create` call:
+  const customer = await withStripeSpan(
+    "stripe.customer.create",
+    { "stripe.resource_type": "customer" },
+    async (span) => {
+      const created = await stripe.client!.customers.create({ email: input.email, metadata });
+      span.setAttribute("stripe.customer_id", created.id);
+      return created;
+    },
+  );
+
+  await db.user.update({
+    where: { id: input.userId },
+    data: { stripeCustomerId: customer.id, stripeCustomerData: customer as unknown as object },
+  });
+
+  appLogger.info(
+    { app_event: "stripe_customer_created", user_id: input.userId, email_hash: hashEmail(input.email) },
+    "Stripe customer created",
+  );
+  ```
+  Add a spec assertion that the log call happens with `app_event: "stripe_customer_created"`
+  and no `email` field, using this service's existing logger-mock pattern (grep an existing
+  `appLogger` spy in another command spec before writing this assertion for real). Run
+  `nvm use && pnpm --filter users test ensure-stripe-customer` — passes.
+
+- [x] 3.4 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+
+## Task 4 — Users payment-method commands/queries (CQRS)
+
+**Files:**
+- Create: `services/users/src/payment-methods/commands/create-setup-intent.command.ts`, `.../commands/attach-payment-method.command.ts`, `.../commands/detach-payment-method.command.ts`, `.../commands/set-default-payment-method.command.ts`, `.../queries/list-payment-methods.query.ts`, plus a `.test.ts` per handler under `services/users/tests/payment-methods/`, `services/users/src/payment-methods/http/payment-methods.controller.ts`, `services/users/src/payment-methods/payment-methods.module.ts`
+- Modify: `services/users/openapi.yaml`
+- Test: one `.test.ts` per command/query handler, dispatched through the real `CommandBus`/`QueryBus`
+
+**Interfaces:**
+- Consumes: `ensureStripeCustomer` (Task 3), `STRIPE_CLIENT` (Task 1), `StripePaymentMethod` Prisma model (Task 2).
+- Produces the five routes below, consumed by Task 5 (webhook, same table), Task 6 (e2e-cleanup), and Task 11 (web app):
+  - `POST /v1/users/me/payment-methods/setup-intent`
+  - `GET /v1/users/me/payment-methods`
+  - `POST /v1/users/me/payment-methods`
+  - `DELETE /v1/users/me/payment-methods/:id`
+  - `PUT /v1/users/me/payment-methods/:id/default`
+
+### Steps
+
+- [x] 4.1 Write the failing spec for the setup-intent command, `services/users/tests/payment-methods/create-setup-intent.command.test.ts`, dispatched through `CommandBus` per [[cqrs]]:
+  ```ts
+  import { Test } from "@nestjs/testing";
+  import { CqrsModule, CommandBus } from "@nestjs/cqrs";
+  import { describe, expect, it, vi } from "vitest";
+  import { CreateSetupIntentCommand, CreateSetupIntentHandler } from "./create-setup-intent.command";
+  import { DB, STRIPE_CLIENT } from "#shared/tokens";
+
+  describe("CreateSetupIntentHandler", () => {
+    it("ensures the customer then creates a SetupIntent and returns its client_secret", async () => {
+      const create = vi.fn().mockResolvedValue({ client_secret: "seti_123_secret_abc" });
+      const stripeHolder = {
+        enabled: true,
+        client: {
+          customers: { create: vi.fn().mockResolvedValue({ id: "cus_1" }) },
+          setupIntents: { create },
+        },
+      };
+      const db = {
+        user: {
+          findUniqueOrThrow: vi.fn().mockResolvedValue({ id: "usr_1", email: "a@b.com", stripeCustomerId: "cus_1" }),
+          update: vi.fn(),
+        },
+      };
+
+      const moduleRef = await Test.createTestingModule({
+        imports: [CqrsModule],
+        providers: [
+          CreateSetupIntentHandler,
+          { provide: DB, useValue: db },
+          { provide: STRIPE_CLIENT, useValue: stripeHolder },
+        ],
+      }).compile();
+      await moduleRef.init();
+
+      const commandBus = moduleRef.get(CommandBus);
+      const result = await commandBus.execute(
+        new CreateSetupIntentCommand({ userId: "usr_1", e2eSource: false }),
+      );
+
+      expect(result).toEqual({ clientSecret: "seti_123_secret_abc" });
+      expect(create).toHaveBeenCalledWith({ customer: "cus_1" });
+    });
+  });
+  ```
+  Run `nvm use && pnpm --filter users test create-setup-intent.command` — fails, module missing.
+
+- [x] 4.2 Implement `create-setup-intent.command.ts`:
+  ```ts
+  import { Inject } from "@nestjs/common";
+  import { type ICommandHandler, CommandHandler } from "@nestjs/cqrs";
+  import type { Db } from "#shared/db/prisma";
+  import type { StripeClientHolder } from "#shared/stripe/stripe-client.provider";
+  import { StripeUnavailableException } from "#shared/stripe/stripe-unavailable.exception";
+  import { DB, STRIPE_CLIENT } from "#shared/tokens";
+  import { ensureStripeCustomer } from "../ensure-stripe-customer";
+
+  export interface CreateSetupIntentInput {
+    userId: string;
+    e2eSource: boolean;
+  }
+
+  export class CreateSetupIntentCommand {
+    constructor(public readonly input: CreateSetupIntentInput) {}
+  }
+
+  export interface CreateSetupIntentResult {
+    clientSecret: string;
+  }
+
+  @CommandHandler(CreateSetupIntentCommand)
+  export class CreateSetupIntentHandler implements ICommandHandler<CreateSetupIntentCommand> {
+    constructor(
+      @Inject(DB) private readonly db: Db,
+      @Inject(STRIPE_CLIENT) private readonly stripe: StripeClientHolder,
+    ) {}
+
+    async execute({ input }: CreateSetupIntentCommand): Promise<CreateSetupIntentResult> {
+      if (!this.stripe.client) throw new StripeUnavailableException();
+
+      const user = await this.db.user.findUniqueOrThrow({ where: { id: input.userId } });
+      const customerId = await ensureStripeCustomer(this.stripe, this.db, {
+        userId: input.userId,
+        email: user.email,
+        e2eSource: input.e2eSource,
+      });
+
+      // No payment_method_types (spec D16) — dynamic payment methods stay enabled.
+      const setupIntent = await this.stripe.client.setupIntents.create({ customer: customerId });
+      if (!setupIntent.client_secret) throw new Error("Stripe did not return a client_secret");
+      return { clientSecret: setupIntent.client_secret };
+    }
+  }
+  ```
+  Run `nvm use && pnpm --filter users test create-setup-intent.command` — passes.
+
+- [x] 4.3 Write the failing spec for listing, `services/users/tests/payment-methods/list-payment-methods.query.test.ts`, then implement `list-payment-methods.query.ts` reading only the local `StripePaymentMethod` table (never Stripe — spec D4: "listing reads local"):
+  ```ts
+  // list-payment-methods.query.ts
+  import { Inject } from "@nestjs/common";
+  import { type IQueryHandler, QueryHandler } from "@nestjs/cqrs";
+  import type { Db } from "#shared/db/prisma";
+  import { DB } from "#shared/tokens";
+
+  export class ListPaymentMethodsQuery {
+    constructor(public readonly userId: string) {}
+  }
+
+  export interface PaymentMethodView {
+    id: string;
+    brand: string;
+    last4: string;
+    expMonth: number;
+    expYear: number;
+    isDefault: boolean;
+  }
+
+  @QueryHandler(ListPaymentMethodsQuery)
+  export class ListPaymentMethodsHandler implements IQueryHandler<ListPaymentMethodsQuery> {
+    constructor(@Inject(DB) private readonly db: Db) {}
+
+    async execute({ userId }: ListPaymentMethodsQuery): Promise<PaymentMethodView[]> {
+      const rows = await this.db.stripePaymentMethod.findMany({
+        where: { userId, deletedAt: null },
+        orderBy: { isDefault: "desc" },
+      });
+      return rows.map((r) => ({
+        id: r.stripePaymentMethodId,
+        brand: r.brand,
+        last4: r.last4,
+        expMonth: r.expMonth,
+        expYear: r.expYear,
+        isDefault: r.isDefault,
+      }));
+    }
+  }
+  ```
+  Run `nvm use && pnpm --filter users test list-payment-methods.query` — passes once test doubles are added mirroring 4.1's shape.
+
+- [x] 4.4 Write the failing spec for attach, `services/users/tests/payment-methods/attach-payment-method.command.test.ts`, then implement `attach-payment-method.command.ts`. This is the confirm-and-persist route (`POST /v1/users/me/payment-methods`), taking the tokenized `pm_...` from the confirmed SetupIntent, attaching it to the customer, and writing the local row in the same response (spec D3, D11):
+  ```ts
+  // attach-payment-method.command.ts
+  import { Inject } from "@nestjs/common";
+  import { type ICommandHandler, CommandHandler } from "@nestjs/cqrs";
+  import type { Db } from "#shared/db/prisma";
+  import type { StripeClientHolder } from "#shared/stripe/stripe-client.provider";
+  import { StripeUnavailableException } from "#shared/stripe/stripe-unavailable.exception";
+  import { DB, STRIPE_CLIENT } from "#shared/tokens";
+  import { MODEL_ID_PREFIXES, generateId } from "#shared/id/nano-id";
+
+  export interface AttachPaymentMethodInput {
+    userId: string;
+    paymentMethodId: string; // pm_...
+    e2eSource: boolean;
+  }
+
+  export class AttachPaymentMethodCommand {
+    constructor(public readonly input: AttachPaymentMethodInput) {}
+  }
+
+  @CommandHandler(AttachPaymentMethodCommand)
+  export class AttachPaymentMethodHandler implements ICommandHandler<AttachPaymentMethodCommand> {
+    constructor(
+      @Inject(DB) private readonly db: Db,
+      @Inject(STRIPE_CLIENT) private readonly stripe: StripeClientHolder,
+    ) {}
+
+    async execute({ input }: AttachPaymentMethodCommand) {
+      if (!this.stripe.client) throw new StripeUnavailableException();
+
+      const user = await this.db.user.findUniqueOrThrow({ where: { id: input.userId } });
+      if (!user.stripeCustomerId) throw new Error("Customer must exist before attaching a card");
+
+      const pm = await this.stripe.client.paymentMethods.attach(input.paymentMethodId, {
+        customer: user.stripeCustomerId,
+      });
+
+      const row = await this.db.stripePaymentMethod.create({
+        data: {
+          id: generateId(MODEL_ID_PREFIXES.stripePaymentMethod),
+          stripePaymentMethodId: pm.id,
+          userId: input.userId,
+          brand: pm.card?.brand ?? "unknown",
+          last4: pm.card?.last4 ?? "0000",
+          expMonth: pm.card?.exp_month ?? 0,
+          expYear: pm.card?.exp_year ?? 0,
+          funding: pm.card?.funding ?? "unknown",
+          country: pm.card?.country ?? null,
+          fingerprint: pm.card?.fingerprint ?? null,
+          billingName: pm.billing_details?.name ?? null,
+          billingEmail: pm.billing_details?.email ?? null,
+          billingAddress: pm.billing_details?.address ?? null,
+          isDefault: false,
+          rawPayload: pm as unknown as object,
+        },
+      });
+
+      return { id: row.stripePaymentMethodId };
+    }
+  }
+  ```
+  Add `stripePaymentMethod: "stpm"` to `MODEL_ID_PREFIXES` in `services/users/src/shared/id/nano-id.ts` per [[nano-id]]'s registered-prefix table.
+
+- [x] 4.5 Write the failing spec for detach, `services/users/tests/payment-methods/detach-payment-method.command.test.ts`, asserting **ownership**: a `pm_...` belonging to another user's customer is rejected before any Stripe call:
+  ```ts
+  it("rejects a payment method that does not belong to the caller", async () => {
+    const db = {
+      stripePaymentMethod: {
+        findFirst: vi.fn().mockResolvedValue(null), // scoped by userId + stripePaymentMethodId
+      },
+    };
+    const stripe = { enabled: true, client: { paymentMethods: { detach: vi.fn() } } };
+    const handler = new DetachPaymentMethodHandler(db as any, stripe as any);
+
+    await expect(
+      handler.execute(
+        new DetachPaymentMethodCommand({ userId: "usr_1", paymentMethodId: "pm_other_user" }),
+      ),
+    ).rejects.toThrow(/not found/i);
+    expect(stripe.client.paymentMethods.detach).not.toHaveBeenCalled();
+  });
+  ```
+  Then implement `detach-payment-method.command.ts`:
+  ```ts
+  import { Inject, NotFoundException } from "@nestjs/common";
+  import { type ICommandHandler, CommandHandler } from "@nestjs/cqrs";
+  import type { Db } from "#shared/db/prisma";
+  import type { StripeClientHolder } from "#shared/stripe/stripe-client.provider";
+  import { StripeUnavailableException } from "#shared/stripe/stripe-unavailable.exception";
+  import { DB, STRIPE_CLIENT } from "#shared/tokens";
+
+  export interface DetachPaymentMethodInput {
+    userId: string;
+    paymentMethodId: string;
+  }
+
+  export class DetachPaymentMethodCommand {
+    constructor(public readonly input: DetachPaymentMethodInput) {}
+  }
+
+  @CommandHandler(DetachPaymentMethodCommand)
+  export class DetachPaymentMethodHandler implements ICommandHandler<DetachPaymentMethodCommand> {
+    constructor(
+      @Inject(DB) private readonly db: Db,
+      @Inject(STRIPE_CLIENT) private readonly stripe: StripeClientHolder,
+    ) {}
+
+    async execute({ input }: DetachPaymentMethodCommand): Promise<void> {
+      if (!this.stripe.client) throw new StripeUnavailableException();
+
+      // CONTRACT: Scoped by userId AND stripePaymentMethodId — without this,
+      // passing another user's pm_... id would detach and soft-delete their
+      // card (spec "Users HTTP surface", ownership requirement).
+      const row = await this.db.stripePaymentMethod.findFirst({
+        where: { userId: input.userId, stripePaymentMethodId: input.paymentMethodId, deletedAt: null },
+      });
+      if (!row) throw new NotFoundException("Payment method not found");
+
+      await this.stripe.client.paymentMethods.detach(input.paymentMethodId);
+      await this.db.stripePaymentMethod.update({
+        where: { id: row.id },
+        data: { deletedAt: new Date() },
+      });
+    }
+  }
+  ```
+  Run `nvm use && pnpm --filter users test detach-payment-method.command` — passes.
+
+- [x] 4.6 Write the failing spec for set-default, `services/users/tests/payment-methods/set-default-payment-method.command.test.ts`, with the same ownership check, then implement `set-default-payment-method.command.ts` calling `stripe.client.customers.update(customerId, { invoice_settings: { default_payment_method: paymentMethodId } })` and mirroring `isDefault` locally (unset on all other rows for that user, set on this one, inside a `db.$transaction`).
+
+- [x] 4.7 Create the controller `payment-methods.controller.ts`, dispatching through `CommandBus`/`QueryBus` per [[cqrs]] — the controller binds the request, checks auth (existing `x-user-id`/JWT guard pattern already used by other Users controllers), and calls exactly one handler; no domain logic or Prisma calls inline:
+  ```ts
+  import { Body, Controller, Delete, Get, Headers, Param, Post, Put, UseGuards } from "@nestjs/common";
+  import { CommandBus, QueryBus } from "@nestjs/cqrs";
+  import { CurrentUser } from "#shared/auth/current-user.decorator";
+  import { AuthGuard } from "#shared/auth/auth.guard";
+  import { CreateSetupIntentCommand } from "./commands/create-setup-intent.command";
+  import { AttachPaymentMethodCommand } from "./commands/attach-payment-method.command";
+  import { DetachPaymentMethodCommand } from "./commands/detach-payment-method.command";
+  import { SetDefaultPaymentMethodCommand } from "./commands/set-default-payment-method.command";
+  import { ListPaymentMethodsQuery } from "./queries/list-payment-methods.query";
+
+  @UseGuards(AuthGuard)
+  @Controller("v1/users/me/payment-methods")
+  export class PaymentMethodsController {
+    constructor(
+      private readonly commandBus: CommandBus,
+      private readonly queryBus: QueryBus,
+    ) {}
+
+    @Post("setup-intent")
+    createSetupIntent(@CurrentUser() userId: string, @Headers("x-e2e-source") e2eSource?: string) {
+      return this.commandBus.execute(
+        new CreateSetupIntentCommand({ userId, e2eSource: e2eSource === "true" }),
+      );
+    }
+
+    @Get()
+    list(@CurrentUser() userId: string) {
+      return this.queryBus.execute(new ListPaymentMethodsQuery(userId));
+    }
+
+    @Post()
+    attach(
+      @CurrentUser() userId: string,
+      @Body("paymentMethodId") paymentMethodId: string,
+      @Headers("x-e2e-source") e2eSource?: string,
+    ) {
+      return this.commandBus.execute(
+        new AttachPaymentMethodCommand({ userId, paymentMethodId, e2eSource: e2eSource === "true" }),
+      );
+    }
+
+    @Delete(":id")
+    detach(@CurrentUser() userId: string, @Param("id") paymentMethodId: string) {
+      return this.commandBus.execute(new DetachPaymentMethodCommand({ userId, paymentMethodId }));
+    }
+
+    @Put(":id/default")
+    setDefault(@CurrentUser() userId: string, @Param("id") paymentMethodId: string) {
+      return this.commandBus.execute(new SetDefaultPaymentMethodCommand({ userId, paymentMethodId }));
+    }
+  }
+  ```
+  Note: `@CurrentUser()`, `AuthGuard`, and the exact request-binding decorators must match whatever this service's existing authenticated controllers already use (e.g. `users.controller.ts`'s `GET /v1/users/me`) — copy that file's decorator names verbatim rather than the placeholders shown here if they differ.
+
+- [x] 4.8 Register `PaymentMethodsController` and all five handlers in a new `payment-methods.module.ts`, and import it into the app module **only when `STRIPE_ENABLED` is true** (conditional module registration, or a guard inside each route per Task 1's `StripeUnavailableException` — pick whichever mechanism this NestJS version's existing conditional-module precedent uses; if none exists, mount unconditionally and rely on `StripeUnavailableException`/503 from Task 1, since the spec's requirement is "not mounted when off" as the intent, and 503-on-every-call is an acceptable literal reading only if true conditional mounting isn't already precedented in this codebase — confirm against `env.schema.ts` consumers before choosing).
+
+- [x] 4.9 Update `services/users/openapi.yaml` per [[openapi-specs]], adding all five paths under `/v1/users/me/payment-methods*` with request/response schemas matching the interfaces above.
+
+- [x] 4.10 **Wrap each handler's Stripe call in `withStripeSpan` and emit its flow log (spec
+  Decision 25).** Extend each of 4.2–4.6's implementations, one call site each:
+  - `CreateSetupIntentHandler` — `withStripeSpan("stripe.setup_intent.create", {
+    "stripe.resource_type": "setup_intent" }, ...)` around `setupIntents.create`, then
+    `app_event=payment_intent_created` is NOT emitted here (that name is reserved for Orders'
+    PaymentIntent, Task 9) — this route logs nothing beyond the span; a SetupIntent with no
+    subsequent attach carries no useful flow event of its own.
+  - `AttachPaymentMethodHandler` — `withStripeSpan("stripe.payment_method.attach", {
+    "stripe.resource_type": "payment_method" }, ...)` around `paymentMethods.attach`, setting
+    `stripe.payment_method_id` via the handle, then `app_event=payment_method_attached` (INFO)
+    with `user_id` after the local row is written.
+  - `DetachPaymentMethodHandler` — `withStripeSpan("stripe.payment_method.detach", {
+    "stripe.resource_type": "payment_method", "stripe.payment_method_id": input.paymentMethodId
+    }, ...)` around `paymentMethods.detach`, then `app_event=payment_method_detached` (INFO)
+    with `user_id`.
+  - `SetDefaultPaymentMethodHandler` — `withStripeSpan("stripe.customer.update", {
+    "stripe.resource_type": "customer" }, ...)` around `customers.update`, then
+    `app_event=payment_method_set_default` (INFO) with `user_id`.
+  - Every one of the four failure paths logs `app_event=<flow>_failed` with `reason` **before**
+    rethrowing — do not let `withStripeSpan`'s own ERROR-status recording substitute for the
+    flow log; the span and the log carry the same `app_event`/`reason` per [[logging-context]],
+    neither replaces the other.
+  Add one spec assertion per handler (extending 4.1's, 4.4's, 4.5's, and a new one for
+  set-default) that the expected `app_event` is logged on success. Run
+  `nvm use && pnpm --filter users test` (payment-methods handlers) — passes.
+
+- [x] 4.11 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+
+## Task 5 — Stripe webhook endpoint (reconciliation)
+
+**Files:**
+- Create: `services/users/src/payment-methods/webhooks/stripe-webhook.controller.ts`, `services/users/src/payment-methods/commands/reconcile-payment-method.command.ts`, plus `services/users/tests/payment-methods/stripe-webhook.controller.test.ts` and `.../reconcile-payment-method.command.test.ts`
+- Modify: `services/users/openapi.yaml`
+
+**Interfaces:**
+- Consumes: `STRIPE_CLIENT` (Task 1, for `stripe.webhooks.constructEvent`), `StripePaymentMethod` model (Task 2).
+- Produces: `POST /v1/users/stripe/webhook` (public, unauthenticated by JWT, signature-verified).
+
+### Steps
+
+- [x] 5.1 Write the failing spec asserting signature rejection BEFORE any processing, `services/users/tests/payment-methods/stripe-webhook.controller.test.ts`:
+  ```ts
+  it("returns 400 and never dispatches a command when the signature is invalid", async () => {
+    const commandBus = { execute: vi.fn() };
+    const stripe = {
+      enabled: true,
+      client: {
+        webhooks: {
+          constructEvent: vi.fn().mockImplementation(() => {
+            throw new Error("No signatures found matching the expected signature");
+          }),
+        },
+      },
+    };
+    const controller = new StripeWebhookController(stripe as any, commandBus as any, "whsec_test");
+
+    await expect(
+      controller.handle(Buffer.from("{}"), "bad-signature"),
+    ).rejects.toThrow(/signature/i);
+    expect(commandBus.execute).not.toHaveBeenCalled();
+  });
+  ```
+  Run `nvm use && pnpm --filter users test stripe-webhook.controller` — fails, module missing.
+
+- [x] 5.2 Implement `stripe-webhook.controller.ts`. It must receive the **raw** request body (Fastify raw-body plugin, matching whatever this service already uses for the existing `POST /v1/webhooks/cognito` — copy that route's raw-body wiring verbatim rather than reinventing it):
+  ```ts
+  import { BadRequestException, Body, Controller, Headers, Inject, Post } from "@nestjs/common";
+  import { CommandBus } from "@nestjs/cqrs";
+  import type { StripeClientHolder } from "#shared/stripe/stripe-client.provider";
+  import { StripeUnavailableException } from "#shared/stripe/stripe-unavailable.exception";
+  import { STRIPE_CLIENT } from "#shared/tokens";
+  import { ReconcilePaymentMethodCommand } from "./commands/reconcile-payment-method.command";
+
+  const RECONCILED_TYPES = new Set([
+    "payment_method.attached",
+    "payment_method.detached",
+    "payment_method.updated",
+    "payment_method.automatically_updated",
+    "customer.updated",
+  ]);
+
+  @Controller("v1/users/stripe")
+  export class StripeWebhookController {
+    constructor(
+      @Inject(STRIPE_CLIENT) private readonly stripe: StripeClientHolder,
+      private readonly commandBus: CommandBus,
+      private readonly webhookSecret: string,
+    ) {}
+
+    @Post("webhook")
+    async handle(@Body() rawBody: Buffer, @Headers("stripe-signature") signature: string) {
+      if (!this.stripe.client) throw new StripeUnavailableException();
+
+      let event;
+      try {
+        event = this.stripe.client.webhooks.constructEvent(rawBody, signature, this.webhookSecret);
+      } catch (err) {
+        // CONTRACT: Verify BEFORE processing (spec D4) — never dispatch a
+        // command from an unverified payload.
+        throw new BadRequestException(`Webhook signature verification failed: ${(err as Error).message}`);
+      }
+
+      if (RECONCILED_TYPES.has(event.type)) {
+        await this.commandBus.execute(new ReconcilePaymentMethodCommand(event));
+      }
+      return { received: true };
+    }
+  }
+  ```
+  Run `nvm use && pnpm --filter users test stripe-webhook.controller` — passes.
+
+- [x] 5.3 Write the failing spec for `reconcile-payment-method.command.ts`, asserting: `payment_method.detached` and `customer.updated` with no matching `default_payment_method` soft-delete/no-op appropriately, and `payment_method.attached`/`updated`/`automatically_updated` upsert the local row (never hard-delete). Then implement it using `db.stripePaymentMethod.upsert` keyed on `stripePaymentMethodId`, and on `detached`, soft-delete (`deletedAt: new Date()`) rather than removing the row — per Decision 4's "never hard-deleted".
+
+- [x] 5.4 Add `POST /v1/users/stripe/webhook` to `services/users/openapi.yaml` per [[openapi-specs]], documented as public/unauthenticated with a `stripe-signature` header requirement.
+
+- [x] 5.5 **Emit `stripe_webhook_received` and log signature failures without the signature or
+  body (spec Decision 25).** Extend 5.2's `handle` method: on successful `constructEvent`, log
+  `app_event=stripe_webhook_received` (INFO) with `event.type` and `event.id` as fields, before
+  dispatching to `commandBus`. On the signature-verification catch branch (already present in
+  5.2), log `app_event=stripe_webhook_received` at WARN/ERROR with
+  `reason=signature_verification_failed` — **never** the `stripe-signature` header value or the
+  raw body, matching the `BadRequestException` message's own restraint (it already carries only
+  Stripe's error message, not the payload). Add a spec assertion that the failure-path log call
+  contains neither the literal signature string nor a `body`/`rawBody` field:
+  ```ts
+  it("logs stripe_webhook_received with reason=signature_verification_failed, never the signature or body", async () => {
+    const logSpy = vi.spyOn(appLogger, "warn");
+    // ... invoke handle() with the bad-signature fixture from 5.1 ...
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ app_event: "stripe_webhook_received", reason: "signature_verification_failed" }),
+      expect.any(String),
+    );
+    const loggedPayload = JSON.stringify(logSpy.mock.calls[0]);
+    expect(loggedPayload).not.toContain("bad-signature");
+  });
+  ```
+  Run `nvm use && pnpm --filter users test stripe-webhook.controller` — passes.
+
+- [x] 5.6 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+
+## Task 6 — Extend `e2e-cleanup` to Stripe
+
+**Files:**
+- Modify: the existing e2e-cleanup command/handler (locate via `grep -rn "e2e-cleanup" services/users/src`) and its spec.
+
+**Interfaces:**
+- Consumes: `STRIPE_CLIENT` (Task 1), `withStripeSpan` (Task 1.8), `User.stripeCustomerId` (Task 2).
+
+### Steps
+
+- [x] 6.1 Read the existing `DELETE /v1/users/e2e-cleanup` handler in full before editing — locate it with `grep -rln "e2e-cleanup\|E2eCleanup" services/users/src`.
+
+- [x] 6.2 Write a failing spec asserting that, for every user row carrying `"E2E Source"` with a non-null `stripeCustomerId`, `stripe.client.customers.del(stripeCustomerId)` is called, and that a user with no `stripeCustomerId` is skipped without error (Stripe never called for it).
+
+- [x] 6.3 Implement: extend the existing handler to, after (or alongside) its current soft-delete pass, iterate tagged rows with a `stripeCustomerId` and call `stripe.client.customers.del(...)` wrapped in `withStripeSpan("stripe.customer.delete", { "stripe.resource_type": "customer" }, ...)` (spec Decision 25 — this is still an outbound Stripe call and gets the same span treatment as every other one in this plan), guarding with `if (!this.stripe.client) return;` at the top so cleanup is a no-op when Stripe isn't configured, never a failure. No new `app_event` is introduced for this path — e2e-cleanup is test-only infrastructure, not a user-facing flow, so the span alone (for debugging a stuck CI sandbox) is sufficient per Decision 25's scope.
+
+- [x] 6.4 Run `nvm use && pnpm --filter users test` (full suite) — confirm nothing else broke.
+
+- [x] 6.5 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+
+## Task 7 — gRPC: `stripe_customer_id` on `UserResponse`
+
+**Files:**
+- Modify: `proto/users.proto`, the Users Node gRPC server handler (`grep -rln "UserResponse" services/users/src`), the Orders .NET gRPC client consumer (`grep -rln "UserResponse" services/orders/src`)
+
+**Interfaces:**
+- Produces: `UserResponse.stripe_customer_id` (field 6), consumed by Task 9.
+
+### Steps
+
+- [x] 7.1 Add field 6 to `proto/users.proto`'s `UserResponse`:
+  ```proto
+  message UserResponse {
+    string id = 1;
+    string email = 2;
+    string full_name = 3;
+    string cognito_sub = 4;
+    Address address = 5;
+    // Null Stripe customer serializes as "" (proto3 has no null for strings).
+    // NOT exposed on GET /v1/users/me (spec D6) — this field exists only for
+    // Orders' server-to-server lookup.
+    string stripe_customer_id = 6;
+  }
+  ```
+
+- [x] 7.2 Regenerate/hand-update the Users Node gRPC server's `GetUserById` handler to populate `stripe_customer_id: user.stripeCustomerId ?? ""`, matching the existing empty-string-for-absent convention documented in the proto file's `Address` comment.
+
+- [x] 7.3 Regenerate/hand-update the Orders .NET gRPC client consumer to read `response.StripeCustomerId` (empty string means "no Stripe customer yet" — Orders must treat `""` as null/absent, never call Stripe with it).
+
+- [x] 7.4 Write or extend a unit test on each side: Users' gRPC handler spec asserts `stripe_customer_id` round-trips correctly for both a set and an unset `stripeCustomerId`; Orders' gRPC client test asserts an empty string maps to `null`/absent in its own `IUserDirectory` DTO.
+
+- [x] 7.5 Run `nvm use && pnpm --filter users test` and (from `services/orders`) `dotnet test` — confirm both pass.
+
+- [x] 7.6 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+
+## GATE — stop point before Orders work
+
+Tasks 1–7 complete the Users side of this milestone; it is independently testable end to end (Tasks 1–6 unit-tested, Task 7 changes a shared contract both services compile against). **Present the batch of task→feature PRs for Tasks 1–7 for review now, per [[phase-c-review-flow]]** — do not continue to Task 9 until this batch is merged, because Task 9 (Orders) consumes Task 7's proto change and must build on merged work, not a local unmerged copy. Do not ask for a merge confirmation between each of Tasks 1–7 individually; chain them, then stop here with the whole batch.
+
+## Task 9 — Orders: PaymentIntent on order creation
+
+**Files:**
+- Modify: `services/orders/src/Orders.Api/Program.cs` (StripeClient registration + `AddSource("orders-stripe")`), the order-creation endpoint and its command handler (`grep -rln "POST.*orders\|CreateOrder" services/orders/src/Orders.Api`), `services/orders/src/Orders.Domain` (payment snapshot fields on the order aggregate)
+- Create: an EF Core migration for the payment snapshot columns, a second EF Core migration for
+  the `IdempotencyKey` column + unique index (step 9.10b),
+  `services/orders/src/Orders.Infrastructure/Observability/StripeActivitySource.cs`
+- Test: xUnit tests for the order-creation handler (mocking `StripeClient`), `Testcontainers-MySQL` integration test, observability assertions per step 9.10, idempotency-key tests per step 9.10b
+
+**Interfaces:**
+- Consumes: `UserResponse.stripe_customer_id` (Task 7), `paymentMethodId` in the `POST /v1/orders` request body (new field), `Idempotency-Key` request header (new, required when `STRIPE_ENABLED=true` — step 9.10b).
+- Produces:
+  ```csharp
+  public sealed record PaymentSnapshot(
+      string PaymentIntentId,
+      string PaymentStatus,
+      long AmountCents,
+      string Currency,
+      string PaymentMethodId,
+      string? CardBrand,
+      string? CardLast4,
+      int? CardExpMonth,
+      int? CardExpYear,
+      string PaymentRawPayload);
+  ```
+  Consumed by Task 10 (refund path) and the order read models. **Card fields come from the
+  charge, not PaymentMethods** (spec Decision D, user, 2026-09-22): step 9.7 expands
+  `latest_charge` on the PaymentIntent create call and reads
+  `latest_charge.payment_method_details.card`, because Orders' restricted key (Task 14's
+  permission table) has no PaymentMethods access at all.
+
+### Steps
+
+- [x] 9.1 Register `StripeClient` as a per-instance singleton in `Program.cs`, next to the existing gRPC client registration block, reading the key via `builder.Configuration["STRIPE_SECRET_KEY"]` following the exact fail-fast-with-generation-escape shape already used for `EVENTS_TOPIC_ARN`:
+  ```csharp
+  // Stripe (spec D18): per-instance StripeClient, never the deprecated global
+  // StripeConfiguration.ApiKey pattern. STRIPE_ENABLED gates whether it charges
+  // at all; a missing key with the flag on must not take the service down
+  // (spec D13) — routes answer 402/503 at call time, not at boot.
+  var stripeEnabled = builder.Configuration.GetValue("STRIPE_ENABLED", false);
+  var stripeSecretKey = builder.Configuration["STRIPE_SECRET_KEY"];
+  builder.Services.AddSingleton(_ =>
+      stripeSecretKey is null
+          ? null
+          : new StripeClient(stripeSecretKey, new StripeClientOptions { ApiVersion = "2026-08-26.dahlia" }));
+  builder.Services.AddSingleton(new StripeSettings(stripeEnabled));
+  ```
+  where `StripeSettings` is a small new record `public sealed record StripeSettings(bool Enabled);` in `Orders.Api`.
+  In the same edit, register the new `orders-stripe` activity source (spec Decision 25, step
+  9.10) alongside the existing `AddSource("orders-messaging")`/`AddSource("orders-workflow")`
+  calls in `Program.cs`'s OTel setup — an unregistered source creates spans that are silently
+  never exported, same trap `WorkflowTracer`'s and `SnsEventPublisher`'s comments already warn
+  about: `.WithTracing(tracing => tracing.AddSource("orders-stripe"))`.
+
+- [x] 9.2 Add the EF Core migration for the payment snapshot columns on the order aggregate (`PaymentIntentId`, `PaymentStatus`, `AmountCents`, `Currency`, `PaymentMethodId`, `CardBrand`, `CardLast4`, `CardExpMonth`, `CardExpYear`, `PaymentRawPayload`), all nullable so existing orders are unaffected: `dotnet ef migrations add AddStripePaymentSnapshot --project services/orders/src/Orders.Infrastructure --startup-project services/orders/src/Orders.Api`.
+
+- [x] 9.3 Write the failing xUnit test for the 400-when-missing case:
+  ```csharp
+  [Fact]
+  public async Task CreateOrder_WithStripeEnabledAndNoPaymentMethodId_Returns400()
+  {
+      var factory = _factory.WithStripeEnabled(true);
+      var client = factory.CreateClient();
+      client.DefaultRequestHeaders.Add("x-user-id", "cognito-sub-1");
+
+      var response = await client.PostAsJsonAsync("/v1/orders", new { lines = new[] { new { productId = "prd_1", quantity = 1 } } });
+
+      Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+  }
+  ```
+  Run `dotnet test --filter CreateOrder_WithStripeEnabledAndNoPaymentMethodId_Returns400` — fails (endpoint doesn't validate this yet).
+
+- [x] 9.4 Write the failing xUnit test for the flag-off passthrough:
+  ```csharp
+  [Fact]
+  public async Task CreateOrder_WithStripeDisabled_IgnoresPaymentMethodIdAndSucceeds()
+  {
+      var factory = _factory.WithStripeEnabled(false);
+      var client = factory.CreateClient();
+      client.DefaultRequestHeaders.Add("x-user-id", "cognito-sub-1");
+
+      var response = await client.PostAsJsonAsync("/v1/orders", new { lines = new[] { new { productId = "prd_1", quantity = 1 } } });
+
+      response.EnsureSuccessStatusCode();
+  }
+  ```
+
+- [x] 9.5 Write the failing xUnit test for the charge-then-persist happy path, mocking `StripeClient`'s `PaymentIntentService.CreateAsync` to return a succeeded PaymentIntent, and asserting: (a) `off_session: true, confirm: true` were passed, (b) `payment_method_types` was NOT set on the request options, (c) the idempotency key passed equals a value derived from the order id generated before the call, (d) the persisted order carries the full payment snapshot, (e) the order is persisted only AFTER the charge call returns (assert via call-order on the mocks, e.g. a `Sequence`/`InSequence` verification if this repo's test doubles support it, or by asserting the charge mock throws and no order row is written — see 9.6).
+
+- [x] 9.6 Write the failing xUnit test for a card error, mocking `StripeClient` to throw a `Stripe.StripeException` with `StripeError.Code == "card_declined"`, and asserting the endpoint returns 402 with Stripe's message in the body, and that **no order row was persisted**.
+
+- [x] 9.7 Implement the order-creation handler changes:
+  ```csharp
+  public sealed record CreateOrderInput(IReadOnlyList<OrderLineInput> Lines, string? PaymentMethodId);
+
+  // Inside the command handler, after computing pricing (existing OrderPricing
+  // call) and before persisting:
+  if (_stripeSettings.Enabled)
+  {
+      if (string.IsNullOrEmpty(input.PaymentMethodId))
+          throw new OrderValidationException("paymentMethodId is required when Stripe is enabled.");
+
+      var stripeCustomerId = await _userDirectory.GetStripeCustomerIdAsync(caller.Sub, ct);
+      var orderId = _idGenerator.NewOrderId(); // generated BEFORE charging, so the idempotency key is stable across retries
+
+      PaymentIntent paymentIntent;
+      try
+      {
+          var service = new PaymentIntentService(_stripeClient);
+          paymentIntent = await service.CreateAsync(
+              new PaymentIntentCreateOptions
+              {
+                  Amount = pricing.TotalCents,
+                  Currency = "usd",
+                  Customer = stripeCustomerId,
+                  PaymentMethod = input.PaymentMethodId,
+                  OffSession = true,
+                  Confirm = true,
+                  Metadata = new Dictionary<string, string> { ["order_id"] = orderId },
+                  // No PaymentMethodTypes (spec D16) — dynamic payment methods stay enabled.
+                  // Expand latest_charge, NOT payment_method (spec D15/D, user
+                  // 2026-09-22): Orders' restricted key has no PaymentMethods
+                  // access at all, so the snapshot's card fields are read from
+                  // the charge, never from a PaymentMethod lookup.
+                  Expand = new List<string> { "latest_charge" },
+              },
+              new RequestOptions { IdempotencyKey = $"order-charge-{orderId}" },
+              ct);
+      }
+      catch (StripeException ex)
+      {
+          // WHY: A decline/insufficient-funds/expired-card is not a server
+          // fault — it must reach the frontend as an actionable message
+          // (spec D8), not a 500. No order row is written on this path.
+          throw new PaymentDeclinedException(ex.StripeError?.Message ?? "Your card was declined.");
+      }
+
+      var card = paymentIntent.LatestCharge?.PaymentMethodDetails?.Card;
+      order.ApplyPaymentSnapshot(new PaymentSnapshot(
+          paymentIntent.Id,
+          paymentIntent.Status,
+          pricing.TotalCents,
+          "usd",
+          input.PaymentMethodId,
+          card?.Brand,
+          card?.Last4,
+          (int?)card?.ExpMonth,
+          (int?)card?.ExpYear,
+          JsonSerializer.Serialize(paymentIntent)));
+  }
+  // Persist happens here, after the above block — charge-then-persist (spec D7).
+  ```
+  Map `PaymentDeclinedException` to HTTP 402 in the existing exception-to-status-code middleware (locate it via `grep -rln "StatusCodes.Status4" services/orders/src/Orders.Api`, follow its existing pattern for mapping a domain exception to a status code — e.g. however the existing 409 stock-conflict exception is mapped).
+
+- [x] 9.8 Run `dotnet test` for all of Tasks 9.3–9.6's tests — confirm they now pass.
+
+- [x] 9.9 **Server-side metadata-only card validation (Decision 21).** With `STRIPE_ENABLED=false` (plain branch), the frontend now sends `brand`, `last4`, `expMonth`, `expYear` alongside the order body (Task 11a wires this). Orders receives **no PAN and no CVC** — this validation exists so the rule is enforced in both places, not because the client's check is untrusted with card data it never had access to the sensitive parts of anyway. Write the failing xUnit test first:
+  ```csharp
+  [Theory]
+  [InlineData("unknown_brand_xyz", "4242", 12, 2099, false)] // unknown brand rejected server-side
+  [InlineData("visa", "42", 12, 2099, false)]                // last4 not exactly 4 digits
+  [InlineData("visa", "4242", 1, 2020, false)]                // expired
+  [InlineData("visa", "4242", 12, 2099, true)]                // valid
+  public async Task CreateOrder_ValidatesCardMetadata_WhenStripeDisabled(
+      string brand, string last4, int expMonth, int expYear, bool expectSuccess)
+  {
+      var factory = _factory.WithStripeEnabled(false);
+      var client = factory.CreateClient();
+      client.DefaultRequestHeaders.Add("x-user-id", "cognito-sub-1");
+
+      var response = await client.PostAsJsonAsync("/v1/orders", new
+      {
+          lines = new[] { new { productId = "prd_1", quantity = 1 } },
+          card = new { brand, last4, expMonth, expYear },
+      });
+
+      Assert.Equal(expectSuccess ? HttpStatusCode.Created : HttpStatusCode.BadRequest, response.StatusCode);
+  }
+  ```
+  Implement a small pure validator (no Stripe dependency, since this path never touches Stripe):
+  ```csharp
+  public static class CardMetadataValidator
+  {
+      private static readonly HashSet<string> KnownBrands = new(StringComparer.OrdinalIgnoreCase)
+      {
+          "visa", "mastercard", "amex", "discover", "diners", "jcb", "unknown",
+      };
+
+      public static bool IsValid(string brand, string last4, int expMonth, int expYear, DateOnly today)
+      {
+          if (!KnownBrands.Contains(brand)) return false;
+          if (last4.Length != 4 || !last4.All(char.IsDigit)) return false;
+          if (expMonth < 1 || expMonth > 12) return false;
+          var lastDayOfExpiryMonth = new DateOnly(expYear, expMonth, DateTime.DaysInMonth(expYear, expMonth));
+          return lastDayOfExpiryMonth >= today;
+      }
+  }
+  ```
+  Call it from the order-creation handler, only on the plain branch (`if (!_stripeSettings.Enabled)`), returning 400 when it fails, before any persistence. Run `dotnet test` — passes. This validator takes NO PaymentIntent/Stripe dependency, unlike Task 9's charging block — it is a pure metadata check, distinct from and unrelated to whether Stripe is configured.
+
+- [x] 9.10 **Wrap the PaymentIntent call in a CLIENT `Activity` and emit the flow logs (spec
+  Decision 25).** Before writing this step, check for an existing outbound-hop tracing helper
+  in `services/orders/src/` (`grep -rln "ActivitySource\|StartActivity" services/orders/src`)
+  and mirror it — `Orders.Infrastructure/Messaging/SnsEventPublisher.cs`'s
+  `ActivitySource`/manual try-catch-finally shape is the reference here (this repo's .NET side
+  has no `withPublishSpan`-style generic helper; `SnsEventPublisher` inlines its own
+  `ActivitySource`, and Stripe's outbound hop follows the same shape rather than introducing a
+  new abstraction this milestone does not need). Add a dedicated `ActivitySource` to
+  `Orders.Infrastructure/Observability/` (do not reuse `SnsEventPublisher`'s — a different hop
+  gets its own source name, the same way `orders-messaging` and `orders-workflow` are already
+  two separate ones):
+  ```csharp
+  namespace Orders.Infrastructure.Observability;
+
+  // CONTRACT: Program.cs's AddSource(...) must name this EXACT string, mirroring
+  // WorkflowTracer/SnsEventPublisher's existing sources — an unregistered source
+  // creates spans that are silently never exported. See [[ADR-0019-distributed-tracing-opentelemetry]]
+  public static class StripeActivitySource
+  {
+      public const string Name = "orders-stripe";
+      public static readonly ActivitySource Source = new(Name);
+  }
+  ```
+  Wrap the `PaymentIntentService.CreateAsync` call from step 9.7 in a CLIENT activity, named
+  after the operation per spec Decision 25 (`stripe.payment_intent.create`, not
+  `PaymentIntentService.CreateAsync`):
+  ```csharp
+  using var activity = StripeActivitySource.Source.StartActivity(
+      "stripe.payment_intent.create", ActivityKind.Client);
+  activity?.SetTag("stripe.operation", "stripe.payment_intent.create");
+  activity?.SetTag("stripe.resource_type", "payment_intent");
+  activity?.SetTag("stripe.idempotency_key", $"order-charge-{orderId}"); // spec D25 — needed for a retry investigation
+
+  try
+  {
+      paymentIntent = await service.CreateAsync(/* ... 9.7's options ... */, ct);
+      activity?.SetTag("stripe.payment_intent_id", paymentIntent.Id);
+      activity?.SetStatus(ActivityStatusCode.Ok);
+
+      _logger.LogInformation(
+          "PaymentIntent created and charged {app_event} {order_id} {payment_intent_id}",
+          "payment_charged", orderId, paymentIntent.Id);
+  }
+  catch (StripeException ex)
+  {
+      // WHY: A decline is a business outcome, not a server fault (spec D8/D25)
+      // — INFO/WARN with the decline_code as `reason`, never ERROR. An ERROR
+      // span here would put an ordinary declined card on the same dashboard as
+      // a real fault. The activity itself still records the exception, because
+      // it genuinely failed as a Stripe CLIENT call — only the LOG severity is
+      // downgraded, deliberately, from what the span records.
+      activity?.AddException(ex);
+      activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+
+      _logger.LogWarning(
+          "Card declined {app_event} {reason} {order_id}",
+          "payment_declined", ex.StripeError?.DeclineCode ?? ex.StripeError?.Code ?? "unknown", orderId);
+
+      throw new PaymentDeclinedException(ex.StripeError?.Message ?? "Your card was declined.");
+  }
+  ```
+  Never place the raw `paymentIntent`/`ex.StripeError` object, the `client_secret`, or the
+  restricted key on the activity or in either log call (spec Decision 25; [[logging-context]]'s
+  span-attribute rule). Write a unit test asserting: (a) a successful charge logs
+  `app_event=payment_charged` at INFO with `order_id` and `payment_intent_id`; (b) a
+  `StripeException` with `DeclineCode` set logs `app_event=payment_declined` at **Warning**,
+  never Error, with that `decline_code` as `reason`; (c) the activity's tag set never includes a
+  field named `client_secret` or `raw_payload`. Run `dotnet test` — passes.
+
+- [x] 9.10b **Client-supplied `Idempotency-Key` (spec Decision 7, user decision 2026-09-22).**
+  A server-minted order id cannot make a retry idempotent — a re-POST mints a new id, so the
+  key must come from the client. Migration first: add a nullable `IdempotencyKey` column plus a
+  unique index on `(UserId, IdempotencyKey)`:
+  `dotnet ef migrations add AddOrderIdempotencyKey --project services/orders/src/Orders.Infrastructure --startup-project services/orders/src/Orders.Api`.
+
+  Write the failing tests first, each asserting exactly one branch of Decision 7:
+  - [x] 9.10b.1 Missing `Idempotency-Key` header with `STRIPE_ENABLED=true` → `400
+    idempotency_key_required`. Header absent with the flag off → succeeds exactly as today
+    (header ignored).
+  - [x] 9.10b.2 Same `(user, key)` POSTed twice with an identical body → the **first** call
+    charges once; the **second** call returns the existing order (`200`, same body) and
+    `PaymentIntentService.CreateAsync` is asserted **not called** a second time.
+  - [x] 9.10b.3 Concurrent duplicate requests (same `(user, key)`, fired together) → exactly
+    one order is persisted and exactly one Stripe charge is made; the request that loses the
+    unique-index race also returns the existing order rather than erroring — assert this with
+    a test that forces the race (e.g. two handler invocations against the same in-memory/test
+    DB context, or however this repo's existing unique-constraint races are tested; grep first).
+  - [x] 9.10b.4 Replay of an already-refunded PaymentIntent: Stripe returns
+    `Idempotent-Replayed: true` for a key whose PaymentIntent was refunded by Task 10's path →
+    Orders persists **no** order and answers `409 idempotency_key_reused`.
+  - [x] 9.10b.5 Same key, different request body → Stripe's `idempotency_error` is mapped to
+    `422 idempotency_key_mismatch`.
+
+  Implement:
+  - The `Idempotency-Key` header is required (flag on) / optional-and-ignored (flag off),
+    validated for presence before any Stripe call — mirror however `paymentMethodId`'s
+    required-when-enabled check (step 9.3) is structured.
+  - Before charging, look up `(UserId, IdempotencyKey)`; if an order exists, return it directly
+    (no Stripe call).
+  - The Stripe idempotency key passed to `PaymentIntentCreateOptions`'s `RequestOptions`
+    becomes `$"order-charge-{userId}-{clientKey}"`, replacing step 9.7's
+    `$"order-charge-{orderId}"` — derived from `(user id, client key)`, not the server-minted
+    order id, so a retried or concurrent request with the same client key reaches the same
+    PaymentIntent.
+  - Persist `IdempotencyKey` on the order row alongside the payment snapshot.
+  - Detect an `Idempotent-Replayed` response whose PaymentIntent status reflects a prior refund
+    (Task 10) and answer 409 `idempotency_key_reused` without persisting an order.
+  - Map Stripe's `idempotency_error` to `422 idempotency_key_mismatch` in the same
+    exception-to-status-code middleware step 9.7 already extended for `PaymentDeclinedException`.
+
+  Wrap the idempotency-key lookup and the two new error paths in the same `stripe.payment_intent.create`
+  activity from step 9.10 — add `stripe.idempotency_key` as a tag (already specified in step
+  9.10; this step supplies its real value). Run `dotnet test` — all of 9.10b.1–9.10b.5 pass, and
+  the 9.3–9.6/9.9 suite still passes with the new required header added to those tests' requests.
+
+  **Outcome (2026-09-23, corrected against the spec's Decision 7 amendment).** The "an order
+  exists → return it directly" step above is refined: the match also compares a stored request
+  fingerprint (`idempotency_request_hash char(64)`, nullable, SHA-256 hex of a canonical,
+  version-tagged form of the order lines — merged per product and sorted — plus
+  `paymentMethodId`; **not** the shipping address, since Orders reads that server-side from the
+  Users profile rather than the request body). Same fingerprint (or no stored hash) → return the
+  existing order; different fingerprint → `422 idempotency_key_mismatch` before any Stripe call.
+  Stripe's `idempotency_error` is **not** mapped to 422 uniformly as step 9.10b.5 originally
+  described: only its `400` variant means a genuine body mismatch; its `409` variant means the
+  same key is still in flight on another request, handled by re-checking for the winning order
+  up to 3 times, 500 ms apart, then `503 payment_unavailable` with `Retry-After` if none appears
+  — see the spec's Decision 7 for the full corrected text. This in-flight path is a fallback:
+  the production Stripe SDK's own network-level retry already absorbs most 409 races before
+  Orders observes them.
+
+- [x] 9.11 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+
+## Task 10 — Orders: refund on any post-charge failure
+
+**Widened scope (spec Decision 9, user decision 2026-09-22):** the automatic refund is not
+limited to a stock-reservation 409. It covers **any** failure between a successful charge and a
+committed order — a 409 under the lock, a product removed from under the reservation, the
+price-mismatch guard rejecting a stale total, or a persistence/commit failure — because in every
+one of these the charge already succeeded and must never be left dangling. The refund uses its
+**own** idempotency key derived from the PaymentIntent id (`refund-{paymentIntentId}`),
+independent of Task 9.10b's order-creation key, so a retried refund attempt cannot double-refund.
+This task's original name ("refund-on-409") undersold the scope; the steps below cover the 409
+case as the primary test and note the other failure modes share the same refund path.
+
+**Files:**
+- Modify: the same order-creation handler from Task 9
+- Test: a dedicated xUnit test forcing the reservation to fail after a successful charge, plus
+  one test per other post-charge failure mode (product removed, price-mismatch guard,
+  persistence/commit failure) confirming each also triggers the same refund path
+
+**Interfaces:**
+- Consumes: `PaymentSnapshot` (Task 9), `StripeActivitySource` (Task 9.10), the existing stock-reservation call that can return 409, and whatever other post-charge failure paths already exist (price-mismatch guard, persistence/commit).
+
+> [!warning] Highest-risk task in this plan
+> This is the repo's known review failure mode per [[phase-c-review-flow]] and [[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]]: a concurrency requirement specified from day one, shipped as an unhandled path, passing its own review because the diff is self-consistent on its own terms. **Reviewers must tick this task off against Decision 9 in the spec directly, not just read the diff** — ordinary tests structurally do not exercise concurrency, so the only proof this works is the explicit test in step 10.1, not the absence of a crash elsewhere. Per spec Decision 25, this is also the path that must be answerable from the logs alone — step 10.4's `app_event=payment_refunded` line, not just the refund call succeeding, is what makes "was the dangling charge actually refunded?" answerable without opening Stripe's dashboard.
+
+### Steps
+
+- [x] 10.1 Write the failing xUnit test that forces the exact failure sequence: charge succeeds, THEN the stock reservation call returns 409, and assert a refund was issued for the exact `PaymentIntentId` charged:
+  ```csharp
+  [Fact]
+  public async Task CreateOrder_WhenReservationConflictsAfterSuccessfulCharge_RefundsTheCharge()
+  {
+      var stripeClientMock = new Mock<StripeClient>(/* ... */);
+      // Charge succeeds:
+      stripeClientMock
+          .Setup(c => /* PaymentIntentService.CreateAsync */)
+          .ReturnsAsync(new PaymentIntent { Id = "pi_123", Status = "succeeded" });
+      // Refund is expected once, for pi_123:
+      var refundServiceMock = new Mock<IRefundService>();
+
+      var factory = _factory
+          .WithStripeEnabled(true)
+          .WithStripeClient(stripeClientMock.Object)
+          .WithReservationThatConflictsAfterCharge(); // test seam forcing a 409 from stock reservation
+      var client = factory.CreateClient();
+      client.DefaultRequestHeaders.Add("x-user-id", "cognito-sub-1");
+
+      var response = await client.PostAsJsonAsync("/v1/orders", new
+      {
+          lines = new[] { new { productId = "prd_1", quantity = 1 } },
+          paymentMethodId = "pm_test",
+      });
+
+      Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+      refundServiceMock.Verify(r => r.RefundAsync("pi_123", It.IsAny<CancellationToken>()), Times.Once);
+  }
+  ```
+  The exact seam for `WithReservationThatConflictsAfterCharge()` must be added to the existing `WebApplicationFactory` test fixture — locate the stock-reservation call site first (`grep -rln "409\|StockReservation\|Conflict" services/orders/src/Orders.Domain services/orders/src/Orders.Infrastructure`) and add a way to inject a reservation service that throws a conflict exception, mirroring however this repo's existing 409 test (if any) already fakes that failure.
+  Run `dotnet test --filter CreateOrder_WhenReservationConflictsAfterSuccessfulCharge_RefundsTheCharge` — fails, no refund logic exists yet.
+
+- [x] 10.2 Implement the refund path in the order-creation handler, wrapping the reservation call in a try/catch that runs only when a charge has already succeeded in this request:
+  ```csharp
+  PaymentIntent? paymentIntent = null;
+  if (_stripeSettings.Enabled)
+  {
+      paymentIntent = await ChargeAsync(input, pricing, ct); // Task 9's block, extracted
+  }
+
+  try
+  {
+      await _reservationService.ReserveAsync(input.Lines, ct);
+  }
+  catch (StockConflictException)
+  {
+      if (paymentIntent is not null)
+      {
+          // CONTRACT: A charge must never be left dangling (spec D9, widened
+          // 2026-09-22). This same catch/refund path also covers a removed
+          // product, the price-mismatch guard, and a persistence/commit
+          // failure after a successful charge — not only a stock conflict. A
+          // reservation conflict occurring BEFORE any charge (Stripe
+          // disabled, or reservation checked first in some other flow) has
+          // nothing to refund.
+          var refundService = new RefundService(_stripeClient);
+          await refundService.CreateAsync(
+              new RefundCreateOptions
+              {
+                  PaymentIntent = paymentIntent.Id,
+              },
+              // Own idempotency key, derived from the PaymentIntent id — independent
+              // of the order-creation key (step 9.10b) — so a retried refund attempt
+              // cannot double-refund.
+              new RequestOptions { IdempotencyKey = $"refund-{paymentIntent.Id}" },
+              cancellationToken: ct);
+      }
+      throw;
+  }
+  ```
+  The same `try`/`catch (StockConflictException)` block must be extended, or paralleled with
+  identical `catch` clauses, for the other post-charge failure types this task's widened scope
+  covers: a "product removed" exception, the price-mismatch guard's exception type, and a
+  persistence/commit failure thrown by the final save — locate each type via
+  `grep -rn "ProductRemoved\|PriceMismatch\|class.*Exception" services/orders/src/Orders.Domain`
+  and route each into the same refund block (extract it into a private
+  `RefundDanglingChargeAsync(paymentIntent, ct)` helper once more than one `catch` needs it,
+  rather than duplicating the refund call inline per exception type).
+
+- [x] 10.2b Write failing xUnit tests for the other post-charge failure modes, one per type
+  (product removed after charge, price-mismatch guard after charge, persistence/commit failure
+  after charge), each asserting a refund was issued for the exact `PaymentIntentId` charged —
+  mirroring step 10.1's shape but forcing a different exception after the charge succeeds. Also
+  add a test asserting the refund call's `RequestOptions.IdempotencyKey` equals
+  `refund-{paymentIntentId}` (not derived from the order id), and a test that calling the same
+  failure path twice for the same PaymentIntent (e.g. a retried request hitting the same
+  post-charge failure again) issues the refund only once, proving the refund's own idempotency
+  key does its job. Run `dotnet test` — fails until 10.2's implementation covers these paths.
+
+- [x] 10.3 Run `dotnet test --filter CreateOrder_WhenReservationConflictsAfterSuccessfulCharge_RefundsTheCharge` — passes. Then run the full `dotnet test` suite for `services/orders`, including the new 10.2b tests — confirm no regression on the 9.3–9.6 tests.
+
+- [x] 10.4 **The refund gets its own span and its own `app_event`, observable independently of
+  the charge (spec Decision 25).** This is the highest-risk path in the whole milestone (see
+  this task's header warning) precisely because it must be answerable from the logs alone —
+  "was a dangling charge actually refunded?" cannot depend on also finding the original charge
+  line. Wrap 10.2's `refundService.CreateAsync` call in its own CLIENT activity from the same
+  `StripeActivitySource` step 9.10 registered, named `stripe.refund.create`, tagging
+  `stripe.payment_intent_id` with the id being refunded, and log
+  `app_event=payment_refunded` (INFO) carrying **both** `order_id` and `payment_intent_id` on
+  success:
+  ```csharp
+  using var refundActivity = StripeActivitySource.Source.StartActivity(
+      "stripe.refund.create", ActivityKind.Client);
+  refundActivity?.SetTag("stripe.operation", "stripe.refund.create");
+  refundActivity?.SetTag("stripe.resource_type", "refund");
+  refundActivity?.SetTag("stripe.payment_intent_id", paymentIntent.Id);
+
+  try
+  {
+      var refundService = new RefundService(_stripeClient);
+      await refundService.CreateAsync(
+          new RefundCreateOptions { PaymentIntent = paymentIntent.Id },
+          // Own idempotency key (step 10.2) — independent of the order-creation
+          // key (step 9.10b) — so a retried refund attempt cannot double-refund.
+          new RequestOptions { IdempotencyKey = $"refund-{paymentIntent.Id}" },
+          cancellationToken: ct);
+      refundActivity?.SetStatus(ActivityStatusCode.Ok);
+
+      // CONTRACT: Carries BOTH ids on purpose — this line must answer "was the
+      // dangling charge refunded?" on its own, without cross-referencing the
+      // payment_charged line from a different point in the same request.
+      _logger.LogInformation(
+          "Charge refunded after a post-charge failure {app_event} {order_id} {payment_intent_id}",
+          "payment_refunded", orderId, paymentIntent.Id);
+  }
+  catch (Exception ex)
+  {
+      // WHY: A refund that itself fails leaves a REAL dangling charge — this
+      // must be loud. ERROR here is correct, unlike the decline path in Task 9.
+      refundActivity?.AddException(ex);
+      refundActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+      _logger.LogError(
+          ex,
+          "Refund FAILED after a post-charge failure — charge left dangling {app_event} {reason} {order_id} {payment_intent_id}",
+          "payment_refunded_failed", "refund_call_failed", orderId, paymentIntent.Id);
+      throw;
+  }
+  ```
+  Extend 10.1's test (or add a sibling) asserting the success case logs
+  `app_event=payment_refunded` with both `order_id` and `payment_intent_id` present on the same
+  log line — the assertion this task's header warning exists to make un-skippable: reviewing
+  the diff against Decision 9 means confirming this line exists, not just that
+  `RefundAsync`/`CreateAsync` was called. Run `dotnet test` — passes.
+
+- [x] 10.5 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+
+## Task 10c — Orders: Stripe webhook (payment reconciliation)
+
+**Spec Decision 26 (user, 2026-09-22).** This is a **second** webhook, separate from Users'
+(Decision 4/11) — Orders' payment reconciliation for orphan charges, refunds made outside the
+app, and disputes. Fulfillment stays exactly as Task 9 built it: synchronous, inside `POST
+/v1/orders`. This task adds no fulfillment path.
+
+**Files:**
+- Create: `services/orders/src/Orders.Api/StripeWebhook/StripeWebhookEndpoint.cs` (or wherever
+  this service's existing Minimal API endpoints for webhooks/public routes live — grep first,
+  `grep -rln "MapPost.*webhook\|PublicRoutes" services/orders/src/Orders.Api`),
+  `services/orders/src/Orders.Application/Stripe/ReconcilePaymentHandler.cs` (or this repo's
+  equivalent application-layer location for Orders — mirror wherever Task 9's order-creation
+  handler lives), `.spec`/xUnit tests for both
+- Modify: `services/orders/src/Orders.Api/Program.cs` (register the raw-body-reading route,
+  wire `STRIPE_WEBHOOK_SECRET`), `services/orders/openapi.yaml`,
+  `infra/environments/local/scripts/generate_env_files.py` (Orders' CUSTOM box),
+  `infra/environments/local/scripts/set_stripe_webhook_secret.py` (or wherever `make stripe-webhook-secret`'s
+  script lives — see Task 14.4's note), `docker-compose.yml` (`stripe-cli`'s `--forward-to`)
+
+**Interfaces:**
+- Consumes: `StripeClient` (Task 9.1), `PaymentSnapshot`/order read model (Task 9), the same
+  `refund-{paymentIntentId}` idempotency key Task 10.2 already derives (the orphan-refund path
+  reuses this exact key — spec Decision 26 — so it and Task 10's inline refund can never both
+  succeed for the same charge).
+- Produces: `POST /v1/orders/stripe/webhook` — public, no JWT, signature-verified against
+  Orders' own `STRIPE_WEBHOOK_SECRET`.
+
+### Steps
+
+- [x] 10c.1 Write the failing tests first, one per branch of Decision 26 — the signature and
+  availability guards, then the three reconciliation cases, in this order:
+  - [x] 10c.1a Invalid `stripe-signature` → `400 invalid_signature`, and no handler is
+    dispatched — mirror Task 5.1's shape (Users' webhook spec) for the assertion structure:
+    `constructEvent`/its .NET equivalent throws, the test asserts the reconciliation handler was
+    never invoked.
+  - [x] 10c.1b `STRIPE_ENABLED=true` with `STRIPE_WEBHOOK_SECRET` unset → `503
+    stripe_unavailable`, checked **before** attempting signature verification (there is nothing
+    to verify against).
+  - [x] 10c.1c `payment_intent.succeeded` with `metadata.order_id` set, no matching order, and
+    the PaymentIntent's `created` timestamp inside the grace period (10 minutes, configurable) →
+    a non-2xx response, and assert **no** refund call was made — Stripe must retry the delivery
+    later rather than the handler racing an in-flight `POST /v1/orders`.
+  - [x] 10c.1d Same event, but `created` older than the grace period → a refund is issued with
+    idempotency key exactly `refund-{paymentIntentId}` (assert the literal key, not just that
+    `RefundAsync`/`CreateAsync` was called), and `app_event=payment_orphan_refunded` is logged
+    at WARNING with `order_id` and `payment_intent_id`.
+  - [x] 10c.1e Same event, but an order already exists for `metadata.order_id` → no refund call,
+    2xx, no reconciliation log line (this is the common case, not an error path).
+  - [x] 10c.1f The orphan-refund case (10c.1d) delivered **twice** (simulating a Stripe retry) →
+    exactly one refund is issued — the second delivery hits the same
+    `refund-{paymentIntentId}` idempotency key and is a no-op against Stripe, not a second call
+    from Orders' own perspective (assert the refund call happens at most once, or that a second
+    call with the same key is harmless per however this repo's other idempotency-key tests
+    assert that — see Task 9.10b's tests for the pattern).
+  - [x] 10c.1g `charge.refunded` with `amount_refunded == amount` → order's `PaymentStatus` set
+    to `refunded`. With `amount_refunded < amount` → `partially_refunded`.
+  - [x] 10c.1h `charge.dispute.created` → `PaymentStatus=disputed`, logged at WARNING.
+    `charge.dispute.closed` with a won outcome → reverts to `succeeded`. Lost outcome →
+    `dispute_lost`.
+  - [x] 10c.1i An event type not in the six above (e.g. `customer.created`) → 2xx, no handler
+    dispatched, no error.
+  Run the test command for whichever project houses these (`dotnet test --filter
+  StripeWebhook`) — all fail, nothing implemented yet.
+
+- [x] 10c.2 Implement the endpoint and handler covering 10c.1a–10c.1i. Follow Task 9.1's
+  `StripeClient`/`StripeSettings` registration and Task 5.2's (Users) signature-verification
+  shape translated to .NET — verify the raw body against `STRIPE_WEBHOOK_SECRET` using
+  `EventUtility.ConstructEvent` before dispatching anything, exactly mirroring Decision 4's
+  "verify before processing" rule Decision 26 restates for this second webhook. Wire the grace
+  period as a configurable value (10 minutes default) rather than a hardcoded literal, so it can
+  be shortened in tests without sleeping. Run the tests from 10c.1 — pass.
+
+- [x] 10c.3 **Observability (spec Decision 25/26).** Wrap the Stripe calls this handler makes
+  (the orphan refund) in the same `StripeActivitySource` from Task 9.10/10.4 — a
+  `stripe.refund.create` CLIENT activity, same idempotency-key tag convention as Task 10.4. Log
+  `app_event=stripe_webhook_received` with `event.type`/`event.id` on every successfully
+  verified delivery (mirroring Task 5.5's shape for Users), and the signature-failure branch
+  logs with `reason=signature_verification_failed` and **never** the `stripe-signature` header
+  or raw body — same restraint as Task 5.5. `app_event=payment_orphan_refunded` is a distinct
+  event from `payment_refunded` (Task 10.4) — the two paths must remain independently visible in
+  the logs (an orphan-refund is a different failure shape from a post-charge-failure refund,
+  even though both call the same Stripe Refunds endpoint). Run the tests — pass.
+
+- [x] 10c.4 Add `POST /v1/orders/stripe/webhook` to `services/orders/openapi.yaml`, documented
+  public/unauthenticated with a `stripe-signature` header requirement, mirroring how Task 5.4
+  documented Users' webhook.
+
+- [x] 10c.5 **Gateway route** — add to `infra/modules/api-gateway/main.tf`'s route map:
+  ```
+  orders_stripe_webhook = { key = "POST /v1/orders/stripe/webhook", path = "/v1/orders/stripe/webhook", auth = false }
+  ```
+  following the exact `key`/`path`/`auth` shape already used for Users' `stripe_webhook` entry.
+
+- [x] 10c.6 **nginx — verify, don't assume.** Read `infra/modules/compute/nginx/nginx.conf`'s
+  existing `location /v1/orders` block before touching it. **Verified 2026-09-22: no new
+  `location` block is needed** — `/v1/orders/stripe/webhook` falls under the existing prefix
+  match `location /v1/orders { proxy_pass http://orders:8080; }`, which forwards the full
+  request path unchanged to Orders. This is unlike `/v1/cart` or `/v1/products`, which needed
+  their own blocks specifically because they are top-level paths **outside** `/v1/orders`. If a
+  future reader finds this block has since been narrowed to an exact match or moved, that
+  assumption must be re-verified, not copied blindly.
+
+- [x] 10c.7 **`generate_env_files.py` — Orders' CUSTOM box.** Add `STRIPE_WEBHOOK_SECRET=`
+  (empty) to Orders' `custom_defaults` block in
+  `infra/environments/local/scripts/generate_env_files.py`, next to the existing
+  `STRIPE_ENABLED`/`STRIPE_SECRET_KEY` entries added on `feat/stripe-payments-users` (see Task
+  14.6's note — this file already seeds those two for Orders; this step adds the third). Update
+  that block's comment, which currently reads "No webhook secret: only Users receives
+  webhooks" — that sentence is no longer true as of Decision 26 and must be corrected, not left
+  contradicting the code three lines below it. Orders' env schema/config treats an empty value
+  the same as unset (flag on + no secret → 503, per Decision 13/26), matching Users' existing
+  rule.
+
+- [x] 10c.8 **`make stripe-webhook-secret` writes both files.** Read
+  `infra/environments/local/scripts/set_stripe_webhook_secret.py` (the script `Makefile`'s
+  `stripe-webhook-secret` target already calls) before editing it — it currently writes only
+  into `.env.local.users`'s CUSTOM box. Extend it to write the **same** `whsec_...` value into
+  `.env.local.orders`'s CUSTOM box too, per spec Decision 26's local-delivery paragraph: one
+  `stripe listen` process mints one signing secret, valid for every event it forwards on this
+  machine, so both services get the identical value — this is not two secrets, it is one secret
+  written to two files.
+
+- [x] 10c.9 **`stripe-cli` compose command — verify before wiring.** Per spec Decision 26, do
+  not invent a `stripe listen` flag. Before editing `docker-compose.yml`'s `stripe-cli` command
+  (Task 14.4 introduces the service; this step's forwarding target may need to change), run
+  `stripe listen --help` and confirm whether one invocation supports multiple `--forward-to`
+  destinations (one process, one secret, forwarding to both `users:3000/v1/users/stripe/webhook`
+  and `orders:8080/v1/orders/stripe/webhook`) or whether it requires **two** concurrent `stripe
+  listen` processes — in which case each mints its **own** `whsec_...`, which would contradict
+  10c.8's shared-secret write and require revisiting that step before implementing it. Record
+  which of the two is true in this step's own commit/PR description, since the spec deliberately
+  left it unresolved pending this verification.
+
+  **Outcome (2026-09-23):** `stripe listen --forward-to` accepts exactly one destination per
+  invocation, so two concurrent processes are required — one per service. This does **not**
+  produce two different secrets in the sense Decision 26 worried about: `make
+  stripe-webhook-secret` obtains the secret once via a separate `stripe listen --print-secret`
+  call and writes that one value into both services' CUSTOM boxes, so the two long-running
+  `--forward-to` processes the developer starts by hand are configured to accept the same
+  pre-written secret rather than each minting and using its own. There is no `stripe-cli`
+  compose service — Task 14.4 was dropped (see Task 14 below) once this was resolved. See
+  Decision 10's amendment and [[stripe-sandbox-setup]] for the exact commands.
+
+- [x] 10c.10 Leave the work uncommitted in the working tree and report what changed — the main
+  session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+
+## Task 10d — Webhook defense in depth (URL token + IP allowlist)
+
+**Spec Decision 27 (user, 2026-09-22).** Both webhooks (Users' from Task 5, Orders' from Task
+10c) gain two more layers on top of the existing `Stripe-Signature` check: a per-service URL
+token appended to the route, and an allowlist of Stripe's published webhook source IPs. Both
+layers are enforced in the services themselves — nginx is local-only and AWS WAF does not
+attach to the HTTP APIs this repo uses. Order of checks, before any body parsing: IP allowlist →
+URL token → signature. Write every rejection test first.
+
+**Files:**
+- Modify (Users): the webhook route file from Task 5 (grep `stripe/webhook` under
+  `services/users/src`), `services/users/src/config/env.schema.ts`, the webhook route's
+  test (`services/users/tests/payment-methods/stripe-webhook.controller.test.ts`)
+- Modify (Orders): `services/orders/src/Orders.Api/StripeWebhook/StripeWebhookEndpoint.cs` (Task
+  10c.2's file, or wherever it actually landed), Orders' settings/env binding, its xUnit tests
+- Modify (infra): `infra/modules/api-gateway/main.tf` (both webhook route entries' `key` and
+  integration `path`), `infra/environments/local/scripts/generate_env_files.py` (both services'
+  AUTO box — `STRIPE_WEBHOOK_ALLOWED_CIDRS`, `STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS=0`),
+  `infra/environments/local/scripts/set_stripe_webhook_secret.py` (or wherever Task 10c.8 left
+  `make stripe-webhook-secret` — extend it to also mint/preserve each service's
+  `STRIPE_WEBHOOK_URL_TOKEN`), `docker-compose.yml` (`stripe-cli`'s `--forward-to` targets gain
+  the token path)
+- Modify (E2E): the existing Users webhook internal + gateway specs (Task 5/8's tests) move to
+  the token path; add the new rejection cases below
+
+**Interfaces:**
+- Consumes: Task 5's Users webhook route, Task 10c's Orders webhook route, Decision 27's env
+  vars (`STRIPE_WEBHOOK_URL_TOKEN`, `STRIPE_WEBHOOK_ALLOWED_CIDRS`,
+  `STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS`).
+- Produces: `POST /v1/users/stripe/webhook/{token}` and `POST
+  /v1/orders/stripe/webhook/{token}`, replacing the bare `/webhook` paths Tasks 5 and 10c
+  created. No other route changes.
+
+### Steps
+
+- [x] 10d.1 **Failing tests first, Users.** Write the rejection cases before touching the route:
+  - [x] 10d.1a Wrong or missing `{token}` → `404`, the framework's normal not-found shape (assert
+    the body is indistinguishable from an unmapped route, not a custom "invalid token" payload).
+  - [x] 10d.1b `STRIPE_ENABLED=true` with `STRIPE_WEBHOOK_URL_TOKEN` unset → `503
+    stripe_unavailable`.
+  - [x] 10d.1c Correct token but source IP outside `STRIPE_WEBHOOK_ALLOWED_CIDRS` → `403
+    forbidden_source`, and assert `app_event=stripe_webhook_received`,
+    `reason=source_ip_not_allowed`, and the source IP are logged at WARNING.
+  - [x] 10d.1d Correct token, allowed IP, valid signature → 2xx, unchanged from Task 5's existing
+    behavior (regression check that layering the two new guards in front does not break the
+    happy path).
+  - [x] 10d.1e The token never appears in any log line or span attribute across 10d.1a–10d.1d —
+    assert against the logger/tracer test doubles already used in Task 1.7's spec, not a new
+    harness.
+  Run `nvm use && pnpm --filter users test` for the webhook spec — all new cases fail.
+
+- [x] 10d.2 Implement Users' side: extend the env schema with the three new vars (mirroring Task
+  1.1's pattern), change the route path to append `/:token` (or this framework's equivalent),
+  add the IP-allowlist check (reading `STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS` to pick the right
+  address) and the constant-time token comparison ahead of the existing signature verification,
+  in that order. Redact the route to its template (`…/webhook/{token}`) in any access log/span
+  that would otherwise record the concrete path. Run 10d.1's tests — pass.
+
+- [x] 10d.3 **Failing tests first, Orders.** Mirror 10d.1a–10d.1e in xUnit against Task 10c's
+  endpoint (`10d.3a`–`10d.3e`), same five cases, same assertions translated to this service's
+  test/logging idioms. Run — all fail.
+
+- [x] 10d.4 Implement Orders' side, mirroring 10d.2's shape: route path gains the token segment,
+  IP allowlist and token checks ahead of Task 10c.2's signature verification, redaction on any
+  access log/activity that would record the concrete path. Run 10d.3's tests — pass.
+
+- [x] 10d.5 **Infra — gateway routes.** Update both webhook entries in
+  `infra/modules/api-gateway/main.tf` so their `key` and integration `path` carry the `{token}`
+  segment, e.g. `users_stripe_webhook = { key = "POST /v1/users/stripe/webhook/{token}", path =
+  "/v1/users/stripe/webhook/{token}", auth = false }`, and the equivalent for Orders' entry from
+  Task 10c.5. Confirm the nginx prefix blocks (`location /v1/users`, `location /v1/orders`) still
+  forward the longer path unchanged — no new `location` block needed, same reasoning as Task
+  10c.6.
+
+- [x] 10d.6 **Infra — env generator.** Add `STRIPE_WEBHOOK_ALLOWED_CIDRS` and
+  `STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS=0` to both services' AUTO box in
+  `infra/environments/local/scripts/generate_env_files.py` — the local value per Decision 27
+  includes the published Stripe IPs plus loopback/private ranges, since `stripe listen` forwards
+  from the developer's own machine.
+
+- [x] 10d.7 **Infra — `make stripe-webhook-secret` also mints the URL tokens.** Extend the script
+  from Task 10c.8 to generate `STRIPE_WEBHOOK_URL_TOKEN` (≥ 32 random URL-safe bytes) into each
+  service's CUSTOM box when absent, preserving an existing value rather than rotating it
+  silently, and print the two `stripe listen --forward-to` commands with the tokens masked
+  unless the caller explicitly asks to reveal them.
+
+- [x] 10d.8 **E2E — move existing specs to the token path.** Update Task 5/8's Users webhook
+  internal and gateway Playwright specs to target `.../webhook/{token}` using the token the test
+  environment's CUSTOM box provides. Add the new rejection cases: wrong token → 404; disallowed
+  IP → 403, where the test can control the source address. Note for the gateway-E2E case: locally
+  the request arrives from a private address, so the 403 case is exercised at the
+  unit/integration layer (10d.1c/10d.3c) and, where the gateway E2E environment's source IP is
+  actually controllable, also at that layer — do not fabricate a gateway-E2E 403 case against an
+  uncontrollable source IP.
+
+- [x] 10d.9 Leave the work uncommitted in the working tree and report what changed — the main
+  session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+
+## GATE — stop point before Web work
+
+Task 11 (web) posts `paymentMethodId` to `POST /v1/orders`, which does not behave correctly until Tasks 9–10 (and 10c–10d) are merged. **Present the Tasks 9–10d batch for review per [[phase-c-review-flow]] and wait for merge before starting Task 11.** Task 10c (Orders' own Stripe webhook, payment reconciliation) and Task 10d (webhook defense in depth, both services) have no dependency on Task 11/12/13 and join this same batch — 10c depends only on Task 9's `PaymentSnapshot`/order model and Task 10's refund idempotency key, and 10d depends only on Task 5 (Users' webhook) and 10c (Orders' webhook), all already merged by the time 10c/10d are implemented within this batch. Task 13 (plain-branch card validation) touches only pure functions and the plain branch — it does not depend on Tasks 9–10d and may be implemented in parallel with this wait. Task 12 (profile Payment methods tab) reuses Task 11's `SavedCardRow`/`PaymentMethodsApi`, so it must wait for Task 11 to land first, not merely for this GATE — see Task 12's header note. All three of Tasks 11, 12, and 13's PRs are batched together for review at this same stop point, since all touch `checkout-payment.html`/`.ts`, `profile.ts`/`.html`, or a component either composes.
+
+## Task 11 — Web: `SavedCardRow` component + Payment Element checkout flow
+
+**Files:**
+- Modify: `apps/web/src/env.d.ts`, `apps/web/src/app/core/config/app-config.ts`, `apps/web/src/app/features/checkout/checkout-payment.ts`, `apps/web/src/app/features/checkout/checkout-payment.html`, `docker-compose.yml`, `apps/web/Dockerfile`, `infra/environments/local/scripts/generate_env_files.py`
+- Create: `apps/web/src/app/shared/ui/saved-card-row.ts` (+ `.html`), `apps/web/src/app/features/checkout/payment-method-selector.ts` (+ `.html`), `apps/web/src/app/features/checkout/new-card-block.ts` (+ `.html`), `apps/web/src/app/core/api/payment-methods-api.ts`
+- Test: `saved-card-row.spec.ts`, component specs for `payment-method-selector` and `new-card-block`, an updated spec for `checkout-payment`
+
+**Interfaces:**
+- Consumes: `GET/POST/DELETE/PUT /v1/users/me/payment-methods*` (Task 4), `POST /v1/orders` with `paymentMethodId` and the `Idempotency-Key` header (Task 9, step 9.10b).
+- Produces:
+  ```ts
+  // apps/web/src/app/shared/ui/saved-card-row.ts — vPwZ1 in the .pen, reused
+  // by Task 12's profile Cards List. Building it twice per surface is the
+  // failure this component-first step prevents.
+  export interface SavedCardView {
+    id: string;
+    brand: string;
+    last4: string;
+    expMonth: number;
+    expYear: number;
+  }
+
+  @Component({ selector: 'app-saved-card-row', templateUrl: './saved-card-row.html', changeDetection: ChangeDetectionStrategy.OnPush })
+  export class SavedCardRow {
+    readonly card = input.required<SavedCardView>();
+    readonly selected = input(false);
+    readonly isDefault = input(false);
+    readonly expired = input(false);
+
+    readonly select = output<string>();     // emits card().id
+    readonly setDefault = output<string>();
+    readonly remove = output<string>();
+  }
+  ```
+  `APP_CONFIG.stripePublishableKey: string | null`, consumed only inside `checkout-payment.ts`/`payment-method-selector.ts`. `SavedCardRow` and `PaymentMethodsApi` (this task) are also consumed by Task 12 (profile Payment methods tab), which must therefore be ordered after this task.
+
+### Steps
+
+- [x] 11.1 Write the failing spec for `saved-card-row.spec.ts`, covering the three visual states from the design's Cards List (spec Web section / Decision 24). Verify the exact emitted utility names against `apps/web/src/styles.css` before writing assertions — don't trust the spelling below if `DESIGN.md`'s table has drifted:
+  ```ts
+  import { describe, expect, it } from 'vitest';
+  import { TestBed } from '@angular/core/testing';
+  import { SavedCardRow } from './saved-card-row';
+
+  describe('SavedCardRow', () => {
+    function render(props: Partial<{ selected: boolean; isDefault: boolean; expired: boolean }>) {
+      const fixture = TestBed.createComponent(SavedCardRow);
+      fixture.componentRef.setInput('card', { id: 'pm_1', brand: 'visa', last4: '4242', expMonth: 4, expYear: 2028 });
+      fixture.componentRef.setInput('selected', props.selected ?? false);
+      fixture.componentRef.setInput('isDefault', props.isDefault ?? false);
+      fixture.componentRef.setInput('expired', props.expired ?? false);
+      fixture.detectChanges();
+      return fixture;
+    }
+
+    it('selected + default: bg-surface-subtle fill, border-brand-navy stroke, no "Set as default" link', () => {
+      const fixture = render({ selected: true, isDefault: true });
+      const root: HTMLElement = fixture.nativeElement.querySelector('[data-testid="saved-card-row"]');
+      expect(root.className).toContain('bg-surface-subtle');
+      expect(root.className).toContain('border-brand-navy');
+      expect(fixture.nativeElement.querySelector('[data-testid="set-default-link"]')).toBeNull();
+    });
+
+    it('unselected, not default: transparent fill, border-line stroke, "Set as default" link shown', () => {
+      const fixture = render({ selected: false, isDefault: false });
+      const root: HTMLElement = fixture.nativeElement.querySelector('[data-testid="saved-card-row"]');
+      expect(root.className).toContain('border-line');
+      expect(root.className).not.toContain('border-brand-navy');
+      expect(fixture.nativeElement.querySelector('[data-testid="set-default-link"]')).not.toBeNull();
+    });
+
+    it('expired: danger-red semibold expiry text, dimmed brand bubble, cannot be selected', () => {
+      const fixture = render({ expired: true });
+      const expiry: HTMLElement = fixture.nativeElement.querySelector('[data-testid="card-expiry"]');
+      expect(expiry.textContent).toContain('Expired');
+      expect(expiry.className).toContain('text-danger-red');
+      expect(expiry.className).toContain('font-semibold');
+      const bubble: HTMLElement = fixture.nativeElement.querySelector('[data-testid="brand-bubble"]');
+      expect(bubble.className).toContain('bg-surface-subtle');
+      const radio: HTMLElement = fixture.nativeElement.querySelector('[data-testid="radio"]');
+      expect(radio.getAttribute('aria-disabled')).toBe('true');
+    });
+  });
+  ```
+  Run `nvm use && pnpm --filter web test saved-card-row` — fails, module missing.
+
+- [x] 11.2 Implement `saved-card-row.ts`/`.html` per [[angular-component-authoring]] (sibling `.html` via `templateUrl`, `rem` not `px` except borders, no arbitrary hex — token utilities only). Structure and copy come from `apps/web/design/exports/saved-card-row.html`, translated per that export's own caveats (fixed `px` sizing and no `.html`/`.ts` split are the export's, not this component's). The three states from the spec's Web section:
+  ```html
+  <!-- saved-card-row.html — sketch; verify exact utility spelling against styles.css -->
+  <div
+    data-testid="saved-card-row"
+    class="flex items-center gap-3 rounded-md border p-4"
+    [class.bg-surface-subtle]="selected() || expired()"
+    [class.border-brand-navy]="selected() && !expired()"
+    [class.border-line]="!selected() || expired()"
+  >
+    <span data-testid="radio" [attr.aria-disabled]="expired()" (click)="!expired() && select.emit(card().id)"></span>
+    <div
+      data-testid="brand-bubble"
+      class="flex h-10 w-10 items-center justify-center rounded-full"
+      [class.bg-brand-navy-light]="!expired()"
+      [class.bg-surface-subtle]="expired()"
+    >
+      <lucide-icon name="credit-card" [class.text-brand-navy]="!expired()" [class.text-ink-muted]="expired()" />
+    </div>
+    <div class="flex flex-1 flex-col">
+      <div class="flex items-center gap-2">
+        <span class="text-ink-primary">{{ card().brand }} ···· {{ card().last4 }}</span>
+        @if (isDefault()) {
+          <span class="rounded-full bg-brand-navy px-2 py-0.5 text-white">Default</span>
+        }
+      </div>
+      <span
+        data-testid="card-expiry"
+        [class.text-danger-red]="expired()"
+        [class.font-semibold]="expired()"
+        [class.text-ink-secondary]="!expired()"
+      >
+        {{ expired() ? 'Expired' : 'Expires' }} {{ card().expMonth }} / {{ card().expYear }}
+      </span>
+    </div>
+    <div class="flex flex-col items-end gap-1">
+      @if (!isDefault()) {
+        <button data-testid="set-default-link" type="button" class="text-brand-navy" (click)="setDefault.emit(card().id)">
+          Set as default
+        </button>
+      }
+      <button type="button" (click)="remove.emit(card().id)">
+        <lucide-icon name="x" class="text-ink-secondary" />
+      </button>
+    </div>
+  </div>
+  ```
+  Run `nvm use && pnpm --filter web test saved-card-row` — passes.
+
+- [x] 11.3 Add `NG_APP_STRIPE_PUBLISHABLE_KEY` to `apps/web/src/env.d.ts`:
+  ```ts
+  interface ImportMetaEnv {
+    readonly NG_APP_STRIPE_ENABLED?: string;
+    readonly NG_APP_STRIPE_PUBLISHABLE_KEY?: string;
+    readonly NG_APP_API_GATEWAY_URL?: string;
+    readonly NG_APP_GEOCODE_ENABLED?: string;
+    readonly NG_APP_WS_URL?: string;
+  }
+  ```
+
+- [x] 11.4 Extend `AppConfig` and its reader in `app-config.ts`. Per [[env-files]]/the repo's esbuild rule, spell out the full `import.meta.env.NG_APP_STRIPE_PUBLISHABLE_KEY` access — do not construct the key name dynamically:
+  ```ts
+  export interface AppConfig {
+    readonly stripeEnabled: boolean;
+    /** The ONLY Stripe value allowed in the bundle — never a restricted key. Null disables card entry even if stripeEnabled is true, degrading gracefully. */
+    readonly stripePublishableKey: string | null;
+    readonly apiGatewayUrl: string;
+    readonly geocodeEnabled: boolean;
+    readonly wsUrl: string;
+  }
+  ```
+  and in the function that builds `APP_CONFIG` from `import.meta.env` (locate the existing `stripeEnabled` line and add immediately after it):
+  ```ts
+  stripePublishableKey: import.meta.env.NG_APP_STRIPE_PUBLISHABLE_KEY ?? null,
+  ```
+  Treat an empty string the same as unset (`?? null` alone does not catch `""`) — mirror the
+  Users rule that a seeded-empty Stripe value means unset, per [[env-files]].
+
+- [x] 11.4b **No `NG_APP_*` web build arg is hardcoded in `docker-compose.yml`.**
+  **Decision (user, 2026-09-22), layout as shipped.** There is no root `.env`: the generator
+  writes none, and every value belongs to the service that reads it. The six `NG_APP_*` generate
+  into **`.env.local.web`**:
+  - **AUTO box** (generator-owned, never hand-edited): `NG_APP_WS_URL` and
+    `NG_APP_API_GATEWAY_URL`.
+  - **CUSTOM box** (per-machine, preserved across regeneration): the four flags, including
+    `NG_APP_STRIPE_ENABLED` and `NG_APP_STRIPE_PUBLISHABLE_KEY`.
+  - Compose interpolates `${VAR}` in `web.build.args` from that file because the Makefile passes
+    `--env-file .env.local.web`. A build arg cannot come from `env_file:`, which resolves at
+    container runtime, after the build.
+  - `pnpm dev` reads the same file through `angular.json`'s `ngxEnv.files:
+    ["../../.env.local.web", ".env"]`, generated file first. `apps/web/.env` is comment-only,
+    for per-machine overrides that apply to `pnpm dev` alone; an empty assignment there shadows
+    the generated value too.
+  - The `NG_APP_` prefix filter is `^(?-i:NG_APP_)`, anchored and case-sensitive, because
+    `@dotenv-run` wraps a string prefix as `new RegExp(prefix, "i")`.
+  - **These are BUILD-time values**: changing one needs `docker compose build web` — a plain
+    restart re-serves the old bundle.
+  - Full reasoning: [[2026-09-29-web-env-consolidation-design]]. Cross-reference Task 14 step
+    14.6 (Users' seeded, empty-means-unset Stripe keys) — the two mechanisms stay consistent.
+
+- [x] 11.5 Write the failing spec for `payment-method-selector.ts` asserting: it lists saved cards from `PaymentMethodsApi.list()`, preselects the default, exposes a `selectedPaymentMethodId` output, and shows the Payment Element (mounted against a SetupIntent client_secret from `PaymentMethodsApi.createSetupIntent()`) when the user has zero cards or clicks "Add card".
+
+- [x] 11.6 Create `apps/web/src/app/core/api/payment-methods-api.ts` following the existing `UsersApi`/`OrdersApi` shape (HTTP client wrapper, one method per route from Task 4):
+  ```ts
+  @Injectable({ providedIn: 'root' })
+  export class PaymentMethodsApi {
+    private readonly http = inject(HttpClient);
+
+    createSetupIntent(): Observable<{ clientSecret: string }> {
+      return this.http.post<{ clientSecret: string }>('/v1/users/me/payment-methods/setup-intent', {});
+    }
+
+    list(): Observable<PaymentMethodView[]> {
+      return this.http.get<PaymentMethodView[]>('/v1/users/me/payment-methods');
+    }
+
+    attach(paymentMethodId: string): Observable<{ id: string }> {
+      return this.http.post<{ id: string }>('/v1/users/me/payment-methods', { paymentMethodId });
+    }
+
+    remove(id: string): Observable<void> {
+      return this.http.delete<void>(`/v1/users/me/payment-methods/${id}`);
+    }
+
+    setDefault(id: string): Observable<void> {
+      return this.http.put<void>(`/v1/users/me/payment-methods/${id}/default`, {});
+    }
+  }
+  ```
+
+- [x] 11.7 Implement `payment-method-selector.ts`/`.html` following [[angular-component-authoring]] (signals, `OnPush`, no domain logic beyond presentation), loading Stripe.js via `loadStripe(APP_CONFIG.stripePublishableKey)`, mounting the Payment Element into a container div when adding a card, and never using the Card Element.
+
+- [x] 11.8 Replace the static card at `checkout-payment.html:259` (`@if (stripeEnabled())` branch) with `<app-payment-method-selector (selectedPaymentMethodId)="onCardSelected($event)" />`.
+
+- [x] 11.9 In `checkout-payment.ts`, add a `selectedPaymentMethodId` signal, wire `onCardSelected`, extend `canPay` to also require it when `stripeEnabled()` is true:
+  ```ts
+  protected readonly selectedPaymentMethodId = signal<string | null>(null);
+
+  protected readonly canPay = computed(
+    () =>
+      this.cart.canCheckout() &&
+      !this.cart.saving() &&
+      !this.placing() &&
+      this.address() !== null &&
+      (!this.stripeEnabled() || this.selectedPaymentMethodId() !== null),
+  );
+
+  protected onCardSelected(id: string): void {
+    this.selectedPaymentMethodId.set(id);
+  }
+  ```
+
+- [x] 11.10 Update `pay()` to send `paymentMethodId` and map 402 through `authErrorMessage`, mirroring the existing 409 entry:
+  ```ts
+  const order = await firstValueFrom(
+    this.ordersApi.createOrder(lines, this.stripeEnabled() ? this.selectedPaymentMethodId() : null),
+  );
+  // ...
+  this.checkoutError.set(
+    authErrorMessage(error, {
+      409: 'Someone bought the last one while you were checking out. Adjust your cart and try again.',
+      402: authErrorMessage(error), // Stripe's own actionable message passes through ApiError.detail
+    }),
+  );
+  ```
+  (`OrdersApi.createOrder` gains an optional `paymentMethodId` parameter forwarded into the POST body — modify its signature accordingly and update every existing call site.)
+
+- [x] 11.10b **Generate and send the `Idempotency-Key` header (spec Decision 7, user decision
+  2026-09-22).** Per the client contract: generate ONE key (`crypto.randomUUID()`) per checkout
+  attempt when `pay()` is first invoked; reuse that same key only when retrying after a network
+  error, a timeout, or a 5xx from the same attempt; generate a fresh key after any definitive
+  response (any 2xx or 4xx), including a 402 decline — a declined card is a definitive response
+  the buyer will correct and resubmit, not a transient failure to retry blindly. Store the
+  current key in a signal alongside `selectedPaymentMethodId`, reset it to a new UUID whenever
+  `pay()` completes with a 2xx/4xx. `OrdersApi.createOrder` sends it as the `Idempotency-Key`
+  request header (not a body field) on every `POST /v1/orders` call, through `ApiClient` per
+  [[browser-rum]] (a raw `fetch()` would bypass the interceptor and the header both). Write a
+  spec asserting: the header is present and unchanged across a simulated retry after a network
+  error, and a **new** header value appears on the next `pay()` call after a successful order or
+  a 402. Run `nvm use && pnpm --filter web test checkout-payment` — passes.
+
+- [x] 11.11 Confirm `devFill()` remains unchanged and does not touch `selectedPaymentMethodId` or the Stripe branch — it stays scoped to `addressModel`/`cardModel` exactly as today (the plain branch), per Decision "Constraints" in the Web section.
+
+- [x] 11.12 Run `nvm use && pnpm --filter web test` — confirm the new and updated specs pass.
+
+- [x] 11.13 Modify `OrdersApi.createOrder` (or add a sibling parameter) so that on the plain branch it also sends the detected `card: { brand, last4, expMonth, expYear }` metadata alongside the order body — never the PAN, never the CVC (Decision 21; Task 13 supplies the detector this reads from). On the Stripe branch this field is omitted entirely; Orders' Task 9.9 validation only runs when `STRIPE_ENABLED=false`.
+
+- [x] 11.14 Write the failing spec for `new-card-block.ts` (Decision 23) asserting: it renders `Method Tabs` (Card / Apple Pay / Link) and the four `SField` rows, a "Cancel" link emits a `cancel` output collapsing it back to the saved-cards list, the "Save this card for future purchases" checkbox defaults unchecked, and confirming the SetupIntent calls `PaymentMethodsApi.attach(...)` when checked vs. leaving the resulting payment method unattached (no `attach` call) when unchecked:
+  ```ts
+  it('attaches the payment method only when "save this card" is checked', async () => {
+    const api = { attach: vi.fn().mockReturnValue(of({ id: 'pm_new' })) };
+    // ... mount NewCardBlock with a fake confirmed Stripe.js setup result (pm_new) ...
+    component['saveForFuture'].set(false);
+    await component.confirm();
+    expect(api.attach).not.toHaveBeenCalled();
+
+    component['saveForFuture'].set(true);
+    await component.confirm();
+    expect(api.attach).toHaveBeenCalledWith('pm_new');
+  });
+  ```
+  Run `nvm use && pnpm --filter web test new-card-block` — fails, module missing.
+
+- [x] 11.15 Implement `new-card-block.ts`/`.html` per [[angular-component-authoring]], structure and copy from the `New Card Block` portion of `apps/web/design/exports/checkout-payment-add-card.html`. The `Save Info Row` checkbox drives Decision 23's branch — on confirm, the Payment Element/Stripe.js confirms the SetupIntent (mounted from `PaymentMethodsApi.createSetupIntent()`, unchanged from step 11.7's flow), and only when `saveForFuture()` is `true` does the component call `PaymentMethodsApi.attach(paymentMethodId)`; when `false`, the resulting `pm_...` is passed straight to `pay()` for one-time use on this order's `POST /v1/orders` and never attached. Run `nvm use && pnpm --filter web test new-card-block` — passes.
+
+- [x] 11.16 Wire `payment-method-selector.ts` to show `new-card-block` in place of the bare Payment Element mount from step 11.7, and to show the saved-cards list (composed of `SavedCardRow` instances per 11.1–11.2) when the user has ≥1 card, collapsing to/from `new-card-block` on "Add card" / "Cancel". Update `payment-method-selector`'s spec to cover both transitions. Run `nvm use && pnpm --filter web test payment-method-selector` — passes.
+
+- [x] 11.17 **Confirm the new calls inherit [[browser-rum]]'s rules — it does not get its own
+  (spec Decision 25).** `PaymentMethodsApi` (step 11.6) and `OrdersApi.createOrder`'s new
+  `paymentMethodId` parameter (step 11.10) MUST go through Angular's `HttpClient`/`ApiClient`
+  path — grep for any raw `fetch()` in the new files this task created
+  (`grep -rn "fetch(" apps/web/src/app/core/api/payment-methods-api.ts
+  apps/web/src/app/features/checkout/`) and confirm there are none; a raw `fetch()` bypasses
+  `rumPropagationInterceptor` entirely, producing no CLIENT span and no `traceparent`. Confirm a
+  card error thrown by `payment-method-selector.ts`/`new-card-block.ts` (a rejected SetupIntent
+  confirmation, an `ApiError` from `attach()`) is **not** swallowed silently — either rethrown
+  so it reaches `RumErrorHandler`, or reported deliberately — and that no full Stripe error
+  object is ever passed to the error handler wholesale (only `message`/`type`/`status`/`detail`
+  per [[browser-rum]]'s allow-list). Add or extend a spec asserting a simulated Stripe
+  confirmation failure still surfaces to the error handler rather than being caught-and-dropped
+  inside the component. Run `nvm use && pnpm --filter web test` — passes.
+
+- [x] 11.18 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+
+## Task 12 — Web: Profile — Payment methods tab (Decision 22)
+
+This task reuses `SavedCardRow` and `PaymentMethodsApi` from Task 11 — it must be ordered
+after Task 11, not worked in parallel with it (Execution notes).
+
+**Files:**
+- Modify: `apps/web/src/app/features/account/profile.ts`, `apps/web/src/app/features/account/profile.html`
+- Create: `apps/web/src/app/features/account/payment-methods-tab.ts` (+ `.html`), `apps/web/src/app/features/account/profile-add-card.ts` (+ `.html`), `apps/web/src/app/features/account/profile-add-card.spec.ts`, `apps/web/src/app/features/account/payment-methods-tab.spec.ts`
+- Test: `payment-methods-tab.spec.ts`, `profile-add-card.spec.ts`, an updated spec for `profile.ts` asserting the tab is absent when `STRIPE_ENABLED` is off
+
+**Interfaces:**
+- Consumes: `SavedCardRow` (Task 11.1–11.2), `PaymentMethodsApi` (Task 11.4).
+- Produces: no new HTTP surface (spec Decision 22) — this task is a second UI consumer of Task 4's existing five routes.
+
+### Steps
+
+- [x] 12.1 Write the failing spec for `payment-methods-tab.ts`, asserting: it renders a `Tabs` frame with "Delivery address" and "Payment methods", the active tab carries `text-ink-primary`/`font-semibold` and a visible `Tab Indicator`, the inactive tab carries `text-ink-secondary` and a fully transparent indicator (the `.pen` stores the inactive indicator as transparent; use the same token utility `saved-card-row` uses for its unselected state rather than re-deriving one), and switching tabs toggles which section renders below:
+  ```ts
+  import { describe, expect, it } from 'vitest';
+  import { TestBed } from '@angular/core/testing';
+  import { PaymentMethodsTab } from './payment-methods-tab';
+
+  describe('PaymentMethodsTab', () => {
+    it('defaults to the delivery-address tab active, payment-methods inactive', () => {
+      const fixture = TestBed.createComponent(PaymentMethodsTab);
+      fixture.detectChanges();
+      const active = fixture.nativeElement.querySelector('[data-testid="tab-delivery-address"]');
+      const inactive = fixture.nativeElement.querySelector('[data-testid="tab-payment-methods"]');
+      expect(active.className).toContain('text-ink-primary');
+      expect(active.className).toContain('font-semibold');
+      expect(inactive.className).toContain('text-ink-secondary');
+    });
+
+    it('switches to the SAVED CARDS section when the payment-methods tab is clicked', () => {
+      const fixture = TestBed.createComponent(PaymentMethodsTab);
+      fixture.detectChanges();
+      fixture.nativeElement.querySelector('[data-testid="tab-payment-methods"]').click();
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('[data-testid="saved-cards-section"]')).not.toBeNull();
+    });
+  });
+  ```
+  Run `nvm use && pnpm --filter web test payment-methods-tab` — fails, module missing.
+
+- [x] 12.2 Implement `payment-methods-tab.ts`/`.html` per [[angular-component-authoring]], structure and copy from `apps/web/design/exports/profile-payment-methods.html`. The `SAVED CARDS` section renders a `Section Top` (label + live count, e.g. `` `${cards().length} cards` ``), the `Cards List` composed of `SavedCardRow` instances (reusing Task 11's component — do not reimplement its markup here), an `Add Card Button` that is a direct usage of the existing `Button Ghost` component (`apps/web/src/app/shared/ui/button-ghost.ts`, per `DESIGN.md`'s component table — not a new button), and a `Security Note` ("Cards are stored by Stripe. 3MRAI never sees your full card number.", `text-ink-muted`). Wire `Cards List`'s row events (`select`, `setDefault`, `remove`) to `PaymentMethodsApi.setDefault()`/`remove()`, refetching the list after each. Run `nvm use && pnpm --filter web test payment-methods-tab` — passes.
+
+- [x] 12.3 Write the failing spec for `profile-add-card.ts` (the `wnUi1` frame, mobile `WQAq0`), asserting it mounts the Payment Element against `PaymentMethodsApi.createSetupIntent()`'s client_secret exactly as Task 11's `payment-method-selector` does, and on successful confirmation calls `PaymentMethodsApi.attach(...)` then navigates back to the Payment methods tab with the new card visible. Reuse the mounting logic from Task 11.5 rather than reimplementing Stripe.js setup — extract a small shared helper if duplication would otherwise exceed a few lines.
+
+- [x] 12.4 Implement `profile-add-card.ts`/`.html` per [[angular-component-authoring]], structure and copy from `apps/web/design/exports/profile-add-card.html`. Run `nvm use && pnpm --filter web test profile-add-card` — passes.
+
+- [x] 12.5 Wire `payment-methods-tab.ts`'s `Add Card Button` to navigate to (or inline-mount, matching whichever pattern `checkout-payment`'s "Add card" already uses — copy that transition, don't invent a second one) `profile-add-card.ts`.
+
+- [x] 12.6 In `profile.ts`/`profile.html`, mount `payment-methods-tab` only when `APP_CONFIG.stripeEnabled` is `true` (spec Decision 22 — with the flag off, the profile keeps its pre-milestone single-view shape: no `Tabs` frame, no `SAVED CARDS` section). Write the failing spec first asserting `payment-methods-tab` is absent from the DOM when `stripeEnabled` is `false`, then wire the `@if`.
+
+- [x] 12.7 Run `nvm use && pnpm --filter web test` — confirm the new and updated specs pass, and that no arbitrary hex colour class was introduced (`grep -rnE '(bg|text|border)-\[#' apps/web/src/app/features/account/` — expect no matches, per `apps/web/CLAUDE.md`'s §2a golden rule).
+
+- [x] 12.8 **Same [[browser-rum]] inheritance check as step 11.17, for the profile surface (spec
+  Decision 25).** `payment-methods-tab.ts` and `profile-add-card.ts` reuse `PaymentMethodsApi`
+  (Task 11.6) rather than a new client, so this is confirmation, not new wiring: grep the two
+  new files for a raw `fetch()` (expect none), and confirm a card error from
+  `profile-add-card.ts`'s SetupIntent confirmation reaches `RumErrorHandler` the same way Task
+  11.17 requires for checkout, rather than being caught and only shown as UI text. Run
+  `nvm use && pnpm --filter web test` — passes.
+
+- [x] 12.9 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+
+## Task 13 — Card-field validation on the plain branch (Decision 21)
+
+**Files:**
+- Create: `apps/web/src/app/shared/ui/card-validation.ts`, `apps/web/src/app/shared/ui/card-validation.spec.ts`
+- Modify: `apps/web/src/app/shared/ui/numeric-input.ts`, `apps/web/src/app/shared/ui/numeric-input.spec.ts` (create if absent), `apps/web/src/app/features/checkout/checkout-payment.ts`, `apps/web/src/app/features/checkout/checkout-payment.html`
+
+**Interfaces:**
+- Consumes: nothing from other tasks — pure functions with no Angular/HTTP dependency.
+- Produces:
+  ```ts
+  export type CardBrand = 'visa' | 'mastercard' | 'amex' | 'discover' | 'diners' | 'jcb' | 'unknown';
+
+  export function detectCardBrand(digits: string): CardBrand;
+  export function isValidCardNumber(digits: string): boolean; // length-per-brand AND Luhn
+  export function requiredCvcLength(brand: CardBrand): 3 | 4;
+  export function isValidCvc(digits: string, brand: CardBrand): boolean;
+  export function isValidExpiry(month: number, year: number, today: Date): boolean;
+  export function groupCardDigits(value: string): string; // brand-aware, replaces numeric-input.ts's current one
+  ```
+  Consumed by Task 11's `checkout-payment.ts` (`canPay`, `cardForm` validators) — this task must land independently of, and be reviewable independently from, Task 11's Payment Element work, even though both touch `checkout-payment.html`.
+
+This task does NOT depend on Tasks 9–10 being merged (it touches only the plain branch and pure functions), so it may be implemented in parallel with Task 11, but both still wait behind the second GATE before merging, since both modify `checkout-payment.html`/`.ts` and should be reviewed as a coherent batch.
+
+### Steps
+
+- [x] 13.1 Write the failing spec for Luhn and brand detection, `card-validation.spec.ts`:
+  ```ts
+  import { describe, expect, it } from 'vitest';
+  import { detectCardBrand, isValidCardNumber } from './card-validation';
+
+  describe('isValidCardNumber (Luhn + length)', () => {
+    it('accepts a valid Visa number', () => {
+      expect(isValidCardNumber('4242424242424242')).toBe(true);
+    });
+
+    it('rejects a transposed-digit number of the correct length', () => {
+      expect(isValidCardNumber('4242424242424241')).toBe(false);
+    });
+  });
+
+  describe('detectCardBrand', () => {
+    it.each([
+      ['4242424242424242', 'visa'],
+      ['5454545454545454', 'mastercard'],
+      ['2221000000000009', 'mastercard'],
+      ['378282246310005', 'amex'],
+      ['6011111111111117', 'discover'],
+      ['9999999999999999', 'unknown'],
+    ] as const)('detects %s as %s', (number, brand) => {
+      expect(detectCardBrand(number)).toBe(brand);
+    });
+  });
+  ```
+  Run `nvm use && pnpm --filter web test card-validation` — fails, module missing.
+
+- [x] 13.2 Implement brand detection and Luhn in `card-validation.ts`:
+  ```ts
+  export type CardBrand = 'visa' | 'mastercard' | 'amex' | 'discover' | 'diners' | 'jcb' | 'unknown';
+
+  // Unrecognised prefixes fall back to 'unknown' rather than being rejected —
+  // a valid card from an unlisted issuer must still be accepted (spec D21).
+  export function detectCardBrand(digits: string): CardBrand {
+    if (/^4/.test(digits)) return 'visa';
+    if (/^(5[1-5]|2(2[2-9]|[3-6]\d|7[01]|720))/.test(digits)) return 'mastercard';
+    if (/^3[47]/.test(digits)) return 'amex';
+    if (/^(6011|65|64[4-9])/.test(digits)) return 'discover';
+    if (/^(30[0-5]|3095|36|38|39)/.test(digits)) return 'diners';
+    if (/^35(2[89]|[3-8]\d)/.test(digits)) return 'jcb';
+    return 'unknown';
+  }
+
+  const LENGTHS_BY_BRAND: Record<CardBrand, number[]> = {
+    visa: [13, 16, 19],
+    mastercard: [16],
+    amex: [15],
+    discover: [16, 19],
+    diners: [14, 16, 19],
+    jcb: [16, 17, 18, 19],
+    unknown: [12, 13, 14, 15, 16, 17, 18, 19],
+  };
+
+  // Catches a transposed digit that length alone cannot — e.g. `4242 4242
+  // 4242 4241` has Visa's 16 digits and is invalid.
+  function passesLuhn(digits: string): boolean {
+    let sum = 0;
+    let shouldDouble = false;
+    for (let i = digits.length - 1; i >= 0; i--) {
+      let digit = Number(digits[i]);
+      if (shouldDouble) {
+        digit *= 2;
+        if (digit > 9) digit -= 9;
+      }
+      sum += digit;
+      shouldDouble = !shouldDouble;
+    }
+    return sum % 10 === 0;
+  }
+
+  export function isValidCardNumber(digits: string): boolean {
+    const brand = detectCardBrand(digits);
+    return LENGTHS_BY_BRAND[brand].includes(digits.length) && passesLuhn(digits);
+  }
+  ```
+  Run `nvm use && pnpm --filter web test card-validation` — passes.
+
+- [x] 13.3 Write the failing spec for length-per-brand edge cases:
+  ```ts
+  describe('isValidCardNumber (length per brand)', () => {
+    it('rejects a 15-digit Visa', () => {
+      // 15 valid Luhn digits starting with 4, not a real length for Visa
+      expect(isValidCardNumber('424242424242423')).toBe(false);
+    });
+
+    it('accepts a 15-digit Amex', () => {
+      expect(isValidCardNumber('378282246310005')).toBe(true);
+    });
+
+    it('rejects a 16-digit Amex', () => {
+      expect(isValidCardNumber('3782822463100050')).toBe(false);
+    });
+  });
+  ```
+  Run `nvm use && pnpm --filter web test card-validation` — passes against the 15.2 implementation (no code change needed if 15.2 was implemented correctly; if it fails, fix `LENGTHS_BY_BRAND` before proceeding).
+
+- [x] 13.4 Write the failing spec for CVC:
+  ```ts
+  import { isValidCvc, requiredCvcLength } from './card-validation';
+
+  describe('CVC length per brand', () => {
+    it('requires 3 digits for Visa', () => {
+      expect(requiredCvcLength('visa')).toBe(3);
+      expect(isValidCvc('123', 'visa')).toBe(true);
+      expect(isValidCvc('1234', 'visa')).toBe(false);
+    });
+
+    it('requires 4 digits for Amex', () => {
+      expect(requiredCvcLength('amex')).toBe(4);
+      expect(isValidCvc('1234', 'amex')).toBe(true);
+      expect(isValidCvc('123', 'amex')).toBe(false);
+    });
+  });
+  ```
+  Implement:
+  ```ts
+  export function requiredCvcLength(brand: CardBrand): 3 | 4 {
+    return brand === 'amex' ? 4 : 3;
+  }
+
+  export function isValidCvc(digits: string, brand: CardBrand): boolean {
+    return digits.length === requiredCvcLength(brand) && /^\d+$/.test(digits);
+  }
+  ```
+  Run `nvm use && pnpm --filter web test card-validation` — passes.
+
+- [x] 13.5 Write the failing spec for expiry, using an injected clock rather than a hardcoded year:
+  ```ts
+  import { isValidExpiry } from './card-validation';
+
+  describe('isValidExpiry', () => {
+    const today = new Date(2026, 8, 15); // 2026-09-15 — Date months are 0-indexed
+
+    it('rejects an invalid month', () => {
+      expect(isValidExpiry(13, 2030, today)).toBe(false);
+    });
+
+    it('rejects a month one month in the past', () => {
+      expect(isValidExpiry(8, 2026, today)).toBe(false); // August 2026 already ended
+    });
+
+    it('accepts the current month (end-of-month rule)', () => {
+      expect(isValidExpiry(9, 2026, today)).toBe(true); // September 2026 has not ended yet
+    });
+
+    it('accepts a future date', () => {
+      expect(isValidExpiry(1, 2030, today)).toBe(true);
+    });
+  });
+  ```
+  Implement:
+  ```ts
+  // Compares against the LAST day of the expiry month, not the first — a card
+  // expiring in the current month is still valid (spec D21).
+  export function isValidExpiry(month: number, year: number, today: Date): boolean {
+    if (month < 1 || month > 12) return false;
+    const fullYear = year < 100 ? 2000 + year : year;
+    const lastDayOfExpiryMonth = new Date(fullYear, month, 0); // day 0 of next month = last day of this month
+    lastDayOfExpiryMonth.setHours(23, 59, 59, 999);
+    return lastDayOfExpiryMonth >= today;
+  }
+  ```
+  Run `nvm use && pnpm --filter web test card-validation` — passes.
+
+- [x] 13.6 Write the failing spec for brand-aware grouping in `numeric-input.spec.ts`:
+  ```ts
+  import { describe, expect, it } from 'vitest';
+  import { groupCardDigits } from './numeric-input';
+
+  describe('groupCardDigits', () => {
+    it('groups a Visa number in 4s', () => {
+      expect(groupCardDigits('4242424242424242')).toBe('4242 4242 4242 4242');
+    });
+
+    it('groups an Amex number 4-6-5', () => {
+      expect(groupCardDigits('378282246310005')).toBe('3782 822463 10005');
+    });
+  });
+  ```
+  Run `nvm use && pnpm --filter web test numeric-input` — fails against the current 4-4-4-4-only grouping.
+
+- [x] 13.7 Implement brand-aware grouping, replacing `numeric-input.ts`'s `groupCardDigits` and rewriting its comment to describe the final state (per the repo's code-comment rules — no "used to do X" narration):
+  ```ts
+  import { detectCardBrand } from './card-validation';
+
+  export function digitsOnly(value: string, maxLength?: number): string {
+    const digits = value.replace(/\D/g, '');
+    return maxLength === undefined ? digits : digits.slice(0, maxLength);
+  }
+
+  // CONTRACT: The single definition of the card number's on-screen shape,
+  // brand-aware. Amex groups 4-6-5; every other detected brand groups 4-4-4-4.
+  // Typing and dev autofill both route through it, so a filled field is
+  // indistinguishable from a typed one.
+  export function groupCardDigits(value: string): string {
+    const digits = digitsOnly(value, 19);
+    const brand = detectCardBrand(digits);
+    const pattern = brand === 'amex' ? [4, 6, 5] : [4, 4, 4, 4, 3];
+    const groups: string[] = [];
+    let index = 0;
+    for (const size of pattern) {
+      if (index >= digits.length) break;
+      groups.push(digits.slice(index, index + size));
+      index += size;
+    }
+    return groups.join(' ');
+  }
+  ```
+  Run `nvm use && pnpm --filter web test numeric-input` — passes.
+
+- [x] 13.8 Write the failing component-level spec for `canPay` in `checkout-payment.spec.ts` (extend the existing spec file), asserting `canPay()` is `false` on the plain branch with an invalid card and `true` once the card form is valid, with a valid address on file:
+  ```ts
+  it('disables Pay on the plain branch when the card is invalid', () => {
+    // ... existing harness setup with stripeEnabled=false and a saved address ...
+    component['cardModel'].set({
+      cardNumber: '4242 4242 4242 4241', // fails Luhn
+      cardHolder: 'Jane Doe',
+      cardExpiry: '12 / 30',
+      cardCvc: '123',
+    });
+    expect(component['canPay']()).toBe(false);
+  });
+
+  it('enables Pay on the plain branch when the card is valid', () => {
+    component['cardModel'].set({
+      cardNumber: '4242 4242 4242 4242',
+      cardHolder: 'Jane Doe',
+      cardExpiry: '12 / 30',
+      cardCvc: '123',
+    });
+    expect(component['canPay']()).toBe(true);
+  });
+  ```
+  Run `nvm use && pnpm --filter web test checkout-payment` — fails, `cardForm` has no validators yet.
+
+- [x] 13.9 Add real validators to `cardForm` in `checkout-payment.ts`, mirroring `addressForm`'s pattern:
+  ```ts
+  import {
+    detectCardBrand,
+    isValidCardNumber,
+    isValidCvc,
+    isValidExpiry,
+  } from '../../shared/ui/card-validation';
+
+  protected readonly cardForm = form(this.cardModel, (path) => {
+    required(path.cardHolder, { message: 'Enter the name on the card' });
+    pattern(path.cardHolder, /\S/, { message: 'Enter the name on the card' });
+    validate(path.cardNumber, ({ value }) => {
+      const digits = digitsOnly(value());
+      return isValidCardNumber(digits) ? null : { kind: 'cardNumber', message: 'Enter a valid card number' };
+    });
+    validate(path.cardExpiry, ({ value }) => {
+      const [month, year] = value().split('/').map((part) => Number(part.trim()));
+      return isValidExpiry(month, year, new Date())
+        ? null
+        : { kind: 'cardExpiry', message: 'Enter a valid expiry date' };
+    });
+    validate(path.cardCvc, ({ value }) => {
+      const brand = detectCardBrand(digitsOnly(this.cardModel().cardNumber));
+      return isValidCvc(value(), brand) ? null : { kind: 'cardCvc', message: 'Enter a valid security code' };
+    });
+  });
+  ```
+  Note: `validate` must be imported from `@angular/forms/signals` alongside the existing `required`/`maxLength`/`pattern` imports; confirm its exact signature against how this Angular version's signal-forms API expresses a custom validator (check another existing custom validator in this codebase first via `grep -rln "validate(" apps/web/src` — copy that call shape exactly if it differs from the one shown here, since signal-forms is a newer API whose exact custom-validator signature must match what's already used elsewhere in this codebase rather than being guessed here).
+
+- [x] 13.10 Extend `canPay` in `checkout-payment.ts` to require `cardForm().valid()` only on the plain branch:
+  ```ts
+  protected readonly canPay = computed(
+    () =>
+      this.cart.canCheckout() &&
+      !this.cart.saving() &&
+      !this.placing() &&
+      this.address() !== null &&
+      (this.stripeEnabled()
+        ? this.selectedPaymentMethodId() !== null
+        : this.cardForm().valid()),
+  );
+  ```
+  Run `nvm use && pnpm --filter web test checkout-payment` — passes.
+
+- [x] 13.11 Add error messages to `checkout-payment.html`'s plain-branch card fields, using the same `app-field`/error-rendering pattern the address form already uses above it (copy that exact markup shape rather than inventing a new one).
+
+- [x] 13.12 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+
+## Task 14 — Infra, compose and CSP
+
+**Files:**
+- Modify: `infra/modules/api-gateway/main.tf`, `infra/modules/compute/nginx/nginx.conf`, `apps/web`'s nginx config (locate via `find apps/web -iname "nginx*.conf"`), `docker-compose.yml`, `Makefile`, `.env.example`, `infra/environments/local/scripts/generate_env_files.py`
+
+### Steps
+
+- [x] 14.1 Add the new Users routes (`/v1/users/me/payment-methods*`, `/v1/users/stripe/webhook/{token}`) to `infra/modules/api-gateway/main.tf`'s route map, following the existing route-block pattern for other `/v1/users/*` routes. The webhook entry's `key` and integration `path` both carry the `{token}` segment per Decision 27; if Task 14 lands before Task 10d, seed the bare `/v1/users/stripe/webhook` shape here and let Task 10d.5 add the `{token}` segment — do not block Task 14 on Task 10d's ordering. Orders' own webhook route (`POST /v1/orders/stripe/webhook/{token}`) is added by Task 10c.5/10d.5, not here — it is listed in this plan's Self-review coverage table under Decisions 26/27, not duplicated in this task.
+
+- [x] 14.2 Verify whether `/v1/users/stripe/webhook/{token}` and the payment-methods paths need a `location` block distinct from the existing `/v1/users/` catch-all in `infra/modules/compute/nginx/nginx.conf` — per the spec's Infra section, a missing `location` block for a new top-level path silently falls through to `location /`, which routes to Users. Both fall under the existing `location /` block (Users is the default backend), so no new block is expected here; confirm against the file rather than assuming. (Orders' webhook path is verified separately, in Task 10c.6, against `location /v1/orders` — a different block, since Orders is not the nginx default.)
+
+- [x] 14.3 Add the CSP header change to `apps/web/nginx.conf`, using Stripe's official per-directive origins (verified against Stripe's integration security guide):
+  - `script-src`: `https://js.stripe.com https://*.js.stripe.com`
+  - `frame-src`: `https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com https://link.com https://*.link.com`
+  - `connect-src`: `https://api.stripe.com https://link.com https://*.link.com`
+
+  Do NOT collapse these into `https://*.stripe.com`: Stripe.js starts frames on `*.js.stripe.com`, 3D Secure redirects through `hooks.stripe.com`, and Link serves its UI from `link.com`, a domain `*.stripe.com` cannot match. The failure is silent — the Payment Element does not mount and only a console CSP violation appears. Merge into the existing directives, preserving every source already listed.
+
+- [ ] ~~14.4~~ **DROPPED (Decision 10 amendment, 2026-09-23)** — reason: local webhook delivery
+  is two host-side `stripe listen` processes launched by hand, not a `stripe-cli` compose
+  service; there is nothing for this step to add. Kept below for history; do not implement it.
+
+  <details><summary>Original step text (superseded)</summary>
+
+  Add the `stripe-cli` service to `docker-compose.yml` behind `profiles: [stripe]`, following the `observability`/`preview` precedent, as a starting point:
+  ```yaml
+  stripe-cli:
+    image: stripe/stripe-cli:latest
+    profiles: [stripe]
+    command: ["listen", "--forward-to", "users:3000/v1/users/stripe/webhook", "--api-key", "${STRIPE_SECRET_KEY}"]
+    networks: [3mrai-network]
+    env_file:
+      - .env.local.users
+  ```
+  Note in a comment above it: `stripe listen` prints its own `whsec_...` signing secret on startup, different from the Dashboard's — using the Dashboard secret locally fails webhook signature verification with a 400 that looks like a code bug, not an infra one. That printed secret must be copied by hand into `STRIPE_WEBHOOK_SECRET` in the CUSTOM box of `.env.local.users`.
+
+  **This command forwards to Users only — it is not yet complete.** Orders needs delivery too
+  (spec Decision 26), and Task 10c.9 is where the exact shape of the fix is decided: whether one
+  `stripe listen` invocation can carry a second `--forward-to` to
+  `orders:8080/v1/orders/stripe/webhook`, or whether a second `stripe-cli`-like service/process
+  is needed. Land this step's single-destination command first (Task 14 has no dependency on
+  Task 10c and may land first in the review batch); Task 10c.9 verifies against `stripe listen
+  --help` and updates this block accordingly rather than guessing the flag here. Once Task 10d
+  lands, both `--forward-to` targets additionally carry each service's `{token}` segment
+  (Decision 27) — Task 10d.7 is where `make stripe-webhook-secret` starts minting and printing
+  those tokens, and this compose block's forward-to URLs are updated there, not here.
+
+  </details>
+
+- [ ] ~~14.5~~ **DROPPED (Decision 10 amendment, 2026-09-23)** — reason: no `stripe-cli` compose
+  service exists to target, so there is nothing for `make stripe-up`/`make stripe-logs` to start
+  or tail; `make stripe-webhook-secret` (already implemented) is the actual entry point, and it
+  prints the two `stripe listen` commands to run by hand instead.
+
+  <details><summary>Original step text (superseded)</summary>
+
+  Add `make stripe-up` and `make stripe-logs` targets to the `Makefile`, mirroring the existing `observability-up`/`observability-*` targets' shape (`docker compose --profile stripe up -d` / `docker compose logs -f stripe-cli`).
+
+  </details>
+
+- [x] 14.6 Add every new variable to `.env.example` with a comment explaining AUTO vs CUSTOM per [[env-files]]: `STRIPE_ENABLED` (CUSTOM, default `false`, hand-flipped in place — **not** AUTO-generated, see the revised decision below), `STRIPE_SECRET_KEY` (CUSTOM, hand-injected `rk_...`), `STRIPE_WEBHOOK_SECRET` (CUSTOM, hand-injected `whsec_...` from `stripe listen`'s own output), `NG_APP_STRIPE_PUBLISHABLE_KEY` (CUSTOM, the publishable `pk_...` key, safe for the bundle). Task 10d adds three more, not this step: `STRIPE_WEBHOOK_URL_TOKEN` (CUSTOM, per-service, minted by `make stripe-webhook-secret`) and `STRIPE_WEBHOOK_ALLOWED_CIDRS`/`STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS` (AUTO, per Decision 27) — listed here only so `.env.example` is not treated as finished before Task 10d lands.
+
+  **Decision (user, 2026-09-22 — revised, supersedes the same-day decision below):**
+  `infra/environments/local/scripts/generate_env_files.py` seeds three keys into the **CUSTOM**
+  box of `.env.local.users` when they are absent — `STRIPE_ENABLED=false`,
+  `STRIPE_SECRET_KEY=` (empty), `STRIPE_WEBHOOK_SECRET=` (empty) — using the existing per-key
+  `custom_defaults` mechanism (same precedent as `CACHE_ENABLED`). Existing values are never
+  overwritten, and a commented-out key is not re-seeded. The developer fills the two secrets
+  and flips the flag in place, per [[env-files]]. `STRIPE_ENABLED` is **not** emitted in the
+  AUTO box — one location only, no duplicate key between AUTO and CUSTOM.
+
+  Users' env schema treats an empty or whitespace-only value for these three keys as unset:
+  `STRIPE_ENABLED` defaults to `false`; an empty secret behaves as absent (flag on + no key →
+  Stripe routes answer 503, per the design spec's Decision 13) instead of failing validation
+  at boot.
+
+  This is already implemented on `feat/stripe-payments-users` (generator + schema) — Task 14
+  no longer needs to add it for Users. Orders' equivalent `STRIPE_ENABLED`/`STRIPE_SECRET_KEY`
+  seeding is likewise already in place (verified in `generate_env_files.py`'s Orders block).
+  What remained unseeded for Orders — `STRIPE_WEBHOOK_SECRET`, since Orders had no webhook
+  until Decision 26 — is added by **Task 10c.7**, not here; this step does not duplicate it.
+
+  Override precedence (verified 2026-09-22 with `docker compose config`) still holds as a fact
+  about this repo's env-file layering — Compose keeps the **last** duplicate key in one
+  `env_file`, `dotenv` keeps the **first** — but it matters less here now, since there is no
+  AUTO/CUSTOM duplicate for `STRIPE_ENABLED` to order.
+
+  <details>
+  <summary>Superseded same-day decision (2026-09-22, kept for history)</summary>
+
+  `infra/environments/local/scripts/generate_env_files.py`
+  emits `STRIPE_ENABLED=false` in the AUTO-GENERATED box of `.env.local.users` (and
+  `.env.local.orders`), so the default is visible in the generated file rather than only in
+  `.env.example`. `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are **never** emitted by the
+  generator — not even as empty placeholders — and live only in the CUSTOM box, hand-injected
+  per [[env-files]].
+
+  Why no empty placeholders: Users' env schema declares
+  `STRIPE_SECRET_KEY: z.string().min(1).optional()` (Task 1.1), so an absent key is a valid
+  boot state (Stripe routes answer 503, per Decision 13) while an empty `STRIPE_SECRET_KEY=`
+  fails Zod's `.min(1)` validation and the service does not boot at all — a strictly worse
+  failure mode than the one the flag is meant to degrade into.
+
+  </details>
+
+- [x] 14.7 Run `nvm use && node scripts/validate-vault.mjs` is not applicable here (infra-only task); instead run this repo's existing Terraform validation/lint step for the touched modules if one exists (`grep -n "^validate\|^plan" Makefile`), and `docker compose config --profile stripe` to confirm the new compose service parses.
+
+- [x] 14.8 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+
+## Task 15 — The three test layers
+
+**Files:**
+- Create (internal): `e2e/tests/payment-methods.spec.ts`, `e2e/tests/order-payment.spec.ts`, `e2e/tests/stripe-flag-gate.spec.ts` (step 15.7)
+- Create (browser, via the gateway): `e2e/tests/web/checkout-stripe-card.spec.ts` (step 15.3), `e2e/tests/web/checkout-plain-card.spec.ts` (step 15.4), `e2e/tests/web/profile-payment-methods.spec.ts` (step 15.5). Browser specs run under the `web-tokyo` / `web-tegucigalpa` Playwright projects and target the container via `WEB_BASE_URL`.
+- Create (helpers): `e2e/support/orders-buyer.ts`, `e2e/support/payment-element.ts`, `e2e/support/stripe-charges.ts`
+- Modify: `e2e/support/global-teardown.ts` (if a new cleanup call is needed beyond the extended `e2e-cleanup` from Task 6), `e2e/load-tests/` scenario touching checkout (verify only, per step 15.8), `apps/web/src/app/shared/ui/saved-card-row.spec.ts` (extended per step 15.6, not duplicated)
+
+### Steps
+
+- [x] 15.1 Write internal E2E specs against `localhost:3000` (Users) covering: create setup-intent, attach a card (using Stripe's test PaymentMethod token flow against the CI sandbox per Decision 17), list, set default, detach, and the webhook signature-rejection path (a request with a bad `stripe-signature` header gets 400). Tag every created row with `x-e2e-source: true` and confirm `E2E_TESTING_ENABLED` gates it, per [[testing]]'s "E2E cleanup by tag" mechanism. The URL-token and IP-allowlist rejection cases (Decision 27) are Task 10d.8's responsibility, not this step's — this step targets the route at whatever path it has once Task 10d has landed, and does not duplicate 10d's own rejection tests.
+
+- [x] 15.2 Write internal E2E specs against `localhost:3001` (Orders) covering: `POST /v1/orders` with a valid `paymentMethodId` and `Idempotency-Key` returns 201 and the charge is asserted in Stripe itself (`OrderDto` and `openapi.yaml` expose no payment fields, so the response body cannot carry the snapshot; a body-only assertion would pass against a service that charged nothing); with the flag on and `paymentMethodId` omitted, returns 400; with the flag on and the `Idempotency-Key` header omitted, returns 400 `idempotency_key_required` (step 9.10b); with a Stripe test card that triggers a decline (`4000000000000002`), returns 402; the metadata-only card validation from Task 9.9 (known/unknown brand, expired/valid, malformed `last4`); the same `(user, key)` POSTed twice returns the existing order on the second call and Stripe is charged exactly once (step 9.10b.2); and the concurrency scenario from Task 10.1 reproduced at the HTTP layer if feasible, or explicitly noted as covered only at the unit level with a comment pointing to Task 10.1's test name.
+
+- [x] 15.3 Write the gateway E2E spec with a real Cognito JWT covering the full Stripe-branch UI journey: log in, go to checkout, add a card via the mounted Payment Element (fill Stripe's test iframe using Playwright's frame-locator APIs against the CI sandbox), see it appear in the selector, switch to it, and pay. Assert on a genuine 401→success sequence if a route is initially unwired: per the spec's Infra section, a 404 carrying the gateway's own `{"message":"Not Found"}` body means the request never reached the service (fix the gateway/nginx wiring from Task 13), while a 401 after fixing it is the **correct** intermediate signal that the route resolved and reached the authorizer. Include at least the two idempotency cases named in the CLAUDE.md-driven scope for this milestone: (a) missing `Idempotency-Key` header with the flag on returns 400 through the real gateway; (b) replaying the same checkout request (same `Idempotency-Key`, e.g. by resubmitting after simulating a network drop) returns the same order rather than a second charge, verified by asserting only one order appears in the buyer's order history after both requests.
+
+- [x] 15.4 Write a second gateway E2E spec covering the **plain-branch** card validation from Task 13 (Decision 21): with `STRIPE_ENABLED=false`, typing an invalid card number (e.g. `4242 4242 4242 4241`) into the plain form leaves the Pay button disabled; correcting it to `4242 4242 4242 4242` with a valid future expiry and a 3-digit CVC enables Pay and a successful order follows. This is independent of Task 15.3's Stripe-branch journey — it exercises the branch the Payment Element never touches.
+
+- [x] 15.5 Write a gateway E2E spec for the **profile Payment methods flow** (Task 12): log in, open `/profile`, switch to the "Payment methods" tab, add a card via the mounted Payment Element (same frame-locator approach as 15.3), set it as default, remove a different saved card, and confirm the `SAVED CARDS` count updates after each action. Mobile variants (`W6IFps`, `WQAq0`) are the reference for the responsive layout if a mobile viewport pass is added later — this step covers desktop only.
+
+- [x] 15.6 Write a component-level spec (co-located with `saved-card-row.spec.ts` from Task 11.1, extended rather than duplicated) asserting the three `SavedCardRow` states render correctly end-to-end within `payment-method-selector` and the profile's Cards List, including that clicking the radio on an expired card does **not** emit `select` (Decision 24 — an expired card cannot be selected for payment).
+
+- [x] 15.7 Add an explicit test (any layer) asserting that with `STRIPE_ENABLED=false`, `POST /v1/orders` succeeds with no `paymentMethodId` and no payment-method routes are reachable (404 or route-not-mounted, per how Task 4.8 resolved conditional mounting) — proving the flag gate, not assuming it. Also assert that with the flag off, the profile's "Payment methods" tab (Task 12) does not render — the `Tabs` frame and `SAVED CARDS` section are absent, and the profile keeps its pre-milestone single-view shape (Decision 22).
+
+- [x] 15.8 Verify, by reading `e2e/load-tests/` (not by running the load suite against real Stripe), that no load-test scenario sends `x-e2e-source` or `x-test-mode` and that the checkout scenario either runs exclusively with `STRIPE_ENABLED=false` or is explicitly excluded from any Stripe-enabled load run — add a one-line comment in the relevant `.gatling.ts` scenario recording this if none exists yet. This is a verification step, not a new scenario — real charges under load would be expensive (spec Testing section).
+
+- [x] 15.9 Run all three layers: `nvm use && pnpm --filter e2e-impl test:internal` (or this repo's actual script name — check `e2e/package.json`), the gateway suite, and confirm green.
+
+- [x] 15.10 **Verify in the OpenObserve viewer, not by trusting a 200 (spec Decision 25;
+  [[browser-rum]]; [[2026-08-21-verify-in-the-viewer-not-the-api]]).** Run the saved-card
+  checkout journey from step 15.3 once against the local stack with the `stripe` compose
+  profile up, then query OpenObserve directly (`observability/dashboards/README.md` /
+  [[openobserve-runbook]] for how to reach it locally) for the resulting `trace_id`, allowing a
+  full export cycle before concluding anything is missing — `BatchSpanProcessor` batches, and a
+  short window produces a false FAIL as easily as a false PASS (same trap [[browser-rum]]
+  documents for Trigger 3). Confirm, in that one trace:
+  - a browser CLIENT span (`telemetry.source = rum`) for the checkout's `POST /v1/orders` call;
+  - the gateway → Orders spans sharing the same `trace_id`;
+  - a `stripe.payment_intent.create` CLIENT span under Orders, per step 9.10;
+  - a `payment_charged` log line (Users' `stripe_customer_created`/`payment_method_attached`
+    lines from earlier in the same session, if the card was added in this run, are a separate
+    trace — they precede `POST /v1/orders` and are not expected inside this one trace).
+  Separately, query for one declined-card attempt (Stripe test card `4000000000000002`) and
+  confirm its span/log show `payment_declined` at INFO/WARN, never ERROR severity on the flow
+  log — this is the concrete check behind Decision 25's "an ERROR here would put an ordinary
+  decline on the on-call dashboard" rule, not merely a documented intention. This step is a
+  manual/scripted verification, not a new automated test — record what was queried and seen (or
+  not seen) in the task's report to the main session, the same way `2026-08-21-verify-in-the-viewer-not-the-api`
+  documents its own verification runs.
+
+  **Result (verified in OpenObserve's `3mrai` organization, not `default`):**
+  - Five Stripe CLIENT spans (`span_kind=3`): `stripe.customer.create`,
+    `stripe.setup_intent.create`, `stripe.payment_method.attach` and `stripe.customer.delete` on
+    Users, `stripe.payment_intent.create` on Orders.
+  - One checkout produces one trace of 88 spans joining `3mrai-web` (1), users (31), orders (29),
+    tracking (17) and events-pipeline (10), containing both `RUM - POST /orders` (CLIENT) and
+    `stripe.payment_intent.create`.
+  - `payment_charged`, `payment_method_attached` and `stripe_customer_created` log at INFO. A
+    declined card logs `payment_declined` at WARN with `reason=generic_decline`, never ERROR —
+    Decision 25's actual requirement.
+  - **Gotcha:** the browser's `POST /v1/orders` span is absent unless the page outlives
+    `BatchSpanProcessor`'s 5-second delay. `rum-sdk.ts` registers `visibilitychange`/`pagehide`,
+    but those call `endActivePageSpan()`, which closes the page span and does not force a flush.
+    A test that pays, navigates and closes the context loses the span in the queue. This is an
+    export-timing artifact, not missing instrumentation (`OrdersApi` goes through `ApiClient`,
+    and `gatewayPath` matches `/v1/*`): re-running with a 12s wait makes the span appear and join
+    the trace. Same trap as [[2026-08-21-verify-in-the-viewer-not-the-api]] — a short window
+    yields a false FAIL as easily as a false PASS.
+
+- [x] 15.11 Leave the work uncommitted in the working tree and report what changed — the main session commits via the A/B/C/D/E confirmation menu per [[git-workflow]].
+
+## Execution notes
+
+- Per [[phase-c-review-flow]], issues for Tasks 1–7 and Tasks 9–15 (including 10c and 10d) chain without per-merge prompts; PRs are batched for review at each of the two GATEs above, and nothing is auto-merged — the user reviews and merges each batch explicitly. Task 10c (Orders' own Stripe webhook) has no dependency on Tasks 11–13 and may be worked in any order relative to them within the second batch, provided it lands after Tasks 9–10 (it consumes Task 9's order model and Task 10's refund idempotency key). Task 10d (webhook defense in depth) depends on both Task 5 (Users' webhook) and Task 10c (Orders' webhook) and lands after both within the second batch. Task 13 (plain-branch card validation) may be worked in parallel with the Task 9–10 wait, since it has no dependency on them, but its PR still joins the second batch. Task 12 (profile Payment methods tab) reuses `SavedCardRow` and `PaymentMethodsApi` from Task 11, so it must be ordered after Task 11 within the second batch, not worked in parallel with it.
+- The Linear issues for this milestone do not exist yet. Once `linear-pm` creates them, a milestone-plan note is required at `docs/plans/stripe-payments-milestone.md` per [[milestone-plan]] (task-sequence table, dependency table, and dependency diagram) — this superpowers plan documents *how* to implement each task, not the milestone's cross-issue dependency structure, which is what that note is for.
+- The user injects the restricted keys (`rk_...` for each service) and the webhook secret by hand into the CUSTOM box of `.env.local.users` and `.env.local.orders` — never the AUTO box. The dedicated local-dev and CI Stripe sandboxes (Decision 17) are a prerequisite of Task 1: without a sandbox and its keys, Task 1's `STRIPE_ENABLED=true` path cannot be exercised past the "no key" branch. See [[stripe-sandbox-setup]] for the step-by-step procedure to obtain both sandboxes and their keys.
+- All design tokens this milestone's six new frames use (Decisions 22–24, Task 11's `SavedCardRow`, Task 12's profile tab) already exist in `apps/web/src/styles.css` — no task in this plan adds a token or touches `styles.css`.
+
+## Self-review
+
+**Spec coverage** — all 27 decisions (plus Decision D) map to at least one task:
+
+| Decision | Task(s) |
+|---|---|
+| 1 (ownership split) | 3, 4, 9 |
+| 2 (lazy customer creation) | 3, 4 |
+| 3 (full metadata persisted) | 2, 4 |
+| 4 (drift mitigation / webhook) | 5 |
+| 5 (Orders payment snapshot) | 9 |
+| 6 (gRPC stripe_customer_id) | 7, 9 |
+| 7 (charge-then-persist; client-supplied Idempotency-Key) | 9 (step 9.10b), 11 (step 11.10b), 15 (steps 15.2–15.3) |
+| 8 (402 on card errors) | 9 |
+| 9 (refund on any post-charge failure, own idempotency key) | 10 (widened scope, step 10.2/10.2b) |
+| 10 (Stripe CLI, not a tunnel) | 14 |
+| 11 (E2E doesn't wait on webhook) | 15 (design already reflected in Task 4's attach flow) |
+| 12 (E2E tagged in Stripe too) | 3, 4, 6, 15 |
+| 13 (graceful degradation on missing key) | 1, 9 |
+| 14 (stripe-mock excluded) | 15 (no task introduces it; Decision 17's sandbox is used instead) |
+| 15 (restricted keys, one per service) | 1, 9, 14 |
+| 16 (never payment_method_types; prohibited APIs) | Global Constraints, 4, 9, 11 |
+| 17 (dedicated sandboxes) | 15, Execution notes |
+| 18 (pinned versions, per-instance StripeClient) | Global Constraints, 1, 9 |
+| 19 (PaymentIntents not Checkout Sessions) | 9 |
+| 20 (Stripe Tax deferred; tax stays in-house) | 9 (amount = Orders' existing tax-inclusive total; no Stripe Tax call introduced anywhere) |
+| 21 (plain-branch card validation, client + metadata-only server mirror) | 9 (server-side metadata mirror, step 9.9), 11 (frontend sends metadata, step 11.13), 13 (client validation), 15 (gateway E2E case, step 15.4) |
+| 22 (payment methods managed from profile too) | 12 |
+| 23 (checkout can add a card inline; save-card checkbox gates attach) | 11 (Task 11.14–11.16), 15 (gateway E2E, step 15.5) |
+| 24 (expired saved card shown, not hidden) | 11 (`SavedCardRow`'s expired state, Task 11.1–11.2), 12 (profile Cards List reuses it), 15 (component spec, step 15.6) |
+| 25 (Stripe calls join the logs/traces cascade) | 1 (`withStripeSpan` foundation, steps 1.7–1.8), 3 (step 3.3), 4 (step 4.10), 5 (step 5.5), 6 (step 6.3), 9 (step 9.10), 10 (step 10.4), 10c (step 10c.3), 11 (step 11.17), 12 (step 12.8), 15 (step 15.10) |
+| 26 (Orders gets its own Stripe webhook, payment reconciliation) | 10c |
+| 27 (webhook defense in depth: URL token + Stripe IP allowlist) | 10d |
+| D (Orders' key never reads PaymentMethods; snapshot reads `latest_charge`) | 9 (step 9.7), 14 (permission table cross-reference) |
+
+**Placeholder scan:** no "TBD"/"similar to Task N" shortcuts remain except explicitly-flagged repo-verification steps (4.8's conditional-module choice, 4.7's decorator names, 9.1/10.1's exact mock/fixture APIs, 13.9's exact signal-forms `validate()` signature, 11.1's "verify exact utility spelling against styles.css") — each names the exact `grep` to run and the exact existing file to copy from, rather than leaving the shape undefined.
+
+**Type consistency:** `StripeClientHolder` (Task 1) is the single shape threaded through Tasks 3, 4, 5, 6; `PaymentMethodView` (Task 4.3) is what Task 11's `PaymentMethodsApi.list()` consumes; `SavedCardView`/`SavedCardRow` (Task 11.1) is the single component both Task 11's checkout selector and Task 12's profile Cards List mount, never rebuilt per surface; `PaymentSnapshot` (Task 9) is what Task 10's refund path reads `PaymentIntentId` from; `stripe_customer_id` (Task 7) is the exact field both Task 9's gRPC read and Task 4/5's local persistence trace back to; `CardBrand`/`detectCardBrand`/`isValidCardNumber`/`isValidCvc`/`isValidExpiry` (Task 13) are the exact names Task 11's `checkout-payment.ts` imports and Task 13.7's `numeric-input.ts` rewrite depends on; the `{ brand, last4, expMonth, expYear }` metadata shape is identical between Task 11.13 (sender) and Task 9.9 (`CardMetadataValidator`, receiver); `withStripeSpan` (Task 1.8) is the single Node-side span helper Tasks 3, 4, 5, and 6 all wrap their Stripe calls in, and `StripeActivitySource` (Task 9.10) is its .NET-side sibling, consumed unchanged by Task 10's refund span; the client-generated `Idempotency-Key` header (Task 11.10b, sender) is the exact header Task 9.10b's Orders handler reads and persists as `IdempotencyKey`, and the Stripe idempotency key it derives (`order-charge-{userId}-{clientKey}`, Task 9.10b) is distinct in shape and purpose from the refund's own key (`refund-{paymentIntentId}`, Task 10.2) — the two are never confused or reused for each other. The refund key is itself shared, not distinct, across two call sites: Task 10.2's inline post-charge refund and Task 10c.1d's orphan-charge refund both derive `refund-{paymentIntentId}` from the same PaymentIntent id, deliberately, so the two paths can never both succeed at refunding the same charge. `latest_charge.payment_method_details.card` (Task 9.7, spec Decision D) is the single source `PaymentSnapshot`'s `CardBrand`/`CardLast4`/`CardExpMonth`/`CardExpYear` fields read from — never a PaymentMethods lookup, since Orders' restricted key (Task 14) has none.
+
+## Related
+
+- [[2026-09-19-stripe-payments-design]] — the design spec this plan implements task-by-task.
+- [[testing]] — the three-layer gate every task's tests follow.
+- [[env-files]] — the AUTO/CUSTOM box convention for every new Stripe env var.
+- [[git-workflow]] — the commit/PR flow every task's final step defers to.
+- [[phase-c-review-flow]] — the chained-issues/batched-review discipline around this plan's two GATEs.
+- [[cqrs]] — the CommandBus/QueryBus dispatch discipline Task 4's tests follow.
+- [[angular-component-authoring]] — the component pattern Task 11's `SavedCardRow`/`payment-method-selector`/`new-card-block` and Task 12's profile Payment methods tab follow.
+- [[openapi-specs]] — where Task 4 and Task 5's new routes are specified.
+- [[soft-delete]] — the deletion pattern `stripe_payment_methods` uses (Task 2, Task 4.5, Task 5.3).
+- [[audit-fields]] — the standard audit columns on `stripe_payment_methods` (Task 2).
+- [[nano-id]] — the primary-key convention for `stripe_payment_methods` (Task 2, Task 4.4).
+- [[money-representation]] — the amount/currency representation Orders' payment snapshot follows (Task 9).
+- [[local-dev]] — the local-dev workflow `make stripe-webhook-secret` follows; webhook delivery
+  is two host-side `stripe listen` processes, not a `profiles:`-gated compose service (Task
+  10c.9's outcome, Decision 10's amendment).
+- [[skills-catalog]] — the Agent Skills installation mechanism already used for `stripe-best-practices`/`stripe-docs`.
+- [[stripe-sandbox-setup]] — the operator-facing procedure for the sandboxes and keys the Execution notes call a prerequisite of Task 1.
+- [[logging-context]] — the shared log context, `app_event` flow-log convention, and
+  span-attribute PII prohibitions Decision 25's `withStripeSpan`/`StripeActivitySource` steps
+  (Tasks 1, 3, 4, 5, 6, 9, 10) follow.
+- [[browser-rum]] — the Trigger 1/2/3 checklist Tasks 11.17, 12.8, and 15.10 verify the new
+  Stripe web calls against, rather than restating it as a new checklist.

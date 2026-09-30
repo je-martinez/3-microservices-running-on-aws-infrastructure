@@ -3,6 +3,7 @@ import { apiClient, ordersClient, trackingClient } from "../support/api-client.j
 import { deleteMeExpect204 } from "../support/account-deletion.js";
 import { pickProductWithStock } from "../support/catalogue.js";
 import { makeUser } from "../support/chance-factory.js";
+import { makeBuyer, placeOrder } from "../support/orders-buyer.js";
 
 // Account deletion against the SERVICE PORTS directly, with a faked `x-user-id`
 // standing in for the authorizer's output. The gateway counterpart — real JWT and the
@@ -39,27 +40,24 @@ interface Actor {
 // turns into a tracking row), so a deletion has something on both downstream
 // services to actually remove. A user with no data cannot distinguish "the
 // cascade ran" from "the cascade matched nothing".
-async function makeActorWithData(
-  users: APIRequestContext,
-  orders: APIRequestContext,
-): Promise<Actor> {
-  const user = makeUser();
-  const reg = await users.post("/v1/users/register", { data: user });
-  expect(reg.status()).toBe(201);
-  const { id } = await reg.json();
+//
+// CONTRACT: Buy through `placeOrder`, so the order exists with STRIPE_ENABLED in either
+// position. The cascade's subject is the ROWS a deletion removes, and an unpaid create
+// answers 400 with the flag on — leaving the actor with nothing to cascade and the
+// precondition assertions failing instead of the behaviour under test.
+// See [[2026-09-19-stripe-payments-design]]
+async function makeActorWithData(orders: APIRequestContext): Promise<Actor> {
+  const buyer = await makeBuyer(orders);
 
-  const products = await orders.get("/v1/products", { headers: { "x-user-id": id } });
+  const products = await orders.get("/v1/products", { headers: { "x-user-id": buyer.userId } });
   expect(products.status()).toBe(200);
   const product = pickProductWithStock(await products.json());
 
-  const created = await orders.post("/v1/orders", {
-    headers: { "x-user-id": id },
-    data: { lines: [{ productId: product.id, quantity: 1 }] },
-  });
-  expect(created.status()).toBe(201);
+  const created = await placeOrder(orders, buyer, [{ productId: product.id, quantity: 1 }]);
+  expect(created.status(), await created.text()).toBe(201);
   const orderId = (await created.json()).id as string;
 
-  return { id, email: user.email, orderId };
+  return { id: buyer.userId, email: buyer.email, orderId };
 }
 
 async function trackingsFor(
@@ -83,7 +81,7 @@ test("DELETE /v1/users/me removes the account and cascades to orders and trackin
   const users = await apiClient();
   const orders = await ordersClient();
   const tracking = await trackingClient();
-  const actor = await makeActorWithData(users, orders);
+  const actor = await makeActorWithData(orders);
 
   // Precondition, asserted rather than assumed: without it a cascade that ran
   // against an empty account would pass every assertion below.
@@ -135,8 +133,8 @@ test("deleting one user leaves another user's orders and trackings untouched", a
   const orders = await ordersClient();
   const tracking = await trackingClient();
 
-  const victim = await makeActorWithData(users, orders);
-  const bystander = await makeActorWithData(users, orders);
+  const victim = await makeActorWithData(orders);
+  const bystander = await makeActorWithData(orders);
 
   await deleteMeExpect204(users, victim.id);
 
@@ -208,7 +206,7 @@ test("both internal routes are idempotent: the second call reports 0", async () 
   const users = await apiClient();
   const orders = await ordersClient();
   const tracking = await trackingClient();
-  const actor = await makeActorWithData(users, orders);
+  const actor = await makeActorWithData(orders);
   const key = internalKey();
 
   const ordersFirst = await orders.delete("/v1/orders/by-user", {

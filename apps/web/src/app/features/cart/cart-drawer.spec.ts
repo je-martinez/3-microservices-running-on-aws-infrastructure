@@ -85,8 +85,14 @@ describe('CartDrawer', () => {
     // run then hangs on its own setTimeout — a cascade naming the wrong test.
     vi.useRealTimers();
     withStripeEnabled(STRIPE_ENABLED);
-    controller.verify({ ignoreCancelled: true });
-    TestBed.resetTestingModule();
+    // CONTRACT: Reset the TestBed BEFORE verifying — see the same block in
+    // checkout-payment.spec.ts. A throwing `verify()` otherwise skips the reset
+    // and the next test fails in `beforeEach` instead of here.
+    try {
+      controller.verify({ ignoreCancelled: true });
+    } finally {
+      TestBed.resetTestingModule();
+    }
   });
 
   function root(): HTMLElement {

@@ -13,6 +13,7 @@ const PREFIXES = {
   UsersCognitoData: "ucd_",
   UsersCognitoEvent: "cge_",
   Notification: "ntf_",
+  StripePaymentMethod: "spm_",
   // Not persisted: the per-request correlation id ([[2026-08-15-request-id-correlation-design]]).
   Request: "req_",
   // Not persisted: the SQS envelope's idempotency key, minted per published event.
@@ -72,6 +73,7 @@ export const NanoIdConfig = {
   newUsersCognitoDataId: () => mint(PREFIXES.UsersCognitoData),
   newUsersCognitoEventId: () => mint(PREFIXES.UsersCognitoEvent),
   newNotificationId: () => mint(PREFIXES.Notification),
+  newStripePaymentMethodId: () => mint(PREFIXES.StripePaymentMethod),
   newRequestId: () => mint(PREFIXES.Request),
   newEventId: () => mint(PREFIXES.Event),
 } as const satisfies IdFactories & Record<string, unknown>;
@@ -94,6 +96,7 @@ export const MODEL_ID_PREFIXES: Record<string, string> = {
   UsersCognitoData: PREFIXES.UsersCognitoData,
   UsersCognitoEvent: PREFIXES.UsersCognitoEvent,
   Notification: PREFIXES.Notification,
+  StripePaymentMethod: PREFIXES.StripePaymentMethod,
 };
 
 /**

@@ -21,6 +21,9 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
     /// </summary>
     public const string OrderNumberIndexName = "ux_order_order_number";
 
+    /// <summary>Maximum length of a client <c>Idempotency-Key</c>, enforced at the endpoint.</summary>
+    public const int IdempotencyKeyMaxLength = 64;
+
 
     // CONTRACT: Serialize here, not with EF's OwnsMany/ToJson — the cleanup query filters
     // this column with JSON_CONTAINS, and a JSON-owned collection becomes a nested entity
@@ -81,6 +84,25 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
             .HasConversion(TagsConverter, TagsComparer)
             .HasDefaultValue(new List<string>())
             .IsRequired();
+        // Payment snapshot (see Order.ApplyPaymentSnapshot). Every column nullable: orders
+        // placed with STRIPE_ENABLED off, and all rows predating the columns, carry none.
+        // Stripe ids are documented as up to 255 characters.
+        b.Property(o => o.PaymentIntentId).HasColumnName("payment_intent_id").HasMaxLength(255);
+        b.Property(o => o.PaymentStatus).HasColumnName("payment_status").HasMaxLength(64);
+        b.Property(o => o.AmountCents).HasColumnName("amount_cents").HasColumnType("bigint");
+        b.Property(o => o.Currency).HasColumnName("currency").HasColumnType("char(3)");
+        b.Property(o => o.PaymentMethodId).HasColumnName("payment_method_id").HasMaxLength(255);
+        b.Property(o => o.CardBrand).HasColumnName("card_brand").HasMaxLength(32);
+        b.Property(o => o.CardLast4).HasColumnName("card_last4").HasColumnType("char(4)");
+        b.Property(o => o.CardExpMonth).HasColumnName("card_exp_month");
+        b.Property(o => o.CardExpYear).HasColumnName("card_exp_year");
+        b.Property(o => o.PaymentRawPayload).HasColumnName("payment_raw_payload").HasColumnType("json");
+        b.Property(o => o.IdempotencyKey).HasColumnName("idempotency_key").HasMaxLength(IdempotencyKeyMaxLength);
+        b.Property(o => o.IdempotencyRequestHash).HasColumnName("idempotency_request_hash").HasColumnType("char(64)");
+        // WHY: MySQL ignores NULLs in a unique index, so orders placed without a key never collide.
+        b.HasIndex(o => new { o.UserId, o.IdempotencyKey })
+            .IsUnique()
+            .HasDatabaseName("ux_order_user_idempotency_key");
         ProductConfiguration.ApplyAudit(b);
         b.Ignore(o => o.Subtotal);
         b.Ignore(o => o.Tax);
@@ -99,6 +121,9 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         b.HasIndex(o => o.UserId).HasDatabaseName("idx_order_user_id");
         b.HasIndex(o => o.CognitoSub).HasDatabaseName("idx_order_cognito_sub");
         b.HasIndex(o => o.DeletedAt).HasDatabaseName("idx_order_deleted_at");
+        // WHY: The Stripe webhook finds an order by its PaymentIntent — refund and dispute
+        // events carry no order id.
+        b.HasIndex(o => o.PaymentIntentId).HasDatabaseName("idx_order_payment_intent_id");
         b.HasQueryFilter(o => o.DeletedAt == null);
     }
 }

@@ -1,19 +1,10 @@
-# events-pipeline — react-email PREVIEW SERVER only.
-#
-# This image does NOT run the pipeline. The pipeline is a real Lambda on Floci,
-# deployed by Terraform as a zip built by `pnpm run build` (see
-# functions/events-pipeline/CLAUDE.md §1-2) — there is no container in its
-# runtime path, locally or in AWS, and docker-compose.yml deliberately has no
-# `events-pipeline` service any more.
-#
-# What it is for: `email dev`, react-email's preview server, so the templates
-# under emails/ can be viewed and hot-reloaded in a browser without installing
-# the toolchain on the host. It sits behind compose's `preview` profile, so a
-# normal `make up` never builds or starts it.
-#
-# Build context: REPO ROOT (pnpm-lock.yaml and pnpm-workspace.yaml live there),
-# same as services/users/Dockerfile — a context of ./functions/events-pipeline
-# cannot see the lockfile, so `--frozen-lockfile` would be impossible.
+# events-pipeline — react-email PREVIEW SERVER only. The pipeline itself is a
+# Lambda deployed by Terraform as a zip (see CLAUDE.md §1-2); nothing here runs
+# it. Behind compose's `preview` profile, so `make up` never builds it.
+
+# CONTRACT: Build context is the REPO ROOT. A context of
+# ./functions/events-pipeline cannot see pnpm-lock.yaml, so `--frozen-lockfile`
+# becomes impossible.
 
 FROM node:24-alpine AS base
 ENV PNPM_HOME="/pnpm"
@@ -32,19 +23,11 @@ COPY functions/events-pipeline/package.json ./functions/events-pipeline/
 # `@react-email/preview-server` are both devDependencies, and this stage exists
 # to run them.
 #
-# @react-email/preview-server is declared explicitly in package.json rather than
-# left to the CLI: `email dev` does NOT bundle its preview UI. On first run it
-# detects the package is missing and PROMPTS to install it — and with no TTY
-# (this container, or CI) the prompt resolves immediately, so the process exits
-# 0 having started no server at all. `docker build` cannot catch that, because
-# the build succeeds; only running the image reveals it. Verified here: the
-# container exited 0 with an empty log until the dependency was declared.
-#
-# It is pinned to an EXACT version (4.3.2), not a caret range, and that version
-# must equal the resolved `react-email` version: the CLI compares the two and
-# re-prompts (same silent exit) if they differ. A `^` here let pnpm resolve
-# 5.2.10 against react-email 4.3.2 and reproduced the failure exactly. When
-# bumping react-email, bump this in lockstep.
+# CONTRACT: Keep `@react-email/preview-server` declared in package.json at an
+# EXACT version equal to the resolved `react-email`. Left to the CLI, or pinned
+# with a `^`, `email dev` prompts to install it; with no TTY the prompt resolves
+# at once and the container exits 0 with an empty log, serving nothing.
+# See [[2026-09-30-a-tty-less-prompt-resolves-to-a-silent-success]]
 RUN pnpm install --frozen-lockfile --filter @3mrai/events-pipeline...
 WORKDIR /app/functions/events-pipeline
 # Only the templates and the manifest are needed — `email dev` reads emails/ and

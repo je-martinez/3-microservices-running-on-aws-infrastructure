@@ -1,16 +1,28 @@
 import type { User } from "#features/users/domain/user";
 import type { Notification } from "#features/notifications/domain/notification";
 
-// `User` (the domain shape returned by commands/queries) carries real `Date`
-// fields; `UserSchema` documents the wire shape as ISO strings (see
-// schemas.ts). Convert at the HTTP boundary — Zod's serializer strictly
-// rejects a `Date` against `z.string()`, it does not coerce.
+// `User` carries real `Date` fields (converted here to ISO strings, see
+// schemas.ts) and internal-only columns like `stripeCustomerId`.
+// CONTRACT: List fields explicitly — never `...user` — or an internal column
+// reaches GET/PATCH /v1/users/me the moment it is added to the Prisma model.
 export function serializeUser(user: User) {
   return {
-    ...user,
+    id: user.id,
+    email: user.email,
+    fullName: user.fullName,
+    cognitoSub: user.cognitoSub,
+    address: user.address,
+    phoneNumber: user.phoneNumber,
+    tags: user.tags,
+    authType: user.authType,
+    mustChangePassword: user.mustChangePassword,
+    createdBy: user.createdBy,
     createdAt: user.createdAt.toISOString(),
+    updatedBy: user.updatedBy,
     updatedAt: user.updatedAt.toISOString(),
+    deletedBy: user.deletedBy,
     deletedAt: user.deletedAt ? user.deletedAt.toISOString() : null,
+    isDeleted: user.isDeleted,
   };
 }
 

@@ -267,6 +267,17 @@ services:
   # internal/adapter/grpcusers/gen/, so no shared .proto is read here at all.
   tracking:
     build: ./services/tracking-go
+    # CONTRACT: `rebuild`, and only cmd/ + internal/ — the two trees the
+    # Dockerfile COPYs. Go is compiled, so a synced file changes nothing in a
+    # running container, and watching the whole directory would rebuild on
+    # migrations/ or bin/ edits the image never reads.
+    # See [[2026-09-30-distroless-makes-cgo-a-build-time-contract]]
+    develop:
+      watch:
+        - action: rebuild
+          path: ./services/tracking-go/cmd
+        - action: rebuild
+          path: ./services/tracking-go/internal
     networks: [3mrai-network]
     ports:
       # Host 3002 → container 8000. 3000/3001 are taken by Users and Orders.
@@ -391,32 +402,41 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         # CONTRACT: BUILD-TIME, not runtime. @ngx-env/builder inlines NG_APP_*
-        # into the bundle at compile time, so moving these to the env_file below
-        # leaves them read by nothing — the container keeps serving what was
-        # compiled in, with no error. Changing one needs a REBUILD:
-        #     docker compose build web && docker compose up -d web
-        # `restart` re-serves the same bundle and looks like the flag being
-        # ignored. false matches apps/web/.env.example (plain payment screen).
+        # at compile time, so one moved to the env_file below is read by
+        # nothing. Changing one needs `docker compose build web`; a `restart`
+        # re-serves the same bundle and reads as the flag being ignored.
         # See [[env-files]]
-        NG_APP_STRIPE_ENABLED: "false"
-        # The base path every gateway call hangs off, and the one NG_APP_* that
-        # is effectively fixed. RELATIVE on purpose: nothing in this repo sends
-        # CORS headers, so an absolute gateway origin would be blocked at the
-        # preflight on every request. Floci's per-apply <api-id> stays out of
-        # the bundle entirely — it lives in the nginx proxy below.
-        NG_APP_API_GATEWAY_URL: "/v1"
+        #
+        # CONTRACT: Every value here is INTERPOLATED from .env.local.web, never a
+        # literal — the Makefile passes it as `--env-file`, and `make env-file` owns
+        # its CUSTOM box, so a literal here overrides the developer's own choice while
+        # the file meant to control it looks correct. See [[env-files]]
+        NG_APP_STRIPE_ENABLED: "${NG_APP_STRIPE_ENABLED:-false}"
+        # The PUBLISHABLE pk_test_ key — public by design, since @ngx-env
+        # compiles it into the bundle. Never a secret or restricted key: those
+        # belong to the services' own env files. Empty is the OFF state; the
+        # bundle reads it as unset and leaves card entry hidden.
+        NG_APP_STRIPE_PUBLISHABLE_KEY: "${NG_APP_STRIPE_PUBLISHABLE_KEY:-}"
+        # The base path every gateway call hangs off. RELATIVE on purpose:
+        # nothing in this repo sends CORS headers, so an absolute gateway origin
+        # would be blocked at the preflight on every request. Floci's per-apply
+        # <api-id> stays out of the bundle entirely — it lives in the nginx
+        # proxy below.
+        NG_APP_API_GATEWAY_URL: "${NG_APP_API_GATEWAY_URL:-/v1}"
         # A FLAG, not the Geoapify key. The key is server-side only, read by
         # nginx from GEOAPIFY_API_KEY in the env_file below — an NG_APP_* value
         # is compiled into the bundle and readable in devtools, so a key there
-        # would be public. false by default: with no key the proxy answers 503,
-        # and offering an autocomplete that always fails is worse than not
-        # offering it. Turn both on together.
-        NG_APP_GEOCODE_ENABLED: "true"
-        # Interpolated, not literal: it carries the api id Floci remints on
-        # every apply, so `make env-file` writes it into ./.env. Empty leaves
-        # the socket unopened — live toasts and the unread badge are then
-        # absent, and the app says so in a console warning rather than failing.
+        # would be public. With no key the proxy answers 503, and offering an
+        # autocomplete that always fails is worse than not offering it. Turn
+        # both on together.
+        NG_APP_GEOCODE_ENABLED: "${NG_APP_GEOCODE_ENABLED:-true}"
+        # CONTRACT: Reads WS_URL, not NG_APP_WS_URL — .env.local.web carries both, the
+        # bare name for nginx and the prefixed one for `pnpm dev`'s own cascade. It
+        # carries the api id Floci remints on every apply. Empty leaves the socket
+        # unopened: live toasts and the unread badge are absent, and the app says so in
+        # a console warning rather than failing.
         NG_APP_WS_URL: "${WS_URL:-}"
+        NG_APP_RUM_ENABLED: "${NG_APP_RUM_ENABLED:-false}"
     networks: [3mrai-network]
     ports:
       # Host 3004 → container 80 (nginx). 3000/3001/3002 are taken by users,

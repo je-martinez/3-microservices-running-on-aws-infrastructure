@@ -6,11 +6,13 @@ import {
   signal,
   ChangeDetectionStrategy,
 } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { form, maxLength, pattern, required, FormField } from '@angular/forms/signals';
 import { Router } from '@angular/router';
 import { LucideLock, LucideRefreshCw, LucideTriangleAlert } from '@lucide/angular';
 import { firstValueFrom } from 'rxjs';
 import type { Address } from '../../core/api/types';
+import { APP_CONFIG } from '../../core/config/app-config';
 import { UsersApi } from '../../core/api/users-api';
 import { SessionStore } from '../../core/auth/session-store';
 import { authErrorMessage } from '../auth/auth-errors';
@@ -21,6 +23,7 @@ import { StreetAutocomplete } from '../../shared/ui/street-autocomplete';
 import { PhoneField } from '../../shared/ui/phone-field';
 import { DevFillButton } from '../../core/dev/dev-fill-button';
 import type { DevData } from '../../core/dev/dev-fill';
+import { PaymentMethodsTab } from './payment-methods-tab';
 
 /** Every editable field of the two cards, minus `country` — see the class doc. */
 interface ProfileForm {
@@ -59,6 +62,8 @@ const EMPTY_PROFILE_FORM: ProfileForm = {
     DevFillButton,
     Field,
     FormField,
+    NgTemplateOutlet,
+    PaymentMethodsTab,
     PhoneField,
     StreetAutocomplete,
     LucideLock,
@@ -74,6 +79,15 @@ export class ProfilePage {
   private readonly session = inject(SessionStore);
 
   protected readonly user = this.session.user;
+
+  /**
+   * CONTRACT: The tab mounts only behind this flag — with STRIPE_ENABLED off the
+   * profile keeps its pre-milestone single-view shape (no Tabs frame, no SAVED
+   * CARDS section). This is the same kill switch that governs the checkout
+   * branch and the Users routes, not a second flag.
+   * See [[2026-09-19-stripe-payments-design]]
+   */
+  protected readonly stripeEnabled = computed(() => APP_CONFIG.stripeEnabled);
   /** Only a first load blanks the screen; a refresh keeps the stale profile up. */
   protected readonly loading = signal(false);
   protected readonly error = signal<string | null>(null);

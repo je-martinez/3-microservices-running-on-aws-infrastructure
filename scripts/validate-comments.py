@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
-"""3MRAI comment-convention linter — enforces docs/shared/conventions/code-comments.md.
+"""3MRAI comment-convention linter — enforces [[code-comments]].
 
-Checks: block length, tag vocabulary, See [[vault-id]] references, stale terms,
-and narrative markers. A baseline ratchet freezes existing
-violations so CI fails only on new ones.
-
-Exit: 0 no new violations, 1 new violations, 2 config/IO error.
-Run `--help` for the flags; `--all --update-baseline` regenerates the baseline.
-"""
+Checks block length, tags, See [[vault-id]] references, stale terms and
+narrative markers, ratcheted against a baseline so CI fails only on new ones.
+Exit: 0 clean, 1 new, 2 config/IO error."""
 from __future__ import annotations
 
 import argparse
@@ -45,10 +41,19 @@ EXCLUDE_DIR_NAMES = frozenset(
     }
 )
 
-# spike/ is throwaway; .claude/skills/ and its .agents/skills/ mirror are vendored
-# skill content, not our source. Go carries no exclusion — services/tracking-go/
-# is linted like every other language.
-EXCLUDE_PATH_PREFIXES = ("spike/", ".claude/skills/", ".agents/skills/")
+# CONTRACT: Excluded by PATH, not name: each leaf below is too generic for
+# EXCLUDE_DIR_NAMES. `.claude/worktrees/` copies our own source, so `--all`
+# counts every violation once per worktree; `e2e/load-tests/target/` is Gatling
+# output, ~40 more per run. Both gitignored, so the gate otherwise reports
+# hundreds nobody wrote — and a gate that always fails stops being run.
+# Go is NOT excluded: services/tracking-go/ is linted like every language.
+EXCLUDE_PATH_PREFIXES = (
+    "spike/",  # throwaway
+    ".claude/skills/",  # vendored skill content, not our source
+    ".agents/skills/",  # the mirror of the above
+    ".claude/worktrees/",  # git worktrees: a second copy of our own source
+    "e2e/load-tests/target/",  # Gatling run output
+)
 
 LANG_BY_SUFFIX = {
     ".tf": "hcl",
@@ -83,6 +88,11 @@ LANG_BY_STEM = {
     "makefile": "makefile",
     "dockerfile": "dockerfile",
     "containerfile": "dockerfile",
+    # CONTRACT: Matched by STEM, so `.env.example` and `.env.local.web.example`
+    # both resolve — their suffix is `.example`, which says nothing about the
+    # format and would claim unrelated files. The generated `.env*` files are
+    # git-ignored, so in practice this gates the committed examples alone.
+    "env": "env",
 }
 
 # One p90 gate for every language: >12 lines is a hard error (see the Length
@@ -109,6 +119,11 @@ THRESHOLDS = {
     # which stage copies what) cannot be read off the instruction.
     "makefile": {"density_warn": 0.60, "density_min_lines": 80},
     "dockerfile": {"density_warn": 0.65, "density_min_lines": 40},
+    # The committed env example is a contract whose counterpart is git-ignored,
+    # so it is read far more often than a service's own env file and carries one
+    # prohibition per variable. Density runs above YAML's for that reason; the
+    # tag budget and the >12-line hard error apply unchanged.
+    "env": {"density_warn": 0.70, "density_min_lines": 60},
 }
 
 # Blocks in 7..12 lines are allowed only when load-bearing AND referenced.
@@ -244,10 +259,12 @@ def classify(path: Path) -> str | None:
     lang = LANG_BY_SUFFIX.get(path.suffix.lower())
     if lang is not None:
         return lang
-    # `Dockerfile.dev` and `Makefile.local` reduce to the same stem as a bare
-    # `Dockerfile`/`Makefile`, so one entry covers every variant. The suffix
-    # lookup above still wins, which keeps a hypothetical `Makefile.py` Python.
-    return LANG_BY_STEM.get(path.name.split(".", 1)[0].lower())
+    # CONTRACT: `lstrip(".")` before splitting. A dotfile splits to an EMPTY stem
+    # (`.env.example` -> `""`), so a dotted format matches nothing and the gate
+    # reports `Scanned 0 file(s)` rather than an error. `Dockerfile.dev` reduces
+    # to the bare stem, so one entry covers every variant, and the suffix lookup
+    # above still wins — a hypothetical `Makefile.py` stays Python.
+    return LANG_BY_STEM.get(path.name.lstrip(".").split(".", 1)[0].lower())
 
 
 # ─── Comment scanning ───────────────────────────────────────────────────────
@@ -412,9 +429,12 @@ def _scan_python_comment(line: str, state: dict) -> str | None:
     return None
 
 
+_ENV_DECLARATION = re.compile(r"^[A-Z][A-Z0-9_]*=")
+
+
 def is_comment_line(line: str, lang: str, state: dict) -> bool:
     """Record the extracted comment body in state and report whether it exists."""
-    if lang in ("yaml", "dockerfile", "makefile"):
+    if lang in ("yaml", "dockerfile", "makefile", "env"):
         # CONTRACT: only a `#` that OPENS the line counts. These formats have no
         # block or docstring form, and a trailing `#` in them is usually data —
         # above all `target: ## help text`, the self-documenting-target shape
@@ -424,6 +444,12 @@ def is_comment_line(line: str, lang: str, state: dict) -> bool:
         if lang == "makefile" and stripped.startswith("@#"):
             stripped = stripped[1:]
         body = stripped[1:].strip() if stripped.startswith("#") else None
+        # CONTRACT: In an env file a commented-out `KEY=` is a DECLARATION, not
+        # prose — it is how a CUSTOM-box entry is shown, and the coverage check
+        # in generate_env_files.py reads it as declared. Counting it as comment
+        # text turns a run of optional keys into a bogus over-length block.
+        if lang == "env" and body is not None and _ENV_DECLARATION.match(body):
+            body = None
     elif lang == "html":
         body = _scan_html_comment(line, state)
     elif lang == "python":
@@ -703,6 +729,21 @@ def check_narrative(block: CommentBlock) -> list[str]:
 # ─── File analysis ──────────────────────────────────────────────────────────
 
 
+_GENERATED_MARKER = re.compile(
+    r"^.{0,4}(?:Code generated by|DO NOT EDIT|@generated|FROZEN REFERENCE FIXTURE)",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _is_generated(content: str) -> bool:
+    """CONTRACT: Detect by CONTENT, never by directory name — protoc writes into
+    `gen/` and frozen fixtures into `testdata/`, which EXCLUDE_DIR_NAMES misses,
+    so these sat in the baseline as debt no edit can clear. Header only: the
+    phrase can legitimately appear deeper in a hand-written file.
+    """
+    return _GENERATED_MARKER.search("\n".join(content.splitlines()[:8])) is not None
+
+
 def analyze_file(
     path: Path,
     root: Path,
@@ -717,6 +758,8 @@ def analyze_file(
         content = path.read_text(encoding="utf-8")
     except OSError as exc:
         raise SystemExit(f"Cannot read {path}: {exc}") from exc
+    if _is_generated(content):
+        return None
 
     lines = content.splitlines()
     blocks, comment_lines = extract_blocks(lines, lang)

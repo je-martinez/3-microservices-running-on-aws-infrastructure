@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-09-30
 tags:
   - type/convention
   - area/shared
@@ -108,6 +108,12 @@ definition, not by coincidence, and should ideally be pinned by a test that deri
 figure from the charging code itself rather than hardcoding a number (as done here, in
 `CartPricingTests`).
 
+**The Stripe charge follows the same rule.** The amount Orders charges is priced by
+`PriceForChargeAsync`, which sums `shippingCents` plus `OrderPricing.PriceLine(...).TotalCents`
+per line — the same per-line rounding point the persisted order uses — so the charge equals the
+order total to the cent. Any future surface that previews or re-derives that charge must round
+per line too ([[2026-09-19-stripe-payments-design]]).
+
 ## Example — .NET implementation (Orders)
 
 ```csharp
@@ -131,6 +137,7 @@ Full context: `docs/superpowers/specs/2026-08-25-cart-endpoints-design.md`, Part
 
 ## Related
 
+- [[2026-09-19-stripe-payments]] — the first real charging path; its charge amount is priced per line as described above.
 - [[orders-service-design]] — where `Money` replaced every `*_cents` DTO field
   (`OrderDto`, `OrderLineDto`, `ProductDto`, `CartDto`, `CartLineDto`).
 - [[money-as-integer-cents]] — the storage-side ADR this convention deliberately does not

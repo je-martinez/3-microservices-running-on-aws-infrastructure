@@ -2,11 +2,15 @@
 # Run `make help` (the default) to list targets.
 # Two layers: docker-compose (Floci + services) and Terraform against Floci.
 
-COMPOSE      := docker compose
+# CONTRACT: Keep `--env-file .env.local.web`. Compose interpolates `${VAR}` from
+# ONE file only, and the six NG_APP_* build args are the only interpolations in
+# docker-compose.yml. Drop the flag and compose looks for a root .env that this repo
+# does not generate, so every build arg silently falls back to its default and the
+# bundle ships with Stripe and RUM off. See [[env-files]]
+COMPOSE      := docker compose --env-file .env.local.web
 TF_LOCAL_DIR := infra/environments/local
 TF           := terraform -chdir=$(TF_LOCAL_DIR)
 FLOCI_URL    := http://localhost:4566
-ENV_FILE     := .env
 
 # Python interpreter for the infra scripts. ABSOLUTE on purpose: neither this
 # Makefile nor Terraform's local-exec may depend on whichever `python3` sits on
@@ -63,7 +67,7 @@ _tf_plugin_cache := $(shell mkdir -p $(TF_PLUGIN_CACHE_DIR))
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down logs build ps test-unit test-e2e test-all load-test load-test-smoke cache-toggle load-test-cache-ab-on load-test-cache-ab-off backend-up infra-init infra-plan lambda-bundles infra-up post-infra infra-down infra-output env-file migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor clean clean-state warm-images warm-nuget observability-up observability-down observability-dashboards observability-traces-schema redeploy-lambdas scripts-setup lint-comments lint-comments-diff install-comment-hook ai-sync ai-sync-check
+.PHONY: help up down logs build ps test-unit test-e2e test-all load-test load-test-smoke cache-toggle load-test-cache-ab-on load-test-cache-ab-off backend-up infra-init infra-plan lambda-bundles infra-up post-infra infra-down infra-output env-file stripe-webhook-secret migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor clean clean-state warm-images warm-nuget observability-up observability-down observability-dashboards observability-traces-schema redeploy-lambdas scripts-setup watch watch-stop watch-status watch-logs lint-comments lint-secrets lint-comments-diff install-comment-hook ai-sync ai-sync-check
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -90,7 +94,17 @@ $(PY):
 # venv. Prefer the absolute repo interpreter when present; otherwise fall back
 # to python3 so a fresh clone can still run the gate.
 COMMENT_PY       := $(if $(wildcard $(PY)),$(PY),python3)
+# WHY: Same resolution as COMMENT_PY, under a name that does not imply the
+# comment linter — a script unrelated to it should not read as if it were.
+SCRIPT_PY        := $(COMMENT_PY)
 COMMENT_DIFF_REF ?= main
+
+lint-secrets: ## Scan every tracked file for Stripe key literals
+	@command -v "$(COMMENT_PY)" >/dev/null 2>&1 \
+	  || { echo "ERROR: Python 3 is required to scan for secrets"; exit 1; }
+	@git ls-files | while read -r f; do test -f "$$f" && printf '%s\0' "$$f"; done \
+	  | xargs -0 $(COMMENT_PY) scripts/validate-secrets.py \
+	  && echo "OK — no Stripe key literals in tracked files"
 
 lint-comments: ## Check the whole repo for new code-comment violations
 	@command -v "$(COMMENT_PY)" >/dev/null 2>&1 \
@@ -125,6 +139,18 @@ up: ## Start the stack (Floci + services) in the background
 
 down: ## Stop the stack
 	$(COMPOSE) down
+
+watch: ## Rebuild web/users/orders/tracking on save, in the background
+	@$(SCRIPT_PY) scripts/watch_services.py start $(if $(S),--services $(S))
+
+watch-stop: ## Stop the background watchers
+	@$(SCRIPT_PY) scripts/watch_services.py stop $(if $(S),--services $(S))
+
+watch-status: ## Show which watchers are running and their log sizes
+	@$(SCRIPT_PY) scripts/watch_services.py status
+
+watch-logs: ## Tail a watcher's log (make watch-logs S=web)
+	@tail -f logs/watch/$(or $(S),web).log
 
 logs: ## Tail logs (optional: make logs S=users)
 	$(COMPOSE) logs -f $(S)
@@ -322,6 +348,9 @@ env-file: scripts-setup ## Generate every env file from terraform outputs (CUSTO
 	@# E2E suite, debug for a host SQL client) and rewrites ONLY each AUTO-GENERATED box;
 	@# anything under CUSTOM survives. See [[env-files]]
 	$(PY) $(TF_LOCAL_DIR)/scripts/generate_env_files.py
+
+stripe-webhook-secret: scripts-setup ## Write the Stripe CLI's local webhook secret into .env.local.users and .env.local.orders (CUSTOM box)
+	$(PY) $(TF_LOCAL_DIR)/scripts/set_stripe_webhook_secret.py
 
 ## --- Database migrations ---
 
@@ -746,9 +775,8 @@ clean-state: ## Tear down state like `clean`, but KEEP the Docker build cache (f
 redeploy-lambdas: scripts-setup ## Rebuild and redeploy every local Lambda from the current source
 	@# CONTRACT: Do NOT expect `docker compose` to redeploy a Lambda. The services
 	@# rebuild that way and these seven functions do not, and the failure is SILENT —
-	@# source correct, tests green, deployed function still running the old zip. It
-	@# shipped a real bug: otp_challenge_rejected kept arriving at severity 0 for days
-	@# after the fix that set severity_text landed.
+	@# source correct, tests green, deployed function still running the old zip.
+	@# Symptom: a log field the source sets arrives with its old value, for days.
 	@#
 	@# WHY: `terraform apply` would also redeploy these, but a second phase-1 apply
 	@# fails on Floci's UpdateTags. See [[floci-rds-apigw-limits]]

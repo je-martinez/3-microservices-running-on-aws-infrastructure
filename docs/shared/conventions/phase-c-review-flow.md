@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-06-28
-updated: 2026-07-28
+updated: 2026-09-30
 tags:
   - type/convention
   - area/shared
@@ -15,6 +15,8 @@ related:
   - "[[milestone-plan]]"
   - "[[linear-references]]"
   - "[[git-workflow]]"
+  - "[[doc-propagation]]"
+  - "[[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]]"
 ---
 
 # Phase C Review Flow Convention
@@ -52,6 +54,18 @@ Therefore, when the user approves a batch of sibling PRs:
 
 The operational git commands for these steps are carried out by the **main session** (git is run directly, not routed exclusively through an agent); `github-ops` remains an optional helper for complex batches. See [[git-workflow]]. This subsection records the *why* so the cadence is followed consistently across milestones.
 
+### Gap audit before every batch
+
+Running the `spec-implementation-audit` skill is **required before presenting a batch of PRs for review**, and again before the milestone's final feature→main PR. It runs once per stop point, not once per milestone.
+
+It cannot be folded into ordinary review. A requirement dropped in implementation leaves no trace: the shipped code is self-consistent, and its tests cover what was built rather than what was specified. Reviewing a diff answers "is this correct?"; the audit answers "does this do everything it was asked to do, and do the docs still describe it?"
+
+It checks three directions: spec → code, code → docs, and plan → repo. Code → docs is the one most often skipped and the one that does active harm, because a doc that keeps a value the code has corrected talks the next person into reverting the fix.
+
+The Stripe milestone (2026-09-30) shipped with seven gaps found by this audit and by none of the per-task reviews before it. See [[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]] for the failure the audit exists to catch.
+
+A gap that turns out to be a real code defect gets its own change and its own review, never a silent fix inside a propagation pass. Doc drift found by the audit is fixed in the same change, per [[doc-propagation]].
+
 ## Rationale
 
 This convention reconciles two competing goals:
@@ -70,3 +84,5 @@ The [[milestone-plan]] convention defines the task-order and dependency graph th
 - [[milestone-plan]] — milestone plan convention (task order + dependency graph that defines the gates).
 - [[linear-references]] — Linear reference rules for tagging and linking issues.
 - [[git-workflow]] — git confirmation menu and the decentralized git policy (main session runs git directly; `github-ops` is optional).
+- [[doc-propagation]] — how a spec's decisions reach the vault; the audit verifies each `propagates-to:` target received them.
+- [[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]] — the lesson behind the gap audit: a dropped requirement leaves no trace in the diff.

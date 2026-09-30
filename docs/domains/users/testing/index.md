@@ -4,7 +4,7 @@ type: runbook
 area: users
 status: active
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-09-30
 tags: [type/runbook, area/users, status/active]
 related:
   - "[[testing]]"
@@ -43,9 +43,11 @@ Run all E2E layers (internal + gateway):
 pnpm --filter @3mrai/e2e test
 ```
 
-This requires the local stack up via `make bootstrap` (see [[local-dev]]). The gateway harness
-auto-loads the repo-root `.env` and registers→logs in a dedicated E2E user (`support/auth.ts`) to
-obtain the real JWT used as the `Authorization: Bearer` header.
+This requires the local stack up via `make bootstrap` (see [[local-dev]]). `e2e/playwright.config.ts` loads `.env.local.infra`, `.env.local.users` and `.env.local.debug`
+explicitly (nothing auto-loads a repo-root `.env`, and none exists any more), then registers→logs in
+a dedicated E2E user (`support/auth.ts`) to obtain the real JWT used as the `Authorization: Bearer` header.
+An undefined `API_GATEWAY_URL` means those generated files are missing: run `make env-file`, not
+create a root `.env`, which nothing reads. See [[env-files]].
 
 ## Checklist for a new users endpoint
 

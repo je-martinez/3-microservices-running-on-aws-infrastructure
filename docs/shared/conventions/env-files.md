@@ -4,7 +4,7 @@ type: convention
 area: infra
 status: active
 created: 2026-07-20
-updated: 2026-09-15
+updated: 2026-09-30
 tags:
   - type/convention
   - area/infra
@@ -26,6 +26,7 @@ related:
   - "[[2026-07-30-post-infra-root]]"
   - "[[2026-09-15-a-falsy-default-that-means-disabled-erases-the-difference-from-unconfigured]]"
   - "[[web-app-env-config]]"
+  - "[[2026-09-19-stripe-payments]]"
 ---
 
 # Env Files
@@ -40,14 +41,13 @@ new API id, and reassigns RDS proxy ports by cluster creation order.
 
 | File | Holds | Consumed by |
 |---|---|---|
-| `.env` | ONLY the four vars compose interpolates as `${VAR}` | docker-compose interpolation |
 | `.env.local.infra` | Terraform outputs (Cognito ids, API GW url, DB hosts/ports) **plus `MAILPIT_API_URL`** | the E2E suite, humans |
 | `.env.local.users` | the Users service environment | compose `env_file:` |
 | `.env.local.orders` | the Orders service environment | compose `env_file:` |
 | `.env.local.tracking` | the Tracking service environment (incl. `E2E_TESTING_ENABLED=true` in CUSTOM, `EVENTS_QUEUE_URL`) | compose `env_file:` |
 | `.env.local.events-pipeline` | the events-pipeline Lambda environment (DocumentDB connection, `EVENTS_QUEUE_URL`, SES sender) | the Lambda's environment variables, set via Terraform |
 | `.env.local.debug` | HOST-reachable connection strings | a SQL client; **loaded by nothing** |
-| `.env.local.web` | the web app's build-time env (`NG_APP_API_GATEWAY_URL`, `NG_APP_STRIPE_ENABLED`, `NG_APP_GEOCODE_ENABLED`) **plus the runtime `GEOAPIFY_API_KEY`** | compose `env_file:` for the `web` service, `@ngx-env/builder`, and `apps/web/nginx.conf`'s envsubst template |
+| `.env.local.web` | the web app's build-time env (the six `NG_APP_*`: `NG_APP_WS_URL` and `NG_APP_API_GATEWAY_URL` in the AUTO box, the four flags in the CUSTOM box) **plus the runtime `GEOAPIFY_API_KEY`** | compose `env_file:` for the `web` service, compose `${VAR}` interpolation of `web.build.args` (the Makefile passes `--env-file .env.local.web`), `pnpm dev` via `angular.json`'s `ngxEnv.files`, `@ngx-env/builder`, and `apps/web/nginx.conf`'s envsubst template |
 | `.env.example` | the committed contract | documentation only |
 
 `.env.local.web` was added with the [[2026-09-04-web-gateway-integration-design]] milestone
@@ -153,8 +153,58 @@ Each generated file has two boxes: AUTO-GENERATED (rewritten on every run) and C
 (preserved). **Never edit the AUTO box** — it is overwritten without warning. Put overrides,
 personal tokens, and local-only flags in CUSTOM.
 
-Values with no consumer anywhere (today `APIDOG_ACCESS_TOKEN`/`APIDOG_PROJECT_ID`) belong in a
+Values with no consumer anywhere — a personal token for an external tool, say — belong in a
 CUSTOM box rather than scattered around.
+
+## Web `NG_APP_*` build args are never literals in `docker-compose.yml`
+
+**Decision (user, 2026-09-22), layout as shipped.** A web `NG_APP_*` build arg is never hardcoded
+as a literal in `docker-compose.yml`'s `web.build.args`. There is no root `.env`; the six
+`NG_APP_*` generate into `.env.local.web`:
+
+- **AUTO box** (generator-owned, never hand-edited): `NG_APP_WS_URL` and `NG_APP_API_GATEWAY_URL`.
+- **CUSTOM box** (per-machine, preserved across regeneration): the four flags —
+  `NG_APP_STRIPE_ENABLED`, `NG_APP_STRIPE_PUBLISHABLE_KEY` (seeded empty; the `pk_test_...` key is
+  public by design but still per-sandbox), `NG_APP_GEOCODE_ENABLED` and `NG_APP_RUM_ENABLED`.
+- Compose interpolates `${VAR}` from that file because the Makefile passes
+  `--env-file .env.local.web`. A build arg cannot come from `env_file:`, which resolves at
+  container runtime, after the build. `pnpm dev` reads the same file through `angular.json`'s
+  `ngxEnv.files`; `apps/web/.env` is comment-only, for `pnpm dev`-only overrides.
+- A seeded **empty** `NG_APP_*` value means unset, not misconfigured — the web config reader
+  (`apps/web/src/app/core/config/app-config.ts`) treats it as falsy/`null`, the same rule Users
+  applies to its own seeded-empty Stripe keys.
+- These are **build-time** values (`@ngx-env/builder` inlines them at compile time): changing
+  one needs `docker compose build web` — a plain restart re-serves the old bundle. See the
+  warning above on a build-time var absent at build time.
+
+Full reasoning: [[2026-09-29-web-env-consolidation-design]].
+
+## Every generated key is declared in `.env.example`
+
+`.env.example` is the committed contract, and every generated env file is git-ignored, so an
+undeclared variable is invisible in a diff, in review, and at runtime. Six of seven sections had
+drifted behind the generator this way (for example `.env.local.tracking`: 25 keys generated, 10
+declared).
+
+- **Adding a variable to `generate_env_files.py` means adding it to `.env.example` in the same
+  change.** The two are one contract.
+- **`make env-file` is the gate.** `check_example_covers()` runs at the end of `main()`, walks every
+  spec's `generated` and `custom_defaults` keys, and names each one `.env.example` does not
+  declare. Read that output; do not scroll past it.
+- **It warns, it does not fail.** A half-documented contract must not block a developer's stack:
+  the generator still writes every file and exits 0.
+- **It lives in the generator, not a separate linter.** The generator is the only place that
+  already knows every key; a second checker would duplicate the spec table and drift from it.
+- **Placeholders, never values.** The file is committed. Per-apply ids are `us-east-1_xxxxxxxxx` or
+  `<api-id>`; Floci-assigned ports are `<pg-port>` / `<my-port>`, never a literal, because the
+  assignment order is not stable (a literal `7001` showed up reversed). Secrets and personal
+  tokens appear as an empty commented key. Fixed container hostnames and ports may be literal.
+- **A CUSTOM-box key is declared by showing it commented out** (`# GEOAPIFY_API_KEY=`). The check
+  reads `KEY=` with or without a leading `#`, and the commented form is the correct style.
+- **Order each section's keys as the generated file has them**, so the two diff side by side.
+
+The same family as [[2026-09-29-repo-wide-gates-must-exclude-generated-and-duplicated-trees]]: a
+file whose counterpart is git-ignored has no natural reviewer, so it needs a mechanical check.
 
 ## Adding a service
 
@@ -162,6 +212,7 @@ CUSTOM box rather than scattered around.
    `infra/environments/local/scripts/generate_env_files.py`.
 2. Add `env_file: [.env.local.<service>]` to that service in `docker-compose.yml`.
 3. Declare NOTHING inline in `environment:`.
+4. Declare every generated key in `.env.example` (see above).
 
 There is deliberately no shared `.services` file: Users and Orders both define
 `DATABASE_WRITER_URL` with different values AND different formats (a `postgres://` URL versus
@@ -191,9 +242,8 @@ Each of these cost real debugging time in this block:
 1. **`environment:` beats `env_file:`.** A leftover inline entry silently overrides the
    generated value and reintroduces the duplication. Migrate a service completely or not at
    all.
-2. **`${VAR}` with no value resolves to an empty string**, not an error. Moving one of the
-   four interpolated vars out of the root `.env` breaks compose silently — the container gets
-   `""`.
+2. **`${VAR}` with no value resolves to an empty string**, not an error. Dropping a
+   `NG_APP_*` value from `.env.local.web` breaks the build silently — the bundle gets `""`.
 3. **`env_file:` does NOT interpolate.** Compose expands `${USERS_DB_PORT}` inside the compose
    file, but values in an env file are taken literally. The generator therefore resolves every
    port and id as it writes. A `${...}` left in a generated file reaches the service as that
@@ -248,3 +298,9 @@ When changing env plumbing, verify against a real bring-up, not by inspection:
   `bootstrap`/`post-infra` split.
 - [[web-app-env-config]] — the runbook operationalizing the `NG_APP_WS_URL` bridge above into a
   step-by-step procedure and symptom table.
+- [[2026-09-19-stripe-payments]] — Task 11's step 11.4b, which moves every web `NG_APP_*` build
+  arg out of `docker-compose.yml` literals and into `.env.local.web`'s AUTO/CUSTOM boxes.
+- [[2026-09-29-web-env-consolidation-design]] — why `.env.local.web` is the single source for
+  both the image build and `pnpm dev`.
+- [[2026-09-29-repo-wide-gates-must-exclude-generated-and-duplicated-trees]] — the same
+  "no natural reviewer, so add a mechanical check" shape, applied to the comment linter.

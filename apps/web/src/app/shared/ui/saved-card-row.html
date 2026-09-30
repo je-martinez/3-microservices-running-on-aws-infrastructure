@@ -1,0 +1,88 @@
+<div
+  data-testid="saved-card-row"
+  class="flex h-fit w-full shrink-0 flex-row items-center justify-start gap-2xl rounded-md border p-4"
+  [class.bg-surface-subtle]="fill() === 'subtle'"
+  [class.bg-surface-white]="fill() === 'white'"
+  [class.border-brand-navy]="selected() && !expired()"
+  [class.border-line]="!selected() || expired()"
+>
+  @if (selectable()) {
+    <span
+      data-testid="radio"
+      role="radio"
+      class="border-line-strong flex h-5 w-5 shrink-0 flex-row items-center justify-center rounded-full border-[1.5px]"
+      [class.border-brand-navy]="selected()"
+      [attr.aria-checked]="selected()"
+      [attr.aria-disabled]="expired()"
+      [attr.tabindex]="expired() ? null : 0"
+      (click)="onSelect()"
+      (keydown.enter)="onSelect()"
+      (keydown.space)="onSelect()"
+    >
+      @if (selected()) {
+        <span class="bg-brand-navy h-2.5 w-2.5 shrink-0 rounded-full"></span>
+      }
+    </span>
+  }
+
+  <span
+    data-testid="brand-bubble"
+    class="flex h-10 w-10 shrink-0 flex-row items-center justify-center rounded-lg"
+    [class.bg-brand-navy-light]="!expired()"
+    [class.bg-surface-subtle]="expired()"
+  >
+    <svg
+      lucideCreditCard
+      class="h-5 w-5"
+      [class.text-brand-navy]="!expired()"
+      [class.text-ink-muted]="expired()"
+    ></svg>
+  </span>
+
+  <div class="flex h-fit flex-1 flex-col items-start justify-start gap-rule">
+    <div class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-md">
+      <span data-testid="card-brand" class="text-ink-primary text-body-lg font-semibold whitespace-nowrap">
+        {{ brandLabel() }} ···· {{ card().last4 ?? '••••' }}
+      </span>
+      @if (card().isDefault) {
+        <span
+          data-testid="default-badge"
+          class="bg-brand-navy flex h-4xl w-fit shrink-0 flex-row items-center justify-center rounded-full px-base"
+        >
+          <span class="text-surface-white text-micro font-semibold whitespace-nowrap">Default</span>
+        </span>
+      }
+    </div>
+    <span
+      data-testid="card-expiry"
+      class="text-body-sm whitespace-nowrap"
+      [class.text-danger-red]="expired()"
+      [class.font-semibold]="expired()"
+      [class.text-ink-secondary]="!expired()"
+    >
+      {{ expired() ? 'Expired' : 'Expires' }} {{ expiryLabel() }}
+    </span>
+  </div>
+
+  <div class="flex h-fit w-fit shrink-0 flex-row items-center justify-start gap-4">
+    @if (!card().isDefault && !expired()) {
+      <button
+        data-testid="set-default-link"
+        type="button"
+        class="text-brand-navy text-body-sm font-semibold whitespace-nowrap"
+        (click)="setDefault.emit(card().id)"
+      >
+        Set as default
+      </button>
+    }
+    <button
+      data-testid="remove-button"
+      type="button"
+      class="border-line-strong flex h-control-sm w-control-sm shrink-0 flex-row items-center justify-center rounded-lg border"
+      [attr.aria-label]="'Remove ' + brandLabel() + ' ending ' + (card().last4 ?? '')"
+      (click)="remove.emit(card().id)"
+    >
+      <svg lucideTrash2 class="text-ink-secondary h-4 w-4"></svg>
+    </button>
+  </div>
+</div>

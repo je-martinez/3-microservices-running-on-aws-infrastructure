@@ -15,6 +15,13 @@ import { ResponseLogInterceptor } from "#shared/http/response-log.interceptor";
 import { UsersModule } from "./users/users.module.ts";
 import { NotificationsModule } from "./notifications/notifications.module.ts";
 import { HealthController } from "./health/health.controller.ts";
+import { PaymentMethodsModule } from "./payment-methods/payment-methods.module.ts";
+
+// WHY: `@Module` evaluates at import time — mirrors the same
+// process.env gate users.module.ts uses for its e2e controller, so the
+// PaymentMethodsModule (and everything it instantiates, incl. the Stripe SDK
+// client) simply does not exist in the DI graph when the flag is off.
+const stripeEnabled = process.env.STRIPE_ENABLED === "true";
 
 // The composition root. The shared modules below are @Global, so a feature
 // module needs no import line to reach config or the Prisma client.
@@ -29,6 +36,7 @@ import { HealthController } from "./health/health.controller.ts";
     CqrsModule,
     UsersModule,
     NotificationsModule,
+    ...(stripeEnabled ? [PaymentMethodsModule] : []),
   ],
   controllers: [HealthController],
   providers: [

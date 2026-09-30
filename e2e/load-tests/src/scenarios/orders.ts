@@ -6,6 +6,10 @@ import { http, status } from "@gatling.io/http";
  * come from services/orders/openapi.yaml (`{ lines: [{ productId, quantity }] }`);
  * guessing produces 400s that read as a service defect in the dashboards. Steps assume
  * a session that already ran the Users login — the journeys compose.
+ *
+ * CONTRACT: Send NO `x-e2e-source` and NO `x-test-mode` here. Load data persists like
+ * real data and is reset with `make clean && make bootstrap`, never by e2e-cleanup.
+ * See [[testing]]
  */
 
 const authHeader = (session: { get: (k: string) => unknown }) =>
@@ -36,6 +40,12 @@ export const listProducts = exec(
  * each product row `FOR UPDATE`, so concurrent buyers contend and ~1% of creates 409
  * at only 0.5 users/sec. Asserting 201 only paints the run red for the system working
  * as designed; the 409s stay visible in `http_errors_total`.
+ *
+ * CONTRACT: Run this ONLY with `STRIPE_ENABLED=false`. It sends no `paymentMethodId`
+ * and no `Idempotency-Key`, both required with the flag on, so every POST answers
+ * `400 invalid_request` and the run measures the validation branch alone. Do NOT
+ * supply a real payment method instead — sustained load against live Stripe bills
+ * real charges. See [[2026-09-19-stripe-payments-design]]
  */
 export const createOrder = exec(
   http("POST /v1/orders")
@@ -61,6 +71,9 @@ export const createOrder = exec(
  * creation locks EVERY line's product row `FOR UPDATE` in one transaction, so this
  * holds three locks at once and exercises subtotal arithmetic a one-line order never
  * does. Accepts 409 for the same reason, and more so: three chances to lose the race.
+ *
+ * CONTRACT: `STRIPE_ENABLED=false` only, for the reason given on `createOrder`.
+ * See [[2026-09-19-stripe-payments-design]]
  */
 export const createMultiLineOrder = exec(
   http("POST /v1/orders (multi-line)")

@@ -82,6 +82,69 @@ public class UserDirectoryGrpcClientTests
         Assert.Equal("usr_resolved", caller.InternalUserId);
     }
 
+    [Fact]
+    public async Task Maps_a_set_stripe_customer_id_onto_the_caller_profile()
+    {
+        var impl = new StubUsers { StripeCustomerId = "cus_123" };
+        await using var server = BuildServer(impl, out var address);
+
+        using var channel = GrpcChannel.ForAddress(address);
+        var client = new UserDirectoryGrpcClient(new Users.V1.Users.UsersClient(channel), "test-key");
+
+        var caller = await client.ResolveCallerAsync("sub-123");
+
+        Assert.NotNull(caller);
+        Assert.Equal("cus_123", caller!.StripeCustomerId);
+    }
+
+    [Fact]
+    public async Task Maps_an_empty_stripe_customer_id_to_null()
+    {
+        // proto3 has no null for strings: a caller with no Stripe customer yet arrives
+        // as "" on the wire, and Orders must never treat that as a real customer id.
+        var impl = new StubUsers { StripeCustomerId = "" };
+        await using var server = BuildServer(impl, out var address);
+
+        using var channel = GrpcChannel.ForAddress(address);
+        var client = new UserDirectoryGrpcClient(new Users.V1.Users.UsersClient(channel), "test-key");
+
+        var caller = await client.ResolveCallerAsync("sub-123");
+
+        Assert.NotNull(caller);
+        Assert.Null(caller!.StripeCustomerId);
+    }
+
+    [Fact]
+    public async Task Maps_the_cognito_sub_off_the_wire_onto_the_caller_profile()
+    {
+        var impl = new StubUsers();
+        await using var server = BuildServer(impl, out var address);
+
+        using var channel = GrpcChannel.ForAddress(address);
+        var client = new UserDirectoryGrpcClient(new Users.V1.Users.UsersClient(channel), "test-key");
+
+        var caller = await client.ResolveCallerAsync("usr_resolved");
+
+        // WHY: Looked up by the usr_ id, so a mapping that echoed the request id would fail.
+        Assert.NotNull(caller);
+        Assert.Equal(StubUsers.CognitoSub, caller!.CognitoSub);
+    }
+
+    [Fact]
+    public async Task Maps_an_empty_cognito_sub_to_null()
+    {
+        var impl = new StubUsers { WireCognitoSub = "" };
+        await using var server = BuildServer(impl, out var address);
+
+        using var channel = GrpcChannel.ForAddress(address);
+        var client = new UserDirectoryGrpcClient(new Users.V1.Users.UsersClient(channel), "test-key");
+
+        var caller = await client.ResolveCallerAsync("sub-123");
+
+        Assert.NotNull(caller);
+        Assert.Null(caller!.CognitoSub);
+    }
+
     // Concrete stub resolved from DI by MapGrpcService. Records the api key it
     // observed and can simulate the NOT_FOUND path.
     private sealed class StubUsers : Users.V1.Users.UsersBase
@@ -89,10 +152,13 @@ public class UserDirectoryGrpcClientTests
         // Distinctive, so a mapping that substituted the id or the sub would fail rather
         // than coincidentally match.
         public const string Email = "wire-user@example.com";
+        public const string CognitoSub = "sub-from-the-wire";
 
         public string? SeenApiKey { get; private set; }
         public string? SeenId { get; private set; }
         public bool NotFound { get; init; }
+        public string StripeCustomerId { get; init; } = "";
+        public string WireCognitoSub { get; init; } = CognitoSub;
 
         public override Task<UserResponse> GetUserById(GetUserByIdRequest request, ServerCallContext context)
         {
@@ -104,7 +170,8 @@ public class UserDirectoryGrpcClientTests
             {
                 Id = "usr_resolved",
                 Email = Email,
-                CognitoSub = request.Id,
+                CognitoSub = WireCognitoSub,
+                StripeCustomerId = StripeCustomerId,
             });
         }
     }

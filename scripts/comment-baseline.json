@@ -1,38 +1,6 @@
 {
   "version": 2,
   "violations": {
-    ".ai/.lnai-projection.yml": [
-      {
-        "fingerprint": "b470a8e45620",
-        "message": "L186: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
-      }
-    ],
-    "Makefile": [
-      {
-        "fingerprint": "dd07583f6d67",
-        "message": "L638: narrative-marker: 'after the fix' narrates history; describe the current state and move the story to the vault"
-      }
-    ],
-    "apps/web/Dockerfile": [
-      {
-        "fingerprint": "5f47111591f8",
-        "message": "L81: length: block 9 lines (> 6) must carry a See [[vault-id]] reference"
-      }
-    ],
-    "functions/events-pipeline/Dockerfile": [
-      {
-        "fingerprint": "f55f3d39c3ec",
-        "message": "L1: length: block 16 lines exceeds hard max 12; move narrative to the vault"
-      },
-      {
-        "fingerprint": "dd3f70f83cd2",
-        "message": "L31: length: block 17 lines exceeds hard max 12; move narrative to the vault"
-      },
-      {
-        "fingerprint": "c8e1c407a39c",
-        "message": "density: 73% (41/56) exceeds 65% for dockerfile"
-      }
-    ],
     "functions/events-pipeline/src/shared/config/env.ts": [
       {
         "fingerprint": "fba72a43e5ed",
@@ -41,128 +9,14 @@
     ],
     "functions/events-pipeline/src/shared/logging/log-context.ts": [
       {
-        "fingerprint": "64ffe8148652",
-        "message": "density: 58% (44/76) exceeds 50% for typescript"
-      }
-    ],
-    "infra/modules/assets-bucket/variables.tf": [
-      {
-        "fingerprint": "67e9ec5c8215",
-        "message": "L62: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
-      }
-    ],
-    "scripts/validate-comments.py": [
-      {
-        "fingerprint": "cee19f9125e9",
-        "message": "L1: length: block 10 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
-      }
-    ],
-    "scripts/validate-vault.mjs": [
-      {
-        "fingerprint": "2e7a3e51ec6a",
-        "message": "L1: length: block 16 lines exceeds hard max 12; move narrative to the vault"
-      },
-      {
-        "fingerprint": "a5ccf2dea4e1",
-        "message": "L34: length: block 9 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
-      },
-      {
-        "fingerprint": "131a55feeff3",
-        "message": "L66: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
-      }
-    ],
-    "services/tracking-go/Dockerfile": [
-      {
-        "fingerprint": "466f091de72d",
-        "message": "L1: length: block 20 lines exceeds hard max 12; move narrative to the vault"
-      },
-      {
-        "fingerprint": "1d6dc4cd7508",
-        "message": "L40: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
-      },
-      {
-        "fingerprint": "a4330ca80cdc",
-        "message": "L51: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
-      },
-      {
-        "fingerprint": "397ade7996fb",
-        "message": "L65: length: block 16 lines exceeds hard max 12; move narrative to the vault"
-      },
-      {
-        "fingerprint": "d265ebc27078",
-        "message": "density: 73% (69/94) exceeds 65% for dockerfile"
-      }
-    ],
-    "services/tracking-go/Makefile": [
-      {
-        "fingerprint": "b8b7d3e9197a",
-        "message": "L40: length: block 7 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
-      },
-      {
-        "fingerprint": "b8b7d3e9197a",
-        "message": "L41: narrative-marker: 'used to' narrates history; describe the current state and move the story to the vault"
-      },
-      {
-        "fingerprint": "d51d95055c14",
-        "message": "L53: length: block 21 lines exceeds hard max 12; move narrative to the vault"
-      },
-      {
-        "fingerprint": "fac8d1c5db19",
-        "message": "L109: length: block 14 lines exceeds hard max 12; move narrative to the vault"
-      }
-    ],
-    "services/tracking-go/internal/adapter/grpcusers/gen/users.pb.go": [
-      {
-        "fingerprint": "6e3cf72115e0",
-        "message": "L68: length: block 13 lines exceeds hard max 12; move narrative to the vault"
-      },
-      {
-        "fingerprint": "1509b1ae6a23",
-        "message": "L172: narrative-marker: 'no longer' narrates history; describe the current state and move the story to the vault"
-      },
-      {
-        "fingerprint": "8ff3203140a4",
-        "message": "L290: length: block 8 lines (> 6) must be tagged CONTRACT: or WORKAROUND(<scope>):"
-      }
-    ],
-    "services/tracking-go/internal/adapter/grpcusers/gen/users_grpc.pb.go": [
-      {
-        "fingerprint": "fe8babbee76f",
-        "message": "L66: tag: 'NOTE:' is not in the closed set (CONTRACT, WORKAROUND(<scope>), WHY, WARNING, TODO(JE-<id>))"
-      }
-    ],
-    "services/tracking-go/internal/adapter/mysql/querier.go": [
-      {
-        "fingerprint": "da6d6991ea31",
-        "message": "density: 71% (60/84) exceeds 50% for go"
-      }
-    ],
-    "services/tracking-go/internal/openapi/testdata/python-contract-at-cutover.yaml": [
-      {
-        "fingerprint": "a088b1b85c94",
-        "message": "L1: length: block 42 lines exceeds hard max 12; move narrative to the vault"
-      },
-      {
-        "fingerprint": "a088b1b85c94",
-        "message": "L38: narrative-marker: 'no longer' narrates history; describe the current state and move the story to the vault"
-      }
-    ],
-    "services/users/src/config/env.schema.ts": [
-      {
-        "fingerprint": "6ef111637d23",
-        "message": "density: 56% (47/84) exceeds 50% for typescript"
-      }
-    ],
-    "services/users/src/shared/db/sql-logging.ts": [
-      {
-        "fingerprint": "ed5ff8d70974",
-        "message": "density: 52% (31/60) exceeds 50% for typescript"
+        "fingerprint": "5533c0cac567",
+        "message": "density: 54% (37/69) exceeds 50% for typescript"
       }
     ],
     "services/users/src/shared/logging/log-context.ts": [
       {
-        "fingerprint": "2749a0999f18",
-        "message": "density: 59% (43/73) exceeds 50% for typescript"
+        "fingerprint": "d4890f377735",
+        "message": "density: 57% (40/70) exceeds 50% for typescript"
       }
     ]
   }

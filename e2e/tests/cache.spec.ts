@@ -17,6 +17,7 @@ import {
   settleAfterTrackingBurst,
   waitForMyOrdersTrackingReadable,
 } from "../support/tracking-readiness.js";
+import { makeBuyer, placeOrder } from "../support/orders-buyer.js";
 
 // Internal E2E for the response cache: two consecutive GETs must produce MISS then
 // HIT, and an intervening write must return the next read to MISS. The gateway copy
@@ -28,6 +29,12 @@ import {
 // `{sub}:{user_id}`, so a shared caller lets one test's warm cache satisfy another's
 // cold-read assertion — order-dependent contamination that passes alone and fails in
 // a full run. `orders:products:v1` is the one ownerless key, handled explicitly below.
+
+// CONTRACT: Take the buyer BEFORE the warm reads, and create through `placeOrder`.
+// `makeBuyer` talks only to Users, so it disturbs no Orders key — but it must never sit
+// between a warm read and the write meant to invalidate it.
+// See [[2026-09-19-stripe-payments-design]]
+
 // CONTRACT: Issue each MISS/HIT pair BACK TO BACK, all setup before the first read,
 // and NO `waitForTimeout` anywhere in this file. TTLs are 60s for the cart and both
 // tracking keys, so a sleep pushes a pair past the boundary and the flake reads as a
@@ -133,7 +140,8 @@ test("GET /v1/products: the catalogue is cached — a second read is a HIT", asy
 // AFTER the write rather than before.
 test("POST /v1/orders invalidates the catalogue: the next GET /v1/products is a MISS", async () => {
   const api = await ordersClient();
-  const userId = await registerCaller();
+  const buyer = await makeBuyer(api);
+  const userId = buyer.userId;
   const attempts = 4;
   let lastAfterHeader: string | undefined;
 
@@ -162,10 +170,9 @@ test("POST /v1/orders invalidates the catalogue: the next GET /v1/products is a 
       .sort((a, b) => b.unitsInStock - a.unitsInStock)[0];
     expect(product, "no product with stock in the catalogue").toBeTruthy();
 
-    const created = await api.post("/v1/orders", {
-      headers: { "x-user-id": userId },
-      data: { lines: [{ productId: product.id, quantity: 1 }] },
-    });
+    const created = await placeOrder(api, buyer, [
+      { productId: product.id, quantity: 1 },
+    ]);
     expect(
       created.status(),
       `order creation failed: ${await created.text()}`,
@@ -349,12 +356,12 @@ test("GET /v1/orders/my-orders: MISS then HIT, per includeTracking variant", asy
   test.setTimeout(120_000);
 
   const api = await ordersClient();
-  const userId = await registerCaller();
+  const buyer = await makeBuyer(api);
+  const userId = buyer.userId;
   const product = await firstProductWithStock(api, userId);
-  const created = await api.post("/v1/orders", {
-    headers: { "x-user-id": userId },
-    data: { lines: [{ productId: product.id, quantity: 1 }] },
-  });
+  const created = await placeOrder(api, buyer, [
+    { productId: product.id, quantity: 1 },
+  ]);
   expect(
     created.status(),
     `order creation failed: ${await created.text()}`,
@@ -470,7 +477,8 @@ test("GET /v1/orders/my-orders: MISS then HIT, per includeTracking variant", asy
 
 test("POST /v1/orders invalidates BOTH my-orders variants", async () => {
   const api = await ordersClient();
-  const userId = await registerCaller();
+  const buyer = await makeBuyer(api);
+  const userId = buyer.userId;
   const product = await firstProductWithStock(api, userId);
 
   // Warm both variants.
@@ -485,10 +493,9 @@ test("POST /v1/orders invalidates BOTH my-orders variants", async () => {
     "warm t1",
   );
 
-  const created = await api.post("/v1/orders", {
-    headers: { "x-user-id": userId },
-    data: { lines: [{ productId: product.id, quantity: 1 }] },
-  });
+  const created = await placeOrder(api, buyer, [
+    { productId: product.id, quantity: 1 },
+  ]);
   expect(
     created.status(),
     `order creation failed: ${await created.text()}`,
@@ -516,12 +523,12 @@ test("POST /v1/orders invalidates BOTH my-orders variants", async () => {
 
 test("GET /v1/orders/{orderId}: MISS then HIT, and the t0/t1 variants are separate keys", async () => {
   const api = await ordersClient();
-  const userId = await registerCaller();
+  const buyer = await makeBuyer(api);
+  const userId = buyer.userId;
   const product = await firstProductWithStock(api, userId);
-  const created = await api.post("/v1/orders", {
-    headers: { "x-user-id": userId },
-    data: { lines: [{ productId: product.id, quantity: 1 }] },
-  });
+  const created = await placeOrder(api, buyer, [
+    { productId: product.id, quantity: 1 },
+  ]);
   expect(
     created.status(),
     `order creation failed: ${await created.text()}`,
@@ -556,14 +563,14 @@ test("GET /v1/orders/{orderId}: MISS then HIT, and the t0/t1 variants are separa
 
 test("GET /v1/orders/{orderId}: user B never gets a HIT on user A's warm order", async () => {
   const api = await ordersClient();
-  const owner = await registerCaller();
+  const ownerBuyer = await makeBuyer(api);
+  const owner = ownerBuyer.userId;
   const other = await registerCaller();
   const product = await firstProductWithStock(api, owner);
-  const created = await api.post("/v1/orders", {
-    headers: { "x-user-id": owner },
-    data: { lines: [{ productId: product.id, quantity: 1 }] },
-  });
-  expect(created.status()).toBe(201);
+  const created = await placeOrder(api, ownerBuyer, [
+    { productId: product.id, quantity: 1 },
+  ]);
+  expect(created.status(), await created.text()).toBe(201);
   const orderId = (await created.json()).id as string;
 
   expectMiss(

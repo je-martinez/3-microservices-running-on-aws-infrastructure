@@ -50,6 +50,22 @@ if (fs.existsSync(trackingEnvPath)) {
   }
 }
 
+// CONTRACT: Take Orders' STRIPE_WEBHOOK_URL_TOKEN and STRIPE_SECRET_KEY by name and RENAME
+// both. `.env.local.users` already sets each name to Users' own value, so under the shared
+// name one silently shadows the other: the cross-service 404 spec tests nothing, and a
+// PaymentIntents read made with Users' key answers 403 (its policy grants PaymentIntents
+// None, Orders' grants Write). See [[stripe-sandbox-setup]]
+const ordersEnvPath = path.join(repoRoot, ".env.local.orders");
+if (fs.existsSync(ordersEnvPath)) {
+  const ordersEnv = dotenv.parse(fs.readFileSync(ordersEnvPath, "utf8"));
+  if (ordersEnv.STRIPE_WEBHOOK_URL_TOKEN) {
+    process.env.ORDERS_STRIPE_WEBHOOK_URL_TOKEN ??= ordersEnv.STRIPE_WEBHOOK_URL_TOKEN;
+  }
+  if (ordersEnv.STRIPE_SECRET_KEY) {
+    process.env.ORDERS_STRIPE_SECRET_KEY ??= ordersEnv.STRIPE_SECRET_KEY;
+  }
+}
+
 // Sanity check: confirm the literal `$default` segment survived loading.
 if (process.env.API_GATEWAY_URL) {
   console.log(`[playwright.config] API_GATEWAY_URL loaded: ${process.env.API_GATEWAY_URL}`);

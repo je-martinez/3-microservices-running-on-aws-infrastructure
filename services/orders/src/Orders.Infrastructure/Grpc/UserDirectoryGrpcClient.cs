@@ -30,7 +30,13 @@ public class UserDirectoryGrpcClient : IUserDirectory
         // See [[logging-context]]
         return response is null
             ? null
-            : new CallerProfile(response.Id, response.Email, response.FullName, ToAddress(response.Address));
+            : new CallerProfile(
+                response.Id,
+                response.Email,
+                response.FullName,
+                ToAddress(response.Address),
+                NullIfBlank(response.StripeCustomerId),
+                NullIfBlank(response.CognitoSub));
     }
 
     private async Task<UserResponse?> LookupAsync(string cognitoSub, CancellationToken ct)

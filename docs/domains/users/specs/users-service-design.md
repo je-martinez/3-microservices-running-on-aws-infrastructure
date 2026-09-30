@@ -4,7 +4,7 @@ type: spec
 area: users
 status: active
 created: 2026-06-26
-updated: 2026-09-19
+updated: 2026-09-30
 tags: [type/spec, area/users, status/active]
 related:
   - "[[2026-09-19-users-nestjs-migration-design]]"
@@ -744,8 +744,8 @@ route schemas via Nest's document builder + Zod's native `z.toJSONSchema` (entry
 `src/shared/openapi/generate-openapi.ts`), running `pnpm generate:openapi`.
 `zod-to-json-schema` returns `{}` for Zod v4 schemas — do not reintroduce it; see
 [[openapi-specs]]. The acceptance criterion is a **diff against the committed `openapi.yaml`**
-(named `$refs`, zero orphans), not merely "the generator builds". It is the artifact imported
-into Apidog (see `docs/infrastructure/runbooks/mcp-servers.md`). Any route or schema change
+(named `$refs`, zero orphans), not merely "the generator builds". It is the artifact consumed by
+API clients. Any route or schema change
 requires regenerating and committing `openapi.yaml` in the same change. See
 [[2026-07-10-users-openapi-autogen-design]] for the original generator design (orphan-component
 pruning for the `*Input` schema variants still applies).

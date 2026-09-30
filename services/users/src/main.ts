@@ -29,7 +29,10 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     disableRequestLogging: true,
   });
 
-  return NestFactory.create<NestFastifyApplication>(AppModule, adapter);
+  // CONTRACT: `rawBody: true` only adds `req.rawBody`; every other route's
+  // `@Body()` is unaffected. Proved by stripe-webhook.controller.test.ts's
+  // real signed-payload assertions, not re-tested here.
+  return NestFactory.create<NestFastifyApplication>(AppModule, adapter, { rawBody: true });
 }
 
 export async function bootstrap(): Promise<void> {

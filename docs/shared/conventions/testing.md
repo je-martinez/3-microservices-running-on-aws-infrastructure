@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-17
-updated: 2026-09-19
+updated: 2026-09-30
 tags: [type/convention, area/shared, status/active]
 related:
   - "[[2026-09-19-users-nestjs-migration-design]]"
@@ -115,7 +115,7 @@ top of `make bootstrap` — it skips with a named reason when OpenObserve is unr
 than failing as a confusing connection error.
 
 **Two more projects, `web-tokyo` and `web-tegucigalpa`: one surface, many timezones, not a fifth
-layer.** `e2e/tests/web/` (6 spec files) is the phase-1 web verification described in
+layer.** `e2e/tests/web/` (11 spec files) is the phase-1 web verification described in
 [[2026-08-17-web-app-foundation-design#D9 — Phase 1 verification is navigation E2E plus typecheck and lint]]:
 every route mounts and renders clean, and every rendered date reads the same regardless of the
 viewer's clock. The pair is generated from a single list, `WEB_TIMEZONES` in
@@ -137,8 +137,8 @@ when date normalisation regresses to viewer-local rendering — verified by muta
   ignored — Playwright falls back to `http://localhost:4200` regardless — and every test then
   dies on connection-refused if nothing is actually listening there. Confirmed cost: a full false
   "51 failed" run traced back to exactly this.
-- **Four of the six specs open a headed browser window** (`cart-drawer-animation`,
-  `popover-overflow`, `scrollbar-gutter`, `cart-drawer-first-open`) — the same four named in
+- **Five of the eleven specs open a headed browser window** (`cart-drawer-animation`,
+  `popover-overflow`, `scrollbar-gutter`, `cart-drawer-first-open`, `gateway-session`) — the same five named in
   "Never open a headed browser window without asking first" below; see [[headed-browser-consent]]
   for why and the consent rule, not repeated here.
 
@@ -441,8 +441,8 @@ configuration, it is not testing the system.
 
 ## Never open a headed browser window without asking first
 
-Four specs launch headed browsers (`cart-drawer-animation`, `popover-overflow`,
-`scrollbar-gutter`, `cart-drawer-first-open`), so a plain full-suite run pops several windows
+Five specs launch headed browsers (`cart-drawer-animation`, `popover-overflow`,
+`scrollbar-gutter`, `cart-drawer-first-open`, `gateway-session`), so a plain full-suite run pops several windows
 with no warning — they steal focus and can land on an unpredictable monitor. Ask the user before
 any headed window opens, every time, whether it's the full suite or a one-off probe; on accept,
 target the monitor they've chosen. Full convention, including why two attempted workarounds
@@ -539,8 +539,21 @@ invalidates the catalogue cache.
   and even if it could, anything inside a scenario runs **per virtual user**, which would reload
   stock mid-measurement and show up as its own row in the percentile tables rather than as setup.
 
+## Stripe-backed endpoints — read the charge back from Stripe
+
+The Stripe payments milestone ([[2026-09-19-stripe-payments]]) applies the three layers to the
+saved-card and charge paths: `e2e/tests/payment-methods.spec.ts` and
+`e2e/tests/gateway/payment-methods.spec.ts` for Users, `e2e/tests/order-payment.spec.ts`,
+`e2e/tests/orders-stripe-webhook.spec.ts` and their gateway counterparts for Orders, plus browser
+specs for the Payment Element checkout and the profile payment-methods screen. Two rules:
+`POST /v1/orders` returns no payment snapshot, so a spec confirms money moved (and how many times)
+by reading the charges back from Stripe (`e2e/support/stripe-charges.ts`); and a Payment Element
+spec reaches Stripe's cross-origin iframe through `frameLocator`, never a fixed sleep
+(`e2e/support/payment-element.ts`).
+
 ## Related
 
+- [[2026-09-19-stripe-payments]] — the Stripe milestone's three-layer coverage described above.
 - [[2026-09-19-users-nestjs-migration-design]] — Users Nest migration; bus-dispatch and
   mutation-testing requirements above.
 - [[2026-09-19-test-local-app-interceptor-hides-composition-root-omission]] — composition-root

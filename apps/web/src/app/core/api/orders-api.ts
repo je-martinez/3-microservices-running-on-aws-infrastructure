@@ -29,6 +29,36 @@ export interface CreateOrderLine {
   quantity: IntLike;
 }
 
+/**
+ * services/orders/openapi.yaml — CardMetadataRequest.
+ *
+ * CONTRACT: brand, last4 and the expiry ONLY. The PAN and the CVC never leave
+ * the browser; a body carrying either puts this repo in PCI scope.
+ * See [[2026-09-19-stripe-payments-design]]
+ */
+export interface CardMetadataRequest {
+  brand: string | null;
+  last4: string | null;
+  expMonth: number | null;
+  expYear: number | null;
+}
+
+/**
+ * The optional half of a CreateOrderRequest, plus its idempotency header.
+ *
+ * CONTRACT: `paymentMethodId` and `card` are the route's two BRANCHES and are
+ * never both sent — Orders validates `card` only while STRIPE_ENABLED is false.
+ * See [[2026-09-19-stripe-payments-design]]
+ */
+export interface CreateOrderOptions {
+  /** Stripe branch: the `pm_...` to charge. */
+  paymentMethodId?: string | null;
+  /** Plain branch: what the buyer typed, minus the PAN and the CVC. */
+  card?: CardMetadataRequest;
+  /** One per checkout ATTEMPT, reused only across a retry of that attempt. */
+  idempotencyKey?: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class OrdersApi {
   private readonly api = inject(ApiClient);
@@ -37,13 +67,27 @@ export class OrdersApi {
    * POST /orders — creates an order and DELETES the caller's cart server-side.
    *
    * CONTRACT: The server does NOT read the cart; it prices exactly the `lines`
-   * sent, and a body of `{}` answers 400. Sending anything but the cart's own
-   * lines charges for something the buyer never saw. The caller must drop its
-   * local cart afterwards — the cart it still holds no longer exists.
+   * sent, and a body of `{}` answers 400. The caller drops its local cart after.
    * See [[2026-09-04-web-gateway-integration-design]]
+   *
+   * CONTRACT: `idempotencyKey` rides the `Idempotency-Key` HEADER, where Orders
+   * reads it — a body field is ignored, so a retried attempt then creates a
+   * second order and a second charge. See [[2026-09-19-stripe-payments-design]]
    */
-  createOrder(lines: readonly CreateOrderLine[]): Observable<Order> {
-    return this.api.post<Order>('/orders', { lines });
+  createOrder(
+    lines: readonly CreateOrderLine[],
+    options: CreateOrderOptions = {},
+  ): Observable<Order> {
+    const { paymentMethodId, card, idempotencyKey } = options;
+    return this.api.post<Order>(
+      '/orders',
+      {
+        lines,
+        ...(paymentMethodId ? { paymentMethodId } : {}),
+        ...(card ? { card } : {}),
+      },
+      idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined,
+    );
   }
 
   /** GET /orders/my-orders?includeTracking=true — the caller's own orders. */

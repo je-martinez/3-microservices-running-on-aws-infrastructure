@@ -10,6 +10,8 @@ import { buildOpenApiDocument } from "#shared/openapi/build-document";
 // (services/users/openapi.yaml). NotificationInput is an orphan twin that
 // provider emits; Nest does not recreate it.
 const COMMITTED_COMPONENT_NAMES = [
+  "AttachPaymentMethod",
+  "AttachPaymentMethodResult",
   "AuthTokens",
   "ChangePasswordInput",
   "ConfirmPasswordResetInput",
@@ -24,9 +26,12 @@ const COMMITTED_COMPONENT_NAMES = [
   "OtpVerifyInput",
   "PasswordResetAccepted",
   "PasswordResetConfirmed",
+  "PaymentMethodList",
+  "PaymentMethodView",
   "RefreshInput",
   "RegisterInput",
   "RegisterPasswordlessInput",
+  "SetupIntentResult",
   "UnreadCount",
   "UpdateProfileInput",
   "User",

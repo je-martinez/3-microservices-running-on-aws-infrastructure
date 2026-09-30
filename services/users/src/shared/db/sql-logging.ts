@@ -2,20 +2,17 @@ import type { Logger } from "pino";
 import { appLogger } from "../logging/app-logger.ts";
 
 /**
- * The shape of Prisma's `query` event (`Prisma.QueryEvent`), restated locally so
- * this module can be unit-tested without constructing a connected client. Only
- * the fields we actually read are declared.
+ * Restated locally so this module can be unit-tested without constructing a
+ * connected client. Only the fields actually read are declared.
  */
 export interface PrismaQueryEvent {
-  /** The statement text, with `$1`-style placeholders — never the values. */
+  /** Statement text with `$1` placeholders — never the values. */
   query: string;
-  /** Serialized parameter VALUES. Deliberately never read here — see below. */
+  /** Parameter VALUES. Never read here — see the WARNING below. */
   params?: string;
-  /** Statement duration in milliseconds, as measured by Prisma. */
   duration?: number;
 }
 
-/** Minimal surface of the base client needed to subscribe to the query event. */
 export interface QueryEventEmitter {
   $on(eventType: "query", callback: (event: PrismaQueryEvent) => void): unknown;
 }

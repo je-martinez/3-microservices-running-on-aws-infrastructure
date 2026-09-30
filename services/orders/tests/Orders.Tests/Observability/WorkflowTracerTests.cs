@@ -82,6 +82,35 @@ public class WorkflowTracerTests
     }
 
     [Fact]
+    public async Task TraceWorkflowAsync_LeavesStatusUnsetAndRecordsNoException_WhenAPaymentIsDeclined()
+    {
+        var recorded = new List<Activity>();
+        using var listener = ListenerFor(recorded);
+        ActivitySource.AddActivityListener(listener);
+
+        var tracer = new WorkflowTracer();
+
+        await Assert.ThrowsAsync<Orders.Application.Payments.PaymentDeclinedException>(() =>
+            tracer.TraceWorkflowAsync<int>(
+                "create_order",
+                new Dictionary<string, object?> { ["app_event"] = "create_order_started" },
+                async () =>
+                {
+                    await Task.Yield();
+                    tracer.SetReason("insufficient_funds");
+                    throw new Orders.Application.Payments.PaymentDeclinedException(
+                        "Your card has insufficient funds.", "card_declined", "insufficient_funds");
+                }));
+
+        var span = Assert.Single(recorded);
+        Assert.Equal(ActivityStatusCode.Unset, span.Status);
+        Assert.Empty(span.Events);
+        Assert.Contains(span.Tags, t => t.Key == "reason" && t.Value == "insufficient_funds");
+        Assert.NotEqual(default, span.Duration);
+        Assert.Null(Activity.Current);
+    }
+
+    [Fact]
     public async Task SetAttribute_AttachesToTheCurrentWorkflowSpan()
     {
         var recorded = new List<Activity>();

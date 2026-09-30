@@ -20,10 +20,15 @@ public static class OrderEndpoints
             .WithSummary("Create an order for the caller, decrementing product stock.")
             .Accepts<CreateOrderRequest>("application/json")
             .Produces<OrderDto>(StatusCodes.Status201Created)
+            // The order an Idempotency-Key already produced (Stripe on only).
+            .Produces<OrderDto>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status400BadRequest)
             .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status402PaymentRequired)
             .Produces(StatusCodes.Status404NotFound)
-            .Produces(StatusCodes.Status409Conflict);
+            .Produces(StatusCodes.Status409Conflict)
+            .Produces(StatusCodes.Status422UnprocessableEntity)
+            .Produces(StatusCodes.Status503ServiceUnavailable);
 
         // CONTRACT: Dispatch through the bus, never by resolving the handler and calling it.
         // The span, the app_event and the flow log come from the pipeline wrapped around the

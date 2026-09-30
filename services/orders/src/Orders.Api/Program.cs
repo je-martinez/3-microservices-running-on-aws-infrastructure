@@ -7,9 +7,11 @@ using Orders.Api.Endpoints;
 using Orders.Api.Identity;
 using Orders.Api.Logging;
 using Orders.Api.Middleware;
+using Orders.Api.Payments;
 using Orders.Application.Abstractions;
 using Orders.Application.Messaging;
 using Orders.Application.Identity;
+using Orders.Application.Payments;
 using Orders.Application.Tracking;
 using Orders.Infrastructure.Bus;
 using Orders.Infrastructure.Caching;
@@ -23,12 +25,14 @@ using Orders.Infrastructure.Metrics;
 using Orders.Infrastructure.Observability;
 using Orders.Infrastructure.Orders;
 using Orders.Infrastructure.Orders.Handlers;
+using Orders.Infrastructure.Payments;
 using Orders.Infrastructure.Persistence;
 using Orders.Infrastructure.Tracking;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Serilog;
 using StackExchange.Redis;
+using Stripe;
 using Wolverine;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -51,7 +55,11 @@ builder.Services.AddOpenTelemetry()
             new KeyValuePair<string, object>("deployment.environment.name", deploymentEnvironment),
         ]))
     .WithTracing(tracing => tracing
-        .AddAspNetCoreInstrumentation()
+        // CONTRACT: Keep this enrich hook — the Stripe webhook's path carries its URL token, a
+        // secret, and url.path would otherwise export it verbatim.
+        // See [[2026-09-19-stripe-payments-design]]
+        .AddAspNetCoreInstrumentation(options =>
+            options.EnrichWithHttpRequest = StripeWebhookEndpoints.RedactSpan)
         .AddHttpClientInstrumentation()
         .AddEntityFrameworkCoreInstrumentation()
         // What makes SnsEventPublisher's PublishAsync produce a CLIENT span.
@@ -66,6 +74,8 @@ builder.Services.AddOpenTelemetry()
         .AddSource(CloudWatchMetricsPublisher.ActivitySourceName)
         // Redis cache.get / cache.set spans.
         .AddSource(CacheGateway.ActivitySourceName)
+        // Outbound Stripe calls.
+        .AddSource(StripeActivitySource.Name)
         // CONTRACT: Do NOT set OtlpExporter Endpoint in code — hand-built URLs POST to the collector
         // root and return 404 silently; the SDK reads OTEL_EXPORTER_OTLP_ENDPOINT instead.
         // See [[logging-context]]
@@ -86,6 +96,7 @@ builder.Host.UseSerilog((_, services, cfg) => cfg
     .MinimumLevel.Override("Microsoft.AspNetCore.Routing.EndpointMiddleware", Serilog.Events.LogEventLevel.Warning)
     .MinimumLevel.Override("Microsoft.AspNetCore.Http.Result", Serilog.Events.LogEventLevel.Warning)
     .Enrich.With(new LogContextEnricher(services.GetRequiredService<IHttpContextAccessor>()))
+    .Enrich.With(new RequestPathRedactionEnricher())
     .WriteTo.Console(new SchemaLogFormatter("orders", deploymentEnvironment)));
 
 // Read side (read replica in prod; same MySQL locally). ADO connection string.
@@ -208,6 +219,41 @@ builder.Services.AddScoped<IUserDirectory>(sp =>
     var cache = sp.GetService<ICacheGateway>();
     return cache is null ? grpc : new CachedUserDirectory(grpc, cache);
 });
+
+// CONTRACT: One StripeClient instance per process — never the global StripeConfiguration.ApiKey.
+// The API version (2026-08-26.dahlia) is pinned by the Stripe.net 52.4.0 package itself.
+// WARNING: STRIPE_ENABLED with no STRIPE_SECRET_KEY still boots — charges answer 503 instead.
+// See [[2026-09-19-stripe-payments-design]]
+var stripeEnabled = builder.Configuration.GetValue("STRIPE_ENABLED", false);
+var stripeSecretKey = builder.Configuration["STRIPE_SECRET_KEY"];
+var stripeKeyMissing = stripeEnabled && string.IsNullOrWhiteSpace(stripeSecretKey);
+builder.Services.AddSingleton(new StripeSettings(stripeEnabled));
+if (stripeEnabled && !stripeKeyMissing)
+{
+    builder.Services.AddSingleton<IStripeClient>(_ => new StripeClient(stripeSecretKey));
+}
+builder.Services.AddSingleton(sp => new StripePaymentCharger(
+    sp.GetService<IStripeClient>(),
+    sp.GetRequiredService<ILogger<StripePaymentCharger>>()));
+
+// WARNING: STRIPE_ENABLED with no STRIPE_WEBHOOK_SECRET still boots — the webhook answers 503.
+var stripeWebhookSecret = builder.Configuration["STRIPE_WEBHOOK_SECRET"];
+var stripeWebhookSecretMissing = stripeEnabled && string.IsNullOrWhiteSpace(stripeWebhookSecret);
+builder.Services.AddSingleton(new StripeWebhookSettings(
+    string.IsNullOrWhiteSpace(stripeWebhookSecret) ? null : stripeWebhookSecret,
+    TimeSpan.FromSeconds(builder.Configuration.GetValue(
+        "STRIPE_ORPHAN_GRACE_PERIOD_SECONDS", StripeWebhookSettings.DefaultOrphanGracePeriodSeconds))));
+// WARNING: STRIPE_ENABLED with no URL token or no valid allowlist still boots — the webhook answers 503.
+var stripeWebhookAccess = StripeWebhookAccess.FromConfiguration(
+    builder.Configuration, out var stripeWebhookAccessProblems);
+builder.Services.AddSingleton(stripeWebhookAccess);
+builder.Services.AddScoped(sp => new StripeWebhookService(
+    sp.GetRequiredService<OrdersWriteDbContext>(),
+    sp.GetRequiredService<StripePaymentCharger>(),
+    sp.GetService<IStripeClient>() is not null,
+    sp.GetRequiredService<StripeWebhookSettings>(),
+    sp.GetRequiredService<IWorkflowTracer>(),
+    sp.GetRequiredService<ILogger<StripeWebhookService>>()));
 
 // CONTRACT: Fail fast on missing EVENTS_TOPIC_ARN — a null ARN boots silently and the publisher
 // swallows publish failures, so no confirmation email is ever sent.
@@ -345,7 +391,9 @@ builder.Services.AddScoped(sp => new CreateOrderService(
     sp.GetRequiredService<IWorkflowTracer>(),
     sp.GetRequiredService<ICacheInvalidator>(),
     assetsBaseUrl,
-    sp.GetRequiredService<ILogger<CreateOrderService>>()));
+    sp.GetRequiredService<ILogger<CreateOrderService>>(),
+    sp.GetRequiredService<StripeSettings>(),
+    sp.GetRequiredService<StripePaymentCharger>()));
 
 // CQRS dispatch bus. The four behaviors are registered ONCE here, in the pipeline order the
 // design commits to: tracing -> app_event -> logging -> validation -> handler. Wolverine's
@@ -388,6 +436,26 @@ builder.Host.UseWolverine(opts =>
 
 var app = builder.Build();
 
+if (stripeKeyMissing && !isDocumentGeneration)
+{
+    app.Logger.LogWarning(
+        "STRIPE_ENABLED is true but STRIPE_SECRET_KEY is not set. Order creation will answer 503.");
+}
+
+if (stripeWebhookSecretMissing && !isDocumentGeneration)
+{
+    app.Logger.LogWarning(
+        "STRIPE_ENABLED is true but STRIPE_WEBHOOK_SECRET is not set. The Stripe webhook will answer 503.");
+}
+
+if (stripeEnabled && !isDocumentGeneration)
+{
+    foreach (var problem in stripeWebhookAccessProblems)
+    {
+        app.Logger.LogWarning("STRIPE_ENABLED is true but {problem}. The Stripe webhook will answer 503.", problem);
+    }
+}
+
 // WHY: Open AmbientRequestId here — UseSerilogRequestLogging runs on unwind after inner
 // middleware, so a scope opened deeper would drop request_id from "request completed".
 app.Use(async (_, next) =>
@@ -418,7 +486,8 @@ app.UseSerilogRequestLogging(options =>
         diag.Set("http_request_method", http.Request.Method);
         diag.Set(
             "http_route",
-            (http.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText ?? http.Request.Path.Value);
+            (http.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText
+                ?? StripeWebhookEndpoints.RedactPath(http.Request.Path.Value));
         diag.Set("http_response_status_code", http.Response.StatusCode);
         // NO trace_id here. LogContextEnricher supplies the real OTel trace id
         // from Activity.Current; it uses AddPropertyIfAbsent, so a value set on
@@ -482,6 +551,13 @@ app.MapInternalEndpoints();
 if (app.Configuration.GetValue<bool>("E2E_TESTING_ENABLED") || IsOpenApiGeneration())
 {
     app.MapE2eEndpoints();
+}
+
+// CONTRACT: Stripe off means no Stripe route at all. Mapped during document generation too,
+// so openapi.yaml documents it. See [[2026-09-19-stripe-payments-design]]
+if (stripeEnabled || IsOpenApiGeneration())
+{
+    app.MapStripeWebhookEndpoints();
 }
 
 app.Run();

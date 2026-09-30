@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-06-28
-updated: 2026-09-22
+updated: 2026-09-30
 tags:
   - type/convention
   - area/shared
@@ -68,6 +68,8 @@ These skills are installed as real directories in `.claude/skills/` (24 total) a
 | `database-designer` | alirezarezvani/claude-skills | Cross-cutting DB design |
 | `terraform-skill` | antonbabenko/terraform-skill | Infrastructure (converted from plugin evaluation → npx) |
 | `floci` | project-authored | Infrastructure — local AWS emulator knowledge layer |
+| `stripe-best-practices` | docs.stripe.com (Stripe official) | Stripe payments work — API selection, restricted keys, webhooks, security; projected to every provider |
+| `stripe-docs` | docs.stripe.com (Stripe official) | Stripe payments work — reads docs.stripe.com via the `stripe docs` CLI; Claude-only (needs `stripe login`) |
 | `obsidian-markdown` | obsidian community | Vault authoring — wikilinks, callouts, properties, embeds |
 | `obsidian-bases` | obsidian community | Vault authoring — `.base` files |
 | `obsidian-cli` | obsidian community | Vault authoring — CLI read/search/manage |
@@ -182,6 +184,7 @@ SkillsMP is a massive aggregator (~1.8 M entries) with low signal-to-noise ratio
 
 ## Related
 
+- [[2026-09-19-stripe-payments]] — the milestone that installed `stripe-best-practices` and `stripe-docs`.
 - [[2026-06-28-services-infra-scaffold-design]] — the design spec whose candidate-skills catalog this note supersedes after validation and install.
 - [[2026-06-28-services-infra-scaffold]] — the implementation plan that includes this catalog as Task 7.
 - [[linear-references]] — Linear reference convention (tags + inline links, no mirroring).

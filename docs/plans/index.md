@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-09-19
+updated: 2026-09-23
 tags: [type/spec, area/shared, status/active]
 related:
   - "[[2026-09-10-in-app-notifications-design]]"
@@ -148,6 +148,9 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-09-19-users-nestjs-migration-design]] — design spec for migrating Users from Fastify+Awilix to NestJS to adopt `@nestjs/cqrs`, gated on all 84 E2E specs passing before Fastify is deleted, with five measured findings carried forward from a reverted hand-rolled-bus attempt.
 - [[2026-09-19-users-nestjs-migration]] — implementation plan for the Users NestJS migration: 27 tasks across toolchain/foundation (including the `unplugin-swc` decorator-metadata gap the spec did not anticipate), handlers behind `CommandBus`/`QueryBus`, the HTTP/gRPC/SQS/metrics surfaces, and the cut-over gate where all 84 E2E specs must pass unmodified before Fastify is deleted.
 - [[cqrs-dispatch-all-services-milestone]] — logical execution plan for the CQRS Dispatch — All Services milestone: three independent workstreams (Tracking/Go, Orders/.NET/Wolverine, Users/NestJS), their internal phase dependencies, stop points, and the carry-forward observability findings that apply to all three.
+- [[2026-09-19-stripe-payments-design]] — design spec turning `NG_APP_STRIPE_ENABLED` into a real integration: Users owns the Stripe Customer and saved PaymentMethods (lazy creation, webhook-reconciled local cache), Orders owns the PaymentIntent (charge-before-persist with an automatic refund on any post-charge failure), client-supplied idempotency keys, restricted API keys per service, and webhook defense in depth (URL token + Stripe IP allowlist) enforced in the services themselves.
+- [[2026-09-19-stripe-payments]] — implementation plan: Users Tasks 1-7 (merged, PR #84) gate Orders Tasks 9/9.10b/10/10c/10d (PR #85, open), which gate the web Tasks 11-13; Task 14 (infra/compose/CSP) is partially done and Task 15 (three test layers) is the closing gate.
+- [[stripe-payments-milestone]] — logical execution plan and current status for the Stripe Payments milestone: dependency diagram, per-task PR status, the gap backlog carried from PR #85's review, and local environment state.
 
 > [!note] No plan note for the AuditActor enum
 > [[2026-07-12-audit-actor-enum-design]] was implemented directly from the spec — there is no separate `writing-plans` plan for it.
@@ -221,3 +224,6 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-09-19-users-nestjs-migration-design]]
 - [[2026-09-19-users-nestjs-migration]]
 - [[cqrs-dispatch-all-services-milestone]]
+- [[2026-09-19-stripe-payments-design]]
+- [[2026-09-19-stripe-payments]]
+- [[stripe-payments-milestone]]

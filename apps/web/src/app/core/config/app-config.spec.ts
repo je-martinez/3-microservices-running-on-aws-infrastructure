@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { MISSING_WS_URL_WARNING, parseAppConfig } from './app-config';
+import {
+  MISSING_WS_URL_WARNING,
+  SECRET_STRIPE_KEY_WARNING,
+  parseAppConfig,
+} from './app-config';
 
 /**
  * CONTRACT: Every case goes through `parseAppConfig` with an explicit env object
@@ -11,6 +15,7 @@ import { MISSING_WS_URL_WARNING, parseAppConfig } from './app-config';
 
 const VALID_ENV = {
   NG_APP_STRIPE_ENABLED: 'true',
+  NG_APP_STRIPE_PUBLISHABLE_KEY: 'pk_test_abc123',
   NG_APP_API_GATEWAY_URL: '/v1',
   NG_APP_GEOCODE_ENABLED: 'true',
   NG_APP_WS_URL: 'ws://localhost:4566/ws/abc123/dev',
@@ -18,11 +23,12 @@ const VALID_ENV = {
 };
 
 describe('parseAppConfig', () => {
-  it('parses all five variables from a fully populated environment', () => {
+  it('parses every variable from a fully populated environment', () => {
     const warn = vi.fn();
 
     expect(parseAppConfig(VALID_ENV, warn)).toEqual({
       stripeEnabled: true,
+      stripePublishableKey: 'pk_test_abc123',
       apiGatewayUrl: '/v1',
       geocodeEnabled: true,
       wsUrl: 'ws://localhost:4566/ws/abc123/dev',
@@ -112,6 +118,70 @@ describe('parseAppConfig', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
+  /**
+   * CONTRACT: `make env-file` seeds the CUSTOM box with the key PRESENT and
+   * EMPTY, so "" is the ordinary unconfigured state, not a typo. Reading it as
+   * a value hands `loadStripe("")` an empty key, which rejects with an opaque
+   * Stripe error instead of leaving card entry off. See [[env-files]]
+   */
+  it.each([
+    ['absent', undefined],
+    ['empty', ''],
+  ])('reads a %s publishable key as null', (_label, value) => {
+    const config = parseAppConfig(
+      { ...VALID_ENV, NG_APP_STRIPE_PUBLISHABLE_KEY: value },
+      vi.fn(),
+    );
+
+    expect(config.stripePublishableKey).toBeNull();
+  });
+
+  /** The flag and the key are independent: on with no key is a real state. */
+  it('keeps stripeEnabled true with no publishable key', () => {
+    const config = parseAppConfig(
+      { ...VALID_ENV, NG_APP_STRIPE_PUBLISHABLE_KEY: '' },
+      vi.fn(),
+    );
+
+    expect(config.stripeEnabled).toBe(true);
+    expect(config.stripePublishableKey).toBeNull();
+  });
+
+  /**
+   * CONTRACT: The variable name is legitimate, so no prefix filter catches this.
+   * Only the value tells a publishable key from live credentials.
+   */
+  it.each([
+    ['a secret key', 'sk_test_51abcdef'],
+    ['a restricted key', 'rk_test_51abcdef'],
+    ['a webhook signing secret', 'whsec_abcdef123456'],
+    ['a live secret key', 'sk_live_51abcdef'],
+  ])('discards %s and warns instead of shipping it in the bundle', (_label, key) => {
+    const warn = vi.fn();
+
+    const config = parseAppConfig({ ...VALID_ENV, NG_APP_STRIPE_PUBLISHABLE_KEY: key }, warn);
+
+    expect(config.stripePublishableKey).toBeNull();
+    expect(warn).toHaveBeenCalledWith(SECRET_STRIPE_KEY_WARNING);
+  });
+
+  it('keeps a publishable key, the only Stripe key the bundle may carry', () => {
+    const warn = vi.fn();
+
+    const config = parseAppConfig(
+      { ...VALID_ENV, NG_APP_STRIPE_PUBLISHABLE_KEY: 'pk_live_51abcdef' },
+      warn,
+    );
+
+    expect(config.stripePublishableKey).toBe('pk_live_51abcdef');
+    expect(warn).not.toHaveBeenCalledWith(SECRET_STRIPE_KEY_WARNING);
+  });
+
+  it('tells the reader to rotate the exposed key, not merely to move it', () => {
+    expect(SECRET_STRIPE_KEY_WARNING).toContain('ROTATE');
+    expect(SECRET_STRIPE_KEY_WARNING).toContain('STRIPE_SECRET_KEY');
+  });
+
   it('reads "false" as false for rumEnabled, not as a truthy string', () => {
     const config = parseAppConfig({ ...VALID_ENV, NG_APP_RUM_ENABLED: 'false' }, vi.fn());
 
@@ -136,6 +206,7 @@ describe('parseAppConfig', () => {
     expect(() => parseAppConfig(input, warn)).not.toThrow();
     expect(parseAppConfig(input, warn)).toEqual({
       stripeEnabled: false,
+      stripePublishableKey: null,
       apiGatewayUrl: '/v1',
       geocodeEnabled: false,
       wsUrl: '',

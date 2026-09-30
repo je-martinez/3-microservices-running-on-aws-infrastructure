@@ -4,7 +4,7 @@ type: spec
 area: infra
 status: draft
 created: 2026-07-11
-updated: 2026-07-11
+updated: 2026-09-30
 tags:
   - type/spec
   - area/infra
@@ -194,9 +194,9 @@ The module's `invoke_url`/`api_invoke_url` output is the canonical AWS-format
 URL (`https://<id>.execute-api…amazonaws.com/`), which is NOT reachable in
 Floci — so `env-file` constructs the reachable form from `api_id`, it does not
 use `invoke_url`. The box already preserves out-of-box vars (e.g. the manual
-`APIDOG_*`); only the box contents are rewritten.
+a personal token for an external tool); only the box contents are rewritten.
 
-This `API_GATEWAY_URL` is also the correct `server` value for the Apidog
+This `API_GATEWAY_URL` is also the correct `server` value for the API-client
 `openapi.yaml` (supersedes the direct `http://localhost:3000` for gateway-routed
 testing — see [[mcp-servers]]).
 
@@ -215,7 +215,7 @@ rebuild** (`make bootstrap`), which applies from scratch. After rebuild, through
 - `GET /v1/users/me` with a valid JWT → 200
 
 Also assert `.env` contains a correct `API_GATEWAY_URL` after `make env-file`,
-and that the `APIDOG_*` lines are preserved.
+and that the manually-added lines are preserved.
 
 ## Consequences
 

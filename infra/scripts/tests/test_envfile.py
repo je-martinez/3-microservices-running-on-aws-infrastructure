@@ -7,7 +7,14 @@ and only a fresh clone ever sees it. See [[env-files]]
 
 from pathlib import Path
 
-from lib3mrai.envfile import read_custom_block, write_env_file
+import pytest
+
+from lib3mrai.envfile import (
+    MissingCustomBox,
+    read_custom_block,
+    set_custom_value,
+    write_env_file,
+)
 
 HEADER = "Test service environment."
 GENERATED = {"DATABASE_URL": "postgres://x"}
@@ -124,3 +131,86 @@ class TestAutoBox:
 
         assert "DATABASE_URL=postgres://changed" in target.read_text()
         assert "postgres://x" not in target.read_text()
+
+
+class TestSetCustomValue:
+    def test_replaces_an_empty_seeded_value(self, tmp_path: Path) -> None:
+        target = tmp_path / ".env.local.svc"
+        _write(target, {"STRIPE_WEBHOOK_SECRET": ""})
+
+        set_custom_value(target, "STRIPE_WEBHOOK_SECRET", "whsec_abc123")
+
+        assert "STRIPE_WEBHOOK_SECRET=whsec_abc123" in read_custom_block(target)
+
+    def test_replaces_an_existing_value(self, tmp_path: Path) -> None:
+        target = tmp_path / ".env.local.svc"
+        _write(target, {"STRIPE_WEBHOOK_SECRET": "whsec_old"})
+
+        set_custom_value(target, "STRIPE_WEBHOOK_SECRET", "whsec_new")
+
+        custom = read_custom_block(target)
+        assert "STRIPE_WEBHOOK_SECRET=whsec_new" in custom
+        assert "STRIPE_WEBHOOK_SECRET=whsec_old" not in custom
+
+    def test_appends_when_the_key_is_missing(self, tmp_path: Path) -> None:
+        target = tmp_path / ".env.local.svc"
+        _write(target, {"PORT": "3000"})
+
+        set_custom_value(target, "STRIPE_WEBHOOK_SECRET", "whsec_new")
+
+        custom = read_custom_block(target)
+        assert "STRIPE_WEBHOOK_SECRET=whsec_new" in custom
+        assert "PORT=3000" in custom
+
+    def test_replaces_a_commented_out_line(self, tmp_path: Path) -> None:
+        # Running this command is a deliberate act, so it overrides a prior
+        # deliberate disable rather than leaving the comment untouched.
+        target = tmp_path / ".env.local.svc"
+        _write(target, {"STRIPE_WEBHOOK_SECRET": "whsec_old"})
+        target.write_text(
+            target.read_text().replace(
+                "STRIPE_WEBHOOK_SECRET=whsec_old", "# STRIPE_WEBHOOK_SECRET=whsec_old"
+            )
+        )
+
+        set_custom_value(target, "STRIPE_WEBHOOK_SECRET", "whsec_new")
+
+        custom = read_custom_block(target)
+        assert "STRIPE_WEBHOOK_SECRET=whsec_new" in custom
+        assert "# STRIPE_WEBHOOK_SECRET=whsec_old" not in custom
+
+    def test_the_auto_box_is_untouched(self, tmp_path: Path) -> None:
+        target = tmp_path / ".env.local.svc"
+        write_env_file(
+            target,
+            header=HEADER,
+            generated={"STRIPE_WEBHOOK_SECRET": "auto-value-must-survive"},
+            custom_defaults={"STRIPE_WEBHOOK_SECRET": ""},
+        )
+
+        set_custom_value(target, "STRIPE_WEBHOOK_SECRET", "whsec_new")
+
+        text = target.read_text()
+        assert "STRIPE_WEBHOOK_SECRET=auto-value-must-survive" in text
+        assert "STRIPE_WEBHOOK_SECRET=whsec_new" in read_custom_block(target)
+
+    def test_other_custom_lines_are_untouched(self, tmp_path: Path) -> None:
+        target = tmp_path / ".env.local.svc"
+        _write(target, {"PORT": "3000", "STRIPE_WEBHOOK_SECRET": ""})
+
+        set_custom_value(target, "STRIPE_WEBHOOK_SECRET", "whsec_new")
+
+        assert "PORT=3000" in read_custom_block(target)
+
+    def test_missing_file_raises_a_clear_error(self, tmp_path: Path) -> None:
+        target = tmp_path / ".env.local.svc"
+
+        with pytest.raises(MissingCustomBox, match="make env-file"):
+            set_custom_value(target, "STRIPE_WEBHOOK_SECRET", "whsec_new")
+
+    def test_missing_custom_markers_raises_a_clear_error(self, tmp_path: Path) -> None:
+        target = tmp_path / ".env.local.svc"
+        target.write_text("PORT=3000\n")
+
+        with pytest.raises(MissingCustomBox, match="make env-file"):
+            set_custom_value(target, "STRIPE_WEBHOOK_SECRET", "whsec_new")

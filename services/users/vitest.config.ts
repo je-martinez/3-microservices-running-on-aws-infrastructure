@@ -15,6 +15,7 @@ export default defineConfig({
       "#config/": fileURLToPath(new URL("./src/config/", import.meta.url)),
       "#notifications/": fileURLToPath(new URL("./src/notifications/", import.meta.url)),
       "#users/": fileURLToPath(new URL("./src/users/", import.meta.url)),
+      "#payment-methods/": fileURLToPath(new URL("./src/payment-methods/", import.meta.url)),
     },
   },
   test: {

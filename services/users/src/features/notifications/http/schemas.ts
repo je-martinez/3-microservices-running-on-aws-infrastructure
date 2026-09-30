@@ -52,7 +52,7 @@ export const MarkReadResultSchema = z.object({
 });
 
 // Named components rather than inline anonymous schemas, so the generated spec
-// shows proper models in Apidog. A request body's component gains an "Input"
+// shows proper models in API clients. A request body's component gains an "Input"
 // suffix, so id "MarkRead" yields "MarkReadInput". See [[openapi-specs]]
 z.globalRegistry.add(NotificationSchema, { id: "Notification" });
 z.globalRegistry.add(NotificationsPageSchema, { id: "NotificationsPage" });

@@ -271,12 +271,9 @@
                 <p class="text-ink-secondary w-full text-sm">
                   Pay securely with Stripe. Your card details never touch our servers.
                 </p>
-                <div
-                  class="text-ink-muted flex h-fit w-full shrink-0 flex-row items-center justify-center gap-2xs text-xs"
-                >
-                  Powered by
-                  <span class="text-ink-secondary font-bold tracking-[-0.01875rem]">Stripe</span>
-                </div>
+                <app-payment-method-selector
+                  (selectedPaymentMethodId)="onCardSelected($event)"
+                />
               </div>
             } @else {
               <div
@@ -302,10 +299,16 @@
                     <span class="text-ink-primary text-caption font-semibold">Card</span>
                   </div>
 
+                  <!-- WHY: The error markup mirrors `app-field` above — the same
+                       red border on the box and the same `role="alert"` message
+                       under it — so the card fields report a problem the way the
+                       address fields the buyer just filled in do. -->
                   <label class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-xs">
                     <span class="text-ink-primary text-body-sm font-medium">Card number</span>
                     <span
-                      class="border-line bg-surface-white flex h-control-lg w-full items-center gap-md rounded-md border px-3"
+                      class="bg-surface-white flex h-control-lg w-full items-center gap-md rounded-md border px-3"
+                      [class.border-line]="!cardNumberError()"
+                      [class.border-danger-red]="cardNumberError()"
                     >
                       <svg lucideCreditCard class="text-ink-muted h-icon w-icon shrink-0"></svg>
                       <input
@@ -316,17 +319,28 @@
                         placeholder="1234 1234 1234 1234"
                         data-testid="card-number"
                         class="text-ink-primary placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
+                        [attr.aria-invalid]="cardNumberError() ? 'true' : null"
                         [value]="cardForm.cardNumber().value()"
                         (input)="onCardNumberInput($any($event.target))"
                       />
                     </span>
+                    @if (cardNumberError(); as message) {
+                      <span
+                        role="alert"
+                        data-testid="card-number-error"
+                        class="text-danger-red text-body-sm"
+                        >{{ message }}</span
+                      >
+                    }
                   </label>
 
                   <div class="flex h-fit w-full shrink-0 flex-row items-start justify-start gap-3">
                     <label class="flex h-fit flex-1 flex-col items-start justify-start gap-xs">
                       <span class="text-ink-primary text-body-sm font-medium">Expiration date</span>
                       <span
-                        class="border-line bg-surface-white flex h-control-lg w-full items-center gap-md rounded-md border px-3"
+                        class="bg-surface-white flex h-control-lg w-full items-center gap-md rounded-md border px-3"
+                        [class.border-line]="!cardExpiryError()"
+                        [class.border-danger-red]="cardExpiryError()"
                       >
                         <input
                           type="text"
@@ -336,15 +350,26 @@
                           placeholder="MM / YY"
                           data-testid="card-expiry"
                           class="text-ink-primary placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
+                          [attr.aria-invalid]="cardExpiryError() ? 'true' : null"
                           [value]="cardForm.cardExpiry().value()"
                           (input)="onCardExpiryInput($any($event.target))"
                         />
                       </span>
+                      @if (cardExpiryError(); as message) {
+                        <span
+                          role="alert"
+                          data-testid="card-expiry-error"
+                          class="text-danger-red text-body-sm"
+                          >{{ message }}</span
+                        >
+                      }
                     </label>
                     <label class="flex h-fit flex-1 flex-col items-start justify-start gap-xs">
                       <span class="text-ink-primary text-body-sm font-medium">Security code</span>
                       <span
-                        class="border-line bg-surface-white flex h-control-lg w-full items-center gap-md rounded-md border px-3"
+                        class="bg-surface-white flex h-control-lg w-full items-center gap-md rounded-md border px-3"
+                        [class.border-line]="!cardCvcError()"
+                        [class.border-danger-red]="cardCvcError()"
                       >
                         <input
                           type="text"
@@ -354,17 +379,28 @@
                           placeholder="CVC"
                           data-testid="card-cvc"
                           class="text-ink-muted placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
+                          [attr.aria-invalid]="cardCvcError() ? 'true' : null"
                           [value]="cardForm.cardCvc().value()"
                           (input)="onCardCvcInput($any($event.target))"
                         />
                       </span>
+                      @if (cardCvcError(); as message) {
+                        <span
+                          role="alert"
+                          data-testid="card-cvc-error"
+                          class="text-danger-red text-body-sm"
+                          >{{ message }}</span
+                        >
+                      }
                     </label>
                   </div>
 
                   <label class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-xs">
                     <span class="text-ink-primary text-body-sm font-medium">Cardholder name</span>
                     <span
-                      class="border-line bg-surface-white flex h-control-lg w-full items-center gap-md rounded-md border px-3"
+                      class="bg-surface-white flex h-control-lg w-full items-center gap-md rounded-md border px-3"
+                      [class.border-line]="!cardHolderError()"
+                      [class.border-danger-red]="cardHolderError()"
                     >
                       <input
                         type="text"
@@ -372,10 +408,19 @@
                         placeholder="Name on card"
                         data-testid="card-holder"
                         class="text-ink-primary placeholder:text-ink-muted w-full flex-1 border-0 bg-transparent text-body-lg outline-none"
+                        [attr.aria-invalid]="cardHolderError() ? 'true' : null"
                         [value]="cardForm.cardHolder().value()"
                         (input)="onCardHolderInput($any($event.target))"
                       />
                     </span>
+                    @if (cardHolderError(); as message) {
+                      <span
+                        role="alert"
+                        data-testid="card-holder-error"
+                        class="text-danger-red text-body-sm"
+                        >{{ message }}</span
+                      >
+                    }
                   </label>
 
                 </div>
