@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { MISSING_WS_URL_WARNING, parseAppConfig } from './app-config';
+import {
+  MISSING_WS_URL_WARNING,
+  SECRET_STRIPE_KEY_WARNING,
+  parseAppConfig,
+} from './app-config';
 
 /**
  * CONTRACT: Every case goes through `parseAppConfig` with an explicit env object
@@ -141,6 +145,41 @@ describe('parseAppConfig', () => {
 
     expect(config.stripeEnabled).toBe(true);
     expect(config.stripePublishableKey).toBeNull();
+  });
+
+  /**
+   * CONTRACT: The variable name is legitimate, so no prefix filter catches this.
+   * Only the value tells a publishable key from live credentials.
+   */
+  it.each([
+    ['a secret key', 'sk_test_51abcdef'],
+    ['a restricted key', 'rk_test_51abcdef'],
+    ['a webhook signing secret', 'whsec_abcdef123456'],
+    ['a live secret key', 'sk_live_51abcdef'],
+  ])('discards %s and warns instead of shipping it in the bundle', (_label, key) => {
+    const warn = vi.fn();
+
+    const config = parseAppConfig({ ...VALID_ENV, NG_APP_STRIPE_PUBLISHABLE_KEY: key }, warn);
+
+    expect(config.stripePublishableKey).toBeNull();
+    expect(warn).toHaveBeenCalledWith(SECRET_STRIPE_KEY_WARNING);
+  });
+
+  it('keeps a publishable key, the only Stripe key the bundle may carry', () => {
+    const warn = vi.fn();
+
+    const config = parseAppConfig(
+      { ...VALID_ENV, NG_APP_STRIPE_PUBLISHABLE_KEY: 'pk_live_51abcdef' },
+      warn,
+    );
+
+    expect(config.stripePublishableKey).toBe('pk_live_51abcdef');
+    expect(warn).not.toHaveBeenCalledWith(SECRET_STRIPE_KEY_WARNING);
+  });
+
+  it('tells the reader to rotate the exposed key, not merely to move it', () => {
+    expect(SECRET_STRIPE_KEY_WARNING).toContain('ROTATE');
+    expect(SECRET_STRIPE_KEY_WARNING).toContain('STRIPE_SECRET_KEY');
   });
 
   it('reads "false" as false for rumEnabled, not as a truthy string', () => {

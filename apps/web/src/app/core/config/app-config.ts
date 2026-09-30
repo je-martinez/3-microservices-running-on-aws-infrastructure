@@ -55,6 +55,23 @@ export const MISSING_WS_URL_WARNING =
   'unread badge) are disabled and notifications arrive only on the next page load. ' +
   'Set NG_APP_WS_URL in apps/web/.env, mirroring WS_URL from .env.local.web.';
 
+export const SECRET_STRIPE_KEY_WARNING =
+  'NG_APP_STRIPE_PUBLISHABLE_KEY holds a SECRET Stripe key and has been discarded: ' +
+  'card entry stays off. Only a publishable pk_ key may go in an NG_APP_* variable — ' +
+  'it is compiled into the bundle and readable in devtools. Put the secret key in ' +
+  'STRIPE_SECRET_KEY in .env.local.users / .env.local.orders instead, and ROTATE the ' +
+  'key you just exposed.';
+
+/**
+ * CONTRACT: The variable NAME is legitimate, so no prefix filter can catch this —
+ * only the VALUE distinguishes a publishable key from a secret one. A leaked
+ * `sk_`/`rk_` is live credentials in a public bundle, so it is discarded rather
+ * than shipped. See [[2026-09-29-web-env-consolidation-design]]
+ */
+function isSecretStripeKey(value: string): boolean {
+  return /^(sk|rk)_/.test(value) || value.startsWith('whsec_');
+}
+
 export function parseAppConfig(
   env: unknown,
   warn: (message: string) => void = console.warn,
@@ -65,12 +82,19 @@ export function parseAppConfig(
   // opens, nothing is logged, and the whole realtime feature is simply absent.
   if (wsUrl === '') warn(MISSING_WS_URL_WARNING);
 
+  // CONTRACT: An EMPTY string means unset — `make env-file` seeds the CUSTOM-box
+  // entry with no value, and `loadStripe("")` rejects with an opaque error rather
+  // than degrading. A SECRET key is dropped to null and warned about, never
+  // passed through. See [[env-files]]
+  let publishableKey = readString(env, 'NG_APP_STRIPE_PUBLISHABLE_KEY') || null;
+  if (publishableKey !== null && isSecretStripeKey(publishableKey)) {
+    warn(SECRET_STRIPE_KEY_WARNING);
+    publishableKey = null;
+  }
+
   return {
     stripeEnabled: readString(env, 'NG_APP_STRIPE_ENABLED') === 'true',
-    // CONTRACT: An EMPTY string means unset — `make env-file` seeds the
-    // CUSTOM-box entry with no value, and `loadStripe("")` rejects with an
-    // opaque error rather than degrading. See [[env-files]]
-    stripePublishableKey: readString(env, 'NG_APP_STRIPE_PUBLISHABLE_KEY') || null,
+    stripePublishableKey: publishableKey,
     apiGatewayUrl: readString(env, 'NG_APP_API_GATEWAY_URL') || DEFAULT_API_GATEWAY_URL,
     geocodeEnabled: readString(env, 'NG_APP_GEOCODE_ENABLED') === 'true',
     wsUrl,
