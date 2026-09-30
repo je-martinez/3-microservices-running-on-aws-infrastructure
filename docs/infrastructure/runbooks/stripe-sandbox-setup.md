@@ -4,7 +4,7 @@ type: runbook
 area: infra
 status: active
 created: 2026-09-21
-updated: 2026-09-23
+updated: 2026-09-30
 integration-status: partially-verified
 verified-on: 2026-09-23
 verified-by: "Jose E. Martinez"
@@ -205,22 +205,22 @@ stripe-webhook-secret` (section 3) is what actually fills `STRIPE_WEBHOOK_SECRET
 | `STRIPE_WEBHOOK_SECRET=whsec_...` (from `stripe listen` — the **same** value in both files, per section 3) | `.env.local.users` AND `.env.local.orders` | CUSTOM |
 | `STRIPE_WEBHOOK_URL_TOKEN=<random>` (Users' own token, minted by `make stripe-webhook-secret` — see section 3) | `.env.local.users` | CUSTOM |
 | `STRIPE_WEBHOOK_URL_TOKEN=<random>` (Orders' own, **different** token, minted the same way — see section 3) | `.env.local.orders` | CUSTOM |
-| `NG_APP_STRIPE_PUBLISHABLE_KEY=pk_test_...` | `apps/web/.env` (until Task 11 lands, below) | — (public, see below) |
-| `NG_APP_STRIPE_ENABLED=true` | `apps/web/.env`, and `docker-compose.yml`'s web build arg (currently hardcoded `"false"`, until Task 11 lands, below) | — |
+| `NG_APP_STRIPE_PUBLISHABLE_KEY=pk_test_...` | `.env.local.web` | CUSTOM (public, see below) |
+| `NG_APP_STRIPE_ENABLED=true` | `.env.local.web` | CUSTOM |
 
 `STRIPE_WEBHOOK_ALLOWED_CIDRS` and `STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS` are **not** in this
 table — they are AUTO-box values written by `make env-file` (section 3b), not hand-injected.
 
-> [!note] After [[2026-09-19-stripe-payments]] Task 11 lands
-> Both rows above move: `NG_APP_STRIPE_ENABLED` and `NG_APP_STRIPE_PUBLISHABLE_KEY` (plus every
-> other `NG_APP_*` the web Dockerfile declares) come from the root `.env`'s CUSTOM box, seeded
-> per-key by `make env-file` — not from a hand-maintained `apps/web/.env` or a hardcoded compose
-> literal. See [[env-files]]'s "Web `NG_APP_*` build args" section. Until that task lands, the
-> instructions above are still the correct, current procedure.
+> [!important] Rebuild the web image after editing `.env.local.web`
+> `NG_APP_*` is inlined at BUILD time, so a restart re-serves the old bundle. Run
+> `docker compose build web` (or `make build`) after changing either row. Both surfaces — the
+> container on `:3004` and `pnpm dev` — then read the same values. Do not put them in
+> `apps/web/.env`: that file is comment-only, and a key set there applies to `pnpm dev` alone
+> while the container keeps serving Stripe off. See [[2026-09-29-web-env-consolidation-design]].
 
 The publishable key is on the same Dashboard API keys page as the restricted keys. It is
 **public** — it ships inside the compiled web bundle and is readable by anyone in devtools —
-and is the only Stripe value allowed in `apps/web/.env`; neither restricted key nor the webhook
+and is the only Stripe value allowed in `.env.local.web`; neither restricted key nor the webhook
 secret ever belongs there. It is safe to commit a placeholder value to `.env.example`, never a
 real one.
 
@@ -280,9 +280,8 @@ runs.
 
 - [[2026-09-19-stripe-payments-design]] — Decisions 10, 13, 15, 17, 26, and 27, which this
   runbook operationalizes.
-- [[2026-09-19-stripe-payments]] — Task 11 step 11.4b (pending), which moves the two web
-  `NG_APP_*` rows in section 4 from a hand-maintained `apps/web/.env`/hardcoded compose literal
-  to the root `.env`'s CUSTOM box; Task 10c (done, PR #85), which added Orders' webhook and
+- [[2026-09-19-stripe-payments]] — Task 11 step 11.4b (done), which put the two web `NG_APP_*`
+  rows in section 4 into `.env.local.web`'s CUSTOM box; Task 10c (done, PR #85), which added Orders' webhook and
   resolved section 3's two-process question; Task 10d (done, PR #85), which added the URL token
   and IP allowlist this runbook's section 3b/section 5 checks operationalize.
 - [[stripe-payments-milestone]] — the milestone-level status/gap-backlog note tracking this

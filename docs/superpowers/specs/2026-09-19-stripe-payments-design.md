@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-09-19
-updated: 2026-09-23
+updated: 2026-09-30
 tags: [type/spec, area/shared, status/active]
 related:
   - "[[users-service-design]]"
@@ -135,7 +135,9 @@ or auto-updated by the issuing bank). Mitigated by the three rules in Decision 4
 PaymentIntent). Denormalized deliberately — an order is a historical document and must not
 join against the user's live cards, the same reasoning as the existing
 `ShippingAddressSnapshot` and consistent with [[money-representation]]. The snapshot is
-written only for a **succeeded** charge (Decision 7/8): a declined attempt creates no order
+stored, not exposed: `OrderDto` and `openapi.yaml` carry no payment fields, so a successful
+`POST /v1/orders` returns 201 without them and the E2E suite asserts the charge in Stripe
+itself. The snapshot is written only for a **succeeded** charge (Decision 7/8): a declined attempt creates no order
 row, because an order row without a payment would consume an order number and appear in "my
 orders" with no stock reserved. The declined attempt is not lost — it is recorded in Stripe
 itself (the PaymentIntent carries `metadata.order_id`) and in the `payment_declined` log line
@@ -1005,10 +1007,14 @@ Constraints:
   iframe that cannot be filled from outside the frame (use test card `4242 4242 4242 4242` by
   hand) — and stays unchanged on the plain branch.
 - `canPay` keeps requiring an address and now also a selected card.
-- `apps/web`'s nginx config carries a `Content-Security-Policy` allowing `https://*.stripe.com`
-  in `script-src`, `frame-src`, and `connect-src` — Stripe.js requires it, and a missing or
-  overly permissive CSP weakens the XSS protections Stripe.js relies on. This is a concrete
-  nginx change, tracked as its own item under Infra.
+- `apps/web`'s nginx config carries a `Content-Security-Policy` allowing Stripe's official
+  per-directive origins — `script-src`: `https://js.stripe.com https://*.js.stripe.com`;
+  `frame-src`: those plus `https://hooks.stripe.com https://link.com https://*.link.com`;
+  `connect-src`: `https://api.stripe.com https://link.com https://*.link.com`. A blanket
+  `https://*.stripe.com` does not work: Link serves its UI from `link.com`, which `*.stripe.com`
+  cannot match, and the failure is silent (the Payment Element does not mount; only a console CSP
+  violation appears). A missing or overly permissive CSP weakens the XSS protections Stripe.js
+  relies on. This is a concrete nginx change, tracked as its own item under Infra.
 
 Component structure and state handling follow [[angular-component-authoring]].
 
@@ -1072,7 +1078,7 @@ service or Makefile targets are added for webhook delivery — see Decision 10's
 
 Also tracked here, not as footnotes:
 - The `Content-Security-Policy` change to `apps/web`'s nginx config (Web section) allowing
-  `https://*.stripe.com` in `script-src`, `frame-src`, and `connect-src`.
+  Stripe's per-directive origins (not a `*.stripe.com` wildcard).
 - **Webhook signature verification is mandatory** (already required by Decision 4's webhook
   handler; restated here as a deployment gate, not an optional hardening step). Decision 27 adds
   two more layers **enforced in the services themselves**, not at the edge (AWS WAF does not

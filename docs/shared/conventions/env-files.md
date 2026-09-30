@@ -41,14 +41,13 @@ new API id, and reassigns RDS proxy ports by cluster creation order.
 
 | File | Holds | Consumed by |
 |---|---|---|
-| `.env` | ONLY what compose interpolates as `${VAR}`: an AUTO box of derived values, plus a CUSTOM box of per-machine `NG_APP_*` toggles/keys for the `web` build (see "Web `NG_APP_*` build args" below) — no longer a fixed count of four | docker-compose interpolation |
 | `.env.local.infra` | Terraform outputs (Cognito ids, API GW url, DB hosts/ports) **plus `MAILPIT_API_URL`** | the E2E suite, humans |
 | `.env.local.users` | the Users service environment | compose `env_file:` |
 | `.env.local.orders` | the Orders service environment | compose `env_file:` |
 | `.env.local.tracking` | the Tracking service environment (incl. `E2E_TESTING_ENABLED=true` in CUSTOM, `EVENTS_QUEUE_URL`) | compose `env_file:` |
 | `.env.local.events-pipeline` | the events-pipeline Lambda environment (DocumentDB connection, `EVENTS_QUEUE_URL`, SES sender) | the Lambda's environment variables, set via Terraform |
 | `.env.local.debug` | HOST-reachable connection strings | a SQL client; **loaded by nothing** |
-| `.env.local.web` | the web app's build-time env (`NG_APP_API_GATEWAY_URL`, `NG_APP_STRIPE_ENABLED`, `NG_APP_GEOCODE_ENABLED`) **plus the runtime `GEOAPIFY_API_KEY`** | compose `env_file:` for the `web` service, `@ngx-env/builder`, and `apps/web/nginx.conf`'s envsubst template |
+| `.env.local.web` | the web app's build-time env (the six `NG_APP_*`: `NG_APP_WS_URL` and `NG_APP_API_GATEWAY_URL` in the AUTO box, the four flags in the CUSTOM box) **plus the runtime `GEOAPIFY_API_KEY`** | compose `env_file:` for the `web` service, compose `${VAR}` interpolation of `web.build.args` (the Makefile passes `--env-file .env.local.web`), `pnpm dev` via `angular.json`'s `ngxEnv.files`, `@ngx-env/builder`, and `apps/web/nginx.conf`'s envsubst template |
 | `.env.example` | the committed contract | documentation only |
 
 `.env.local.web` was added with the [[2026-09-04-web-gateway-integration-design]] milestone
@@ -159,29 +158,26 @@ CUSTOM box rather than scattered around.
 
 ## Web `NG_APP_*` build args are never literals in `docker-compose.yml`
 
-**Decision (user, 2026-09-22).** A web `NG_APP_*` build arg is never hardcoded as a literal in
-`docker-compose.yml`'s `web.build.args`. Every `NG_APP_*` the web Dockerfile declares as an
-`ARG` is passed by compose interpolation from the generated root `.env`
-(`NG_APP_X: "${NG_APP_X}"`), and `make env-file` generates or seeds every one of them:
+**Decision (user, 2026-09-22), layout as shipped.** A web `NG_APP_*` build arg is never hardcoded
+as a literal in `docker-compose.yml`'s `web.build.args`. There is no root `.env`; the six
+`NG_APP_*` generate into `.env.local.web`:
 
-- **AUTO box** (generator-owned, derived — never hand-edited): values that follow from
-  infrastructure state, e.g. `NG_APP_API_GATEWAY_URL` (`/v1`) and the WS URL.
-- **CUSTOM box**, seeded per key with the `custom_defaults` mechanism (per-machine choices,
-  preserved across regeneration): feature toggles and per-developer/sandbox keys, e.g.
-  `NG_APP_STRIPE_ENABLED`, `NG_APP_STRIPE_PUBLISHABLE_KEY` (seeded empty — the `pk_test_...`
-  key is public by design but still per-sandbox), `NG_APP_GEOCODE_ENABLED`, and
-  `NG_APP_RUM_ENABLED`.
+- **AUTO box** (generator-owned, never hand-edited): `NG_APP_WS_URL` and `NG_APP_API_GATEWAY_URL`.
+- **CUSTOM box** (per-machine, preserved across regeneration): the four flags —
+  `NG_APP_STRIPE_ENABLED`, `NG_APP_STRIPE_PUBLISHABLE_KEY` (seeded empty; the `pk_test_...` key is
+  public by design but still per-sandbox), `NG_APP_GEOCODE_ENABLED` and `NG_APP_RUM_ENABLED`.
+- Compose interpolates `${VAR}` from that file because the Makefile passes
+  `--env-file .env.local.web`. A build arg cannot come from `env_file:`, which resolves at
+  container runtime, after the build. `pnpm dev` reads the same file through `angular.json`'s
+  `ngxEnv.files`; `apps/web/.env` is comment-only, for `pnpm dev`-only overrides.
 - A seeded **empty** `NG_APP_*` value means unset, not misconfigured — the web config reader
-  (`apps/web/src/app/core/config/app-config.ts`) must treat it as falsy/`null`, the same rule
-  Users applies to its own seeded-empty Stripe keys.
+  (`apps/web/src/app/core/config/app-config.ts`) treats it as falsy/`null`, the same rule Users
+  applies to its own seeded-empty Stripe keys.
 - These are **build-time** values (`@ngx-env/builder` inlines them at compile time): changing
-  one still needs `docker compose build web` — a plain restart re-serves the old bundle. See
-  the warning above on a build-time var absent at build time.
+  one needs `docker compose build web` — a plain restart re-serves the old bundle. See the
+  warning above on a build-time var absent at build time.
 
-This closes the gap the [[2026-09-19-stripe-payments]] milestone's Task 11 found:
-`NG_APP_STRIPE_ENABLED`/`NG_APP_GEOCODE_ENABLED` previously lived as hardcoded literals in
-`docker-compose.yml`, which meant flipping a flag required hand-editing the compose file
-instead of the CUSTOM box like every other per-machine choice in this repo.
+Full reasoning: [[2026-09-29-web-env-consolidation-design]].
 
 ## Every generated key is declared in `.env.example`
 
@@ -246,9 +242,8 @@ Each of these cost real debugging time in this block:
 1. **`environment:` beats `env_file:`.** A leftover inline entry silently overrides the
    generated value and reintroduces the duplication. Migrate a service completely or not at
    all.
-2. **`${VAR}` with no value resolves to an empty string**, not an error. Moving one of the
-   four interpolated vars out of the root `.env` breaks compose silently — the container gets
-   `""`.
+2. **`${VAR}` with no value resolves to an empty string**, not an error. Dropping a
+   `NG_APP_*` value from `.env.local.web` breaks the build silently — the bundle gets `""`.
 3. **`env_file:` does NOT interpolate.** Compose expands `${USERS_DB_PORT}` inside the compose
    file, but values in an env file are taken literally. The generator therefore resolves every
    port and id as it writes. A `${...}` left in a generated file reaches the service as that
@@ -304,6 +299,8 @@ When changing env plumbing, verify against a real bring-up, not by inspection:
 - [[web-app-env-config]] — the runbook operationalizing the `NG_APP_WS_URL` bridge above into a
   step-by-step procedure and symptom table.
 - [[2026-09-19-stripe-payments]] — Task 11's step 11.4b, which moves every web `NG_APP_*` build
-  arg out of `docker-compose.yml` literals and into the root `.env`'s AUTO/CUSTOM boxes.
+  arg out of `docker-compose.yml` literals and into `.env.local.web`'s AUTO/CUSTOM boxes.
+- [[2026-09-29-web-env-consolidation-design]] — why `.env.local.web` is the single source for
+  both the image build and `pnpm dev`.
 - [[2026-09-29-repo-wide-gates-must-exclude-generated-and-duplicated-trees]] — the same
   "no natural reviewer, so add a mechanical check" shape, applied to the comment linter.
