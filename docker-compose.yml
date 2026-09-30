@@ -396,10 +396,10 @@ services:
         # re-serves the same bundle and reads as the flag being ignored.
         # See [[env-files]]
         #
-        # CONTRACT: Every value here is INTERPOLATED from the generated root
-        # .env, never a literal — `make env-file` owns that file's CUSTOM box,
-        # so a literal here overrides the developer's own choice while the file
-        # meant to control it looks correct. See [[env-files]]
+        # CONTRACT: Every value here is INTERPOLATED from .env.local.web, never a
+        # literal — the Makefile passes it as `--env-file`, and `make env-file` owns
+        # its CUSTOM box, so a literal here overrides the developer's own choice while
+        # the file meant to control it looks correct. See [[env-files]]
         NG_APP_STRIPE_ENABLED: "${NG_APP_STRIPE_ENABLED:-false}"
         # The PUBLISHABLE pk_test_ key — public by design, since @ngx-env
         # compiles it into the bundle. Never a secret or restricted key: those
@@ -419,10 +419,11 @@ services:
         # autocomplete that always fails is worse than not offering it. Turn
         # both on together.
         NG_APP_GEOCODE_ENABLED: "${NG_APP_GEOCODE_ENABLED:-true}"
-        # It carries the api id Floci remints on every apply, so `make env-file`
-        # writes it into ./.env. Empty leaves the socket unopened — live toasts
-        # and the unread badge are then absent, and the app says so in a console
-        # warning rather than failing.
+        # CONTRACT: Reads WS_URL, not NG_APP_WS_URL — .env.local.web carries both, the
+        # bare name for nginx and the prefixed one for `pnpm dev`'s own cascade. It
+        # carries the api id Floci remints on every apply. Empty leaves the socket
+        # unopened: live toasts and the unread badge are absent, and the app says so in
+        # a console warning rather than failing.
         NG_APP_WS_URL: "${WS_URL:-}"
         NG_APP_RUM_ENABLED: "${NG_APP_RUM_ENABLED:-false}"
     networks: [3mrai-network]

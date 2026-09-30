@@ -4,7 +4,7 @@ type: convention
 area: infra
 status: active
 created: 2026-07-20
-updated: 2026-09-29
+updated: 2026-09-30
 tags:
   - type/convention
   - area/infra
@@ -154,7 +154,7 @@ Each generated file has two boxes: AUTO-GENERATED (rewritten on every run) and C
 (preserved). **Never edit the AUTO box** — it is overwritten without warning. Put overrides,
 personal tokens, and local-only flags in CUSTOM.
 
-Values with no consumer anywhere (today `APIDOG_ACCESS_TOKEN`/`APIDOG_PROJECT_ID`) belong in a
+Values with no consumer anywhere — a personal token for an external tool, say — belong in a
 CUSTOM box rather than scattered around.
 
 ## Web `NG_APP_*` build args are never literals in `docker-compose.yml`

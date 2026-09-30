@@ -36,7 +36,7 @@ Layout after this design (Decisions 9 and 10):
 |---|---|---|---|
 | Read by | compose `${VAR}` interpolation via `docker compose --env-file` (build args); nginx via `env_file:` (container start); `@ngx-env/builder` via the cascade | `@ngx-env/builder` (`pnpm dev` on :4200, `pnpm test`), first in precedence | tooling only; compose interpolates NOTHING from it |
 | Written by | `make env-file` (AUTO + CUSTOM boxes) | HAND-MAINTAINED; the generator still syncs the `NG_APP_WS_URL` line | `make env-file` (AUTO + CUSTOM boxes) |
-| Holds | six `NG_APP_*` plus `GEOAPIFY_API_KEY` | overrides only | `COGNITO_*`, `APIDOG_*`, `PENCIL_MCP_BIN`, DB ports |
+| Holds | six `NG_APP_*` plus `GEOAPIFY_API_KEY` | overrides only | `COGNITO_*`, `PENCIL_MCP_BIN`, DB ports |
 
 Every `${...}` in `docker-compose.yml` was grepped: the only six interpolations in the whole file
 are the web's `NG_APP_*` build args. Nothing else in compose reads the root `.env`.
@@ -285,8 +285,8 @@ documents); `make ps` and the Makefile targets work.
 
 The root `.env` spec no longer writes any of them and its header now says tooling tokens only.
 Both `.env.example` files describe the new layout, and `.env.example`'s `.env.local.web` section
-matches the generated file key-for-key. The root `.env`'s CUSTOM box (`APIDOG_*`,
-`PENCIL_MCP_BIN`) survived regeneration.
+matches the generated file key-for-key. The root `.env`'s CUSTOM box (`PENCIL_MCP_BIN`)
+survived regeneration.
 
 Migration detail: after the first `make env-file`, the `NG_APP_*` keys existed in BOTH files. The
 generator had stopped writing them to the root, but the root's CUSTOM box PRESERVES whatever is in

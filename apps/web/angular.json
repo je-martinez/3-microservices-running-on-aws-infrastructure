@@ -31,7 +31,11 @@
               "src/styles.css"
             ],
             "ngxEnv": {
-              "prefix": "^(?-i:NG_APP_)"
+              "prefix": "^(?-i:NG_APP_)",
+              "files": [
+                "../../.env.local.web",
+                ".env"
+              ]
             }
           },
           "configurations": {
