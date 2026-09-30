@@ -39,7 +39,7 @@ These rules take precedence over default agent/skill behavior.
 - Full convention: `docs/shared/conventions/scripting-language.md` → [[scripting-language]].
 
 ### Env files — generated, never hand-edited
-- `make env-file` generates **every** env file from Terraform outputs: `.env` (only the 4 vars compose interpolates), `.env.local.infra`, `.env.local.users`, `.env.local.orders`, `.env.local.debug`. None is hand-maintained — Floci remints ids and reassigns DB ports on every apply.
+- `make env-file` generates **every** env file from Terraform outputs, one per service: `.env.local.infra`, `.env.local.users`, `.env.local.orders`, `.env.local.tracking`, `.env.local.events-pipeline`, `.env.local.web`, `.env.local.debug`. There is **no root `.env`** — compose interpolates `${VAR}` from `.env.local.web`, via the Makefile's `--env-file`. None is hand-maintained: Floci remints ids and reassigns DB ports on every apply.
 - Each file has an **AUTO-GENERATED** box (rewritten every run) and a **CUSTOM** box (preserved). Put overrides and personal tokens in CUSTOM; never edit the AUTO box.
 - Services read their file via compose `env_file:` and declare **nothing** inline — `environment:` silently beats `env_file:`. Adding a service = adding a file + one `env_file:` line.
 - `.env.example` is the committed contract; `.env*` is otherwise git-ignored.
@@ -127,6 +127,9 @@ data and deliveries advance only through the carrier webhook. Both surfaces are 
 
 ### Skills
 A new skill under `.claude/skills/` reaches Claude Code only. Propagating it to Codex, Cursor, Antigravity and the rest is a **deliberate, separate step** — `lnai sync` exports what already lives in `.ai/skills/` and never copies from `.claude/`, so `make ai-sync` propagates a new skill only after you put it there. `make ai-sync-check` cannot see the omission and stays green. Decide propagation when you write the skill: `docs/shared/conventions/skill-propagation.md` → [[skill-propagation]].
+
+### `AGENTS.md` is generated — never edit it
+`AGENTS.md` is an artifact, not a source: `ai-config-sync` distils this file plus `.claude/agents/` into `.ai/AGENTS.md`, and `lnai sync` projects that to the repo root for Codex, Cursor, Antigravity and the rest. **Claude Code does not read it** — a `CLAUDE.md` at or above the working directory wins over an `AGENTS.md`, and this repo has both, so sessions load the `CLAUDE.md` files and the six nested ones. Edit this file and re-run the sync; a hand-edit to `AGENTS.md` is overwritten and reaches Claude Code never.
 
 ### Subagents
 Custom subagents own their write domains. `linear-pm` (Linear) and `obsidian-vault` (`docs/`) are **single writers** of their tools. `github-ops` is an **optional** git helper (the main session may run git directly — see [[git-workflow]]). The external-write agents **read freely but propose every write and wait for explicit confirmation**.

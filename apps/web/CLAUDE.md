@@ -33,13 +33,12 @@ every time. Cross-cutting rules are **referenced**, never duplicated.
 All commands assume `nvm use` first and run from `apps/web/` (or via
 `pnpm --filter @3mrai/web <script>` from the repo root).
 - Install: `nvm use && pnpm install --frozen-lockfile` (repo root)
-- **First run: `cp .env.example .env`.** The file is gitignored, so a fresh
-  clone has none — and every `NG_APP_*` then reads `undefined`, which the
-  parser treats as `false` (see §2c). The visible symptom is a feature that
-  is simply absent with no error: `NG_APP_GEOCODE_ENABLED` unset means the
-  checkout address autocomplete never offers a suggestion, even though the
-  `/geocode/` proxy answers 200 and the Geoapify key is valid. Set the flags
-  you want ON before starting the dev server.
+- **No first-run copy needed.** `angular.json`'s `ngxEnv.files` reads
+  `../../.env.local.web` — which `make env-file` generates and the container
+  builds from — before the local `.env`, so both surfaces share one source. Set
+  the flags you want ON in that file's CUSTOM box. `apps/web/.env` is for
+  per-machine overrides only: a key set there applies to `pnpm dev` alone, and an
+  EMPTY assignment shadows the generated value just as a wrong one does.
 - Dev server: `pnpm dev` (`ng serve`) — **restart it after changing any
   `NG_APP_*`**. They are inlined at BUILD time, so a browser reload re-serves
   the bundle compiled with the old value and looks like the flag being
