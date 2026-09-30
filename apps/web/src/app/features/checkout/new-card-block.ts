@@ -16,6 +16,11 @@ import type { Stripe, StripeElements } from '@stripe/stripe-js';
 
 import { PaymentMethodsApi } from '../../core/api/payment-methods-api';
 import { StripeLoader } from '../../core/payments/stripe-loader';
+import {
+  confirmedPaymentMethodId,
+  mountPaymentElement,
+  stripeErrorToError,
+} from '../../core/payments/payment-element-mount';
 import { authErrorMessage } from '../auth/auth-errors';
 
 /** What the caller needs to know once a card is tokenized. */
@@ -137,17 +142,17 @@ export class NewCardBlock {
    */
   private async mount(target: HTMLElement): Promise<void> {
     try {
-      const stripe = await this.stripeLoader.load();
-      if (stripe === null) {
+      const mounted = await mountPaymentElement(
+        () => this.stripeLoader.load(),
+        async () => (await firstValueFrom(this.paymentMethods.createSetupIntent())).clientSecret,
+        target,
+      );
+      if (!mounted.ok) {
         this.unavailable.set(true);
         return;
       }
-
-      const { clientSecret } = await firstValueFrom(this.paymentMethods.createSetupIntent());
-      const elements = stripe.elements({ clientSecret });
-      elements.create('payment').mount(target);
-      this.stripe.set(stripe);
-      this.elements.set(elements);
+      this.stripe.set(mounted.stripe);
+      this.elements.set(mounted.elements);
     } catch (error: unknown) {
       this.report(error);
       this.unavailable.set(true);
@@ -158,29 +163,4 @@ export class NewCardBlock {
   private report(error: unknown): void {
     this.errorHandler.handleError(error);
   }
-}
-
-/**
- * CONTRACT: Convert a StripeError into a real Error carrying only its `message`
- * and `type`. The raw object holds a `payment_method` with card details, and
- * `RumErrorHandler` emits `String(error)` for a non-Error value — so passing it
- * through both leaks fields and loses the message. See [[browser-rum]]
- */
-function stripeErrorToError(error: { message?: string; type?: string }): Error {
-  const converted = new Error(error.message ?? 'Stripe rejected the card');
-  converted.name = `StripeError:${error.type ?? 'unknown'}`;
-  return converted;
-}
-
-/** The SetupIntent's payment method, which Stripe sends as an id or an object. */
-function confirmedPaymentMethodId(result: unknown): string | null {
-  if (typeof result !== 'object' || result === null) return null;
-  const intent = (result as { setupIntent?: { payment_method?: unknown } }).setupIntent;
-  const method = intent?.payment_method;
-  if (typeof method === 'string') return method;
-  if (typeof method === 'object' && method !== null) {
-    const id = (method as { id?: unknown }).id;
-    return typeof id === 'string' ? id : null;
-  }
-  return null;
 }
