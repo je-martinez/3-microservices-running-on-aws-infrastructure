@@ -1,8 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { test, expect, type APIRequestContext } from "@playwright/test";
-import { apiClient, ordersClient } from "../support/api-client.js";
-import { makeUser } from "../support/chance-factory.js";
-import { pickProductWithStock } from "../support/catalogue.js";
+import { test, expect } from "@playwright/test";
+import { ordersClient } from "../support/api-client.js";
+import {
+  createOrder,
+  makeBuyer,
+  orderableProductId,
+  ordersChargesStripe,
+} from "../support/orders-buyer.js";
 import {
   chargeAttemptsForCustomer,
   customerIdForEmail,
@@ -16,6 +20,10 @@ import {
 // because Orders charges a `pm_` that already belongs to the buyer's Stripe customer.
 // The gateway path is tests/gateway/'s.
 
+// CONTRACT: Pass the payment fields EXPLICITLY here, never through `placeOrder`. Omitting
+// one is the assertion in three tests below, so the helper that supplies them both would
+// make those tests unable to fail. See [[2026-09-19-stripe-payments-design]]
+
 // CONTRACT: Both clients already send `X-E2E-Source: true` (see api-client.ts), so every
 // user, order and Stripe customer here is tagged for e2e-cleanup. Do NOT send
 // `x-test-mode` — no spec in this file asserts on a delivery.
@@ -26,65 +34,17 @@ import {
 // See https://docs.stripe.com/testing#declined-payments
 const DECLINE_AT_CHARGE = "pm_card_chargeCustomerFail";
 
-type Buyer = { userId: string; email: string; paymentMethodId: string };
-
-/** A registered user with `pm` attached to their Stripe customer. */
-async function makeBuyer(pm = "pm_card_visa"): Promise<Buyer> {
-  const users = await apiClient();
-  const user = makeUser();
-  const registered = await users.post("/v1/users/register", { data: user });
-  expect(registered.status(), await registered.text()).toBe(201);
-  const { id } = await registered.json();
-
-  const attached = await users.post("/v1/users/me/payment-methods", {
-    headers: { "x-user-id": id },
-    data: { paymentMethodId: pm },
-  });
-  expect(attached.status(), await attached.text()).toBe(200);
-  const { id: paymentMethodId } = await attached.json();
-
-  return { userId: id, email: user.email, paymentMethodId };
-}
-
-async function orderableProductId(orders: APIRequestContext, userId: string, minStock = 1): Promise<string> {
-  const res = await orders.get("/v1/products", { headers: { "x-user-id": userId } });
-  expect(res.status()).toBe(200);
-  return pickProductWithStock(await res.json(), { minStock }).id;
-}
-
-type CreateOptions = { idempotencyKey?: string | null; paymentMethodId?: string | null; card?: unknown };
-
-function createOrder(
-  orders: APIRequestContext,
-  userId: string,
-  productId: string,
-  quantity: number,
-  options: CreateOptions,
-) {
-  const headers: Record<string, string> = { "x-user-id": userId };
-  if (options.idempotencyKey) headers["Idempotency-Key"] = options.idempotencyKey;
-
-  const data: Record<string, unknown> = { lines: [{ productId, quantity }] };
-  if (options.paymentMethodId) data.paymentMethodId = options.paymentMethodId;
-  if (options.card !== undefined) data.card = options.card;
-
-  return orders.post("/v1/orders", { headers, data });
-}
-
 // Module-scoped: probed once in beforeAll, read by every test's test.skip().
 let unavailableReason: string | null = null;
 
 test.beforeAll(async () => {
-  // Probe: with STRIPE_ENABLED off, Orders takes `paymentMethodId` as optional and the 400
-  // never fires, so every assertion below would be asserting the wrong branch. A 201 here
-  // IS that state — nothing is created, because the request carries no product.
+  // With STRIPE_ENABLED off, Orders takes `paymentMethodId` as optional and the 400 never
+  // fires, so every assertion below would be asserting the wrong branch.
   const orders = await ordersClient();
-  const { userId } = await makeBuyer();
-  const probe = await createOrder(orders, userId, "prd_flag_probe", 1, { idempotencyKey: randomUUID() });
-  if (probe.status() !== 400) {
+  if (!(await ordersChargesStripe(orders))) {
     unavailableReason =
-      `STRIPE_ENABLED is off in Orders — a paymentMethodId-less create answered ${probe.status()} ` +
-      "instead of 400, so the Stripe charge path is not mounted.";
+      "STRIPE_ENABLED is off in Orders — a paymentMethodId-less create reached the " +
+      "catalogue lookup, so the Stripe charge path is not mounted.";
   }
 });
 
@@ -94,10 +54,10 @@ test.beforeEach(() => {
 
 test("a valid paymentMethodId and Idempotency-Key create the order and charge Stripe once for its exact total", async () => {
   const orders = await ordersClient();
-  const buyer = await makeBuyer();
+  const buyer = await makeBuyer(orders);
   const productId = await orderableProductId(orders, buyer.userId);
 
-  const res = await createOrder(orders, buyer.userId, productId, 1, {
+  const res = await createOrder(orders, buyer.userId, [{ productId, quantity: 1 }], {
     idempotencyKey: randomUUID(),
     paymentMethodId: buyer.paymentMethodId,
   });
@@ -129,10 +89,12 @@ test("a valid paymentMethodId and Idempotency-Key create the order and charge St
 
 test("with the flag on, omitting paymentMethodId returns 400 invalid_request and charges nothing", async () => {
   const orders = await ordersClient();
-  const buyer = await makeBuyer();
+  const buyer = await makeBuyer(orders);
   const productId = await orderableProductId(orders, buyer.userId);
 
-  const res = await createOrder(orders, buyer.userId, productId, 1, { idempotencyKey: randomUUID() });
+  const res = await createOrder(orders, buyer.userId, [{ productId, quantity: 1 }], {
+    idempotencyKey: randomUUID(),
+  });
   expect(res.status(), await res.text()).toBe(400);
   expect(await res.json()).toMatchObject({ error: "invalid_request" });
 
@@ -142,10 +104,10 @@ test("with the flag on, omitting paymentMethodId returns 400 invalid_request and
 
 test("with the flag on, omitting the Idempotency-Key header returns 400 idempotency_key_required", async () => {
   const orders = await ordersClient();
-  const buyer = await makeBuyer();
+  const buyer = await makeBuyer(orders);
   const productId = await orderableProductId(orders, buyer.userId);
 
-  const res = await createOrder(orders, buyer.userId, productId, 1, {
+  const res = await createOrder(orders, buyer.userId, [{ productId, quantity: 1 }], {
     paymentMethodId: buyer.paymentMethodId,
   });
   expect(res.status(), await res.text()).toBe(400);
@@ -160,11 +122,11 @@ test("with the flag on, omitting the Idempotency-Key header returns 400 idempote
 // (0x20) sits just below the validator's `!` bound and is the shortest case that proves it.
 test("an Idempotency-Key over 64 characters, or carrying a space, returns 400 idempotency_key_required", async () => {
   const orders = await ordersClient();
-  const buyer = await makeBuyer();
+  const buyer = await makeBuyer(orders);
   const productId = await orderableProductId(orders, buyer.userId);
 
   for (const key of ["k".repeat(65), "has space"]) {
-    const res = await createOrder(orders, buyer.userId, productId, 1, {
+    const res = await createOrder(orders, buyer.userId, [{ productId, quantity: 1 }], {
       idempotencyKey: key,
       paymentMethodId: buyer.paymentMethodId,
     });
@@ -183,10 +145,10 @@ test("an Idempotency-Key over 64 characters, or carrying a space, returns 400 id
 // of JSON input", which reads as a broken error handler rather than a transport-level refusal.
 test("a non-ASCII Idempotency-Key is refused by the server with a bodiless 400", async () => {
   const orders = await ordersClient();
-  const buyer = await makeBuyer();
+  const buyer = await makeBuyer(orders);
   const productId = await orderableProductId(orders, buyer.userId);
 
-  const res = await createOrder(orders, buyer.userId, productId, 1, {
+  const res = await createOrder(orders, buyer.userId, [{ productId, quantity: 1 }], {
     idempotencyKey: "clave-ñ",
     paymentMethodId: buyer.paymentMethodId,
   });
@@ -200,10 +162,10 @@ test("a non-ASCII Idempotency-Key is refused by the server with a bodiless 400",
 
 test("a card that declines at charge returns 402 payment_declined, persists no order, and leaves an unpaid intent", async () => {
   const orders = await ordersClient();
-  const buyer = await makeBuyer(DECLINE_AT_CHARGE);
+  const buyer = await makeBuyer(orders, DECLINE_AT_CHARGE);
   const productId = await orderableProductId(orders, buyer.userId);
 
-  const res = await createOrder(orders, buyer.userId, productId, 1, {
+  const res = await createOrder(orders, buyer.userId, [{ productId, quantity: 1 }], {
     idempotencyKey: randomUUID(),
     paymentMethodId: buyer.paymentMethodId,
   });
@@ -232,18 +194,18 @@ test("a card that declines at charge returns 402 payment_declined, persists no o
 
 test("replaying the same (user, Idempotency-Key) returns the existing order 200 and charges Stripe exactly once", async () => {
   const orders = await ordersClient();
-  const buyer = await makeBuyer();
+  const buyer = await makeBuyer(orders);
   const productId = await orderableProductId(orders, buyer.userId);
   const key = randomUUID();
 
-  const first = await createOrder(orders, buyer.userId, productId, 1, {
+  const first = await createOrder(orders, buyer.userId, [{ productId, quantity: 1 }], {
     idempotencyKey: key,
     paymentMethodId: buyer.paymentMethodId,
   });
   expect(first.status(), await first.text()).toBe(201);
   const created = await first.json();
 
-  const replay = await createOrder(orders, buyer.userId, productId, 1, {
+  const replay = await createOrder(orders, buyer.userId, [{ productId, quantity: 1 }], {
     idempotencyKey: key,
     paymentMethodId: buyer.paymentMethodId,
   });
@@ -266,18 +228,18 @@ test("replaying the same (user, Idempotency-Key) returns the existing order 200 
 
 test("the same Idempotency-Key with a different purchase returns 422 idempotency_key_mismatch and charges once", async () => {
   const orders = await ordersClient();
-  const buyer = await makeBuyer();
+  const buyer = await makeBuyer(orders);
   const productId = await orderableProductId(orders, buyer.userId, 3);
   const key = randomUUID();
 
-  const first = await createOrder(orders, buyer.userId, productId, 1, {
+  const first = await createOrder(orders, buyer.userId, [{ productId, quantity: 1 }], {
     idempotencyKey: key,
     paymentMethodId: buyer.paymentMethodId,
   });
   expect(first.status(), await first.text()).toBe(201);
   const created = await first.json();
 
-  const mismatch = await createOrder(orders, buyer.userId, productId, 2, {
+  const mismatch = await createOrder(orders, buyer.userId, [{ productId, quantity: 2 }], {
     idempotencyKey: key,
     paymentMethodId: buyer.paymentMethodId,
   });
@@ -300,13 +262,13 @@ test("the same Idempotency-Key with a different purchase returns 422 idempotency
 // three real sockets and one real PaymentIntent.
 test("three concurrent creates with one Idempotency-Key yield one order, one 201, and one charge", async () => {
   const orders = await ordersClient();
-  const buyer = await makeBuyer();
+  const buyer = await makeBuyer(orders);
   const productId = await orderableProductId(orders, buyer.userId, 3);
   const key = randomUUID();
 
   const responses = await Promise.all(
     [0, 1, 2].map(() =>
-      createOrder(orders, buyer.userId, productId, 1, {
+      createOrder(orders, buyer.userId, [{ productId, quantity: 1 }], {
         idempotencyKey: key,
         paymentMethodId: buyer.paymentMethodId,
       }),
@@ -346,10 +308,10 @@ test("three concurrent creates with one Idempotency-Key yield one order, one 201
 // See [[2026-09-19-stripe-payments-design]]
 test("with the flag on, a card metadata block that would fail every validation rule is ignored", async () => {
   const orders = await ordersClient();
-  const buyer = await makeBuyer();
+  const buyer = await makeBuyer(orders);
   const productId = await orderableProductId(orders, buyer.userId);
 
-  const res = await createOrder(orders, buyer.userId, productId, 1, {
+  const res = await createOrder(orders, buyer.userId, [{ productId, quantity: 1 }], {
     idempotencyKey: randomUUID(),
     paymentMethodId: buyer.paymentMethodId,
     card: { brand: "not-a-brand", last4: "nope", expMonth: 13, expYear: 1999 },

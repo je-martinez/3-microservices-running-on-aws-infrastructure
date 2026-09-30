@@ -56,7 +56,11 @@ const EXPECTATIONS: Record<string, RegExp[]> = {
   ],
   "order-created": [
     /Order Confirmed/i,
-    /ord_sample1/,
+    //: CONTRACT: Match the CUSTOMER-FACING order number, never `ord_sample1`. The receipt
+    // prints `orderNumber.formatted` and keeps the internal `ord_` id in the tracking
+    // link's href only, so the id is absent from the visible text this spec reads — an
+    // `ord_sample1` expectation fails against a correct email. See [[friendly-order-number]]
+    /260907-8KJ4M2/,
     //: The line items and the four money figures. `$47.39` is the total from the
     // catalog's sampleProps (4739 cents) — if the receipt ever renders raw cents
     // or drops a row, this is what catches it.
