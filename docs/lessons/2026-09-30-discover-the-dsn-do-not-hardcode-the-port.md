@@ -1,13 +1,13 @@
 ---
 title: "Discover the DSN, do not hardcode the port"
 type: lesson
-area: tracking
+area: shared
 status: active
 created: 2026-09-30
 updated: 2026-09-30
 tags:
   - type/lesson
-  - area/tracking
+  - area/shared
   - status/active
   - severity/medium
 related:
@@ -19,15 +19,46 @@ related:
 
 # Discover the DSN, do not hardcode the port
 
-How the tracking-go `make test-db` target finds its database, and why it never hardcodes a port.
+Never assume which port a Floci RDS engine listens on. This is a repo-wide rule for every script, env file, compose entry and Terraform provider. The concrete example here is the tracking-go `make test-db` target, which finds its database by discovery instead of a literal port.
 
 ## The port is not fixed
 
-Floci assigns RDS proxy ports from 7000-7099 by cluster **creation order**, which is not stable across applies: MySQL and Postgres have been observed to **swap**. The range itself is documented in [[floci-rds-apigw-limits]]; the instability is not. Hardcoding `7002` works until the next `make floci-up`, then fails in a way that looks like a broken test.
+Floci assigns RDS proxy ports from 7000-7099 by cluster **creation order**. [[floci-rds-apigw-limits]] already records that the port is assigned per run inside that range. What it does not record, and what this lesson adds, is that with more than one cluster the **assignment reorders across applies**.
+
+Verified on 2026-07-15 with two clusters (Users Postgres and Orders MySQL). Both orderings were observed on different from-scratch applies:
+
+| Apply | Postgres | MySQL |
+| --- | --- | --- |
+| One | 7001 | 7002 |
+| Another | 7002 | 7001 |
+
+Hardcoding either assignment works until the next from-scratch apply, then fails in a way that looks like a broken test or a dead database.
+
+## It broke something real
+
+`make migrate` hardcoded `floci:7001` as "the Postgres port". After a flip, Prisma connected to 7001, reached the **MySQL** cluster instead, and failed with "Can't reach database server".
+
+The failure names the wrong thing: it reads as a database being down, not as a port pointing at the wrong engine. Nothing in the message hints that the port is reachable but owned by another engine, so the natural debugging path (is the database up?) goes nowhere.
+
+## Discover the port per engine
+
+`describe-db-clusters` exposes `Engine` for every cluster, so the port can be discovered per engine:
+
+```bash
+aws --endpoint-url http://localhost:4566 rds describe-db-clusters \
+  --query "DBClusters[?Engine=='postgres'].Port" --output text
+
+aws --endpoint-url http://localhost:4566 rds describe-db-clusters \
+  --query "DBClusters[?Engine=='mysql'].Port" --output text
+```
+
+Feed the discovered ports into `make migrate`, the env-file generation, compose, and the two-phase post-effect providers rather than literal `7001` / `7002`.
+
+Related mitigation: docker-compose publishes Floci's ports as a **range** (7000-7010), precisely so host-side reachability survives whichever port gets assigned. Discovery decides which port to use; the published range is what makes that port reachable from the host.
 
 ## Discover from the generated env file
 
-The DSN is read from the generated `.env.local.tracking`, which `make env-file` writes from Terraform outputs (see [[env-files]]). That file is the single place the discovered port already lives; re-discovering it elsewhere would create a second source that can disagree with the first.
+For tracking-go, the DSN is read from the generated `.env.local.tracking`, which `make env-file` writes from Terraform outputs (see [[env-files]]). That file is the single place the discovered port already lives; re-discovering it elsewhere would create a second source that can disagree with the first.
 
 Two rewrites are applied to the value:
 
