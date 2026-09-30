@@ -25,12 +25,6 @@ export interface ConfirmedCard {
   saved: boolean;
 }
 
-interface MethodTab {
-  id: 'card' | 'apple-pay' | 'link';
-  label: string;
-  /** A lucide icon NAME, resolved from the registry by LucideDynamicIcon. */
-  icon: string;
-}
 
 const UNAVAILABLE = 'Card entry is unavailable right now. Please try again later.';
 
@@ -63,16 +57,6 @@ export class NewCardBlock {
   readonly cancelled = output<void>();
   readonly confirmed = output<ConfirmedCard>();
 
-  /**
-   * CONTRACT: Display only, and `card` is fixed active. The Element renders its
-   * own method switcher inside the iframe; a tab wired to filter it would hide a
-   * method Stripe had already deemed eligible.
-   */
-  protected readonly tabs: readonly MethodTab[] = [
-    { id: 'card', label: 'Card', icon: 'credit-card' },
-    { id: 'apple-pay', label: 'Apple Pay', icon: 'apple' },
-    { id: 'link', label: 'Link', icon: 'link' },
-  ];
 
   /** Decision 23: unchecked by default — saving a card is opt-in. */
   protected readonly saveForFuture = signal(false);

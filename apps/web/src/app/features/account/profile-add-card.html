@@ -14,40 +14,6 @@
     </button>
   </div>
 
-  <!-- CONTRACT: The tabs are DISPLAY only. The Payment Element decides which
-       methods are eligible and renders its own switcher inside the iframe, so a
-       tab here that filtered the Element would hide a method Stripe offered. -->
-  <div class="flex h-fit w-full shrink-0 flex-row items-start justify-start gap-2" role="tablist">
-    @for (tab of tabs; track tab.id) {
-      <span
-        [attr.data-testid]="'tab-' + tab.id"
-        role="tab"
-        class="flex h-15 flex-1 flex-col items-center justify-center gap-xs rounded-lg"
-        [class]="
-          tab.id === 'card'
-            ? 'bg-brand-orange-light border-brand-orange border-[1.5px]'
-            : 'bg-surface-white border-line border'
-        "
-        [attr.aria-selected]="tab.id === 'card'"
-      >
-        <svg
-          [lucideIcon]="tab.icon"
-          class="h-icon-md w-icon-md"
-          [class.text-brand-orange-text]="tab.id === 'card'"
-          [class.text-ink-secondary]="tab.id !== 'card'"
-        ></svg>
-        <span
-          class="text-caption whitespace-nowrap"
-          [class.text-ink-primary]="tab.id === 'card'"
-          [class.font-semibold]="tab.id === 'card'"
-          [class.text-ink-secondary]="tab.id !== 'card'"
-        >
-          {{ tab.label }}
-        </span>
-      </span>
-    }
-  </div>
-
   <!-- CONTRACT: Stripe.js mounts its iframe INTO this div, so nothing Angular
        renders may live inside it — a child here is wiped on mount, and the
        four card fields then appear without the label above them. -->

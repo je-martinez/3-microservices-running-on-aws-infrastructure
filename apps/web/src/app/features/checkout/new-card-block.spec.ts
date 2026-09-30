@@ -85,13 +85,17 @@ describe('NewCardBlock', () => {
     return root.querySelector(`[data-testid="${testid}"]`);
   }
 
-  it('renders the three method tabs, with Card active', async () => {
+  // CONTRACT: No method tabs. They were display-only — Apple Pay and Link were
+  // never clickable and never filtered anything — so with card the only method
+  // this flow accepts they advertised options that do not exist. The Payment
+  // Element renders the card form directly.
+  it('renders no method tabs, since card is the only method', async () => {
     const root = await render();
 
-    expect(query(root, 'tab-card')?.textContent).toContain('Card');
-    expect(query(root, 'tab-apple-pay')?.textContent).toContain('Apple Pay');
-    expect(query(root, 'tab-link')?.textContent).toContain('Link');
-    expect(query(root, 'tab-card')?.className).toContain('border-brand-orange');
+    expect(query(root, 'tab-card')).toBeNull();
+    expect(query(root, 'tab-apple-pay')).toBeNull();
+    expect(query(root, 'tab-link')).toBeNull();
+    expect(root.querySelector('[role="tablist"]')).toBeNull();
   });
 
   /** The four SField rows live inside Stripe's iframe; this is its mount host. */

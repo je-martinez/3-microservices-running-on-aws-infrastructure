@@ -23,12 +23,6 @@ import {
 import { StripeLoader } from '../../core/payments/stripe-loader';
 import { authErrorMessage } from '../auth/auth-errors';
 
-interface MethodTab {
-  id: 'card' | 'apple-pay' | 'link';
-  label: string;
-  /** A lucide icon NAME, resolved from the registry by LucideDynamicIcon. */
-  icon: string;
-}
 
 const UNAVAILABLE = 'Card entry is unavailable right now. Please try again later.';
 
@@ -63,16 +57,6 @@ export class ProfileAddCard {
   /** The attached card's id, so the owner re-reads its list. */
   readonly added = output<string>();
 
-  /**
-   * CONTRACT: Display only, and `card` is fixed active. The Element renders its
-   * own method switcher inside the iframe; a tab wired to filter it would hide a
-   * method Stripe had already deemed eligible.
-   */
-  protected readonly tabs: readonly MethodTab[] = [
-    { id: 'card', label: 'Card', icon: 'credit-card' },
-    { id: 'apple-pay', label: 'Apple Pay', icon: 'apple' },
-    { id: 'link', label: 'Link', icon: 'link' },
-  ];
 
   /** Checked in the design frame: a card added deliberately is usually the one to use. */
   protected readonly setAsDefault = signal(true);
