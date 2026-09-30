@@ -67,7 +67,7 @@ _tf_plugin_cache := $(shell mkdir -p $(TF_PLUGIN_CACHE_DIR))
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down logs build ps test-unit test-e2e test-all load-test load-test-smoke cache-toggle load-test-cache-ab-on load-test-cache-ab-off backend-up infra-init infra-plan lambda-bundles infra-up post-infra infra-down infra-output env-file stripe-webhook-secret migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor clean clean-state warm-images warm-nuget observability-up observability-down observability-dashboards observability-traces-schema redeploy-lambdas scripts-setup lint-comments lint-secrets lint-comments-diff install-comment-hook ai-sync ai-sync-check
+.PHONY: help up down logs build ps test-unit test-e2e test-all load-test load-test-smoke cache-toggle load-test-cache-ab-on load-test-cache-ab-off backend-up infra-init infra-plan lambda-bundles infra-up post-infra infra-down infra-output env-file stripe-webhook-secret migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor clean clean-state warm-images warm-nuget observability-up observability-down observability-dashboards observability-traces-schema redeploy-lambdas scripts-setup watch watch-stop watch-status watch-logs lint-comments lint-secrets lint-comments-diff install-comment-hook ai-sync ai-sync-check
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -94,6 +94,9 @@ $(PY):
 # venv. Prefer the absolute repo interpreter when present; otherwise fall back
 # to python3 so a fresh clone can still run the gate.
 COMMENT_PY       := $(if $(wildcard $(PY)),$(PY),python3)
+# WHY: Same resolution as COMMENT_PY, under a name that does not imply the
+# comment linter — a script unrelated to it should not read as if it were.
+SCRIPT_PY        := $(COMMENT_PY)
 COMMENT_DIFF_REF ?= main
 
 lint-secrets: ## Scan every tracked file for Stripe key literals
@@ -136,6 +139,18 @@ up: ## Start the stack (Floci + services) in the background
 
 down: ## Stop the stack
 	$(COMPOSE) down
+
+watch: ## Rebuild web/users/orders/tracking on save, in the background
+	@$(SCRIPT_PY) scripts/watch_services.py start $(if $(S),--services $(S))
+
+watch-stop: ## Stop the background watchers
+	@$(SCRIPT_PY) scripts/watch_services.py stop $(if $(S),--services $(S))
+
+watch-status: ## Show which watchers are running and their log sizes
+	@$(SCRIPT_PY) scripts/watch_services.py status
+
+watch-logs: ## Tail a watcher's log (make watch-logs S=web)
+	@tail -f logs/watch/$(or $(S),web).log
 
 logs: ## Tail logs (optional: make logs S=users)
 	$(COMPOSE) logs -f $(S)

@@ -267,6 +267,17 @@ services:
   # internal/adapter/grpcusers/gen/, so no shared .proto is read here at all.
   tracking:
     build: ./services/tracking-go
+    # CONTRACT: `rebuild`, and only cmd/ + internal/ — the two trees the
+    # Dockerfile COPYs. Go is compiled, so a synced file changes nothing in a
+    # running container, and watching the whole directory would rebuild on
+    # migrations/ or bin/ edits the image never reads.
+    # See [[2026-09-30-distroless-makes-cgo-a-build-time-contract]]
+    develop:
+      watch:
+        - action: rebuild
+          path: ./services/tracking-go/cmd
+        - action: rebuild
+          path: ./services/tracking-go/internal
     networks: [3mrai-network]
     ports:
       # Host 3002 → container 8000. 3000/3001 are taken by Users and Orders.

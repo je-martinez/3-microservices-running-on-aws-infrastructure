@@ -17,6 +17,7 @@ related:
   - "[[2026-07-03-local-dev-tooling-design]]"
   - "[[2026-07-03-local-dev-tooling]]"
   - "[[package-manager]]"
+  - "[[env-files]]"
   - "[[ADR-0019-distributed-tracing-opentelemetry]]"
   - "[[2026-09-21-a-round-invariant-delay-on-one-resource-type-is-the-client-not-the-server]]"
   - "[[2026-09-22-a-pruned-cache-that-came-over-the-network-is-not-free]]"
@@ -58,6 +59,10 @@ list. Key targets:
   targets a torn-down machine re-fetches base images and NuGet packages over the network on
   every rebuild, and public registries throttle a repeat client — see
   [[2026-09-22-a-pruned-cache-that-came-over-the-network-is-not-free]].
+- **Watch (keep containers current):** `make watch` / `make watch-stop` / `make watch-status` /
+  `make watch-logs S=web` — background `docker compose watch` per service so the running
+  containers track source edits. `S=` limits `watch`/`watch-stop` to one service. See
+  [Keeping containers current with `make watch`](#keeping-containers-current-with-make-watch).
 - **Stripe (local webhook delivery):** `make stripe-webhook-secret` — writes the Stripe CLI's
   local webhook signing secret into `.env.local.users` and `.env.local.orders` (CUSTOM box). It
   is the entry point [[stripe-sandbox-setup]] names for wiring `stripe listen` to the services.
@@ -101,6 +106,53 @@ list. Key targets:
 > waterfall, recoverable only by remembering undocumented manual commands. Full detail:
 > [[openobserve-runbook]].
 
+## Keeping containers current with `make watch`
+
+**The problem.** The `web` container serves a **compiled** bundle out of nginx's html root. The
+runtime stage has no compiler, so editing a source file changes nothing the browser can see until
+the image is rebuilt. Iterating without that, you verify against a bundle that is hours old — this
+happened: a container built at 03:48 was still being checked at 12:13 against a fix committed
+minutes earlier. `users`, `orders` and `tracking` have the same property for their own reasons
+(bundled TypeScript, compiled .NET, compiled Go).
+
+**The targets.**
+
+| Target | What it does |
+| --- | --- |
+| `make watch` | Starts one background `docker compose watch <service> --no-up` process per service, for `web`, `users`, `orders` and `tracking`. Each gets its own log at `logs/watch/<service>.log` and a pid file beside it. `S=` limits it, e.g. `make watch S=web`. |
+| `make watch-stop` | Stops the watchers (also accepts `S=`). |
+| `make watch-status` | Which watchers are live, their pids, and each log's size. |
+| `make watch-logs S=web` | Tails one watcher's log (defaults to `web`). |
+
+The script needs `.env.local.web` and errors out with "Run 'make env-file' first" when it is
+missing — see [[env-files]].
+
+**Measured facts.**
+
+- A real content change to `apps/web/src` takes about **20 seconds** from save to the container
+  serving it (22s measured end to end, including the container recreate). A no-op touch costs under
+  a second, because Docker's cache absorbs it.
+- The watcher **recreates the container**, not merely the image — verified by the image and
+  container timestamps landing one second apart and the container running the new image id.
+- **Verify a rebuild by the hashed asset name, not by a cached fetch.** A plain `curl` of the page
+  can return the previous `styles-<HASH>.css` from cache and read exactly like a broken watcher —
+  this cost a wrong conclusion in the session that built the feature. Check
+  `docker exec <container> ls /usr/share/nginx/html`, or send `Cache-Control: no-cache`.
+- Logs rotate on **start**, not on a timer: a log over 2 MB becomes `<service>.log.1` when its
+  watcher is next started. Rotating under a running writer would corrupt its file offset, which is
+  why it is not a timer. `logs/` is gitignored.
+- `tracking` had **no `develop.watch` block** and was silently skipped by `compose watch` —
+  compose ignores a service without one and still exits 0. A block now watches only `cmd/` and
+  `internal/`, the two trees its Dockerfile `COPY`s; watching the whole service directory would
+  rebuild on `migrations/` or `bin/` edits the image never reads. A new service needs its own
+  `develop.watch` block or it will be skipped the same way.
+
+> [!note] Trade-off
+> `make watch` is for verifying the **built artifact** as you iterate. For a fast edit loop on the
+> web app, `pnpm dev` (`ng serve`, real HMR on `:4200`) is still the better tool — a 20s rebuild
+> per save is not an edit loop. The container watch is what makes "I changed it and the app still
+> shows the old thing" impossible.
+
 ## Testing endpoints with `.http` files
 
 Endpoints are exercised with the VS Code **REST Client** extension
@@ -132,6 +184,7 @@ a new service needs local testing.
 - [[2026-07-03-local-dev-tooling-design]] — the design spec that introduced the Makefile + `.http` convention.
 - [[2026-07-03-local-dev-tooling]] — the implementation plan for that design.
 - [[package-manager]] — pnpm as the repo's only Node package manager.
+- [[env-files]] — `make watch` requires `.env.local.web`, generated by `make env-file`.
 - [[openobserve-runbook]] — full detail on `make observability-up`/`-down` (traces-schema seed,
   dashboard auto-import) referenced above.
 - [[ADR-0019-distributed-tracing-opentelemetry]] — the tracing-backend decision; its 2026-08-21

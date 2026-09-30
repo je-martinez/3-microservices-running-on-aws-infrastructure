@@ -127,6 +127,9 @@ functions/events-pipeline/.email-catalog-render-*/
 # Bootstrap timing measurements (raw JSON + per-stage logs)
 .bootstrap-timings/
 
+# `make watch` — one rotating rebuild log and one pid file per service
+logs/
+
 # lnai-generated
 .ai/.lnai-manifest.json
 # end lnai-generated
