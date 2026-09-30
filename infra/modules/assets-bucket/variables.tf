@@ -53,14 +53,12 @@ variable "public_read" {
 
     So locally there is no CDN to front the bucket with, and reading the bucket
     directly is the only option that produces a URL an email client could fetch.
-    See docs/lessons/floci-vs-ministack-spike-findings.md.
+    See [[floci-vs-ministack-spike-findings]].
 
-    When true this module attaches:
-      - a public-access block with all four flags OFF (a bucket policy granting
-        anonymous s3:GetObject is refused by real S3 while BlockPublicPolicy is
-        on), and
-      - a bucket policy allowing s3:GetObject to Principal "*" on <bucket>/*.
-    Read only. Anonymous writes are never granted, in either posture.
+    When true this module attaches a public-access block with all four flags
+    OFF (real S3 refuses an anonymous s3:GetObject policy while
+    BlockPublicPolicy is on), plus a bucket policy allowing s3:GetObject to
+    Principal "*" on <bucket>/*. Read only, in either posture.
   DESC
   type        = bool
   default     = false

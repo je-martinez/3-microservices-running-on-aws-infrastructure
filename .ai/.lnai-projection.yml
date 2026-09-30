@@ -183,16 +183,14 @@ skills:
   typescript-pro: share
 
   # EXCLUDE — redundant with a shared skill, generic enough to be noise, or
-  # about a product this repo does not use. Excluding is not a judgment on
-  # quality: a projection stuffed with low-signal rules buries the high-signal
-  # ones, and every provider pays the context cost on every run.
+  # about a product this repo does not use. Not a judgment on quality: a
+  # projection stuffed with low-signal rules buries the high-signal ones, and
+  # every provider pays the context cost on every run.
 
-  # Prisma's HOSTED Postgres product: Console provisioning, create-db, the
-  # Management API, service tokens, claim URLs, OAuth. This repo runs Prisma the
-  # ORM against Aurora Postgres on Floci and has no Prisma Platform account.
-  # Following either skill here would send an agent to provision an external,
-  # billable database instead of using the local emulator — actively harmful,
-  # not merely irrelevant. The parts of Prisma we DO use travel via
+  # WARNING: Prisma's HOSTED Postgres product. This repo runs Prisma the ORM
+  # against Aurora Postgres on Floci and holds no Platform account, so either
+  # skill sends an agent to provision an external, BILLABLE database instead of
+  # the local emulator. The parts of Prisma we DO use travel via
   # prisma-client-api / prisma-cli / prisma-upgrade-v7.
   prisma-postgres: exclude
   prisma-postgres-setup: exclude

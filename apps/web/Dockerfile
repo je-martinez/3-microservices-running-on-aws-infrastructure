@@ -91,11 +91,10 @@ RUN pnpm exec ng build
 
 # ── runtime stage: nginx serving the static build ───────────────────────────
 FROM nginx:1.27-alpine AS runtime
-# Server block only — the stock nginx.conf in this image includes conf.d/*.conf
-# from inside its http{} block. See apps/web/nginx.conf for the SPA fallback,
-# which is what makes a refresh on /orders work instead of 404ing, and for the
-# /v1/ same-origin proxy that removes the need for CORS.
-#
+# Server block only — the stock nginx.conf includes conf.d/*.conf from inside
+# its http{} block. apps/web/nginx.conf holds the SPA fallback (a refresh on
+# /orders resolves instead of 404ing) and the /v1/ same-origin proxy.
+
 # CONTRACT: Land it under /etc/nginx/templates, NOT conf.d. The image's
 # 20-envsubst-on-templates.sh entrypoint renders *.template into conf.d at
 # start, which is how the per-apply gateway id reaches nginx. Copied straight

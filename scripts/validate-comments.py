@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
-"""3MRAI comment-convention linter — enforces docs/shared/conventions/code-comments.md.
+"""3MRAI comment-convention linter — enforces [[code-comments]].
 
-Checks: block length, tag vocabulary, See [[vault-id]] references, stale terms,
-and narrative markers. A baseline ratchet freezes existing
-violations so CI fails only on new ones.
-
-Exit: 0 no new violations, 1 new violations, 2 config/IO error.
-Run `--help` for the flags; `--all --update-baseline` regenerates the baseline.
-"""
+Checks block length, tags, See [[vault-id]] references, stale terms and
+narrative markers, ratcheted against a baseline so CI fails only on new ones.
+Exit: 0 clean, 1 new, 2 config/IO error."""
 from __future__ import annotations
 
 import argparse

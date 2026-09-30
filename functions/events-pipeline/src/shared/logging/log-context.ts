@@ -8,19 +8,18 @@ import { AsyncLocalStorage } from "node:async_hooks";
 // line emitted from a deeper span.
 // See [[logging-context]]
 export interface LogContextStore {
-  /** Producer-generated event id — this event's only identifier. */
+  /** Producer-generated; this event's only identifier. */
   event_id?: string;
-  /** Event type driving the CQRS dispatch (e.g. USER_CREATED). */
+  /** Drives the CQRS dispatch (e.g. USER_CREATED). */
   type?: string;
-  /** Producing service (users, orders, tracking). */
   source?: string;
   /** Envelope's `usr_` id — the event's SUBJECT, not its cause (see `author_*`). */
   user_id?: string;
-  /** Internal order id — absent on events that belong to no order. */
+  /** Absent on events that belong to no order. */
   order_id?: string;
   /**
-   * The producer's audit actor (`<source>:<action>`) — WHO ORIGINATED the event.
-   * Flattened out of `author` so a line stays one flat, indexable record.
+   * WHO ORIGINATED the event (`<source>:<action>`). Flattened out of `author`
+   * so a line stays one flat, indexable record.
    */
   author_actor?: string;
   /**
@@ -30,26 +29,20 @@ export interface LogContextStore {
    * attributes the event to the wrong identity.
    */
   author_user_id?: string;
-  /** The originating human's Cognito sub — an identifier, not a secret. */
   author_cognito_sub?: string;
-  /**
-   * Correlation id of the causing request (`req_` + nanoid), read off the
-   * envelope, never minted here. Omitted when absent, never null.
-   */
+  /** Read off the envelope, never minted here (`req_` + nanoid). */
   request_id?: string;
-  /** SQS message id, the key that ties a line to a batchItemFailures entry. */
+  /** Ties a line to its batchItemFailures entry. */
   message_id?: string;
 }
 
 export const logContext = new AsyncLocalStorage<LogContextStore>();
 
-/** The active context, or an empty object outside a record. */
 export function getLogContext(): LogContextStore {
   return logContext.getStore() ?? {};
 }
 
 /**
- * Merge fields into the ACTIVE store, for enrichment part-way through a record.
  * No-op outside a record. Mutates in place rather than replacing the store, so
  * continuations that already captured the reference observe the update.
  */
