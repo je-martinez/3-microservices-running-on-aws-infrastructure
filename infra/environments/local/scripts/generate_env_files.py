@@ -8,10 +8,11 @@ See [[env-files]], [[two-phase-terraform-apply]]
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
-from lib3mrai.console import inf, ok
+from lib3mrai.console import inf, no, ok
 from lib3mrai.db import discover_port
 from lib3mrai.envfile import MissingValue, terraform_output, write_env_file
 
@@ -304,47 +305,10 @@ def build(repo_root: Path) -> dict[Path, dict]:
     docdb_host = f"floci-docdb-{docdb_cluster_identifier}"
 
     return {
-        # --- root .env: ONLY what compose interpolates -----------------------
-        # Anything else here would be dead weight; anything MISSING here breaks
-        # compose silently, because ${VAR} with no value resolves to "".
-        repo_root / ".env": dict(
-            header="Consumed by docker-compose ${VAR} interpolation ONLY. Service "
-            "environments live in .env.local.<service>.",
-            generated={
-                "COGNITO_USER_POOL_ID": pool_id,
-                "COGNITO_CLIENT_ID": client_id,
-                "USERS_DB_PORT": str(pg_port),
-                "ORDERS_DB_PORT": str(my_port),
-                # CONTRACT: Interpolated into the web image's NG_APP_WS_URL
-                # BUILD ARG, never a runtime variable — @ngx-env inlines
-                # NG_APP_* at compile time, so changing it needs a rebuild and a
-                # restart re-serves the old bundle. It carries the api id Floci
-                # remints on every apply. See [[web-app-env-config]]
-                "WS_URL": ws_url,
-                # CONTRACT: RELATIVE, never an absolute gateway origin. Nothing
-                # in this repo sends CORS headers, so an absolute origin is
-                # blocked at the preflight on every request; nginx proxies /v1
-                # same-origin instead. See [[web-app-env-config]]
-                "NG_APP_API_GATEWAY_URL": WEB_API_GATEWAY_BASE_PATH,
-            },
-            custom_defaults={
-                # CONTRACT: Each is a BUILD ARG of the web image, so changing
-                # one needs `docker compose build web` — a restart re-serves the
-                # old bundle. See [[env-files]]
-                #
-                # CONTRACT: CUSTOM, never generated — the AUTO box is rewritten
-                # every run, and these are per-machine choices.
-                "NG_APP_STRIPE_ENABLED": "false",
-                # The pk_test_ key is PUBLIC by design — @ngx-env compiles every
-                # NG_APP_* into the bundle — but it is still per-developer, one
-                # per Stripe sandbox. Seeded EMPTY, which app-config.ts reads as
-                # unset: card entry stays off rather than calling loadStripe("")
-                # and failing on every mount. See [[stripe-sandbox-setup]]
-                "NG_APP_STRIPE_PUBLISHABLE_KEY": "",
-                "NG_APP_GEOCODE_ENABLED": "true",
-                "NG_APP_RUM_ENABLED": "false",
-            },
-        ),
+        # CONTRACT: No root .env is generated. Every value belongs to the service
+        # that reads it, in .env.local.<service>, and compose interpolates `${VAR}`
+        # from .env.local.web via the Makefile's --env-file. A key added back here
+        # would duplicate one of those files and drift from it.
         # --- infra: terraform outputs, for the E2E suite and for humans ------
         repo_root / ".env.local.infra": dict(
             header="Infrastructure outputs (terraform). Read by the E2E suite.",
@@ -659,13 +623,16 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 "WS_MANAGEMENT_ENDPOINT": ws_management_endpoint,
             },
         ),
-        # --- web app: read by NGINX at runtime, never by the bundle ----------
-        # The odd one out among these files: its two values are consumed by the
-        # nginx envsubst entrypoint rendering apps/web/nginx.conf, not by an
-        # application process. The bundle's own config is compiled in as
-        # NG_APP_* build args (docker-compose.yml), and carries only "/v1".
+        # --- web app: nginx runtime AND the bundle's build args --------------
+        # CONTRACT: This file feeds the web service TWICE, by two mechanisms that
+        # resolve at different times. `env_file:` hands the API_GATEWAY_*/GEOAPIFY
+        # values to nginx at container start; the NG_APP_* below reach the image as
+        # BUILD ARGS through compose's `${VAR}` interpolation, which reads this file
+        # because the Makefile passes `--env-file .env.local.web`. A build arg
+        # cannot come from `env_file:` — that resolves too late. See [[env-files]]
         repo_root / ".env.local.web": dict(
-            header="Web app nginx environment. Loaded via env_file: in docker-compose.yml.",
+            header="Web app environment: nginx runtime (env_file) + the bundle's "
+            "NG_APP_* build args (compose --env-file interpolation).",
             generated={
                 # CONTRACT: Do NOT use localhost here. This is read INSIDE the
                 # web container, where localhost is the container itself and the
@@ -677,10 +644,18 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 "API_GATEWAY_API_ID": api_id,
                 # CONTRACT: The HOST-facing url, read by a BROWSER — not
                 # WS_MANAGEMENT_ENDPOINT, whose in-network shape answers a
-                # handshake with an S3 XML body. Copy it into
-                # apps/web/.env as NG_APP_WS_URL and restart `pnpm dev`:
-                # NG_APP_* is inlined at build time.
+                # handshake with an S3 XML body.
                 "WS_URL": ws_url,
+                # CONTRACT: Interpolated into the NG_APP_WS_URL build arg, so it
+                # is inlined at COMPILE time: changing it needs
+                # `docker compose build web`, and a restart re-serves the old
+                # bundle. Same value as WS_URL above; the prefixed name is what
+                # @ngx-env's filter admits.
+                "NG_APP_WS_URL": ws_url,
+                # CONTRACT: RELATIVE, never an absolute gateway origin. Nothing in
+                # this repo sends CORS headers, so an absolute origin is blocked at
+                # the preflight on every request.
+                "NG_APP_API_GATEWAY_URL": WEB_API_GATEWAY_BASE_PATH,
             },
             custom_defaults={
                 # CONTRACT: CUSTOM, never generated — the AUTO box is rewritten
@@ -689,6 +664,19 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # Geoapify keyless. Paste a key (3,000/day free,
                 # myprojects.geoapify.com) in .env.local.web. See [[env-files]]
                 "GEOAPIFY_API_KEY": "",
+                # CONTRACT: Each of the four below is a BUILD ARG, so changing one
+                # needs `docker compose build web` — a restart re-serves the old
+                # bundle. CUSTOM because they are per-machine choices, and the AUTO
+                # box is rewritten on every run.
+                "NG_APP_STRIPE_ENABLED": "false",
+                # PUBLIC by design — @ngx-env compiles every NG_APP_* into the
+                # bundle — but still one key per developer sandbox. Seeded EMPTY,
+                # which app-config.ts reads as unset: card entry stays off rather
+                # than mounting against a key Stripe rejects.
+                # See [[stripe-sandbox-setup]]
+                "NG_APP_STRIPE_PUBLISHABLE_KEY": "",
+                "NG_APP_GEOCODE_ENABLED": "true",
+                "NG_APP_RUM_ENABLED": "false",
             },
         ),
         # --- debug: HOST-reachable, loaded by nothing ------------------------
@@ -748,6 +736,29 @@ def sync_web_ws_url(repo_root: Path, ws_url: str) -> Path | None:
     return path
 
 
+def check_example_covers(repo_root: Path, files: dict) -> list[str]:
+    """Name every generated key that `.env.example` fails to declare.
+
+    CONTRACT: `.env.example` is the committed contract for files that are all
+    git-ignored, so nothing else can reveal a key that was added to the generator
+    and never documented. A declaration may be COMMENTED OUT — that is how a
+    CUSTOM-box entry is shown — so the check reads `KEY=` with or without a
+    leading `#`. See [[env-files]]
+    """
+    example = repo_root / ".env.example"
+    if not example.exists():
+        return []
+    declared = set(
+        re.findall(r"^#?\s*([A-Z][A-Z0-9_]*)=", example.read_text(), re.MULTILINE)
+    )
+    missing: list[str] = []
+    for path, spec in files.items():
+        for key in (*spec.get("generated", {}), *spec.get("custom_defaults", {})):
+            if key not in declared:
+                missing.append(f"{path.name}:{key}")
+    return missing
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -786,6 +797,16 @@ def main(argv: list[str]) -> int:
     synced = sync_web_ws_url(args.repo_root, web_spec["generated"]["WS_URL"])
     if synced is not None:
         inf(f"synced NG_APP_WS_URL in {synced.relative_to(args.repo_root)}")
+
+    # WHY: Every generated file is git-ignored, so an undocumented key is invisible
+    # in review — this is the only place the omission can surface. A warning, not a
+    # failure: a half-documented contract must not block a developer's stack.
+    missing = check_example_covers(args.repo_root, files)
+    if missing:
+        no(f".env.example does not declare {len(missing)} generated key(s):")
+        for entry in missing:
+            inf(f"  {entry}")
+        inf("Add them to .env.example — see [[env-files]]")
 
     ok(f"generated {len(files)} env files + 1 proxy config (CUSTOM sections preserved)")
     return 0

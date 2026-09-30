@@ -4,7 +4,7 @@ type: convention
 area: infra
 status: active
 created: 2026-07-20
-updated: 2026-09-22
+updated: 2026-09-29
 tags:
   - type/convention
   - area/infra
@@ -183,12 +183,40 @@ This closes the gap the [[2026-09-19-stripe-payments]] milestone's Task 11 found
 `docker-compose.yml`, which meant flipping a flag required hand-editing the compose file
 instead of the CUSTOM box like every other per-machine choice in this repo.
 
+## Every generated key is declared in `.env.example`
+
+`.env.example` is the committed contract, and every generated env file is git-ignored, so an
+undeclared variable is invisible in a diff, in review, and at runtime. Six of seven sections had
+drifted behind the generator this way (for example `.env.local.tracking`: 25 keys generated, 10
+declared).
+
+- **Adding a variable to `generate_env_files.py` means adding it to `.env.example` in the same
+  change.** The two are one contract.
+- **`make env-file` is the gate.** `check_example_covers()` runs at the end of `main()`, walks every
+  spec's `generated` and `custom_defaults` keys, and names each one `.env.example` does not
+  declare. Read that output; do not scroll past it.
+- **It warns, it does not fail.** A half-documented contract must not block a developer's stack:
+  the generator still writes every file and exits 0.
+- **It lives in the generator, not a separate linter.** The generator is the only place that
+  already knows every key; a second checker would duplicate the spec table and drift from it.
+- **Placeholders, never values.** The file is committed. Per-apply ids are `us-east-1_xxxxxxxxx` or
+  `<api-id>`; Floci-assigned ports are `<pg-port>` / `<my-port>`, never a literal, because the
+  assignment order is not stable (a literal `7001` showed up reversed). Secrets and personal
+  tokens appear as an empty commented key. Fixed container hostnames and ports may be literal.
+- **A CUSTOM-box key is declared by showing it commented out** (`# GEOAPIFY_API_KEY=`). The check
+  reads `KEY=` with or without a leading `#`, and the commented form is the correct style.
+- **Order each section's keys as the generated file has them**, so the two diff side by side.
+
+The same family as [[2026-09-29-repo-wide-gates-must-exclude-generated-and-duplicated-trees]]: a
+file whose counterpart is git-ignored has no natural reviewer, so it needs a mechanical check.
+
 ## Adding a service
 
 1. Add a `.env.local.<service>` entry to
    `infra/environments/local/scripts/generate_env_files.py`.
 2. Add `env_file: [.env.local.<service>]` to that service in `docker-compose.yml`.
 3. Declare NOTHING inline in `environment:`.
+4. Declare every generated key in `.env.example` (see above).
 
 There is deliberately no shared `.services` file: Users and Orders both define
 `DATABASE_WRITER_URL` with different values AND different formats (a `postgres://` URL versus
@@ -277,3 +305,5 @@ When changing env plumbing, verify against a real bring-up, not by inspection:
   step-by-step procedure and symptom table.
 - [[2026-09-19-stripe-payments]] — Task 11's step 11.4b, which moves every web `NG_APP_*` build
   arg out of `docker-compose.yml` literals and into the root `.env`'s AUTO/CUSTOM boxes.
+- [[2026-09-29-repo-wide-gates-must-exclude-generated-and-duplicated-trees]] — the same
+  "no natural reviewer, so add a mechanical check" shape, applied to the comment linter.

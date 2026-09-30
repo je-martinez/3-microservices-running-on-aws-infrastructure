@@ -2,11 +2,15 @@
 # Run `make help` (the default) to list targets.
 # Two layers: docker-compose (Floci + services) and Terraform against Floci.
 
-COMPOSE      := docker compose
+# CONTRACT: Keep `--env-file .env.local.web`. Compose interpolates `${VAR}` from
+# ONE file only, and the six NG_APP_* build args are the only interpolations in
+# docker-compose.yml. Drop the flag and compose looks for a root .env that this repo
+# does not generate, so every build arg silently falls back to its default and the
+# bundle ships with Stripe and RUM off. See [[env-files]]
+COMPOSE      := docker compose --env-file .env.local.web
 TF_LOCAL_DIR := infra/environments/local
 TF           := terraform -chdir=$(TF_LOCAL_DIR)
 FLOCI_URL    := http://localhost:4566
-ENV_FILE     := .env
 
 # Python interpreter for the infra scripts. ABSOLUTE on purpose: neither this
 # Makefile nor Terraform's local-exec may depend on whichever `python3` sits on
