@@ -122,4 +122,55 @@ describe('QtyStepper', () => {
 
     expect(root.querySelector('[data-testid="cart-line-quantity"]')?.textContent?.trim()).toBe('7');
   });
+
+  /**
+   * CONTRACT: The roll animates a CLONE out and leaves the bound `<span>` in
+   * place. Animating the bound node out and removing it on `finish` detaches
+   * what the template owns, and Angular rewrites it to the new value anyway, so
+   * both digits render stacked over each other and never resolve.
+   *
+   * WORKAROUND(test): jsdom implements neither `matchMedia` nor
+   * `Element.animate`, so `roll()` throws on its first line and never runs
+   * unless both are stubbed. Without this setup the assertions below pass
+   * against the stacking bug as readily as against the fix.
+   * See [[2026-09-30-cart-add-quantity-morph-design]]
+   */
+  it('leaves exactly one live number after a quantity change', () => {
+    const finishers: (() => void)[] = [];
+    vi.stubGlobal('matchMedia', () => ({ matches: false }) as MediaQueryList);
+    const animate = vi.fn(() => ({
+      addEventListener: (_: string, done: () => void) => finishers.push(done),
+    }));
+    Object.defineProperty(Element.prototype, 'animate', {
+      value: animate,
+      configurable: true,
+      writable: true,
+    });
+
+    try {
+      const root = render({ quantity: 1 });
+      const counter = root.querySelector('[data-testid="cart-line-quantity"]');
+
+      fixture.componentRef.setInput('quantity', 2);
+      fixture.detectChanges();
+
+      // The roll ran: one node leaves, one enters.
+      expect(animate).toHaveBeenCalledTimes(2);
+
+      const live = [...(counter?.children ?? [])].filter(
+        (node) => node.getAttribute('aria-hidden') !== 'true',
+      );
+      expect(live).toHaveLength(1);
+      expect(live[0]?.textContent?.trim()).toBe('2');
+
+      finishers.forEach((done) => done());
+      fixture.detectChanges();
+
+      expect(counter?.children).toHaveLength(1);
+      expect(counter?.textContent?.trim()).toBe('2');
+    } finally {
+      Reflect.deleteProperty(Element.prototype, 'animate');
+      vi.unstubAllGlobals();
+    }
+  });
 });

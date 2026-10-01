@@ -46,6 +46,9 @@ export class QtyStepper {
 
   private readonly counter = viewChild.required<ElementRef<HTMLElement>>('counter');
 
+  /** The outgoing clone of the current roll, so a fast second click clears it. */
+  private leaving: HTMLElement | null = null;
+
   /**
    * CONTRACT: Coerce before comparing. `quantity` reaches here as `IntLike`, so
    * `"1" === 1` is false and `"3" > 1` compares strings — both make the trash
@@ -64,7 +67,7 @@ export class QtyStepper {
       const from = previous;
       previous = next;
       if (from === null || from === next) return;
-      this.roll(next > from ? 1 : -1);
+      this.roll(from, next > from ? 1 : -1);
     });
   }
 
@@ -82,28 +85,40 @@ export class QtyStepper {
    * WHY: `element.animate()` rather than a CSS transition. The roll needs the
    * outgoing and incoming numbers on screen at once, which in CSS alone means
    * keeping two nodes in the template permanently.
+   *
+   * CONTRACT: Animate a CLONE out and leave the bound `<span>` in place. The
+   * span's text is `{{ count() }}`, so Angular rewrites it to the new value on
+   * every change: animating it out and removing it on `finish` detaches the
+   * node the template owns, and both numbers render stacked on the same digit.
+   * See [[2026-09-30-cart-add-quantity-morph-design]]
    */
-  private roll(direction: 1 | -1): void {
+  private roll(from: number, direction: 1 | -1): void {
     const host = this.counter().nativeElement;
-    const current = host.firstElementChild as HTMLElement | null;
-    if (!current || !('animate' in host)) return;
+    const live = host.firstElementChild as HTMLElement | null;
+    if (!live || !('animate' in host)) return;
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
-    const incoming = current.cloneNode(true) as HTMLElement;
-    incoming.textContent = String(this.count());
-    host.append(incoming);
+    this.leaving?.remove();
+    const leaving = live.cloneNode(true) as HTMLElement;
+    leaving.textContent = String(from);
+    leaving.setAttribute('aria-hidden', 'true');
+    host.append(leaving);
+    this.leaving = leaving;
 
     const options = { duration: ROLL_MS, easing: ROLL_EASING } as const;
-    current
+    leaving
       .animate(
         [
           { transform: 'translateY(0)', opacity: 1 },
           { transform: `translateY(${-direction * 100}%)`, opacity: 0 },
         ],
-        { ...options, fill: 'forwards' },
+        options,
       )
-      .addEventListener('finish', () => current.remove());
-    incoming.animate(
+      .addEventListener('finish', () => {
+        leaving.remove();
+        if (this.leaving === leaving) this.leaving = null;
+      });
+    live.animate(
       [
         { transform: `translateY(${direction * 100}%)`, opacity: 0 },
         { transform: 'translateY(0)', opacity: 1 },
