@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-08-18
-updated: 2026-09-04
+updated: 2026-10-01
 tags:
   - type/convention
   - area/shared
@@ -15,6 +15,7 @@ related:
   - "[[email-templates]]"
   - "[[doc-propagation]]"
   - "[[angular-component-authoring]]"
+  - "[[2026-09-30-cart-add-quantity-morph-design]]"
 ---
 
 # Pencil Design Extraction
@@ -115,6 +116,23 @@ rediscover during a rebrand: changing a brand colour is a **two-surface change**
 files need the update, and extraction needs to be re-run against each, or the surfaces
 visibly drift apart with no build-time signal that they have.
 
+## One `.pen` reusable component maps to exactly one `shared/ui` component
+
+A reusable component in the `.pen` becomes a single Angular component that every consumer
+instances, never re-expressed per surface. `Qty Stepper` (`a7S8KL`) →
+`apps/web/src/app/shared/ui/qty-stepper.ts`, instanced by both `Product Card` (`QmNIg`) and
+`Cart Line` (`L5XVFs`).
+
+When the `.pen` shares a component across frames, the code shares it too. Two hand-built copies
+drift the moment one frame is edited, and the drift is invisible: each copy is self-consistent
+and renders correctly on its own screen, so nothing surfaces the divergence until someone
+compares two screenshots. The cart line's stepper and the product card's are the same control at
+the same 40px — a fact about the design, not a coincidence to re-implement twice.
+
+Record the mapping in `apps/web/DESIGN.md`'s reusable-components table as part of the same
+change. A component that exists in the `.pen` and in code but not in the table is invisible to
+the next person reading for what already exists.
+
 ## The MCP bridge, and why the per-editor one must never be used
 
 `.pen` files are encrypted; only the Pencil MCP tools can read them — `Read`/`Grep` return
@@ -132,6 +150,30 @@ portably via `scripts/pencil_mcp.py`, which searches known install paths for the
 platform-specific binary and `exec`s it, so the repo is not tied to one machine's install
 layout.
 
+### A fresh MCP process fails every call until the desktop app registers it
+
+The per-editor bridge is not the only cause of "every call fails". A short-lived Pencil MCP
+process fails EVERY call — including `read_skill`, which touches no document at all — with an
+error claiming **"you are probably referencing the wrong .pen file"**. The message is
+misleading: the file and the editor are fine. The desktop app has simply not registered the
+agent yet.
+
+- **Fix:** hold the connection open and pause roughly 3 seconds after
+  `notifications/initialized` before the first call.
+- **Diagnostic:** if `read_skill` fails too, it is NOT a document or bridge problem — no
+  document is involved. A per-editor bridge fault (the case above) lets `read_skill` succeed
+  and fails only document calls. One call distinguishes the two.
+
+WARNING: Do not respond to this error by hunting for the right `.pen` path, re-opening the
+editor, or re-reading the document — the error text names a cause that is not the cause.
+
+> [!warning] Open, unverified: `execute` returning a bare `OK`
+> A different symptom was seen once, on 2026-09-30: `get_app_state` succeeded and listed
+> `a7S8KL`, but `execute` returned a bare `OK` with no `Print` output on three attempts (plain
+> call, with `input: ["a7S8KL"]`, with an explicit `return`). The connection was registered and
+> document reads worked, so the ~3s fix above almost certainly does not apply. Not diagnosed;
+> do not treat it as a settled quirk.
+
 ## MCP edits are in-memory until a human saves
 
 `SetVariables`/`Update` change the *open editor's* document immediately, but the `.pen` file on
@@ -143,10 +185,37 @@ git hash-object assets/web-app/web-app.pen
 git rev-parse HEAD:assets/web-app/web-app.pen
 ```
 
-Equal hashes mean nothing has landed yet. **This is live right now, not a hypothetical**: four
-tokens (the ones listed above) exist in the open editor and not on disk. A re-extraction
-performed today, before those are saved, would silently drop all four — "silently" because the
-MCP calls that read them would simply return the pre-save variable set with no error.
+Run it from the repo root after ANY `.pen` write. **Equal hashes mean the save has NOT
+landed.** Ask the user to save in the desktop app (the agent cannot save for them), then re-run
+the check; `git status` showing the `.pen` as unmodified is the same signal. A re-extraction
+performed before the save would silently drop the edit — "silently" because the MCP calls that
+read it would simply return the pre-save state with no error.
+
+CONTRACT: Never report a `.pen` task done on the strength of the MCP call alone. The failure is
+silent and survives into the commit — the design file stays behind the code, and the next
+person reading the `.pen` sees a component the code has already moved past.
+
+## `Export` needs an absolute `outputPath`, and re-exporting overwrites
+
+`Export`'s `outputPath` must be an absolute path. A relative one resolves against the `.pen`
+file's own directory, not the working directory, so the export silently lands beside
+`assets/web-app/` instead of in `apps/web/design/exports/`.
+
+Re-exporting a frame overwrites a tracked file when one already exists in
+`apps/web/design/exports/` (both exports in the add-to-cart milestone replaced committed files).
+Check before exporting whether the target is new or a replacement, and say which in the task —
+an export step written as if it creates a file will quietly replace a committed one.
+
+## Code may legitimately lead the `.pen`
+
+A glyph, state or variant can ship in code before the design file carries it. The quantity
+stepper's trash icon was built in `qty-stepper.html` and registered in `app.config.ts` and
+`fixtures.ts` while `a7S8KL` still drew `minus` only.
+
+This is allowed, but a `.pen` change then needs its OWN task with its own verification (the
+hash check above) — it does not follow automatically from the code task that consumed it. A plan
+that folds the design-file edit into the component task will report the component done and
+leave the `.pen` behind, because the code tests pass either way.
 
 ## Tailwind scans Markdown and HTML
 
@@ -159,6 +228,7 @@ example needs the same exclusion, or the failure resurfaces the next time someon
 
 ## Related
 
+- [[2026-09-30-cart-add-quantity-morph-design]] — the add-to-cart morph milestone, source of the component-mapping, absolute-export, code-leads-design and fresh-MCP-process rules.
 - `.claude/skills/pencil-design-extraction/SKILL.md` — the six-step executable procedure this
   convention explains the reasoning behind.
 - `apps/web/CLAUDE.md` — the app's stack, the tokens golden rule, and the `NG_APP_*` rule.

@@ -108,8 +108,33 @@ export const CartStore = signalStore(
         .filter((line) => toInt(line.quantity) > 0);
     });
 
+    /**
+     * CONTRACT: Built from `lines`, never from `cart().items` — the optimistic
+     * overlay is what makes a card's stepper track the buyer's finger, and an
+     * index built from the raw cart shows the pre-click quantity for a whole
+     * debounce window. See [[2026-09-04-web-gateway-integration-design]]
+     *
+     * WHY: An index, not a `find` per consumer. The catalogue grid asks for one
+     * quantity per card, so a linear scan each makes the grid O(n·m) on every
+     * cart change.
+     */
+    const quantityByProduct = computed<ReadonlyMap<string, number>>(
+      () => new Map(lines().map((line) => [line.productId, toInt(line.quantity)])),
+    );
+
     return {
       lines,
+      quantityByProduct,
+      /**
+       * Quantity held of one product, 0 when the cart does not hold it.
+       *
+       * CONTRACT: Returns 0 for an absent product, never undefined — a card
+       * reading `undefined` renders it as text in the counter.
+       */
+      quantityOf: computed(() => {
+        const index = quantityByProduct();
+        return (productId: string): number => index.get(productId) ?? 0;
+      }),
       /**
        * CONTRACT: Sum the QUANTITIES, not the line count — the header badge is a
        * count of goods, and counting lines shows "1" for a cart holding five of

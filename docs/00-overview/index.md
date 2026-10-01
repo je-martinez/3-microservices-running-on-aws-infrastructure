@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-09-23
+updated: 2026-10-01
 tags:
   - type/spec
   - area/shared
@@ -99,6 +99,8 @@ related:
   - "[[2026-09-06-address-geocoding-proxy-design]]"
   - "[[2026-09-19-stripe-payments-design]]"
   - "[[2026-09-19-stripe-payments]]"
+  - "[[2026-09-30-cart-add-quantity-morph-design]]"
+  - "[[2026-09-30-cart-add-quantity-morph]]"
   - "[[stripe-payments-milestone]]"
   - "[[web-app-foundation-milestone]]"
   - "[[2026-07-31-contextvars-lost-across-task-boundaries]]"
@@ -345,6 +347,7 @@ Specs produced through the planning phase, normalized to vault conventions.
 - [[2026-09-18-cqrs-dispatch-tracking-orders-design]] — Design for a CQRS command/query bus in Tracking (Go, hand-rolled generic `Handler[Q,R]`/`Middleware[Q,R]`/`Wrap`) and Orders (.NET, Wolverine 6.39.0), plus a per-service transactional outbox (`oagudo/outbox` for Tracking, Wolverine's durable outbox for Orders) sequenced in two phases behind a review stop point; rejects `go-mink` for Tracking (Postgres-only, no typed query bus, near-zero adoption) and records three mutation-testing-caught test-validity traps from the reverted Users work that generalize to any new pipeline layer; Users is out of scope — see [[2026-09-19-users-nestjs-migration-design]]; per [[cqrs]], [[dependency-injection]], [[orders-service-design]], [[tracking-service-design]].
 - [[2026-09-19-users-nestjs-migration-design]] — Design for migrating the Users service from Fastify+Awilix to NestJS, primarily to adopt `@nestjs/cqrs` now that the framework change removes [[2026-09-18-cqrs-dispatch-tracking-orders-design]]'s reason for rejecting it (booting a second DI container beside Awilix); builds Nest in parallel and deletes Fastify only once all 84 framework-agnostic E2E specs pass unmodified, rewrites the 663 unit/integration tests against `Test.createTestingModule()` with an explicit no-weakening rule, carries forward five measured findings from the reverted hand-rolled-bus work (routine-vs-thrown span status, specific-reason deferral against last-write-wins `setAttributes`, one-failure-one-log-line, direct-handler tests proving nothing about pipeline behavior, mutation-testing critical assertions), and resolves validation/OpenAPI generation onto a hand-rolled Zod pipe + `zod-to-json-schema` after finding both Zod↔Nest bridge libraries stop at Nest 11; per [[users-service-design]], [[cqrs]], [[dependency-injection]], [[testing]], [[logging-context]], [[ADR-0019-distributed-tracing-opentelemetry]].
 - [[2026-09-19-stripe-payments-design]] — Design turning `NG_APP_STRIPE_ENABLED` into a real Stripe integration: Users owns the Stripe Customer and its PaymentMethods (lazy customer creation, `stripe_payment_methods` local cache reconciled by a Users-side webhook), Orders owns the PaymentIntent (charges before persisting, with an automatic refund on **any** post-charge failure — stock conflict, removed product, price-mismatch guard, or persistence failure, not only a 409), client-supplied idempotency (`Idempotency-Key` header, replay/mismatch guards, an in-flight-duplicate wait-and-reuse path), restricted API keys one per service (never a shared secret key), local webhook delivery via two host-side `stripe listen` processes sharing one signing secret, and webhook defense in depth — a per-service URL token plus a Stripe source-IP allowlist, both enforced in the services themselves since AWS WAF does not attach to this repo's HTTP APIs; per [[users-service-design]], [[testing]], [[env-files]], [[money-representation]], [[local-dev]], [[logging-context]], [[browser-rum]], [[stripe-sandbox-setup]], [[ADR-0009-apigw-alb-fargate]], [[ADR-0016-local-apigw-nginx-ecs]]. Milestone plan: [[stripe-payments-milestone]].
+- [[2026-09-30-cart-add-quantity-morph-design]] — Design for morphing the product card's Add button into a quantity stepper shared with the cart line (`QtyStepper`, `a7S8KL`), an always-rendered "In cart" chip, CSS-first motion, and the rules propagated to [[angular-component-authoring]] and [[pencil-design-extraction]]. Plan: [[2026-09-30-cart-add-quantity-morph]].
 
 ---
 

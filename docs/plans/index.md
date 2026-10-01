@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-09-23
+updated: 2026-10-01
 tags: [type/spec, area/shared, status/active]
 related:
   - "[[2026-09-10-in-app-notifications-design]]"
@@ -150,6 +150,7 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[cqrs-dispatch-all-services-milestone]] — logical execution plan for the CQRS Dispatch — All Services milestone: three independent workstreams (Tracking/Go, Orders/.NET/Wolverine, Users/NestJS), their internal phase dependencies, stop points, and the carry-forward observability findings that apply to all three.
 - [[2026-09-19-stripe-payments-design]] — design spec turning `NG_APP_STRIPE_ENABLED` into a real integration: Users owns the Stripe Customer and saved PaymentMethods (lazy creation, webhook-reconciled local cache), Orders owns the PaymentIntent (charge-before-persist with an automatic refund on any post-charge failure), client-supplied idempotency keys, restricted API keys per service, and webhook defense in depth (URL token + Stripe IP allowlist) enforced in the services themselves.
 - [[2026-09-19-stripe-payments]] — implementation plan: Users Tasks 1-7 (merged, PR #84) gate Orders Tasks 9/9.10b/10/10c/10d (PR #85, open), which gate the web Tasks 11-13; Task 14 (infra/compose/CSP) is partially done and Task 15 (three test layers) is the closing gate.
+- [[2026-09-30-cart-add-quantity-morph]] — implementation plan for the add-to-cart morph: a shared `QtyStepper` (`a7S8KL`) instanced by the product card and the cart line, a store-side per-product quantity index, CSS-driven morph and in-cart chip styles, the `.pen` trash glyph, and propagation into [[angular-component-authoring]] and [[pencil-design-extraction]]; design spec [[2026-09-30-cart-add-quantity-morph-design]].
 - [[stripe-payments-milestone]] — logical execution plan and current status for the Stripe Payments milestone: dependency diagram, per-task PR status, the gap backlog carried from PR #85's review, and local environment state.
 
 > [!note] No plan note for the AuditActor enum
@@ -227,3 +228,5 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-09-19-stripe-payments-design]]
 - [[2026-09-19-stripe-payments]]
 - [[stripe-payments-milestone]]
+- [[2026-09-30-cart-add-quantity-morph-design]]
+- [[2026-09-30-cart-add-quantity-morph]]

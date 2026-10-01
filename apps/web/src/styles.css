@@ -136,8 +136,8 @@
   --spacing-icon: 1.0625rem; /* 17px — inline icon */
   --spacing-icon-md: 1.1875rem; /* 19px — default UI icon */
   --spacing-icon-lg: 1.375rem; /* 22px — step marker */
-  --spacing-control-sm: 2.125rem; /* 34px — quantity stepper height */
-  --spacing-stepper: 1.875rem; /* 30px — quantity stepper button width */
+  --spacing-control-sm: 2.125rem; /* 34px — stepper key width, saved-card action */
+  --spacing-stepper: 1.875rem; /* 30px — stepper counter width */
   --spacing-control: 2.375rem; /* 38px — filter chip */
   --spacing-control-md: 2.625rem; /* 42px — desktop menu row */
   --spacing-control-base: 2.75rem; /* 44px — in-card action button */
@@ -454,6 +454,152 @@ app-app-header {
  * rather than animating. */
 @media (prefers-reduced-motion: reduce) {
   .toast-progress {
+    animation: none;
+  }
+}
+
+/* ─── Add-to-cart morph ───────────────────────────────────────────────────── */
+
+/* Add-to-cart morph — design variant 19 (`v10` button + `c19` chip) from
+   `assets/web-app/prototypes/add-to-cart-morph.html`.
+   CONTRACT: The timings below are the approved motion spec, not defaults to
+   tune in passing. See [[2026-09-30-cart-add-quantity-morph-design]] */
+.qty-morph {
+  position: relative;
+  height: 2.5rem;
+  width: 5.25rem;
+  /* WHY: 0.5rem literal, not a token. `rounded-lg` here is Tailwind's own
+     scale step, which the components already use; the `.pen` contributes only
+     `--radius-md` (10px) and there is no `--radius-lg`. */
+  border-radius: 0.5rem;
+  background: var(--color-brand-navy);
+  overflow: hidden;
+  isolation: isolate;
+  transition:
+    width 300ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    background-color 200ms ease;
+}
+.qty-morph.in-cart {
+  width: 6.25rem;
+  background: var(--color-surface-white);
+}
+
+.qty-morph__add {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  transition: opacity 100ms ease 300ms;
+}
+.qty-morph.in-cart .qty-morph__add {
+  opacity: 0;
+  pointer-events: none;
+  transition-delay: 0s;
+}
+
+.qty-morph__stepper {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+.qty-morph.in-cart .qty-morph__stepper {
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity 120ms ease 200ms;
+}
+
+/* The border draws itself, then settles into the resting outline. */
+.qty-morph__trace {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.qty-morph__trace rect {
+  x: 0.75px;
+  y: 0.75px;
+  width: calc(100% - 1.5px);
+  height: calc(100% - 1.5px);
+  rx: 0.4375rem;
+  fill: none;
+  stroke: var(--color-brand-navy);
+  stroke-width: 1.5;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  transition: stroke-dashoffset 460ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+.qty-morph.in-cart .qty-morph__trace rect {
+  stroke-dashoffset: 0;
+  stroke: var(--color-line-strong);
+  stroke-width: 1;
+  transition:
+    stroke-dashoffset 460ms cubic-bezier(0.65, 0, 0.35, 1),
+    stroke 300ms ease 460ms,
+    stroke-width 300ms ease 460ms;
+}
+
+/* The "In cart" chip: a calm fade-down, then one green sheen. */
+.in-cart-chip {
+  opacity: 0;
+  transform: translateY(-3px);
+  pointer-events: none;
+  transition:
+    opacity 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.in-cart-chip.is-shown {
+  opacity: 1;
+  transform: none;
+  transition-delay: 160ms;
+}
+.in-cart-chip::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  /* WHY: Derived from the token, not the prototype's raw #10B98140. A literal
+     hex would drift the moment the brand's success green moves. */
+  background:
+    linear-gradient(
+        105deg,
+        transparent 35%,
+        color-mix(in srgb, var(--color-success-green) 25%, transparent) 50%,
+        transparent 65%
+      )
+      130% 0 / 250% 100% no-repeat;
+}
+.in-cart-chip.is-shown::after {
+  animation: in-cart-sheen 900ms cubic-bezier(0.4, 0, 0.2, 1) 420ms both;
+}
+@keyframes in-cart-sheen {
+  from {
+    background-position: 130% 0;
+  }
+  to {
+    background-position: -30% 0;
+  }
+}
+
+/* CONTRACT: Motion collapses to opacity only. Keep the trace and the sheen out
+   of it — a border that draws itself is motion whatever its duration. */
+@media (prefers-reduced-motion: reduce) {
+  .qty-morph,
+  .qty-morph__add,
+  .qty-morph__stepper,
+  .in-cart-chip {
+    transition-property: opacity;
+    transition-duration: 120ms;
+    transition-delay: 0s;
+  }
+  .qty-morph__trace rect {
+    transition: none;
+    stroke-dashoffset: 0;
+  }
+  .in-cart-chip.is-shown::after {
     animation: none;
   }
 }

@@ -55,7 +55,9 @@ Never use an arbitrary hex value (`bg-[#2D3748]`) in a component — always the 
 
 ## Reusable components
 
-21 root frames in the `.pen` are reusable components (20 verified live via `Get(document, …)`, 2026-08-18; `Saved Card Row` — `vPwZ1` — added for the Stripe payments milestone, 2026-09-19, see [[2026-09-19-stripe-payments-design]]). Two more root frames — `Status Badge — States` (`UOHCo`) and `Tracking Status — Icons` (`hImQh`) — are variant sheets, not components themselves; they document the states of `Status Badge` and `Tracking Status Icon` below. One root frame, `Frame 800x600` (`bi8Au`), is empty scratch space and is not part of the design.
+23 root frames in the `.pen` are reusable components (20 verified live via `Get(document, …)`, 2026-08-18; `Saved Card Row` — `vPwZ1` — added for the Stripe payments milestone, 2026-09-19, see [[2026-09-19-stripe-payments-design]]; `Qty Stepper` — `a7S8KL` — added for the add-to-cart morph milestone, count re-verified 2026-10-01, see [[2026-09-30-cart-add-quantity-morph-design]]). Two more root frames — `Status Badge — States` (`UOHCo`) and `Tracking Status — Icons` (`hImQh`) — are variant sheets, not components themselves; they document the states of `Status Badge` and `Tracking Status Icon` below. One root frame, `Frame 800x600` (`bi8Au`), is empty scratch space and is not part of the design.
+
+Three more root frames are neither components nor variant sheets: `Product Card — Add to Cart States` (`N3ZlMt`) is a state sheet for `Product Card` (four states: default, qty 1, qty >1, mobile compact), and `Explore — Add Button & Qty Stepper` (`E9o3g`) and `Explore — In Cart Indicator` (`ESRzy`) are **exploration** frames, a third kind: options laid side by side before a decision, kept as the record of what was weighed. The winners are `E9o3g` Option G ("Solid button to outline stepper") and `ESRzy` Option A (white chip, green check, top-left). Do not extract code from the losing options.
 
 | Component | Node id | Target path | Inputs (where the design shows states) |
 |---|---|---|---|
@@ -80,6 +82,7 @@ Never use an arbitrary hex value (`bg-[#2D3748]`) in a component — always the 
 | Notifications Panel | `LWQ8g` | `src/app/features/notifications/notifications-panel.ts` | mounts off `OverlayStore`; one component reads each item's `read` flag to cover the Unread (`mSssa`) / Read (`YZIGp`) pair |
 | Toast Notification | `jYz4h` | `src/app/shared/ui/toast-notification.ts` | covers `IQCEF`/`UpmOQ` |
 | Saved Card Row | `vPwZ1` | `src/app/shared/ui/saved-card-row.ts` | `card: SavedCardView`, `selected: boolean`, `isDefault: boolean`, `expired: boolean` — three states: selected+default, unselected/not-default, expired (dimmed bubble, `text-danger-red font-semibold` expiry). Shared by the checkout's `Saved Cards List` and the profile's `Cards List` — never rebuilt per surface. |
+| Qty Stepper | `a7S8KL` | `src/app/shared/ui/qty-stepper.ts` | `quantity: number` (required), `canIncrement: boolean` (default `true`), `disabled: boolean`, `itemName: string`; outputs `increment`, `decrement`, `removed`. Instanced by both `Product Card` (`QmNIg`) and `Cart Line` (`L5XVFs`) — never rebuilt per surface. |
 
 Every component is `standalone: true` and uses `input()`/`output()` signals, never `@Input()`/`@Output()` decorators. Structure (flex layout, gaps, paddings) is legitimately copied from each frame's `apps/web/design/exports/<name>.html` export; arbitrary colour classes in that export (`bg-[#2D3748]`) are not — replace them with the matching token utility from the table above.
 

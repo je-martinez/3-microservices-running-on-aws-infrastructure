@@ -1,6 +1,7 @@
 import { Component, computed, input, output, ChangeDetectionStrategy } from '@angular/core';
-import { LucideMinus, LucidePlus, LucideTriangleAlert } from '@lucide/angular';
+import { LucideTriangleAlert } from '@lucide/angular';
 import { type CartLine as CartLineDto, toInt } from '../../core/api/types';
+import { QtyStepper } from './qty-stepper';
 
 /** The sentence shown beside a line the server will not sell. */
 const UNAVAILABLE_COPY: Record<string, string> = {
@@ -21,7 +22,7 @@ const UNAVAILABLE_COPY: Record<string, string> = {
  */
 @Component({
   selector: 'app-cart-line',
-  imports: [LucideMinus, LucidePlus, LucideTriangleAlert],
+  imports: [LucideTriangleAlert, QtyStepper],
   templateUrl: './cart-line.html',
   // CONTRACT: Keep `block w-full` on the host. A bare custom element is
   // display:inline, so as a flex item under `items-start` it shrinks to its own

@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Live session indicator — motion exploration</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#2D3748;--navy-deep:#1F2733;--border:#E5E7EB;--border-strong:#D1D5DB;--text:#1A1A2E;--text-2:#6B7280;--muted:#9CA3AF;--body:#F4F4F5;--orange:#F7941D;--live:#10B981;--rec:#F59E0B;--off:#9CA3AF;--con:#2563EB;--s:1}
+*{box-sizing:border-box}
+body{margin:0;background:var(--body);font-family:Inter,system-ui,sans-serif;color:var(--text);-webkit-font-smoothing:antialiased}
+body.con{--c:var(--con)}
+body.live{--c:var(--live)}
+body.rec{--c:var(--rec)}
+body.off{--c:var(--off)}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+svg{display:block;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+.topbar{position:sticky;top:0;z-index:10;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px 24px;padding:18px 40px;background:#fff;border-bottom:1px solid var(--border)}
+.title h1{margin:0;font-size:18px;font-weight:700;letter-spacing:-.3px}
+.title p{margin:4px 0 0;font-size:13px;color:var(--text-2)}
+.controls{display:flex;flex-wrap:wrap;align-items:center;gap:12px 14px}
+.seg{display:flex;border-radius:8px;box-shadow:inset 0 0 0 1px var(--border-strong);overflow:hidden}
+.seg button{height:36px;padding:0 12px;white-space:nowrap;font-size:13px;font-weight:600;color:var(--text-2);display:flex;align-items:center;gap:6px}
+.seg button[aria-pressed=true]{background:var(--navy);color:#fff}
+.seg .sw{width:8px;height:8px;border-radius:50%}
+.toggle{white-space:nowrap;display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text-2);cursor:pointer}
+.toggle input{width:16px;height:16px;accent-color:var(--navy)}
+.btn{white-space:nowrap;height:36px;padding:0 14px;border-radius:8px;background:var(--navy);color:#fff;font-size:13px;font-weight:600;display:flex;align-items:center;gap:7px}
+.btn svg{width:14px;height:14px}
+.btn.ghost{background:#fff;color:var(--text);box-shadow:inset 0 0 0 1px var(--border-strong)}
+.btn:disabled{opacity:.45;cursor:default}
+
+.still-note{display:none;margin:20px 40px 0;padding:10px 14px;border-radius:10px;background:#FFF7ED;color:#B45309;font-size:13px;font-weight:600}
+body.still .still-note{display:block}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,300px);gap:24px;justify-content:center;padding:28px 40px 48px}
+.card{display:flex;flex-direction:column;gap:12px;padding:18px;background:#fff;border:1px solid var(--border);border-radius:12px}
+.card h2{margin:0;font-size:14px;font-weight:700}
+.card .desc{margin:0;font-size:12px;line-height:1.45;color:var(--text-2);min-height:52px}
+.stage{position:relative;height:196px;border-radius:10px;background:#FAFAFA;border:1px solid var(--border);display:flex;justify-content:center;padding-top:30px}
+.now{margin:0;font-size:11.5px;line-height:1.5;color:var(--text-2)}
+.now b{color:var(--text);font-weight:600}
+
+.cluster{display:flex;align-items:center;gap:12px;height:44px}
+.hb{position:relative;width:44px;height:44px;border-radius:10px;background:#fff;box-shadow:inset 0 0 0 1px var(--border);display:grid;place-items:center;color:var(--navy)}
+.hb>svg{width:19px;height:19px}
+.bell-dot{position:absolute;top:10px;right:11px;width:8px;height:8px;border-radius:50%;background:var(--orange);box-shadow:0 0 0 2px #fff}
+.cart{height:44px;padding:0 14px;border-radius:10px;background:var(--navy);color:#fff;display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600}
+.cart svg{width:18px;height:18px}
+.pf{transition:box-shadow calc(.3s*var(--s)),color calc(.3s*var(--s));outline:none}
+.pf:focus-visible{box-shadow:inset 0 0 0 1px var(--border),0 0 0 3px #2563EB55}
+
+.dot{position:absolute;right:3px;bottom:3px;width:11px;height:11px;border-radius:50%;background:var(--c);box-shadow:0 0 0 2px #fff;transition:background-color calc(.3s*var(--s))}
+.dot::after{content:"";position:absolute;inset:0;border-radius:50%;background:var(--c);opacity:0}
+body.live .dot::after{animation:ping calc(2s*var(--s)) cubic-bezier(0,0,.2,1) infinite}
+body.rec .dot{animation:blink calc(1s*var(--s)) ease-in-out infinite}
+body.off .dot{background:#fff;box-shadow:0 0 0 2px #fff,inset 0 0 0 2px var(--off)}
+
+body.live .cB .pf,body.rec .cB .pf{box-shadow:inset 0 0 0 1.5px var(--c)}
+body.live .cB .pf{animation:breathe calc(2.4s*var(--s)) ease-in-out infinite}
+body.rec .cB .pf{animation:blinkB calc(1.2s*var(--s)) ease-in-out infinite}
+body.off .cB .pf{color:var(--off)}
+
+.hb>svg.ring{position:absolute;top:4px;left:4px;width:36px;height:36px;transform:rotate(-90deg)}
+.ring circle{stroke-width:2;transition:stroke-dasharray calc(.5s*var(--s)) cubic-bezier(.65,0,.35,1),stroke calc(.3s*var(--s))}
+.ring .base{stroke:var(--c);stroke-dasharray:100 0}
+body.rec .ring .base{stroke-dasharray:28 72}
+body.off .ring .base{stroke:var(--border)}
+body.rec .cC .ring{animation:spin calc(1s*var(--s)) linear infinite}
+.ring .comet{stroke:#D1FAE5;stroke-dasharray:14 86;opacity:0}
+
+.badge{position:absolute;right:-5px;bottom:-5px;width:18px;height:18px;border-radius:50%;background:var(--c);box-shadow:0 0 0 2px #fff;display:grid;place-items:center;color:#fff;transition:background-color calc(.3s*var(--s)),color calc(.3s*var(--s))}
+body.off .badge{background:var(--border);color:var(--text-2)}
+.badge svg{position:absolute;width:11px;height:11px;stroke-width:2.5;opacity:0;transform:scale(.6);transition:opacity calc(.2s*var(--s)),transform calc(.25s*var(--s))}
+body.live .badge .i-live,body.rec .badge .i-rec,body.off .badge .i-off{opacity:1;transform:none}
+body.live .badge .w1{animation:wave calc(1.6s*var(--s)) ease-in-out infinite}
+body.live .badge .w2{animation:wave calc(1.6s*var(--s)) ease-in-out calc(.25s*var(--s)) infinite}
+body.rec .badge .i-rec{animation:spin0 calc(1s*var(--s)) linear infinite}
+
+.cE .pf>svg,.cG .pf>svg{margin-top:-6px}
+.pill{position:absolute;left:50%;bottom:-7px;transform:translateX(-50%);height:14px;padding:0 5px;border-radius:999px;background:var(--c);box-shadow:0 0 0 1.5px #fff;color:#fff;font-size:8px;font-weight:700;letter-spacing:.6px;display:flex;align-items:center;gap:3px;white-space:nowrap;transition:background-color calc(.3s*var(--s))}
+.pill .pd{width:4px;height:4px;border-radius:50%;background:#fff}
+.pill span{display:none}
+body.live .pill .t-live,body.rec .pill .t-rec,body.off .pill .t-off{display:inline}
+body:not(.live) .pill .pd{display:none}
+body.live .pill .pd{animation:blink calc(1.2s*var(--s)) ease-in-out infinite}
+body.rec .pill{animation:blink calc(1s*var(--s)) ease-in-out infinite}
+body.off .pill{background:var(--border);color:var(--text-2)}
+
+.cF .pf>svg.user{display:none}
+.hb>svg.av-ring{position:absolute;top:2px;left:2px;width:40px;height:40px;transform:rotate(-90deg)}
+.av-ring circle{stroke-width:2;stroke:var(--c);stroke-dasharray:100 0;transition:stroke-dasharray calc(.5s*var(--s)),stroke calc(.3s*var(--s))}
+body.rec .av-ring circle.base{stroke-dasharray:5 3.33}
+body.rec .av-ring{animation:spin calc(3s*var(--s)) linear infinite}
+body.off .av-ring circle.base{stroke:var(--border-strong)}
+.av-ring .comet{stroke:#D1FAE5;stroke-dasharray:14 86;opacity:0}
+.avatar{width:28px;height:28px;border-radius:50%;background:var(--navy);color:#fff;font-size:10px;font-weight:700;display:grid;place-items:center;transition:background-color calc(.3s*var(--s))}
+body.off .avatar{background:var(--off)}
+
+.led{position:absolute;left:50%;bottom:7px;width:14px;height:3px;margin-left:-7px;border-radius:2px;background:var(--c);transition:background-color calc(.3s*var(--s))}
+body.live .led{animation:ledglow calc(2.4s*var(--s)) ease-in-out infinite}
+body.rec .led{animation:blink calc(1s*var(--s)) ease-in-out infinite}
+body.off .led{background:var(--border-strong)}
+
+.tip{position:absolute;top:54px;left:-69px;width:206px;padding:10px 12px;border-radius:10px;background:var(--navy-deep);box-shadow:0 6px 18px #1A1A2E33;color:#fff;text-align:left;opacity:0;transform:translateY(-4px);pointer-events:none;transition:opacity calc(.16s*var(--s)) ease,transform calc(.2s*var(--s)) cubic-bezier(.2,.8,.2,1);z-index:5}
+.tip::before{content:"";position:absolute;top:-5px;left:86px;width:10px;height:10px;background:var(--navy-deep);transform:rotate(45deg);border-radius:2px}
+.cH .pf:hover .tip,.cH .pf:focus-within .tip,.cI .pf:hover .tip,.cI .pf:focus-within .tip,body.pin .tip{opacity:1;transform:none;pointer-events:auto}
+.cI .tip{top:58px}
+.tip .blk{display:none}
+body.con .tip .b-con,body.live .tip .b-live,body.rec .tip .b-rec,body.off .tip .b-off{display:block}
+.tip .tt{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600}
+.tip .tt i{width:7px;height:7px;border-radius:50%;background:var(--c)}
+.tip .tt svg{width:13px;height:13px;color:var(--c);stroke-width:2.5}
+body.live .tip .tt .w1{animation:wave calc(1.6s*var(--s)) ease-in-out infinite}
+body.live .tip .tt .w2{animation:wave calc(1.6s*var(--s)) ease-in-out calc(.25s*var(--s)) infinite}
+body.rec .tip .tt svg.spin{animation:spin0 calc(1s*var(--s)) linear infinite}
+.tip p{margin:4px 0 0;font-size:11px;line-height:1.4;color:#A9B2C0}
+.tip .retry{margin-top:6px;font-size:11.5px;font-weight:600;color:#fff;text-decoration:underline}
+
+body.con .dot{animation:dotBreath calc(1.2s*var(--s)) ease-in-out infinite}
+body.con .cB .pf{box-shadow:inset 0 0 0 1.5px var(--con);animation:blinkC calc(1.4s*var(--s)) ease-in-out infinite}
+body.con .ring .base,body.con .av-ring circle.base{animation:fillRing calc(1.4s*var(--s)) cubic-bezier(.65,0,.35,1) infinite}
+body.con .badge .i-live{opacity:1;transform:none}
+body.con .badge .w1,body.con .tip .tt .w1{animation:seek calc(1.2s*var(--s)) ease-out infinite}
+body.con .badge .w2,body.con .tip .tt .w2{animation:seek calc(1.2s*var(--s)) ease-out calc(.3s*var(--s)) infinite}
+.pill .t-con b{display:inline-block;width:3px;height:3px;border-radius:50%;background:#fff;margin:0 1px}
+body.con .pill .t-con{display:inline-flex;align-items:center;height:14px}
+body.con .pill .t-con b{animation:dotjump calc(.9s*var(--s)) ease-in-out infinite}
+body.con .pill .t-con b:nth-child(2){animation-delay:calc(.15s*var(--s))}
+body.con .pill .t-con b:nth-child(3){animation-delay:calc(.3s*var(--s))}
+body.con .led{animation:ledscan calc(1.2s*var(--s)) ease-in-out infinite alternate}
+@keyframes dotBreath{50%{transform:scale(.7);opacity:.55}}
+@keyframes blinkC{50%{box-shadow:inset 0 0 0 1.5px #2563EB55}}
+@keyframes fillRing{0%{stroke-dasharray:0 100;opacity:1}70%{stroke-dasharray:100 0;opacity:1}100%{stroke-dasharray:100 0;opacity:.2}}
+@keyframes seek{0%{opacity:.15}35%{opacity:1}100%{opacity:.15}}
+@keyframes dotjump{0%,100%{opacity:.4;transform:translateY(0)}40%{opacity:1;transform:translateY(-1.5px)}}
+@keyframes ledscan{from{width:4px}to{width:14px}}
+
+body.tick .cA .dot,body.tick .cH .dot,body.tick .cD .badge,body.tick .cI .badge{animation:pop calc(.5s*var(--s)) cubic-bezier(.34,1.56,.64,1)}
+body.tick .cB .pf{animation:flash calc(.7s*var(--s)) ease-out}
+body.tick .ring .comet,body.tick .av-ring .comet{animation:comet calc(.8s*var(--s)) ease-in-out}
+body.tick .cE .pill{animation:popx calc(.5s*var(--s)) cubic-bezier(.34,1.56,.64,1)}
+body.tick .cG .led{animation:ledflash calc(.6s*var(--s)) ease-out}
+
+@keyframes ping{0%{transform:scale(1);opacity:.55}80%,100%{transform:scale(2.6);opacity:0}}
+@keyframes blink{50%{opacity:.35}}
+@keyframes breathe{0%,100%{box-shadow:inset 0 0 0 1.5px var(--live),0 0 0 0 #10B98100}50%{box-shadow:inset 0 0 0 1.5px var(--live),0 0 12px 2px #10B98159}}
+@keyframes blinkB{50%{box-shadow:inset 0 0 0 1.5px #F59E0B55}}
+@keyframes flash{0%{box-shadow:inset 0 0 0 1.5px var(--live),0 0 0 0 #10B98100}30%{box-shadow:inset 0 0 0 1.5px var(--live),0 0 18px 5px #10B98188}100%{box-shadow:inset 0 0 0 1.5px var(--live),0 0 0 0 #10B98100}}
+@keyframes spin{from{transform:rotate(-90deg)}to{transform:rotate(270deg)}}
+@keyframes spin0{to{transform:rotate(360deg)}}
+@keyframes wave{0%,100%{opacity:.35}40%{opacity:1}}
+@keyframes comet{0%{stroke-dashoffset:0;opacity:1}90%{opacity:1}100%{stroke-dashoffset:-100;opacity:0}}
+@keyframes pop{0%,100%{transform:scale(1)}40%{transform:scale(1.45)}}
+@keyframes popx{0%,100%{transform:translateX(-50%) scale(1)}40%{transform:translateX(-50%) scale(1.25)}}
+@keyframes ledglow{0%,100%{box-shadow:0 0 3px 0 #10B98166}50%{box-shadow:0 0 8px 2px #10B981AA}}
+@keyframes ledflash{30%{box-shadow:0 0 12px 4px #10B981;width:22px;margin-left:-11px}}
+
+body.rm *,body.rm *::before,body.rm *::after{animation:none!important;transition-duration:calc(.12s*var(--s))!important}
+</style>
+</head>
+<body class="con">
+<header class="topbar">
+  <div class="title">
+    <h1>Live session indicator — motion exploration</h1>
+    <p>Profile button signals that this session's WebSocket is open. Switch the socket state, simulate an incoming update, or let it cycle.</p>
+  </div>
+  <div class="controls">
+    <div class="seg" role="group" aria-label="Socket state" id="state">
+      <button data-st="con" aria-pressed="false"><i class="sw" style="background:var(--con)"></i>Connecting</button>
+      <button data-st="live" aria-pressed="true"><i class="sw" style="background:var(--live)"></i>Live</button>
+      <button data-st="rec" aria-pressed="false"><i class="sw" style="background:var(--rec)"></i>Reconnecting</button>
+      <button data-st="off" aria-pressed="false"><i class="sw" style="background:var(--off)"></i>Offline</button>
+    </div>
+    <button class="btn" id="tick"></button>
+    <button class="btn ghost" id="cycle"></button>
+    <div class="seg" role="group" aria-label="Playback speed" id="speed">
+      <button data-s="1" aria-pressed="true">1×</button>
+      <button data-s="2" aria-pressed="false">0.5×</button>
+      <button data-s="4" aria-pressed="false">0.25×</button>
+    </div>
+    <label class="toggle"><input type="checkbox" id="pin">Pin explainers (H, I)</label>
+    <label class="toggle"><input type="checkbox" id="rm">Reduced motion</label>
+  </div>
+</header>
+<div class="still-note">Canvas preview: looping animations are paused here because the canvas renders this page from snapshots. Open this file in a browser (or Pencil's browser panel) to see every concept animated.</div>
+<main class="grid" id="grid"></main>
+<script>
+const ICONS={
+  user:'<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  bell:'<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+  bag:'<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/>',
+  radio:'<path class="w2" d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path class="w1" d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path class="w1" d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path class="w2" d="M19.1 4.9C23 8.8 23 15.1 19.1 19"/>',
+  refresh:'<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
+  wifiOff:'<path d="M12 20h.01"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/><path d="M5 12.859a10 10 0 0 1 5.17-2.69"/><path d="M19 12.859a10 10 0 0 0-2.007-1.523"/><path d="M2 8.82a15 15 0 0 1 4.177-2.643"/><path d="M22 8.82a15 15 0 0 0-11.288-3.764"/><path d="m2 2 20 20"/>',
+  zap:'<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>',
+  play:'<path d="m6 3 14 9-14 9V3z"/>',
+  pause:'<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>'
+};
+const svg=(n,c="")=>`<svg viewBox="0 0 24 24" class="${c}" aria-hidden="true">${ICONS[n]}</svg>`;
+const ring=c=>`<svg class="${c}" viewBox="0 0 ${c==="ring"?36:40} ${c==="ring"?36:40}" aria-hidden="true"><circle class="base" cx="${c==="ring"?18:20}" cy="${c==="ring"?18:20}" r="${c==="ring"?16:18.5}" pathLength="100"/><circle class="comet" cx="${c==="ring"?18:20}" cy="${c==="ring"?18:20}" r="${c==="ring"?16:18.5}" pathLength="100"/></svg>`;
+const BADGE=`<span class="badge">${svg("radio","i-live")}${svg("refresh","i-rec")}${svg("wifiOff","i-off")}</span>`;
+const tipI=`<div class="tip" role="tooltip">
+  <div class="blk b-con"><div class="tt">${svg("radio")}Connecting…</div><p>Setting up live updates for this session.</p></div>
+  <div class="blk b-live"><div class="tt">${svg("radio")}Live updates on</div><p>Orders, tracking and notifications stream in real time.</p></div>
+  <div class="blk b-rec"><div class="tt">${svg("refresh","spin")}Reconnecting…</div><p>Updates are paused while we restore the connection.</p></div>
+  <div class="blk b-off"><div class="tt">${svg("wifiOff")}Offline</div><p>Not receiving updates. Retrying in 8s.</p><button class="retry" data-retry>Retry now</button></div>
+</div>`;
+const tip=`<div class="tip" role="tooltip">
+  <div class="blk b-con"><div class="tt"><i></i>Connecting…</div><p>Setting up live updates for this session.</p></div>
+  <div class="blk b-live"><div class="tt"><i></i>Live updates on</div><p>Orders, tracking and notifications update in real time.</p></div>
+  <div class="blk b-rec"><div class="tt"><i></i>Reconnecting…</div><p>Updates are paused while we restore the connection.</p></div>
+  <div class="blk b-off"><div class="tt"><i></i>Offline</div><p>Not receiving updates. Retrying in 8s.</p><button class="retry" data-retry>Retry now</button></div>
+</div>`;
+const CONCEPTS=[
+  {k:"A",name:"A · Presence dot",desc:"Green dot on the button corner, the universal “online” signal. Tiny, calm, instantly read.",extra:'<span class="dot"></span>',
+   now:{con:"Blue dot breathes (scale .7↔1) · 1.2s loop",live:"Ping ring expands 1→2.6× and fades · 2s loop",rec:"Dot blinks 1→.35 opacity · 1s loop",off:"Hollow grey dot · static"},tick:"dot pops 1.45×"},
+  {k:"B",name:"B · Glow ring",desc:"The whole button border turns green and breathes a soft glow while the socket is open.",extra:"",
+   now:{con:"Blue border fades in/out · 1.4s loop",live:"Green border + glow breathes 0→12px · 2.4s loop",rec:"Amber border fades in/out · 1.2s loop",off:"Default border · icon dimmed"},tick:"glow flashes to 18px"},
+  {k:"C",name:"C · Status arc",desc:"A thin ring around the icon: full when connected, a spinning arc while reconnecting.",extra:ring("ring"),
+   now:{con:"Ring fills 0→100% and fades · 1.4s loop (fills, never spins)",live:"Full ring · static (calm)",rec:"28% arc spins · 1s loop; closes into a full ring on reconnect",off:"Faint grey ring"},tick:"a light comet runs once around the ring"},
+  {k:"D",name:"D · Signal badge",desc:"A broadcast badge that literally says “live feed”, not “online”.",extra:`<span class="badge">${svg("radio","i-live")}${svg("refresh","i-rec")}${svg("wifiOff","i-off")}</span>`,
+   now:{con:"Blue badge · radio waves search outward · 1.2s loop",live:"Radio waves breathe outward · 1.6s loop",rec:"Refresh icon rotates · 1s loop",off:"wifi-off · grey · static"},tick:"badge pops 1.45×"},
+  {k:"E",name:"E · LIVE micro-pill",desc:"A tiny LIVE tag clipped to the bottom edge, like a broadcast label.",extra:'<span class="pill"><i class="pd"></i><span class="t-con"><b></b><b></b><b></b></span><span class="t-live">LIVE</span><span class="t-rec">SYNC</span><span class="t-off">OFF</span></span>',
+   now:{con:"Three dots hop inside a blue pill · .9s loop",live:"Pill dot blinks · 1.2s loop",rec:"SYNC pill blinks · 1s loop",off:"Grey OFF pill · static"},tick:"pill pops 1.25×"},
+  {k:"F",name:"F · Initials + status ring",desc:"The profile becomes the user's initials inside a status ring, story-style.",extra:ring("av-ring")+'<span class="avatar">JM</span>',
+   now:{con:"Blue ring fills 0→100% · 1.4s loop",live:"Full green ring · static",rec:"Dashed amber ring rotates · 3s loop",off:"Grey ring · avatar greyed"},tick:"a light comet runs once around the ring"},
+  {k:"G",name:"G · LED underline",desc:"A short LED bar under the icon, like a hardware status light.",extra:'<span class="led"></span>',
+   now:{con:"Blue LED scans 4→14px · 1.2s",live:"LED glow breathes · 2.4s loop",rec:"LED blinks · 1s loop",off:"Grey LED · static"},tick:"LED flares and widens 14→22px"},
+  {k:"H",name:"H · Dot + hover explainer",desc:"Concept A plus a card on hover/focus that names the state and offers Retry when offline.",extra:'<span class="dot"></span>'+tip,
+   now:{con:"Dot breathes · card says “Connecting…”",live:"Dot as A · hover the button for the card (fade + 4px, 160ms)",rec:"Dot blinks · card explains the pause",off:"Hollow dot · card offers Retry now"},tick:"dot pops 1.45×"}
+  ,{k:"I",name:"I · Signal badge + hover explainer",desc:"D’s broadcast badge plus H’s card on hover/focus. The card title reuses the badge icon for each state.",extra:BADGE+tipI,
+   now:{con:"Badge waves search · card says “Connecting…”",live:"Radio waves breathe · hover for the card (fade + 4px, 160ms)",rec:"Refresh icon rotates · card explains the pause",off:"wifi-off · card offers Retry now"},tick:"badge pops 1.45×"}
+];
+document.getElementById("grid").innerHTML=CONCEPTS.map(c=>`
+<section class="card c${c.k}">
+  <h2>${c.name}</h2>
+  <p class="desc">${c.desc}</p>
+  <div class="stage">
+    <div class="cluster">
+      <div class="hb">${svg("bell")}<span class="bell-dot"></span></div>
+      <div class="hb pf" tabindex="0" role="button" aria-label="Account · live updates status">${svg("user","user")}${c.extra}</div>
+      <div class="cart">${svg("bag")}3</div>
+    </div>
+  </div>
+  <p class="now" data-k="${c.k}"></p>
+</section>`).join("");
+
+const LABEL={con:"Connecting",live:"Live",rec:"Reconnecting",off:"Offline"};
+let S=1,state="live",cycling=false,cycleTimer=0;
+const setNow=()=>document.querySelectorAll(".now").forEach(p=>{
+  const c=CONCEPTS.find(x=>x.k===p.dataset.k);
+  p.innerHTML=`<b>${LABEL[state]}:</b> ${c.now[state]}<br><b>On update:</b> ${c.tick}`;
+});
+function tick(){
+  if(state!=="live")return;
+  document.body.classList.remove("tick");void document.body.offsetWidth;document.body.classList.add("tick");
+  setTimeout(()=>document.body.classList.remove("tick"),900*S);
+}
+function setState(st){
+  const was=state;state=st;
+  document.body.classList.remove("con","live","rec","off");document.body.classList.add(st);
+  document.querySelectorAll("#state button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.st===st));
+  document.getElementById("tick").disabled=st!=="live";
+  setNow();
+  if(st==="live"&&was!=="live")setTimeout(tick,350*S);
+}
+document.querySelectorAll("#state button").forEach(b=>b.addEventListener("click",()=>{stopCycle();setState(b.dataset.st);}));
+document.getElementById("tick").innerHTML=svg("zap")+"Simulate update";
+document.getElementById("tick").addEventListener("click",tick);
+document.getElementById("grid").addEventListener("click",e=>{
+  if(!e.target.closest("[data-retry]"))return;
+  stopCycle();setState("rec");setTimeout(()=>setState("live"),1400*S);
+});
+
+const SEQ=[["con",2200],["live",4200,1800],["rec",2600],["live",3600,1500],["off",3200],["rec",2200]];
+const cycleBtn=document.getElementById("cycle");
+const paintCycle=()=>cycleBtn.innerHTML=cycling?svg("pause")+"Stop cycle":svg("play")+"Auto-cycle";
+function runCycle(i){
+  if(!cycling)return;
+  const [st,dur,tickAt]=SEQ[i===0?0:1+(i-1)%(SEQ.length-1)];
+  setState(st);
+  if(tickAt)setTimeout(()=>cycling&&tick(),tickAt*S);
+  cycleTimer=setTimeout(()=>runCycle(i+1),dur*S);
+}
+function stopCycle(){cycling=false;clearTimeout(cycleTimer);paintCycle();}
+cycleBtn.addEventListener("click",()=>{if(cycling){stopCycle();return;}cycling=true;paintCycle();runCycle(0);});
+paintCycle();
+
+document.querySelectorAll("#speed button").forEach(b=>b.addEventListener("click",()=>{
+  S=Number(b.dataset.s);document.body.style.setProperty("--s",S);
+  document.querySelectorAll("#speed button").forEach(x=>x.setAttribute("aria-pressed",x===b));
+}));
+const pin=document.getElementById("pin");
+pin.addEventListener("change",()=>document.body.classList.toggle("pin",pin.checked));
+const rm=document.getElementById("rm");
+const still=new URLSearchParams(location.search).has("still");
+document.body.classList.toggle("still",still);
+rm.checked=matchMedia("(prefers-reduced-motion: reduce)").matches||still;
+const applyRm=()=>document.body.classList.toggle("rm",rm.checked);
+rm.addEventListener("change",applyRm);applyRm();
+setState("con");
+setTimeout(()=>{if(state==="con"&&!cycling)setState("live");},1800*S);
+</script>
+</body>
+</html>

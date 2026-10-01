@@ -1,0 +1,2244 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      tailwind = { config: { corePlugins: { preflight: false } } };
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter%3Awght%40100..900&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      *, ::before, ::after {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body style="background-color: #FFFFFF">
+    <div
+      data-pencil-name="Explore — Add Button &amp; Qty Stepper"
+      class="box-border w-[1360px] h-fit flex flex-col gap-[28px] p-[24px] justify-start items-start bg-[#FFFFFF] [outline:1px_solid_#E5E7EB] [outline-offset:-0.5px] rounded-[12px]"
+    >
+      <div
+        data-pencil-name="Sheet Head"
+        class="box-border w-full h-fit shrink-0 flex flex-col gap-[4px] justify-start items-start"
+      >
+        <div
+          data-pencil-name="Sheet Title"
+          class="text-[17px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+        >
+          Exploration — Add button and the quantity stepper it morphs into
+        </div>
+        <div
+          data-pencil-name="Sheet Sub"
+          class="text-[13px]/[normal] box-border w-full text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left"
+        >
+          Each option shows the same product before (Add) and right after the tap (qty 1). The
+          in-cart tag is kept at option A of the indicator exploration so only the control changes.
+        </div>
+      </div>
+      <div
+        data-pencil-name="Option Row"
+        class="box-border w-full h-fit shrink-0 flex flex-row gap-[28px] justify-start items-start"
+      >
+        <div
+          data-pencil-name="Option A · Solid button → solid stepper (current)"
+          class="box-border [flex:1_1_0] h-fit flex flex-col gap-[10px] justify-start items-start"
+        >
+          <div
+            data-pencil-name="Option Title"
+            class="text-[14px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold text-left [white-space:nowrap]"
+          >
+            A · Solid button → solid stepper (current)
+          </div>
+          <div
+            data-pencil-name="Card Pair"
+            class="box-border w-full h-fit shrink-0 flex flex-row gap-[12px] justify-start items-start"
+          >
+            <div
+              data-pencil-name="Card Default"
+              class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start"
+            >
+              <div
+                data-pencil-name="Product Image"
+                class="box-border w-full h-[170px] shrink-0 bg-[url('https://images.unsplash.com/photo-1661148800433-7e0004fa3b08?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzZ8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px]"
+              ></div>
+              <div
+                data-pencil-name="Product Info"
+                class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start"
+              >
+                <div
+                  data-pencil-name="Product Category"
+                  class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                >
+                  BAGS
+                </div>
+                <div
+                  data-pencil-name="Product Name"
+                  class="text-[14.5px]/[20px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                >
+                  Field Tote 18L
+                </div>
+              </div>
+              <div
+                data-pencil-name="Product Row"
+                class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center"
+              >
+                <div
+                  data-pencil-name="Product Price"
+                  class="text-[16px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                >
+                  $128.00
+                </div>
+                <div
+                  data-pencil-name="Add Button"
+                  class="box-border w-fit shrink-0 h-[40px] flex flex-row gap-[7px] p-[0px_16px] justify-start items-center bg-[#2D3748] rounded-[8px]"
+                >
+                  <svg
+                    data-pencil-name="Add Icon"
+                    data-icon-name="plus"
+                    data-icon-set="lucide"
+                    viewBox="0 0 13.99993896484375 14"
+                    preserveAspectRatio="xMidYMid meet"
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="box-border w-[16px] shrink-0 h-[16px]"
+                  >
+                    <path
+                      d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                      fill="#FFFFFF"
+                    ></path>
+                  </svg>
+                  <div
+                    data-pencil-name="Add Label"
+                    class="text-[14px]/[normal] box-border text-[#FFFFFF] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                  >
+                    Add
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div
+              data-pencil-name="Card In Cart"
+              class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start relative"
+            >
+              <div
+                data-pencil-name="Product Image"
+                class="box-border w-full h-[170px] shrink-0 bg-[url('https://images.unsplash.com/photo-1661148800433-7e0004fa3b08?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzZ8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px] relative [z-index:0]"
+              ></div>
+              <div
+                data-pencil-name="Product Info"
+                class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start relative [z-index:1]"
+              >
+                <div
+                  data-pencil-name="Product Category"
+                  class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                >
+                  BAGS
+                </div>
+                <div
+                  data-pencil-name="Product Name"
+                  class="text-[14.5px]/[20px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                >
+                  Field Tote 18L
+                </div>
+              </div>
+              <div
+                data-pencil-name="Product Row"
+                class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center relative [z-index:2]"
+              >
+                <div
+                  data-pencil-name="Product Price"
+                  class="text-[16px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                >
+                  $128.00
+                </div>
+                <div
+                  data-pencil-name="Qty Stepper"
+                  class="box-border w-fit shrink-0 h-[40px] flex flex-row gap-0 justify-start items-center bg-[#FFFFFF] [outline:1px_solid_#D1D5DB] [outline-offset:-0.5px] rounded-[8px]"
+                >
+                  <div
+                    data-pencil-name="Qty Decrease"
+                    class="box-border w-[34px] shrink-0 h-full flex flex-row gap-0 justify-center items-center"
+                  >
+                    <svg
+                      data-pencil-name="Decrease Icon"
+                      data-icon-name="trash-2"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M5.65674 0.60156q-0.44775 0.04102-0.84766 0.32129-0.3999 0.28027-0.58105 0.70069-0.08545 0.21191-0.1128 0.37939-0.02734 0.16748-0.02734 0.50244l-0.01367 0.42041-2.4917 0-0.08545 0.05469q-0.18115 0.09912-0.28027 0.2666-0.04102 0.08545-0.04102 0.25293 0 0.16748 0.04102 0.24609 0.04443 0.0752 0.12646 0.16065 0.08545 0.08203 0.14697 0.11963 0.06494 0.03418 0.13331 0.04101 0.07178 0.00684 0.33496 0.00684l0.36572 0 0.01367 7.84082 0.04102 0.16748q0.07178 0.25293 0.18115 0.44092 0.11279 0.18799 0.29394 0.37256 0.18457 0.18115 0.37256 0.29394 0.18799 0.10938 0.44092 0.18115l0.16748 0.04102 6.33008 0 0.16748-0.04102q0.25293-0.07178 0.44092-0.18115 0.18799-0.11279 0.36914-0.29394 0.18457-0.18457 0.29394-0.37256 0.11279-0.18799 0.18457-0.44092l0.04102-0.16748 0.01367-7.84082 0.36572 0q0.26318 0 0.33155-0.00684 0.07178-0.00684 0.1333-0.04101 0.06494-0.0376 0.14697-0.11963 0.08545-0.08545 0.12647-0.16065 0.04443-0.07861 0.04443-0.24609 0-0.16748-0.04102-0.25293-0.09912-0.16748-0.28027-0.2666l-0.08545-0.05469-2.4917 0-0.01367-0.42041q0-0.28027-0.00684-0.37598-0.00684-0.09912-0.03418-0.21191-0.15381-0.56055-0.57422-0.91602-0.42041-0.35889-0.99462-0.41357-0.16748-0.01367-1.31592-0.00684-1.14844 0.00684-1.32959 0.02051z m2.74463 1.20313q0.19482 0.09912 0.29394 0.29394 0.02734 0.07178 0.03418 0.13672 0.00684 0.06152 0.02051 0.32813l0 0.3623-3.5 0 0-0.3623q0.01367-0.2666 0.02051-0.32813 0.00684-0.06494 0.03418-0.13672 0.08545-0.18115 0.22558-0.24951l0-0.01367q0.08203-0.04443 0.16748-0.05811 0.08545-0.01367 0.36573-0.02734l2.23877 0.01367 0.09912 0.04102z m2.09863 6.13183l-0.01367 3.86573-0.02735 0.08545q-0.12646 0.26318-0.37939 0.33496-0.08203 0.02734-3.07959 0.02734-2.99756 0-3.07959-0.02734-0.25293-0.07178-0.37939-0.33496l-0.02735-0.08545-0.01367-7.72803 7 0 0 3.8623z m-4.7749-2.08496q-0.12646 0.01367-0.2461 0.10596-0.11621 0.08887-0.17431 0.21533l-0.04102 0.09912-0.01367 3.33252q0.01367 0.3623 0.02734 0.4751 0.01367 0.08545 0.07178 0.15381l0.01367 0.02734q0.15381 0.21191 0.417 0.23242 0.2666 0.02051 0.46484-0.17431 0.12646-0.12646 0.15381-0.29395 0.02734-0.11279 0.02734-1.86279 0-1.75-0.02734-1.84912-0.04102-0.23584-0.23242-0.36914-0.18799-0.1333-0.44092-0.09229z m2.35156 0q-0.18115 0.01367-0.31445 0.14698-0.1333 0.1333-0.16065 0.31445-0.02734 0.09912-0.02734 1.86279 0 1.76367 0.02734 1.86279 0.02734 0.16748 0.15381 0.28028 0.19824 0.19482 0.46143 0.17431 0.2666-0.02051 0.42041-0.24609l0.01367-0.01367q0.05811-0.08203 0.07178-0.15381 0.01367-0.12646 0.02734-0.4751l0-3.2915-0.04102-0.0957q-0.08545-0.21191-0.25293-0.30762-0.16748-0.09912-0.37939-0.05811z"
+                        fill="#6B7280"
+                      ></path>
+                    </svg>
+                  </div>
+                  <div
+                    data-pencil-name="Qty Count"
+                    class="text-[14px]/[normal] box-border w-[30px] shrink-0 text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-center"
+                  >
+                    1
+                  </div>
+                  <div
+                    data-pencil-name="Qty Increase"
+                    class="box-border w-[34px] shrink-0 h-full flex flex-row gap-0 justify-center items-center"
+                  >
+                    <svg
+                      data-pencil-name="Increase Icon"
+                      data-icon-name="plus"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                        fill="#1A1A2E"
+                      ></path>
+                    </svg>
+                  </div>
+                </div>
+              </div>
+              <div
+                data-pencil-name="In Cart Badge"
+                class="box-border w-fit h-fit [box-shadow:0px_1px_4px_#1A1A2E1F] absolute left-[12px] top-[12px] flex flex-row gap-[5px] p-[5px_10px_5px_8px] justify-start items-center bg-[#FFFFFF] rounded-[999px] [z-index:3]"
+              >
+                <svg
+                  data-pencil-name="In Cart Icon"
+                  data-icon-name="check"
+                  data-icon-set="lucide"
+                  viewBox="0 0 13.99993896484375 14"
+                  preserveAspectRatio="xMidYMid meet"
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="box-border w-[13px] shrink-0 h-[13px]"
+                >
+                  <path
+                    d="M11.48096 2.95313q-0.07178 0.01367-0.12989 0.0581-0.05469 0.04102-3.07617 3.06592l-3.0249 3.00781-1.28857-1.28857q-1.28857-1.28516-1.38086-1.32618-0.08887-0.04443-0.22217-0.04443-0.1333 0-0.23242 0.0376-0.0957 0.03418-0.18799 0.11279-0.08887 0.0752-0.1333 0.1709-0.02734 0.07178-0.03418 0.11279-0.00684 0.04102-0.00684 0.14014l0 0.04102q-0.01367 0.11279 0.04102 0.19824 0.07178 0.10938 0.36572 0.40332 0.19482 0.21191 0.96729 0.98096l1.49707 1.48339q0.28027 0.2666 0.38964 0.33838 0.07178 0.05469 0.18457 0.04102l0.09571 0.01367q0.07178 0 0.14013-0.02734 0.08545-0.07178 0.32129-0.28711 0.23926-0.21875 0.79981-0.76221l2.2832-2.2832q2.08496-2.09863 2.7002-2.71387 0.61524-0.61865 0.64599-0.68701 0.04102-0.08545 0.04102-0.23926 0-0.09912-0.00684-0.14014-0.00684-0.04102-0.03418-0.11279-0.04443-0.08203-0.13672-0.16406-0.08887-0.08545-0.18115-0.11963-0.08887-0.0376-0.20849-0.0376-0.11963 0-0.18799 0.02734z"
+                    fill="#10B981"
+                  ></path>
+                </svg>
+                <div
+                  data-pencil-name="In Cart Label"
+                  class="text-[11.5px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                >
+                  In cart
+                </div>
+              </div>
+            </div>
+          </div>
+          <div
+            data-pencil-name="Option Note"
+            class="text-[12px]/[17px] box-border w-full text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left"
+          >
+            Same navy block before and after; only the width grows. Calm, predictable morph.
+          </div>
+        </div>
+        <div
+          data-pencil-name="Option B · Round + → pill stepper"
+          class="box-border [flex:1_1_0] h-fit flex flex-col gap-[10px] justify-start items-start"
+        >
+          <div
+            data-pencil-name="Option Title"
+            class="text-[14px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold text-left [white-space:nowrap]"
+          >
+            B · Round + → pill stepper
+          </div>
+          <div
+            data-pencil-name="Card Pair"
+            class="box-border w-full h-fit shrink-0 flex flex-row gap-[12px] justify-start items-start"
+          >
+            <div
+              data-pencil-name="Card Default"
+              class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start"
+            >
+              <div
+                data-pencil-name="Product Image"
+                class="box-border w-full h-[170px] shrink-0 bg-[url('https://images.unsplash.com/photo-1661148800433-7e0004fa3b08?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzZ8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px]"
+              ></div>
+              <div
+                data-pencil-name="Product Info"
+                class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start"
+              >
+                <div
+                  data-pencil-name="Product Category"
+                  class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                >
+                  BAGS
+                </div>
+                <div
+                  data-pencil-name="Product Name"
+                  class="text-[14.5px]/[20px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                >
+                  Field Tote 18L
+                </div>
+              </div>
+              <div
+                data-pencil-name="Product Row"
+                class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center"
+              >
+                <div
+                  data-pencil-name="Product Price"
+                  class="text-[16px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                >
+                  $128.00
+                </div>
+                <div
+                  data-pencil-name="Add Button"
+                  class="box-border w-[40px] shrink-0 h-[40px] flex flex-row gap-0 justify-center items-center bg-[#2D3748] rounded-[999px]"
+                >
+                  <svg
+                    data-pencil-name="Icon"
+                    data-icon-name="plus"
+                    data-icon-set="lucide"
+                    viewBox="0 0 13.99993896484375 14"
+                    preserveAspectRatio="xMidYMid meet"
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="box-border w-[18px] shrink-0 h-[18px]"
+                  >
+                    <path
+                      d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                      fill="#FFFFFF"
+                    ></path>
+                  </svg>
+                </div>
+              </div>
+            </div>
+            <div
+              data-pencil-name="Card In Cart"
+              class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start relative"
+            >
+              <div
+                data-pencil-name="Product Image"
+                class="box-border w-full h-[170px] shrink-0 bg-[url('https://images.unsplash.com/photo-1661148800433-7e0004fa3b08?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzZ8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px] relative [z-index:0]"
+              ></div>
+              <div
+                data-pencil-name="Product Info"
+                class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start relative [z-index:1]"
+              >
+                <div
+                  data-pencil-name="Product Category"
+                  class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                >
+                  BAGS
+                </div>
+                <div
+                  data-pencil-name="Product Name"
+                  class="text-[14.5px]/[20px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                >
+                  Field Tote 18L
+                </div>
+              </div>
+              <div
+                data-pencil-name="Product Row"
+                class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center relative [z-index:2]"
+              >
+                <div
+                  data-pencil-name="Product Price"
+                  class="text-[16px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                >
+                  $128.00
+                </div>
+                <div
+                  data-pencil-name="Qty Stepper"
+                  class="box-border w-fit shrink-0 h-[40px] flex flex-row gap-0 p-[0px_4px] justify-start items-center bg-[#2D3748] rounded-[999px]"
+                >
+                  <div
+                    data-pencil-name="Step Btn"
+                    class="box-border w-[32px] shrink-0 h-[32px] flex flex-row gap-0 justify-center items-center rounded-[999px]"
+                  >
+                    <svg
+                      data-pencil-name="Icon"
+                      data-icon-name="trash-2"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M5.65674 0.60156q-0.44775 0.04102-0.84766 0.32129-0.3999 0.28027-0.58105 0.70069-0.08545 0.21191-0.1128 0.37939-0.02734 0.16748-0.02734 0.50244l-0.01367 0.42041-2.4917 0-0.08545 0.05469q-0.18115 0.09912-0.28027 0.2666-0.04102 0.08545-0.04102 0.25293 0 0.16748 0.04102 0.24609 0.04443 0.0752 0.12646 0.16065 0.08545 0.08203 0.14697 0.11963 0.06494 0.03418 0.13331 0.04101 0.07178 0.00684 0.33496 0.00684l0.36572 0 0.01367 7.84082 0.04102 0.16748q0.07178 0.25293 0.18115 0.44092 0.11279 0.18799 0.29394 0.37256 0.18457 0.18115 0.37256 0.29394 0.18799 0.10938 0.44092 0.18115l0.16748 0.04102 6.33008 0 0.16748-0.04102q0.25293-0.07178 0.44092-0.18115 0.18799-0.11279 0.36914-0.29394 0.18457-0.18457 0.29394-0.37256 0.11279-0.18799 0.18457-0.44092l0.04102-0.16748 0.01367-7.84082 0.36572 0q0.26318 0 0.33155-0.00684 0.07178-0.00684 0.1333-0.04101 0.06494-0.0376 0.14697-0.11963 0.08545-0.08545 0.12647-0.16065 0.04443-0.07861 0.04443-0.24609 0-0.16748-0.04102-0.25293-0.09912-0.16748-0.28027-0.2666l-0.08545-0.05469-2.4917 0-0.01367-0.42041q0-0.28027-0.00684-0.37598-0.00684-0.09912-0.03418-0.21191-0.15381-0.56055-0.57422-0.91602-0.42041-0.35889-0.99462-0.41357-0.16748-0.01367-1.31592-0.00684-1.14844 0.00684-1.32959 0.02051z m2.74463 1.20313q0.19482 0.09912 0.29394 0.29394 0.02734 0.07178 0.03418 0.13672 0.00684 0.06152 0.02051 0.32813l0 0.3623-3.5 0 0-0.3623q0.01367-0.2666 0.02051-0.32813 0.00684-0.06494 0.03418-0.13672 0.08545-0.18115 0.22558-0.24951l0-0.01367q0.08203-0.04443 0.16748-0.05811 0.08545-0.01367 0.36573-0.02734l2.23877 0.01367 0.09912 0.04102z m2.09863 6.13183l-0.01367 3.86573-0.02735 0.08545q-0.12646 0.26318-0.37939 0.33496-0.08203 0.02734-3.07959 0.02734-2.99756 0-3.07959-0.02734-0.25293-0.07178-0.37939-0.33496l-0.02735-0.08545-0.01367-7.72803 7 0 0 3.8623z m-4.7749-2.08496q-0.12646 0.01367-0.2461 0.10596-0.11621 0.08887-0.17431 0.21533l-0.04102 0.09912-0.01367 3.33252q0.01367 0.3623 0.02734 0.4751 0.01367 0.08545 0.07178 0.15381l0.01367 0.02734q0.15381 0.21191 0.417 0.23242 0.2666 0.02051 0.46484-0.17431 0.12646-0.12646 0.15381-0.29395 0.02734-0.11279 0.02734-1.86279 0-1.75-0.02734-1.84912-0.04102-0.23584-0.23242-0.36914-0.18799-0.1333-0.44092-0.09229z m2.35156 0q-0.18115 0.01367-0.31445 0.14698-0.1333 0.1333-0.16065 0.31445-0.02734 0.09912-0.02734 1.86279 0 1.76367 0.02734 1.86279 0.02734 0.16748 0.15381 0.28028 0.19824 0.19482 0.46143 0.17431 0.2666-0.02051 0.42041-0.24609l0.01367-0.01367q0.05811-0.08203 0.07178-0.15381 0.01367-0.12646 0.02734-0.4751l0-3.2915-0.04102-0.0957q-0.08545-0.21191-0.25293-0.30762-0.16748-0.09912-0.37939-0.05811z"
+                        fill="#FFFFFF"
+                      ></path>
+                    </svg>
+                  </div>
+                  <div
+                    data-pencil-name="Label"
+                    class="text-[14px]/[normal] box-border w-[28px] shrink-0 text-[#FFFFFF] font-[Inter,system-ui,sans-serif] font-semibold text-center"
+                  >
+                    1
+                  </div>
+                  <div
+                    data-pencil-name="Step Btn"
+                    class="box-border w-[32px] shrink-0 h-[32px] flex flex-row gap-0 justify-center items-center rounded-[999px]"
+                  >
+                    <svg
+                      data-pencil-name="Icon"
+                      data-icon-name="plus"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                        fill="#FFFFFF"
+                      ></path>
+                    </svg>
+                  </div>
+                </div>
+              </div>
+              <div
+                data-pencil-name="In Cart Badge"
+                class="box-border w-fit h-fit [box-shadow:0px_1px_4px_#1A1A2E1F] absolute left-[12px] top-[12px] flex flex-row gap-[5px] p-[5px_10px_5px_8px] justify-start items-center bg-[#FFFFFF] rounded-[999px] [z-index:3]"
+              >
+                <svg
+                  data-pencil-name="In Cart Icon"
+                  data-icon-name="check"
+                  data-icon-set="lucide"
+                  viewBox="0 0 13.99993896484375 14"
+                  preserveAspectRatio="xMidYMid meet"
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="box-border w-[13px] shrink-0 h-[13px]"
+                >
+                  <path
+                    d="M11.48096 2.95313q-0.07178 0.01367-0.12989 0.0581-0.05469 0.04102-3.07617 3.06592l-3.0249 3.00781-1.28857-1.28857q-1.28857-1.28516-1.38086-1.32618-0.08887-0.04443-0.22217-0.04443-0.1333 0-0.23242 0.0376-0.0957 0.03418-0.18799 0.11279-0.08887 0.0752-0.1333 0.1709-0.02734 0.07178-0.03418 0.11279-0.00684 0.04102-0.00684 0.14014l0 0.04102q-0.01367 0.11279 0.04102 0.19824 0.07178 0.10938 0.36572 0.40332 0.19482 0.21191 0.96729 0.98096l1.49707 1.48339q0.28027 0.2666 0.38964 0.33838 0.07178 0.05469 0.18457 0.04102l0.09571 0.01367q0.07178 0 0.14013-0.02734 0.08545-0.07178 0.32129-0.28711 0.23926-0.21875 0.79981-0.76221l2.2832-2.2832q2.08496-2.09863 2.7002-2.71387 0.61524-0.61865 0.64599-0.68701 0.04102-0.08545 0.04102-0.23926 0-0.09912-0.00684-0.14014-0.00684-0.04102-0.03418-0.11279-0.04443-0.08203-0.13672-0.16406-0.08887-0.08545-0.18115-0.11963-0.08887-0.0376-0.20849-0.0376-0.11963 0-0.18799 0.02734z"
+                    fill="#10B981"
+                  ></path>
+                </svg>
+                <div
+                  data-pencil-name="In Cart Label"
+                  class="text-[11.5px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                >
+                  In cart
+                </div>
+              </div>
+            </div>
+          </div>
+          <div
+            data-pencil-name="Option Note"
+            class="text-[12px]/[17px] box-border w-full text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left"
+          >
+            Compact icon button that stretches into a pill. Familiar from grocery apps; the price
+            gets more room.
+          </div>
+        </div>
+        <div
+          data-pencil-name="Option C · Outline button → solid stepper"
+          class="box-border [flex:1_1_0] h-fit flex flex-col gap-[10px] justify-start items-start"
+        >
+          <div
+            data-pencil-name="Option Title"
+            class="text-[14px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold text-left [white-space:nowrap]"
+          >
+            C · Outline button → solid stepper
+          </div>
+          <div
+            data-pencil-name="Card Pair"
+            class="box-border w-full h-fit shrink-0 flex flex-row gap-[12px] justify-start items-start"
+          >
+            <div
+              data-pencil-name="Card Default"
+              class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start"
+            >
+              <div
+                data-pencil-name="Product Image"
+                class="box-border w-full h-[170px] shrink-0 bg-[url('https://images.unsplash.com/photo-1661148800433-7e0004fa3b08?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzZ8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px]"
+              ></div>
+              <div
+                data-pencil-name="Product Info"
+                class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start"
+              >
+                <div
+                  data-pencil-name="Product Category"
+                  class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                >
+                  BAGS
+                </div>
+                <div
+                  data-pencil-name="Product Name"
+                  class="text-[14.5px]/[20px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                >
+                  Field Tote 18L
+                </div>
+              </div>
+              <div
+                data-pencil-name="Product Row"
+                class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center"
+              >
+                <div
+                  data-pencil-name="Product Price"
+                  class="text-[16px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                >
+                  $128.00
+                </div>
+                <div
+                  data-pencil-name="Add Button"
+                  class="box-border w-fit shrink-0 h-[40px] flex flex-row gap-[7px] p-[0px_16px] justify-start items-center bg-[#FFFFFF] [outline:1px_solid_#D1D5DB] [outline-offset:-0.5px] rounded-[8px]"
+                >
+                  <svg
+                    data-pencil-name="Icon"
+                    data-icon-name="plus"
+                    data-icon-set="lucide"
+                    viewBox="0 0 13.99993896484375 14"
+                    preserveAspectRatio="xMidYMid meet"
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="box-border w-[16px] shrink-0 h-[16px]"
+                  >
+                    <path
+                      d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                      fill="#1A1A2E"
+                    ></path>
+                  </svg>
+                  <div
+                    data-pencil-name="Label"
+                    class="text-[14px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                  >
+                    Add
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div
+              data-pencil-name="Card In Cart"
+              class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start relative"
+            >
+              <div
+                data-pencil-name="Product Image"
+                class="box-border w-full h-[170px] shrink-0 bg-[url('https://images.unsplash.com/photo-1661148800433-7e0004fa3b08?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzZ8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px] relative [z-index:0]"
+              ></div>
+              <div
+                data-pencil-name="Product Info"
+                class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start relative [z-index:1]"
+              >
+                <div
+                  data-pencil-name="Product Category"
+                  class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                >
+                  BAGS
+                </div>
+                <div
+                  data-pencil-name="Product Name"
+                  class="text-[14.5px]/[20px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                >
+                  Field Tote 18L
+                </div>
+              </div>
+              <div
+                data-pencil-name="Product Row"
+                class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center relative [z-index:2]"
+              >
+                <div
+                  data-pencil-name="Product Price"
+                  class="text-[16px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                >
+                  $128.00
+                </div>
+                <div
+                  data-pencil-name="Qty Stepper"
+                  class="box-border w-fit shrink-0 h-[40px] flex flex-row gap-0 justify-start items-center bg-[#FFFFFF] [outline:1px_solid_#D1D5DB] [outline-offset:-0.5px] rounded-[8px]"
+                >
+                  <div
+                    data-pencil-name="Qty Decrease"
+                    class="box-border w-[34px] shrink-0 h-full flex flex-row gap-0 justify-center items-center"
+                  >
+                    <svg
+                      data-pencil-name="Decrease Icon"
+                      data-icon-name="trash-2"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M5.65674 0.60156q-0.44775 0.04102-0.84766 0.32129-0.3999 0.28027-0.58105 0.70069-0.08545 0.21191-0.1128 0.37939-0.02734 0.16748-0.02734 0.50244l-0.01367 0.42041-2.4917 0-0.08545 0.05469q-0.18115 0.09912-0.28027 0.2666-0.04102 0.08545-0.04102 0.25293 0 0.16748 0.04102 0.24609 0.04443 0.0752 0.12646 0.16065 0.08545 0.08203 0.14697 0.11963 0.06494 0.03418 0.13331 0.04101 0.07178 0.00684 0.33496 0.00684l0.36572 0 0.01367 7.84082 0.04102 0.16748q0.07178 0.25293 0.18115 0.44092 0.11279 0.18799 0.29394 0.37256 0.18457 0.18115 0.37256 0.29394 0.18799 0.10938 0.44092 0.18115l0.16748 0.04102 6.33008 0 0.16748-0.04102q0.25293-0.07178 0.44092-0.18115 0.18799-0.11279 0.36914-0.29394 0.18457-0.18457 0.29394-0.37256 0.11279-0.18799 0.18457-0.44092l0.04102-0.16748 0.01367-7.84082 0.36572 0q0.26318 0 0.33155-0.00684 0.07178-0.00684 0.1333-0.04101 0.06494-0.0376 0.14697-0.11963 0.08545-0.08545 0.12647-0.16065 0.04443-0.07861 0.04443-0.24609 0-0.16748-0.04102-0.25293-0.09912-0.16748-0.28027-0.2666l-0.08545-0.05469-2.4917 0-0.01367-0.42041q0-0.28027-0.00684-0.37598-0.00684-0.09912-0.03418-0.21191-0.15381-0.56055-0.57422-0.91602-0.42041-0.35889-0.99462-0.41357-0.16748-0.01367-1.31592-0.00684-1.14844 0.00684-1.32959 0.02051z m2.74463 1.20313q0.19482 0.09912 0.29394 0.29394 0.02734 0.07178 0.03418 0.13672 0.00684 0.06152 0.02051 0.32813l0 0.3623-3.5 0 0-0.3623q0.01367-0.2666 0.02051-0.32813 0.00684-0.06494 0.03418-0.13672 0.08545-0.18115 0.22558-0.24951l0-0.01367q0.08203-0.04443 0.16748-0.05811 0.08545-0.01367 0.36573-0.02734l2.23877 0.01367 0.09912 0.04102z m2.09863 6.13183l-0.01367 3.86573-0.02735 0.08545q-0.12646 0.26318-0.37939 0.33496-0.08203 0.02734-3.07959 0.02734-2.99756 0-3.07959-0.02734-0.25293-0.07178-0.37939-0.33496l-0.02735-0.08545-0.01367-7.72803 7 0 0 3.8623z m-4.7749-2.08496q-0.12646 0.01367-0.2461 0.10596-0.11621 0.08887-0.17431 0.21533l-0.04102 0.09912-0.01367 3.33252q0.01367 0.3623 0.02734 0.4751 0.01367 0.08545 0.07178 0.15381l0.01367 0.02734q0.15381 0.21191 0.417 0.23242 0.2666 0.02051 0.46484-0.17431 0.12646-0.12646 0.15381-0.29395 0.02734-0.11279 0.02734-1.86279 0-1.75-0.02734-1.84912-0.04102-0.23584-0.23242-0.36914-0.18799-0.1333-0.44092-0.09229z m2.35156 0q-0.18115 0.01367-0.31445 0.14698-0.1333 0.1333-0.16065 0.31445-0.02734 0.09912-0.02734 1.86279 0 1.76367 0.02734 1.86279 0.02734 0.16748 0.15381 0.28028 0.19824 0.19482 0.46143 0.17431 0.2666-0.02051 0.42041-0.24609l0.01367-0.01367q0.05811-0.08203 0.07178-0.15381 0.01367-0.12646 0.02734-0.4751l0-3.2915-0.04102-0.0957q-0.08545-0.21191-0.25293-0.30762-0.16748-0.09912-0.37939-0.05811z"
+                        fill="#6B7280"
+                      ></path>
+                    </svg>
+                  </div>
+                  <div
+                    data-pencil-name="Qty Count"
+                    class="text-[14px]/[normal] box-border w-[30px] shrink-0 text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-center"
+                  >
+                    1
+                  </div>
+                  <div
+                    data-pencil-name="Qty Increase"
+                    class="box-border w-[34px] shrink-0 h-full flex flex-row gap-0 justify-center items-center"
+                  >
+                    <svg
+                      data-pencil-name="Increase Icon"
+                      data-icon-name="plus"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                        fill="#1A1A2E"
+                      ></path>
+                    </svg>
+                  </div>
+                </div>
+              </div>
+              <div
+                data-pencil-name="In Cart Badge"
+                class="box-border w-fit h-fit [box-shadow:0px_1px_4px_#1A1A2E1F] absolute left-[12px] top-[12px] flex flex-row gap-[5px] p-[5px_10px_5px_8px] justify-start items-center bg-[#FFFFFF] rounded-[999px] [z-index:3]"
+              >
+                <svg
+                  data-pencil-name="In Cart Icon"
+                  data-icon-name="check"
+                  data-icon-set="lucide"
+                  viewBox="0 0 13.99993896484375 14"
+                  preserveAspectRatio="xMidYMid meet"
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="box-border w-[13px] shrink-0 h-[13px]"
+                >
+                  <path
+                    d="M11.48096 2.95313q-0.07178 0.01367-0.12989 0.0581-0.05469 0.04102-3.07617 3.06592l-3.0249 3.00781-1.28857-1.28857q-1.28857-1.28516-1.38086-1.32618-0.08887-0.04443-0.22217-0.04443-0.1333 0-0.23242 0.0376-0.0957 0.03418-0.18799 0.11279-0.08887 0.0752-0.1333 0.1709-0.02734 0.07178-0.03418 0.11279-0.00684 0.04102-0.00684 0.14014l0 0.04102q-0.01367 0.11279 0.04102 0.19824 0.07178 0.10938 0.36572 0.40332 0.19482 0.21191 0.96729 0.98096l1.49707 1.48339q0.28027 0.2666 0.38964 0.33838 0.07178 0.05469 0.18457 0.04102l0.09571 0.01367q0.07178 0 0.14013-0.02734 0.08545-0.07178 0.32129-0.28711 0.23926-0.21875 0.79981-0.76221l2.2832-2.2832q2.08496-2.09863 2.7002-2.71387 0.61524-0.61865 0.64599-0.68701 0.04102-0.08545 0.04102-0.23926 0-0.09912-0.00684-0.14014-0.00684-0.04102-0.03418-0.11279-0.04443-0.08203-0.13672-0.16406-0.08887-0.08545-0.18115-0.11963-0.08887-0.0376-0.20849-0.0376-0.11963 0-0.18799 0.02734z"
+                    fill="#10B981"
+                  ></path>
+                </svg>
+                <div
+                  data-pencil-name="In Cart Label"
+                  class="text-[11.5px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                >
+                  In cart
+                </div>
+              </div>
+            </div>
+          </div>
+          <div
+            data-pencil-name="Option Note"
+            class="text-[12px]/[17px] box-border w-full text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left"
+          >
+            Quiet grid by default; the product you added becomes the only filled control. State
+            change is loud.
+          </div>
+        </div>
+      </div>
+      <div
+        data-pencil-name="Option Row"
+        class="box-border w-full h-fit shrink-0 flex flex-row gap-[28px] justify-start items-start"
+      >
+        <div
+          data-pencil-name="Option D · Full-width button → full-width stepper"
+          class="box-border [flex:1_1_0] h-fit flex flex-col gap-[10px] justify-start items-start"
+        >
+          <div
+            data-pencil-name="Option Title"
+            class="text-[14px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold text-left [white-space:nowrap]"
+          >
+            D · Full-width button → full-width stepper
+          </div>
+          <div
+            data-pencil-name="Card Pair"
+            class="box-border w-full h-fit shrink-0 flex flex-row gap-[12px] justify-start items-start"
+          >
+            <div
+              data-pencil-name="Card Default"
+              class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start"
+            >
+              <div
+                data-pencil-name="Product Image"
+                class="box-border w-full h-[170px] shrink-0 bg-[url('https://images.unsplash.com/photo-1661148800433-7e0004fa3b08?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzZ8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px]"
+              ></div>
+              <div
+                data-pencil-name="Product Info"
+                class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start"
+              >
+                <div
+                  data-pencil-name="Product Category"
+                  class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                >
+                  BAGS
+                </div>
+                <div
+                  data-pencil-name="Product Name"
+                  class="text-[14.5px]/[20px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                >
+                  Field Tote 18L
+                </div>
+              </div>
+              <div
+                data-pencil-name="Product Row"
+                class="box-border w-full h-fit shrink-0 flex flex-col gap-[12px] justify-between items-start"
+              >
+                <div
+                  data-pencil-name="Product Price"
+                  class="text-[16px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                >
+                  $128.00
+                </div>
+                <div
+                  data-pencil-name="Add Button"
+                  class="box-border w-full h-[40px] shrink-0 flex flex-row gap-[8px] justify-center items-center bg-[#2D3748] rounded-[8px]"
+                >
+                  <svg
+                    data-pencil-name="Icon"
+                    data-icon-name="shopping-cart"
+                    data-icon-set="lucide"
+                    viewBox="0 0 13.99993896484375 14"
+                    preserveAspectRatio="xMidYMid meet"
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="box-border w-[16px] shrink-0 h-[16px]"
+                  >
+                    <path
+                      d="M1.06299 0.62891q-0.08203 0.03076-0.18115 0.08545-0.09912 0.05469-0.15381 0.14013-0.12646 0.16748-0.1128 0.38623 0.01367 0.21533 0.16748 0.36914 0.12646 0.11279 0.25977 0.14014 0.1333 0.02734 0.49902 0.02734l0.29395 0.01368q0.05469 0 0.05469 0.02734l1.41504 6.5249q0.08203 0.39307 0.12646 0.50586l0.01367 0.02734q0.12305 0.30762 0.39649 0.57422 0.27344 0.2666 0.59472 0.38965l0.04444 0.01709q0.14014 0.04102 0.2666 0.05469 0.19482 0.01367 0.76904 0.02734l2.39258 0q3.05225 0 3.17871-0.0205 0.12646-0.02051 0.30078-0.08204 0.17432-0.06494 0.28711-0.1333 0.22559-0.12646 0.42041-0.35888 0.19483-0.23242 0.29395-0.45459l0-0.01368q0.05469-0.11279 0.12646-0.40673l0.4751-2.11231q0.4751-2.12939 0.4751-2.25586 0-0.15381-0.08545-0.29394-0.08203-0.14014-0.23584-0.2085l-0.09912-0.0581-9.58741-0.01368-0.2666-1.24414q-0.2666-1.24756-0.30078-1.32959-0.03418-0.08545-0.11279-0.16064-0.0752-0.07861-0.17432-0.11963l-0.09912-0.05811-0.68701 0q-0.68359 0-0.75537 0.01368z m11.07422 4.13232q0 0.02734-0.18116 0.8374l-0.22558 1.0083q-0.38965 1.78076-0.43408 1.8628-0.0957 0.16748-0.29395 0.2666l-0.0957 0.04101-5.97803 0-0.09912-0.04101q-0.2085-0.09912-0.29395-0.28028-0.04102-0.08545-0.43408-1.91748l-0.39306-1.84912q0 0 4.22802 0l4.22803 0-0.02734 0.07178z m-7.61524 6.34033q-0.2666 0.01367-0.50244 0.18115-0.33838 0.22559-0.45801 0.59815-0.11621 0.36914 0.00684 0.7417 0.12646 0.36914 0.46484 0.6084 0.26318 0.18115 0.62891 0.18115 0.25293 0 0.44092-0.0752 0.18799-0.07861 0.37597-0.2666 0.19141-0.19141 0.26661-0.37939 0.07861-0.18799 0.07861-0.44092 0-0.25293-0.07861-0.44092-0.0752-0.18799-0.25635-0.37256-0.15381-0.15381-0.29395-0.22217-0.30762-0.15381-0.67334-0.11279z m6.42578 0q-0.39307 0.02734-0.70068 0.33496-0.16748 0.18457-0.24609 0.37256-0.0752 0.18799-0.0752 0.44092 0 0.25293 0.0752 0.44775 0.07861 0.19482 0.2666 0.3794 0.19141 0.18115 0.37939 0.25976 0.18799 0.07519 0.44092 0.0752 0.36572 0 0.62891-0.18115 0.33838-0.23926 0.46142-0.6084 0.12647-0.37256 0.00684-0.7417-0.11621-0.37256-0.46143-0.60156-0.3418-0.23242-0.77588-0.17774z"
+                      fill="#FFFFFF"
+                    ></path>
+                  </svg>
+                  <div
+                    data-pencil-name="Label"
+                    class="text-[14px]/[normal] box-border text-[#FFFFFF] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                  >
+                    Add to cart
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div
+              data-pencil-name="Card In Cart"
+              class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start relative"
+            >
+              <div
+                data-pencil-name="Product Image"
+                class="box-border w-full h-[170px] shrink-0 bg-[url('https://images.unsplash.com/photo-1661148800433-7e0004fa3b08?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzZ8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px] relative [z-index:0]"
+              ></div>
+              <div
+                data-pencil-name="Product Info"
+                class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start relative [z-index:1]"
+              >
+                <div
+                  data-pencil-name="Product Category"
+                  class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                >
+                  BAGS
+                </div>
+                <div
+                  data-pencil-name="Product Name"
+                  class="text-[14.5px]/[20px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                >
+                  Field Tote 18L
+                </div>
+              </div>
+              <div
+                data-pencil-name="Product Row"
+                class="box-border w-full h-fit shrink-0 flex flex-col gap-[12px] justify-between items-start relative [z-index:2]"
+              >
+                <div
+                  data-pencil-name="Product Price"
+                  class="text-[16px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                >
+                  $128.00
+                </div>
+                <div
+                  data-pencil-name="Qty Stepper"
+                  class="box-border w-full h-[40px] shrink-0 flex flex-row gap-0 p-[0px_4px] justify-between items-center bg-[#2D3748] rounded-[8px]"
+                >
+                  <div
+                    data-pencil-name="Step Btn"
+                    class="box-border w-[32px] shrink-0 h-[32px] flex flex-row gap-0 justify-center items-center rounded-[6px]"
+                  >
+                    <svg
+                      data-pencil-name="Icon"
+                      data-icon-name="trash-2"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M5.65674 0.60156q-0.44775 0.04102-0.84766 0.32129-0.3999 0.28027-0.58105 0.70069-0.08545 0.21191-0.1128 0.37939-0.02734 0.16748-0.02734 0.50244l-0.01367 0.42041-2.4917 0-0.08545 0.05469q-0.18115 0.09912-0.28027 0.2666-0.04102 0.08545-0.04102 0.25293 0 0.16748 0.04102 0.24609 0.04443 0.0752 0.12646 0.16065 0.08545 0.08203 0.14697 0.11963 0.06494 0.03418 0.13331 0.04101 0.07178 0.00684 0.33496 0.00684l0.36572 0 0.01367 7.84082 0.04102 0.16748q0.07178 0.25293 0.18115 0.44092 0.11279 0.18799 0.29394 0.37256 0.18457 0.18115 0.37256 0.29394 0.18799 0.10938 0.44092 0.18115l0.16748 0.04102 6.33008 0 0.16748-0.04102q0.25293-0.07178 0.44092-0.18115 0.18799-0.11279 0.36914-0.29394 0.18457-0.18457 0.29394-0.37256 0.11279-0.18799 0.18457-0.44092l0.04102-0.16748 0.01367-7.84082 0.36572 0q0.26318 0 0.33155-0.00684 0.07178-0.00684 0.1333-0.04101 0.06494-0.0376 0.14697-0.11963 0.08545-0.08545 0.12647-0.16065 0.04443-0.07861 0.04443-0.24609 0-0.16748-0.04102-0.25293-0.09912-0.16748-0.28027-0.2666l-0.08545-0.05469-2.4917 0-0.01367-0.42041q0-0.28027-0.00684-0.37598-0.00684-0.09912-0.03418-0.21191-0.15381-0.56055-0.57422-0.91602-0.42041-0.35889-0.99462-0.41357-0.16748-0.01367-1.31592-0.00684-1.14844 0.00684-1.32959 0.02051z m2.74463 1.20313q0.19482 0.09912 0.29394 0.29394 0.02734 0.07178 0.03418 0.13672 0.00684 0.06152 0.02051 0.32813l0 0.3623-3.5 0 0-0.3623q0.01367-0.2666 0.02051-0.32813 0.00684-0.06494 0.03418-0.13672 0.08545-0.18115 0.22558-0.24951l0-0.01367q0.08203-0.04443 0.16748-0.05811 0.08545-0.01367 0.36573-0.02734l2.23877 0.01367 0.09912 0.04102z m2.09863 6.13183l-0.01367 3.86573-0.02735 0.08545q-0.12646 0.26318-0.37939 0.33496-0.08203 0.02734-3.07959 0.02734-2.99756 0-3.07959-0.02734-0.25293-0.07178-0.37939-0.33496l-0.02735-0.08545-0.01367-7.72803 7 0 0 3.8623z m-4.7749-2.08496q-0.12646 0.01367-0.2461 0.10596-0.11621 0.08887-0.17431 0.21533l-0.04102 0.09912-0.01367 3.33252q0.01367 0.3623 0.02734 0.4751 0.01367 0.08545 0.07178 0.15381l0.01367 0.02734q0.15381 0.21191 0.417 0.23242 0.2666 0.02051 0.46484-0.17431 0.12646-0.12646 0.15381-0.29395 0.02734-0.11279 0.02734-1.86279 0-1.75-0.02734-1.84912-0.04102-0.23584-0.23242-0.36914-0.18799-0.1333-0.44092-0.09229z m2.35156 0q-0.18115 0.01367-0.31445 0.14698-0.1333 0.1333-0.16065 0.31445-0.02734 0.09912-0.02734 1.86279 0 1.76367 0.02734 1.86279 0.02734 0.16748 0.15381 0.28028 0.19824 0.19482 0.46143 0.17431 0.2666-0.02051 0.42041-0.24609l0.01367-0.01367q0.05811-0.08203 0.07178-0.15381 0.01367-0.12646 0.02734-0.4751l0-3.2915-0.04102-0.0957q-0.08545-0.21191-0.25293-0.30762-0.16748-0.09912-0.37939-0.05811z"
+                        fill="#FFFFFF"
+                      ></path>
+                    </svg>
+                  </div>
+                  <div
+                    data-pencil-name="Label"
+                    class="text-[14px]/[normal] box-border text-[#FFFFFF] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                  >
+                    1 in cart
+                  </div>
+                  <div
+                    data-pencil-name="Step Btn"
+                    class="box-border w-[32px] shrink-0 h-[32px] flex flex-row gap-0 justify-center items-center rounded-[6px]"
+                  >
+                    <svg
+                      data-pencil-name="Icon"
+                      data-icon-name="plus"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                        fill="#FFFFFF"
+                      ></path>
+                    </svg>
+                  </div>
+                </div>
+              </div>
+              <div
+                data-pencil-name="In Cart Badge"
+                class="box-border w-fit h-fit [box-shadow:0px_1px_4px_#1A1A2E1F] absolute left-[12px] top-[12px] flex flex-row gap-[5px] p-[5px_10px_5px_8px] justify-start items-center bg-[#FFFFFF] rounded-[999px] [z-index:3]"
+              >
+                <svg
+                  data-pencil-name="In Cart Icon"
+                  data-icon-name="check"
+                  data-icon-set="lucide"
+                  viewBox="0 0 13.99993896484375 14"
+                  preserveAspectRatio="xMidYMid meet"
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="box-border w-[13px] shrink-0 h-[13px]"
+                >
+                  <path
+                    d="M11.48096 2.95313q-0.07178 0.01367-0.12989 0.0581-0.05469 0.04102-3.07617 3.06592l-3.0249 3.00781-1.28857-1.28857q-1.28857-1.28516-1.38086-1.32618-0.08887-0.04443-0.22217-0.04443-0.1333 0-0.23242 0.0376-0.0957 0.03418-0.18799 0.11279-0.08887 0.0752-0.1333 0.1709-0.02734 0.07178-0.03418 0.11279-0.00684 0.04102-0.00684 0.14014l0 0.04102q-0.01367 0.11279 0.04102 0.19824 0.07178 0.10938 0.36572 0.40332 0.19482 0.21191 0.96729 0.98096l1.49707 1.48339q0.28027 0.2666 0.38964 0.33838 0.07178 0.05469 0.18457 0.04102l0.09571 0.01367q0.07178 0 0.14013-0.02734 0.08545-0.07178 0.32129-0.28711 0.23926-0.21875 0.79981-0.76221l2.2832-2.2832q2.08496-2.09863 2.7002-2.71387 0.61524-0.61865 0.64599-0.68701 0.04102-0.08545 0.04102-0.23926 0-0.09912-0.00684-0.14014-0.00684-0.04102-0.03418-0.11279-0.04443-0.08203-0.13672-0.16406-0.08887-0.08545-0.18115-0.11963-0.08887-0.0376-0.20849-0.0376-0.11963 0-0.18799 0.02734z"
+                    fill="#10B981"
+                  ></path>
+                </svg>
+                <div
+                  data-pencil-name="In Cart Label"
+                  class="text-[11.5px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                >
+                  In cart
+                </div>
+              </div>
+            </div>
+          </div>
+          <div
+            data-pencil-name="Option Note"
+            class="text-[12px]/[17px] box-border w-full text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left"
+          >
+            Price above, control spans the card. Biggest tap target (good on mobile); the stepper
+            can say "1 in cart".
+          </div>
+        </div>
+        <div
+          data-pencil-name="Option E · Tonal button → tonal stepper"
+          class="box-border [flex:1_1_0] h-fit flex flex-col gap-[10px] justify-start items-start"
+        >
+          <div
+            data-pencil-name="Option Title"
+            class="text-[14px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold text-left [white-space:nowrap]"
+          >
+            E · Tonal button → tonal stepper
+          </div>
+          <div
+            data-pencil-name="Card Pair"
+            class="box-border w-full h-fit shrink-0 flex flex-row gap-[12px] justify-start items-start"
+          >
+            <div
+              data-pencil-name="Card Default"
+              class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start"
+            >
+              <div
+                data-pencil-name="Product Image"
+                class="box-border w-full h-[170px] shrink-0 bg-[url('https://images.unsplash.com/photo-1661148800433-7e0004fa3b08?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzZ8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px]"
+              ></div>
+              <div
+                data-pencil-name="Product Info"
+                class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start"
+              >
+                <div
+                  data-pencil-name="Product Category"
+                  class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                >
+                  BAGS
+                </div>
+                <div
+                  data-pencil-name="Product Name"
+                  class="text-[14.5px]/[20px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                >
+                  Field Tote 18L
+                </div>
+              </div>
+              <div
+                data-pencil-name="Product Row"
+                class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center"
+              >
+                <div
+                  data-pencil-name="Product Price"
+                  class="text-[16px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                >
+                  $128.00
+                </div>
+                <div
+                  data-pencil-name="Add Button"
+                  class="box-border w-fit shrink-0 h-[40px] flex flex-row gap-[7px] p-[0px_16px] justify-start items-center bg-[#EDF0F6] rounded-[8px]"
+                >
+                  <svg
+                    data-pencil-name="Icon"
+                    data-icon-name="plus"
+                    data-icon-set="lucide"
+                    viewBox="0 0 13.99993896484375 14"
+                    preserveAspectRatio="xMidYMid meet"
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="box-border w-[16px] shrink-0 h-[16px]"
+                  >
+                    <path
+                      d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                      fill="#2D3748"
+                    ></path>
+                  </svg>
+                  <div
+                    data-pencil-name="Label"
+                    class="text-[14px]/[normal] box-border text-[#2D3748] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                  >
+                    Add
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div
+              data-pencil-name="Card In Cart"
+              class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start relative"
+            >
+              <div
+                data-pencil-name="Product Image"
+                class="box-border w-full h-[170px] shrink-0 bg-[url('https://images.unsplash.com/photo-1661148800433-7e0004fa3b08?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzZ8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px] relative [z-index:0]"
+              ></div>
+              <div
+                data-pencil-name="Product Info"
+                class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start relative [z-index:1]"
+              >
+                <div
+                  data-pencil-name="Product Category"
+                  class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                >
+                  BAGS
+                </div>
+                <div
+                  data-pencil-name="Product Name"
+                  class="text-[14.5px]/[20px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                >
+                  Field Tote 18L
+                </div>
+              </div>
+              <div
+                data-pencil-name="Product Row"
+                class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center relative [z-index:2]"
+              >
+                <div
+                  data-pencil-name="Product Price"
+                  class="text-[16px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                >
+                  $128.00
+                </div>
+                <div
+                  data-pencil-name="Qty Stepper"
+                  class="box-border w-fit shrink-0 h-[40px] flex flex-row gap-[2px] p-[4px] justify-start items-center bg-[#EDF0F6] rounded-[8px]"
+                >
+                  <div
+                    data-pencil-name="Step Btn"
+                    class="box-border w-[32px] shrink-0 h-[32px] flex flex-row gap-0 justify-center items-center bg-[#FFFFFF] rounded-[6px]"
+                  >
+                    <svg
+                      data-pencil-name="Icon"
+                      data-icon-name="trash-2"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M5.65674 0.60156q-0.44775 0.04102-0.84766 0.32129-0.3999 0.28027-0.58105 0.70069-0.08545 0.21191-0.1128 0.37939-0.02734 0.16748-0.02734 0.50244l-0.01367 0.42041-2.4917 0-0.08545 0.05469q-0.18115 0.09912-0.28027 0.2666-0.04102 0.08545-0.04102 0.25293 0 0.16748 0.04102 0.24609 0.04443 0.0752 0.12646 0.16065 0.08545 0.08203 0.14697 0.11963 0.06494 0.03418 0.13331 0.04101 0.07178 0.00684 0.33496 0.00684l0.36572 0 0.01367 7.84082 0.04102 0.16748q0.07178 0.25293 0.18115 0.44092 0.11279 0.18799 0.29394 0.37256 0.18457 0.18115 0.37256 0.29394 0.18799 0.10938 0.44092 0.18115l0.16748 0.04102 6.33008 0 0.16748-0.04102q0.25293-0.07178 0.44092-0.18115 0.18799-0.11279 0.36914-0.29394 0.18457-0.18457 0.29394-0.37256 0.11279-0.18799 0.18457-0.44092l0.04102-0.16748 0.01367-7.84082 0.36572 0q0.26318 0 0.33155-0.00684 0.07178-0.00684 0.1333-0.04101 0.06494-0.0376 0.14697-0.11963 0.08545-0.08545 0.12647-0.16065 0.04443-0.07861 0.04443-0.24609 0-0.16748-0.04102-0.25293-0.09912-0.16748-0.28027-0.2666l-0.08545-0.05469-2.4917 0-0.01367-0.42041q0-0.28027-0.00684-0.37598-0.00684-0.09912-0.03418-0.21191-0.15381-0.56055-0.57422-0.91602-0.42041-0.35889-0.99462-0.41357-0.16748-0.01367-1.31592-0.00684-1.14844 0.00684-1.32959 0.02051z m2.74463 1.20313q0.19482 0.09912 0.29394 0.29394 0.02734 0.07178 0.03418 0.13672 0.00684 0.06152 0.02051 0.32813l0 0.3623-3.5 0 0-0.3623q0.01367-0.2666 0.02051-0.32813 0.00684-0.06494 0.03418-0.13672 0.08545-0.18115 0.22558-0.24951l0-0.01367q0.08203-0.04443 0.16748-0.05811 0.08545-0.01367 0.36573-0.02734l2.23877 0.01367 0.09912 0.04102z m2.09863 6.13183l-0.01367 3.86573-0.02735 0.08545q-0.12646 0.26318-0.37939 0.33496-0.08203 0.02734-3.07959 0.02734-2.99756 0-3.07959-0.02734-0.25293-0.07178-0.37939-0.33496l-0.02735-0.08545-0.01367-7.72803 7 0 0 3.8623z m-4.7749-2.08496q-0.12646 0.01367-0.2461 0.10596-0.11621 0.08887-0.17431 0.21533l-0.04102 0.09912-0.01367 3.33252q0.01367 0.3623 0.02734 0.4751 0.01367 0.08545 0.07178 0.15381l0.01367 0.02734q0.15381 0.21191 0.417 0.23242 0.2666 0.02051 0.46484-0.17431 0.12646-0.12646 0.15381-0.29395 0.02734-0.11279 0.02734-1.86279 0-1.75-0.02734-1.84912-0.04102-0.23584-0.23242-0.36914-0.18799-0.1333-0.44092-0.09229z m2.35156 0q-0.18115 0.01367-0.31445 0.14698-0.1333 0.1333-0.16065 0.31445-0.02734 0.09912-0.02734 1.86279 0 1.76367 0.02734 1.86279 0.02734 0.16748 0.15381 0.28028 0.19824 0.19482 0.46143 0.17431 0.2666-0.02051 0.42041-0.24609l0.01367-0.01367q0.05811-0.08203 0.07178-0.15381 0.01367-0.12646 0.02734-0.4751l0-3.2915-0.04102-0.0957q-0.08545-0.21191-0.25293-0.30762-0.16748-0.09912-0.37939-0.05811z"
+                        fill="#2D3748"
+                      ></path>
+                    </svg>
+                  </div>
+                  <div
+                    data-pencil-name="Label"
+                    class="text-[14px]/[normal] box-border w-[28px] shrink-0 text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-center"
+                  >
+                    1
+                  </div>
+                  <div
+                    data-pencil-name="Step Btn"
+                    class="box-border w-[32px] shrink-0 h-[32px] flex flex-row gap-0 justify-center items-center bg-[#FFFFFF] rounded-[6px]"
+                  >
+                    <svg
+                      data-pencil-name="Icon"
+                      data-icon-name="plus"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                        fill="#2D3748"
+                      ></path>
+                    </svg>
+                  </div>
+                </div>
+              </div>
+              <div
+                data-pencil-name="In Cart Badge"
+                class="box-border w-fit h-fit [box-shadow:0px_1px_4px_#1A1A2E1F] absolute left-[12px] top-[12px] flex flex-row gap-[5px] p-[5px_10px_5px_8px] justify-start items-center bg-[#FFFFFF] rounded-[999px] [z-index:3]"
+              >
+                <svg
+                  data-pencil-name="In Cart Icon"
+                  data-icon-name="check"
+                  data-icon-set="lucide"
+                  viewBox="0 0 13.99993896484375 14"
+                  preserveAspectRatio="xMidYMid meet"
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="box-border w-[13px] shrink-0 h-[13px]"
+                >
+                  <path
+                    d="M11.48096 2.95313q-0.07178 0.01367-0.12989 0.0581-0.05469 0.04102-3.07617 3.06592l-3.0249 3.00781-1.28857-1.28857q-1.28857-1.28516-1.38086-1.32618-0.08887-0.04443-0.22217-0.04443-0.1333 0-0.23242 0.0376-0.0957 0.03418-0.18799 0.11279-0.08887 0.0752-0.1333 0.1709-0.02734 0.07178-0.03418 0.11279-0.00684 0.04102-0.00684 0.14014l0 0.04102q-0.01367 0.11279 0.04102 0.19824 0.07178 0.10938 0.36572 0.40332 0.19482 0.21191 0.96729 0.98096l1.49707 1.48339q0.28027 0.2666 0.38964 0.33838 0.07178 0.05469 0.18457 0.04102l0.09571 0.01367q0.07178 0 0.14013-0.02734 0.08545-0.07178 0.32129-0.28711 0.23926-0.21875 0.79981-0.76221l2.2832-2.2832q2.08496-2.09863 2.7002-2.71387 0.61524-0.61865 0.64599-0.68701 0.04102-0.08545 0.04102-0.23926 0-0.09912-0.00684-0.14014-0.00684-0.04102-0.03418-0.11279-0.04443-0.08203-0.13672-0.16406-0.08887-0.08545-0.18115-0.11963-0.08887-0.0376-0.20849-0.0376-0.11963 0-0.18799 0.02734z"
+                    fill="#10B981"
+                  ></path>
+                </svg>
+                <div
+                  data-pencil-name="In Cart Label"
+                  class="text-[11.5px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                >
+                  In cart
+                </div>
+              </div>
+            </div>
+          </div>
+          <div
+            data-pencil-name="Option Note"
+            class="text-[12px]/[17px] box-border w-full text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left"
+          >
+            Light navy tint, white keys inside the stepper. Softer grid, keys read as real buttons.
+          </div>
+        </div>
+        <div
+          data-pencil-name="Option F · Brand orange → orange-tint stepper"
+          class="box-border [flex:1_1_0] h-fit flex flex-col gap-[10px] justify-start items-start"
+        >
+          <div
+            data-pencil-name="Option Title"
+            class="text-[14px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold text-left [white-space:nowrap]"
+          >
+            F · Brand orange → orange-tint stepper
+          </div>
+          <div
+            data-pencil-name="Card Pair"
+            class="box-border w-full h-fit shrink-0 flex flex-row gap-[12px] justify-start items-start"
+          >
+            <div
+              data-pencil-name="Card Default"
+              class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start"
+            >
+              <div
+                data-pencil-name="Product Image"
+                class="box-border w-full h-[170px] shrink-0 bg-[url('https://images.unsplash.com/photo-1661148800433-7e0004fa3b08?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzZ8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px]"
+              ></div>
+              <div
+                data-pencil-name="Product Info"
+                class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start"
+              >
+                <div
+                  data-pencil-name="Product Category"
+                  class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                >
+                  BAGS
+                </div>
+                <div
+                  data-pencil-name="Product Name"
+                  class="text-[14.5px]/[20px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                >
+                  Field Tote 18L
+                </div>
+              </div>
+              <div
+                data-pencil-name="Product Row"
+                class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center"
+              >
+                <div
+                  data-pencil-name="Product Price"
+                  class="text-[16px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                >
+                  $128.00
+                </div>
+                <div
+                  data-pencil-name="Add Button"
+                  class="box-border w-fit shrink-0 h-[40px] flex flex-row gap-[7px] p-[0px_16px] justify-start items-center bg-[#F7941D] rounded-[8px]"
+                >
+                  <svg
+                    data-pencil-name="Icon"
+                    data-icon-name="plus"
+                    data-icon-set="lucide"
+                    viewBox="0 0 13.99993896484375 14"
+                    preserveAspectRatio="xMidYMid meet"
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="box-border w-[16px] shrink-0 h-[16px]"
+                  >
+                    <path
+                      d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                      fill="#1A1A2E"
+                    ></path>
+                  </svg>
+                  <div
+                    data-pencil-name="Label"
+                    class="text-[14px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                  >
+                    Add
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div
+              data-pencil-name="Card In Cart"
+              class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start relative"
+            >
+              <div
+                data-pencil-name="Product Image"
+                class="box-border w-full h-[170px] shrink-0 bg-[url('https://images.unsplash.com/photo-1661148800433-7e0004fa3b08?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzZ8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px] relative [z-index:0]"
+              ></div>
+              <div
+                data-pencil-name="Product Info"
+                class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start relative [z-index:1]"
+              >
+                <div
+                  data-pencil-name="Product Category"
+                  class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                >
+                  BAGS
+                </div>
+                <div
+                  data-pencil-name="Product Name"
+                  class="text-[14.5px]/[20px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                >
+                  Field Tote 18L
+                </div>
+              </div>
+              <div
+                data-pencil-name="Product Row"
+                class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center relative [z-index:2]"
+              >
+                <div
+                  data-pencil-name="Product Price"
+                  class="text-[16px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                >
+                  $128.00
+                </div>
+                <div
+                  data-pencil-name="Qty Stepper"
+                  class="box-border w-fit shrink-0 h-[40px] flex flex-row gap-0 p-[0px_4px] justify-start items-center bg-[#FFF4E5] [outline:1px_solid_#F7941D] [outline-offset:-0.5px] rounded-[8px]"
+                >
+                  <div
+                    data-pencil-name="Step Btn"
+                    class="box-border w-[32px] shrink-0 h-[32px] flex flex-row gap-0 justify-center items-center rounded-[6px]"
+                  >
+                    <svg
+                      data-pencil-name="Icon"
+                      data-icon-name="trash-2"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M5.65674 0.60156q-0.44775 0.04102-0.84766 0.32129-0.3999 0.28027-0.58105 0.70069-0.08545 0.21191-0.1128 0.37939-0.02734 0.16748-0.02734 0.50244l-0.01367 0.42041-2.4917 0-0.08545 0.05469q-0.18115 0.09912-0.28027 0.2666-0.04102 0.08545-0.04102 0.25293 0 0.16748 0.04102 0.24609 0.04443 0.0752 0.12646 0.16065 0.08545 0.08203 0.14697 0.11963 0.06494 0.03418 0.13331 0.04101 0.07178 0.00684 0.33496 0.00684l0.36572 0 0.01367 7.84082 0.04102 0.16748q0.07178 0.25293 0.18115 0.44092 0.11279 0.18799 0.29394 0.37256 0.18457 0.18115 0.37256 0.29394 0.18799 0.10938 0.44092 0.18115l0.16748 0.04102 6.33008 0 0.16748-0.04102q0.25293-0.07178 0.44092-0.18115 0.18799-0.11279 0.36914-0.29394 0.18457-0.18457 0.29394-0.37256 0.11279-0.18799 0.18457-0.44092l0.04102-0.16748 0.01367-7.84082 0.36572 0q0.26318 0 0.33155-0.00684 0.07178-0.00684 0.1333-0.04101 0.06494-0.0376 0.14697-0.11963 0.08545-0.08545 0.12647-0.16065 0.04443-0.07861 0.04443-0.24609 0-0.16748-0.04102-0.25293-0.09912-0.16748-0.28027-0.2666l-0.08545-0.05469-2.4917 0-0.01367-0.42041q0-0.28027-0.00684-0.37598-0.00684-0.09912-0.03418-0.21191-0.15381-0.56055-0.57422-0.91602-0.42041-0.35889-0.99462-0.41357-0.16748-0.01367-1.31592-0.00684-1.14844 0.00684-1.32959 0.02051z m2.74463 1.20313q0.19482 0.09912 0.29394 0.29394 0.02734 0.07178 0.03418 0.13672 0.00684 0.06152 0.02051 0.32813l0 0.3623-3.5 0 0-0.3623q0.01367-0.2666 0.02051-0.32813 0.00684-0.06494 0.03418-0.13672 0.08545-0.18115 0.22558-0.24951l0-0.01367q0.08203-0.04443 0.16748-0.05811 0.08545-0.01367 0.36573-0.02734l2.23877 0.01367 0.09912 0.04102z m2.09863 6.13183l-0.01367 3.86573-0.02735 0.08545q-0.12646 0.26318-0.37939 0.33496-0.08203 0.02734-3.07959 0.02734-2.99756 0-3.07959-0.02734-0.25293-0.07178-0.37939-0.33496l-0.02735-0.08545-0.01367-7.72803 7 0 0 3.8623z m-4.7749-2.08496q-0.12646 0.01367-0.2461 0.10596-0.11621 0.08887-0.17431 0.21533l-0.04102 0.09912-0.01367 3.33252q0.01367 0.3623 0.02734 0.4751 0.01367 0.08545 0.07178 0.15381l0.01367 0.02734q0.15381 0.21191 0.417 0.23242 0.2666 0.02051 0.46484-0.17431 0.12646-0.12646 0.15381-0.29395 0.02734-0.11279 0.02734-1.86279 0-1.75-0.02734-1.84912-0.04102-0.23584-0.23242-0.36914-0.18799-0.1333-0.44092-0.09229z m2.35156 0q-0.18115 0.01367-0.31445 0.14698-0.1333 0.1333-0.16065 0.31445-0.02734 0.09912-0.02734 1.86279 0 1.76367 0.02734 1.86279 0.02734 0.16748 0.15381 0.28028 0.19824 0.19482 0.46143 0.17431 0.2666-0.02051 0.42041-0.24609l0.01367-0.01367q0.05811-0.08203 0.07178-0.15381 0.01367-0.12646 0.02734-0.4751l0-3.2915-0.04102-0.0957q-0.08545-0.21191-0.25293-0.30762-0.16748-0.09912-0.37939-0.05811z"
+                        fill="#8A5A11"
+                      ></path>
+                    </svg>
+                  </div>
+                  <div
+                    data-pencil-name="Label"
+                    class="text-[14px]/[normal] box-border w-[28px] shrink-0 text-[#8A5A11] font-[Inter,system-ui,sans-serif] font-semibold text-center"
+                  >
+                    1
+                  </div>
+                  <div
+                    data-pencil-name="Step Btn"
+                    class="box-border w-[32px] shrink-0 h-[32px] flex flex-row gap-0 justify-center items-center rounded-[6px]"
+                  >
+                    <svg
+                      data-pencil-name="Icon"
+                      data-icon-name="plus"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                        fill="#8A5A11"
+                      ></path>
+                    </svg>
+                  </div>
+                </div>
+              </div>
+              <div
+                data-pencil-name="In Cart Badge"
+                class="box-border w-fit h-fit [box-shadow:0px_1px_4px_#1A1A2E1F] absolute left-[12px] top-[12px] flex flex-row gap-[5px] p-[5px_10px_5px_8px] justify-start items-center bg-[#FFFFFF] rounded-[999px] [z-index:3]"
+              >
+                <svg
+                  data-pencil-name="In Cart Icon"
+                  data-icon-name="check"
+                  data-icon-set="lucide"
+                  viewBox="0 0 13.99993896484375 14"
+                  preserveAspectRatio="xMidYMid meet"
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="box-border w-[13px] shrink-0 h-[13px]"
+                >
+                  <path
+                    d="M11.48096 2.95313q-0.07178 0.01367-0.12989 0.0581-0.05469 0.04102-3.07617 3.06592l-3.0249 3.00781-1.28857-1.28857q-1.28857-1.28516-1.38086-1.32618-0.08887-0.04443-0.22217-0.04443-0.1333 0-0.23242 0.0376-0.0957 0.03418-0.18799 0.11279-0.08887 0.0752-0.1333 0.1709-0.02734 0.07178-0.03418 0.11279-0.00684 0.04102-0.00684 0.14014l0 0.04102q-0.01367 0.11279 0.04102 0.19824 0.07178 0.10938 0.36572 0.40332 0.19482 0.21191 0.96729 0.98096l1.49707 1.48339q0.28027 0.2666 0.38964 0.33838 0.07178 0.05469 0.18457 0.04102l0.09571 0.01367q0.07178 0 0.14013-0.02734 0.08545-0.07178 0.32129-0.28711 0.23926-0.21875 0.79981-0.76221l2.2832-2.2832q2.08496-2.09863 2.7002-2.71387 0.61524-0.61865 0.64599-0.68701 0.04102-0.08545 0.04102-0.23926 0-0.09912-0.00684-0.14014-0.00684-0.04102-0.03418-0.11279-0.04443-0.08203-0.13672-0.16406-0.08887-0.08545-0.18115-0.11963-0.08887-0.0376-0.20849-0.0376-0.11963 0-0.18799 0.02734z"
+                    fill="#10B981"
+                  ></path>
+                </svg>
+                <div
+                  data-pencil-name="In Cart Label"
+                  class="text-[11.5px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                >
+                  In cart
+                </div>
+              </div>
+            </div>
+          </div>
+          <div
+            data-pencil-name="Option Note"
+            class="text-[12px]/[17px] box-border w-full text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left"
+          >
+            Uses the brand accent for the buy action. Most eye-catching; competes with the orange
+            used elsewhere.
+          </div>
+        </div>
+      </div>
+      <div
+        data-pencil-name="Option Row — Outline"
+        class="box-border w-full h-fit shrink-0 flex flex-row gap-[28px] justify-start items-start"
+      >
+        <div
+          data-pencil-name="Option G · Solid button → outline stepper"
+          class="box-border [flex:1_1_0] h-fit flex flex-col gap-[10px] justify-start items-start"
+        >
+          <div
+            data-pencil-name="Option Title"
+            class="text-[14px]/[normal] box-border text-[#047857] font-[Inter,system-ui,sans-serif] font-bold text-left [white-space:nowrap]"
+          >
+            G · Solid button → outline stepper ✓ Selected
+          </div>
+          <div
+            data-pencil-name="Card Pair"
+            class="box-border w-full h-fit shrink-0 flex flex-row gap-[12px] justify-start items-start"
+          >
+            <div
+              data-pencil-name="Card Default"
+              class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start"
+            >
+              <div
+                data-pencil-name="Product Image"
+                class="box-border w-full h-[170px] shrink-0 bg-[url('https://images.unsplash.com/photo-1661148800433-7e0004fa3b08?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzZ8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px]"
+              ></div>
+              <div
+                data-pencil-name="Product Info"
+                class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start"
+              >
+                <div
+                  data-pencil-name="Product Category"
+                  class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                >
+                  BAGS
+                </div>
+                <div
+                  data-pencil-name="Product Name"
+                  class="text-[14.5px]/[20px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                >
+                  Field Tote 18L
+                </div>
+              </div>
+              <div
+                data-pencil-name="Product Row"
+                class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center"
+              >
+                <div
+                  data-pencil-name="Product Price"
+                  class="text-[16px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                >
+                  $128.00
+                </div>
+                <div
+                  data-pencil-name="Add Button"
+                  class="box-border w-fit shrink-0 h-[40px] flex flex-row gap-[7px] p-[0px_16px] justify-start items-center bg-[#2D3748] rounded-[8px]"
+                >
+                  <svg
+                    data-pencil-name="Add Icon"
+                    data-icon-name="plus"
+                    data-icon-set="lucide"
+                    viewBox="0 0 13.99993896484375 14"
+                    preserveAspectRatio="xMidYMid meet"
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="box-border w-[16px] shrink-0 h-[16px]"
+                  >
+                    <path
+                      d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                      fill="#FFFFFF"
+                    ></path>
+                  </svg>
+                  <div
+                    data-pencil-name="Add Label"
+                    class="text-[14px]/[normal] box-border text-[#FFFFFF] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                  >
+                    Add
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div
+              data-pencil-name="Card In Cart"
+              class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start relative"
+            >
+              <div
+                data-pencil-name="Product Image"
+                class="box-border w-full h-[170px] shrink-0 bg-[url('https://images.unsplash.com/photo-1661148800433-7e0004fa3b08?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzZ8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px] relative [z-index:0]"
+              ></div>
+              <div
+                data-pencil-name="Product Info"
+                class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start relative [z-index:1]"
+              >
+                <div
+                  data-pencil-name="Product Category"
+                  class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                >
+                  BAGS
+                </div>
+                <div
+                  data-pencil-name="Product Name"
+                  class="text-[14.5px]/[20px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                >
+                  Field Tote 18L
+                </div>
+              </div>
+              <div
+                data-pencil-name="Product Row"
+                class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center relative [z-index:2]"
+              >
+                <div
+                  data-pencil-name="Product Price"
+                  class="text-[16px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                >
+                  $128.00
+                </div>
+                <div
+                  data-pencil-name="Qty Stepper"
+                  class="box-border w-fit shrink-0 h-[40px] flex flex-row gap-0 justify-start items-center bg-[#FFFFFF] [outline:1px_solid_#D1D5DB] [outline-offset:-0.5px] rounded-[8px]"
+                >
+                  <div
+                    data-pencil-name="Qty Decrease"
+                    class="box-border w-[34px] shrink-0 h-full flex flex-row gap-0 justify-center items-center"
+                  >
+                    <svg
+                      data-pencil-name="Icon"
+                      data-icon-name="trash-2"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M5.65674 0.60156q-0.44775 0.04102-0.84766 0.32129-0.3999 0.28027-0.58105 0.70069-0.08545 0.21191-0.1128 0.37939-0.02734 0.16748-0.02734 0.50244l-0.01367 0.42041-2.4917 0-0.08545 0.05469q-0.18115 0.09912-0.28027 0.2666-0.04102 0.08545-0.04102 0.25293 0 0.16748 0.04102 0.24609 0.04443 0.0752 0.12646 0.16065 0.08545 0.08203 0.14697 0.11963 0.06494 0.03418 0.13331 0.04101 0.07178 0.00684 0.33496 0.00684l0.36572 0 0.01367 7.84082 0.04102 0.16748q0.07178 0.25293 0.18115 0.44092 0.11279 0.18799 0.29394 0.37256 0.18457 0.18115 0.37256 0.29394 0.18799 0.10938 0.44092 0.18115l0.16748 0.04102 6.33008 0 0.16748-0.04102q0.25293-0.07178 0.44092-0.18115 0.18799-0.11279 0.36914-0.29394 0.18457-0.18457 0.29394-0.37256 0.11279-0.18799 0.18457-0.44092l0.04102-0.16748 0.01367-7.84082 0.36572 0q0.26318 0 0.33155-0.00684 0.07178-0.00684 0.1333-0.04101 0.06494-0.0376 0.14697-0.11963 0.08545-0.08545 0.12647-0.16065 0.04443-0.07861 0.04443-0.24609 0-0.16748-0.04102-0.25293-0.09912-0.16748-0.28027-0.2666l-0.08545-0.05469-2.4917 0-0.01367-0.42041q0-0.28027-0.00684-0.37598-0.00684-0.09912-0.03418-0.21191-0.15381-0.56055-0.57422-0.91602-0.42041-0.35889-0.99462-0.41357-0.16748-0.01367-1.31592-0.00684-1.14844 0.00684-1.32959 0.02051z m2.74463 1.20313q0.19482 0.09912 0.29394 0.29394 0.02734 0.07178 0.03418 0.13672 0.00684 0.06152 0.02051 0.32813l0 0.3623-3.5 0 0-0.3623q0.01367-0.2666 0.02051-0.32813 0.00684-0.06494 0.03418-0.13672 0.08545-0.18115 0.22558-0.24951l0-0.01367q0.08203-0.04443 0.16748-0.05811 0.08545-0.01367 0.36573-0.02734l2.23877 0.01367 0.09912 0.04102z m2.09863 6.13183l-0.01367 3.86573-0.02735 0.08545q-0.12646 0.26318-0.37939 0.33496-0.08203 0.02734-3.07959 0.02734-2.99756 0-3.07959-0.02734-0.25293-0.07178-0.37939-0.33496l-0.02735-0.08545-0.01367-7.72803 7 0 0 3.8623z m-4.7749-2.08496q-0.12646 0.01367-0.2461 0.10596-0.11621 0.08887-0.17431 0.21533l-0.04102 0.09912-0.01367 3.33252q0.01367 0.3623 0.02734 0.4751 0.01367 0.08545 0.07178 0.15381l0.01367 0.02734q0.15381 0.21191 0.417 0.23242 0.2666 0.02051 0.46484-0.17431 0.12646-0.12646 0.15381-0.29395 0.02734-0.11279 0.02734-1.86279 0-1.75-0.02734-1.84912-0.04102-0.23584-0.23242-0.36914-0.18799-0.1333-0.44092-0.09229z m2.35156 0q-0.18115 0.01367-0.31445 0.14698-0.1333 0.1333-0.16065 0.31445-0.02734 0.09912-0.02734 1.86279 0 1.76367 0.02734 1.86279 0.02734 0.16748 0.15381 0.28028 0.19824 0.19482 0.46143 0.17431 0.2666-0.02051 0.42041-0.24609l0.01367-0.01367q0.05811-0.08203 0.07178-0.15381 0.01367-0.12646 0.02734-0.4751l0-3.2915-0.04102-0.0957q-0.08545-0.21191-0.25293-0.30762-0.16748-0.09912-0.37939-0.05811z"
+                        fill="#6B7280"
+                      ></path>
+                    </svg>
+                  </div>
+                  <div
+                    data-pencil-name="Qty Value"
+                    class="box-border w-[30px] shrink-0 h-full flex flex-row gap-0 justify-center items-center"
+                  >
+                    <div
+                      data-pencil-name="Label"
+                      class="text-[14px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                    >
+                      1
+                    </div>
+                  </div>
+                  <div
+                    data-pencil-name="Qty Increase"
+                    class="box-border w-[34px] shrink-0 h-full flex flex-row gap-0 justify-center items-center"
+                  >
+                    <svg
+                      data-pencil-name="Icon"
+                      data-icon-name="plus"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                        fill="#1A1A2E"
+                      ></path>
+                    </svg>
+                  </div>
+                </div>
+              </div>
+              <div
+                data-pencil-name="In Cart Badge"
+                class="box-border w-fit h-fit [box-shadow:0px_1px_4px_#1A1A2E1F] absolute left-[12px] top-[12px] flex flex-row gap-[5px] p-[5px_10px_5px_8px] justify-start items-center bg-[#FFFFFF] rounded-[999px] [z-index:3]"
+              >
+                <svg
+                  data-pencil-name="In Cart Icon"
+                  data-icon-name="check"
+                  data-icon-set="lucide"
+                  viewBox="0 0 13.99993896484375 14"
+                  preserveAspectRatio="xMidYMid meet"
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="box-border w-[13px] shrink-0 h-[13px]"
+                >
+                  <path
+                    d="M11.48096 2.95313q-0.07178 0.01367-0.12989 0.0581-0.05469 0.04102-3.07617 3.06592l-3.0249 3.00781-1.28857-1.28857q-1.28857-1.28516-1.38086-1.32618-0.08887-0.04443-0.22217-0.04443-0.1333 0-0.23242 0.0376-0.0957 0.03418-0.18799 0.11279-0.08887 0.0752-0.1333 0.1709-0.02734 0.07178-0.03418 0.11279-0.00684 0.04102-0.00684 0.14014l0 0.04102q-0.01367 0.11279 0.04102 0.19824 0.07178 0.10938 0.36572 0.40332 0.19482 0.21191 0.96729 0.98096l1.49707 1.48339q0.28027 0.2666 0.38964 0.33838 0.07178 0.05469 0.18457 0.04102l0.09571 0.01367q0.07178 0 0.14013-0.02734 0.08545-0.07178 0.32129-0.28711 0.23926-0.21875 0.79981-0.76221l2.2832-2.2832q2.08496-2.09863 2.7002-2.71387 0.61524-0.61865 0.64599-0.68701 0.04102-0.08545 0.04102-0.23926 0-0.09912-0.00684-0.14014-0.00684-0.04102-0.03418-0.11279-0.04443-0.08203-0.13672-0.16406-0.08887-0.08545-0.18115-0.11963-0.08887-0.0376-0.20849-0.0376-0.11963 0-0.18799 0.02734z"
+                    fill="#10B981"
+                  ></path>
+                </svg>
+                <div
+                  data-pencil-name="In Cart Label"
+                  class="text-[11.5px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                >
+                  In cart
+                </div>
+              </div>
+            </div>
+          </div>
+          <div
+            data-pencil-name="Option Note"
+            class="text-[12px]/[17px] box-border w-full text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left"
+          >
+            Inverse morph: the filled Add calms down once done. Stepper matches the one in the cart
+            drawer, so it is the same control everywhere.
+          </div>
+        </div>
+        <div
+          data-pencil-name="Option H · Outline button → navy outline stepper"
+          class="box-border [flex:1_1_0] h-fit flex flex-col gap-[10px] justify-start items-start"
+        >
+          <div
+            data-pencil-name="Option Title"
+            class="text-[14px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold text-left [white-space:nowrap]"
+          >
+            H · Outline button → navy outline stepper
+          </div>
+          <div
+            data-pencil-name="Card Pair"
+            class="box-border w-full h-fit shrink-0 flex flex-row gap-[12px] justify-start items-start"
+          >
+            <div
+              data-pencil-name="Card Default"
+              class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start"
+            >
+              <div
+                data-pencil-name="Product Image"
+                class="box-border w-full h-[170px] shrink-0 bg-[url('https://images.unsplash.com/photo-1661148800433-7e0004fa3b08?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzZ8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px]"
+              ></div>
+              <div
+                data-pencil-name="Product Info"
+                class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start"
+              >
+                <div
+                  data-pencil-name="Product Category"
+                  class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                >
+                  BAGS
+                </div>
+                <div
+                  data-pencil-name="Product Name"
+                  class="text-[14.5px]/[20px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                >
+                  Field Tote 18L
+                </div>
+              </div>
+              <div
+                data-pencil-name="Product Row"
+                class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center"
+              >
+                <div
+                  data-pencil-name="Product Price"
+                  class="text-[16px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                >
+                  $128.00
+                </div>
+                <div
+                  data-pencil-name="Add Button"
+                  class="box-border w-fit shrink-0 h-[40px] flex flex-row gap-[7px] p-[0px_16px] justify-start items-center bg-[#FFFFFF] [outline:1px_solid_#D1D5DB] [outline-offset:-0.5px] rounded-[8px]"
+                >
+                  <svg
+                    data-pencil-name="Icon"
+                    data-icon-name="plus"
+                    data-icon-set="lucide"
+                    viewBox="0 0 13.99993896484375 14"
+                    preserveAspectRatio="xMidYMid meet"
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="box-border w-[16px] shrink-0 h-[16px]"
+                  >
+                    <path
+                      d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                      fill="#1A1A2E"
+                    ></path>
+                  </svg>
+                  <div
+                    data-pencil-name="Label"
+                    class="text-[14px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                  >
+                    Add
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div
+              data-pencil-name="Card In Cart"
+              class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start relative"
+            >
+              <div
+                data-pencil-name="Product Image"
+                class="box-border w-full h-[170px] shrink-0 bg-[url('https://images.unsplash.com/photo-1661148800433-7e0004fa3b08?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzZ8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px] relative [z-index:0]"
+              ></div>
+              <div
+                data-pencil-name="Product Info"
+                class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start relative [z-index:1]"
+              >
+                <div
+                  data-pencil-name="Product Category"
+                  class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                >
+                  BAGS
+                </div>
+                <div
+                  data-pencil-name="Product Name"
+                  class="text-[14.5px]/[20px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                >
+                  Field Tote 18L
+                </div>
+              </div>
+              <div
+                data-pencil-name="Product Row"
+                class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center relative [z-index:2]"
+              >
+                <div
+                  data-pencil-name="Product Price"
+                  class="text-[16px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                >
+                  $128.00
+                </div>
+                <div
+                  data-pencil-name="Qty Stepper"
+                  class="box-border w-fit shrink-0 h-[40px] flex flex-row gap-0 justify-start items-center bg-[#FFFFFF] [outline:1.5px_solid_#2D3748] [outline-offset:-0.75px] rounded-[8px]"
+                >
+                  <div
+                    data-pencil-name="Qty Decrease"
+                    class="box-border w-[34px] shrink-0 h-full flex flex-row gap-0 justify-center items-center"
+                  >
+                    <svg
+                      data-pencil-name="Icon"
+                      data-icon-name="trash-2"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M5.65674 0.60156q-0.44775 0.04102-0.84766 0.32129-0.3999 0.28027-0.58105 0.70069-0.08545 0.21191-0.1128 0.37939-0.02734 0.16748-0.02734 0.50244l-0.01367 0.42041-2.4917 0-0.08545 0.05469q-0.18115 0.09912-0.28027 0.2666-0.04102 0.08545-0.04102 0.25293 0 0.16748 0.04102 0.24609 0.04443 0.0752 0.12646 0.16065 0.08545 0.08203 0.14697 0.11963 0.06494 0.03418 0.13331 0.04101 0.07178 0.00684 0.33496 0.00684l0.36572 0 0.01367 7.84082 0.04102 0.16748q0.07178 0.25293 0.18115 0.44092 0.11279 0.18799 0.29394 0.37256 0.18457 0.18115 0.37256 0.29394 0.18799 0.10938 0.44092 0.18115l0.16748 0.04102 6.33008 0 0.16748-0.04102q0.25293-0.07178 0.44092-0.18115 0.18799-0.11279 0.36914-0.29394 0.18457-0.18457 0.29394-0.37256 0.11279-0.18799 0.18457-0.44092l0.04102-0.16748 0.01367-7.84082 0.36572 0q0.26318 0 0.33155-0.00684 0.07178-0.00684 0.1333-0.04101 0.06494-0.0376 0.14697-0.11963 0.08545-0.08545 0.12647-0.16065 0.04443-0.07861 0.04443-0.24609 0-0.16748-0.04102-0.25293-0.09912-0.16748-0.28027-0.2666l-0.08545-0.05469-2.4917 0-0.01367-0.42041q0-0.28027-0.00684-0.37598-0.00684-0.09912-0.03418-0.21191-0.15381-0.56055-0.57422-0.91602-0.42041-0.35889-0.99462-0.41357-0.16748-0.01367-1.31592-0.00684-1.14844 0.00684-1.32959 0.02051z m2.74463 1.20313q0.19482 0.09912 0.29394 0.29394 0.02734 0.07178 0.03418 0.13672 0.00684 0.06152 0.02051 0.32813l0 0.3623-3.5 0 0-0.3623q0.01367-0.2666 0.02051-0.32813 0.00684-0.06494 0.03418-0.13672 0.08545-0.18115 0.22558-0.24951l0-0.01367q0.08203-0.04443 0.16748-0.05811 0.08545-0.01367 0.36573-0.02734l2.23877 0.01367 0.09912 0.04102z m2.09863 6.13183l-0.01367 3.86573-0.02735 0.08545q-0.12646 0.26318-0.37939 0.33496-0.08203 0.02734-3.07959 0.02734-2.99756 0-3.07959-0.02734-0.25293-0.07178-0.37939-0.33496l-0.02735-0.08545-0.01367-7.72803 7 0 0 3.8623z m-4.7749-2.08496q-0.12646 0.01367-0.2461 0.10596-0.11621 0.08887-0.17431 0.21533l-0.04102 0.09912-0.01367 3.33252q0.01367 0.3623 0.02734 0.4751 0.01367 0.08545 0.07178 0.15381l0.01367 0.02734q0.15381 0.21191 0.417 0.23242 0.2666 0.02051 0.46484-0.17431 0.12646-0.12646 0.15381-0.29395 0.02734-0.11279 0.02734-1.86279 0-1.75-0.02734-1.84912-0.04102-0.23584-0.23242-0.36914-0.18799-0.1333-0.44092-0.09229z m2.35156 0q-0.18115 0.01367-0.31445 0.14698-0.1333 0.1333-0.16065 0.31445-0.02734 0.09912-0.02734 1.86279 0 1.76367 0.02734 1.86279 0.02734 0.16748 0.15381 0.28028 0.19824 0.19482 0.46143 0.17431 0.2666-0.02051 0.42041-0.24609l0.01367-0.01367q0.05811-0.08203 0.07178-0.15381 0.01367-0.12646 0.02734-0.4751l0-3.2915-0.04102-0.0957q-0.08545-0.21191-0.25293-0.30762-0.16748-0.09912-0.37939-0.05811z"
+                        fill="#2D3748"
+                      ></path>
+                    </svg>
+                  </div>
+                  <div
+                    data-pencil-name="Qty Value"
+                    class="box-border w-[30px] shrink-0 h-full flex flex-row gap-0 justify-center items-center"
+                  >
+                    <div
+                      data-pencil-name="Label"
+                      class="text-[14px]/[normal] box-border text-[#2D3748] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                    >
+                      1
+                    </div>
+                  </div>
+                  <div
+                    data-pencil-name="Qty Increase"
+                    class="box-border w-[34px] shrink-0 h-full flex flex-row gap-0 justify-center items-center"
+                  >
+                    <svg
+                      data-pencil-name="Icon"
+                      data-icon-name="plus"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                        fill="#2D3748"
+                      ></path>
+                    </svg>
+                  </div>
+                </div>
+              </div>
+              <div
+                data-pencil-name="In Cart Badge"
+                class="box-border w-fit h-fit [box-shadow:0px_1px_4px_#1A1A2E1F] absolute left-[12px] top-[12px] flex flex-row gap-[5px] p-[5px_10px_5px_8px] justify-start items-center bg-[#FFFFFF] rounded-[999px] [z-index:3]"
+              >
+                <svg
+                  data-pencil-name="In Cart Icon"
+                  data-icon-name="check"
+                  data-icon-set="lucide"
+                  viewBox="0 0 13.99993896484375 14"
+                  preserveAspectRatio="xMidYMid meet"
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="box-border w-[13px] shrink-0 h-[13px]"
+                >
+                  <path
+                    d="M11.48096 2.95313q-0.07178 0.01367-0.12989 0.0581-0.05469 0.04102-3.07617 3.06592l-3.0249 3.00781-1.28857-1.28857q-1.28857-1.28516-1.38086-1.32618-0.08887-0.04443-0.22217-0.04443-0.1333 0-0.23242 0.0376-0.0957 0.03418-0.18799 0.11279-0.08887 0.0752-0.1333 0.1709-0.02734 0.07178-0.03418 0.11279-0.00684 0.04102-0.00684 0.14014l0 0.04102q-0.01367 0.11279 0.04102 0.19824 0.07178 0.10938 0.36572 0.40332 0.19482 0.21191 0.96729 0.98096l1.49707 1.48339q0.28027 0.2666 0.38964 0.33838 0.07178 0.05469 0.18457 0.04102l0.09571 0.01367q0.07178 0 0.14013-0.02734 0.08545-0.07178 0.32129-0.28711 0.23926-0.21875 0.79981-0.76221l2.2832-2.2832q2.08496-2.09863 2.7002-2.71387 0.61524-0.61865 0.64599-0.68701 0.04102-0.08545 0.04102-0.23926 0-0.09912-0.00684-0.14014-0.00684-0.04102-0.03418-0.11279-0.04443-0.08203-0.13672-0.16406-0.08887-0.08545-0.18115-0.11963-0.08887-0.0376-0.20849-0.0376-0.11963 0-0.18799 0.02734z"
+                    fill="#10B981"
+                  ></path>
+                </svg>
+                <div
+                  data-pencil-name="In Cart Label"
+                  class="text-[11.5px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                >
+                  In cart
+                </div>
+              </div>
+            </div>
+          </div>
+          <div
+            data-pencil-name="Option Note"
+            class="text-[12px]/[17px] box-border w-full text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left"
+          >
+            All-outline grid; the in-cart state is marked by a navy 1.5px border and navy keys.
+            Light, but still distinct from Add.
+          </div>
+        </div>
+        <div
+          data-pencil-name="Option I · Outline button → segmented outline stepper"
+          class="box-border [flex:1_1_0] h-fit flex flex-col gap-[10px] justify-start items-start"
+        >
+          <div
+            data-pencil-name="Option Title"
+            class="text-[14px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold text-left [white-space:nowrap]"
+          >
+            I · Outline button → segmented outline stepper
+          </div>
+          <div
+            data-pencil-name="Card Pair"
+            class="box-border w-full h-fit shrink-0 flex flex-row gap-[12px] justify-start items-start"
+          >
+            <div
+              data-pencil-name="Card Default"
+              class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start"
+            >
+              <div
+                data-pencil-name="Product Image"
+                class="box-border w-full h-[170px] shrink-0 bg-[url('https://images.unsplash.com/photo-1661148800433-7e0004fa3b08?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzZ8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px]"
+              ></div>
+              <div
+                data-pencil-name="Product Info"
+                class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start"
+              >
+                <div
+                  data-pencil-name="Product Category"
+                  class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                >
+                  BAGS
+                </div>
+                <div
+                  data-pencil-name="Product Name"
+                  class="text-[14.5px]/[20px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                >
+                  Field Tote 18L
+                </div>
+              </div>
+              <div
+                data-pencil-name="Product Row"
+                class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center"
+              >
+                <div
+                  data-pencil-name="Product Price"
+                  class="text-[16px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                >
+                  $128.00
+                </div>
+                <div
+                  data-pencil-name="Add Button"
+                  class="box-border w-fit shrink-0 h-[40px] flex flex-row gap-[7px] p-[0px_16px] justify-start items-center bg-[#FFFFFF] [outline:1px_solid_#D1D5DB] [outline-offset:-0.5px] rounded-[8px]"
+                >
+                  <svg
+                    data-pencil-name="Icon"
+                    data-icon-name="plus"
+                    data-icon-set="lucide"
+                    viewBox="0 0 13.99993896484375 14"
+                    preserveAspectRatio="xMidYMid meet"
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="box-border w-[16px] shrink-0 h-[16px]"
+                  >
+                    <path
+                      d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                      fill="#1A1A2E"
+                    ></path>
+                  </svg>
+                  <div
+                    data-pencil-name="Label"
+                    class="text-[14px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                  >
+                    Add
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div
+              data-pencil-name="Card In Cart"
+              class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start relative"
+            >
+              <div
+                data-pencil-name="Product Image"
+                class="box-border w-full h-[170px] shrink-0 bg-[url('https://images.unsplash.com/photo-1661148800433-7e0004fa3b08?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzZ8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px] relative [z-index:0]"
+              ></div>
+              <div
+                data-pencil-name="Product Info"
+                class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start relative [z-index:1]"
+              >
+                <div
+                  data-pencil-name="Product Category"
+                  class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                >
+                  BAGS
+                </div>
+                <div
+                  data-pencil-name="Product Name"
+                  class="text-[14.5px]/[20px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                >
+                  Field Tote 18L
+                </div>
+              </div>
+              <div
+                data-pencil-name="Product Row"
+                class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center relative [z-index:2]"
+              >
+                <div
+                  data-pencil-name="Product Price"
+                  class="text-[16px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                >
+                  $128.00
+                </div>
+                <div
+                  data-pencil-name="Qty Stepper"
+                  class="box-border w-fit shrink-0 h-[40px] flex flex-row gap-0 justify-start items-center bg-[#FFFFFF] [outline:1px_solid_#D1D5DB] [outline-offset:-0.5px] rounded-[8px] overflow-hidden"
+                >
+                  <div
+                    data-pencil-name="Qty Decrease"
+                    class="box-border w-[36px] shrink-0 h-full flex flex-row gap-0 justify-center items-center"
+                  >
+                    <svg
+                      data-pencil-name="Icon"
+                      data-icon-name="trash-2"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M5.65674 0.60156q-0.44775 0.04102-0.84766 0.32129-0.3999 0.28027-0.58105 0.70069-0.08545 0.21191-0.1128 0.37939-0.02734 0.16748-0.02734 0.50244l-0.01367 0.42041-2.4917 0-0.08545 0.05469q-0.18115 0.09912-0.28027 0.2666-0.04102 0.08545-0.04102 0.25293 0 0.16748 0.04102 0.24609 0.04443 0.0752 0.12646 0.16065 0.08545 0.08203 0.14697 0.11963 0.06494 0.03418 0.13331 0.04101 0.07178 0.00684 0.33496 0.00684l0.36572 0 0.01367 7.84082 0.04102 0.16748q0.07178 0.25293 0.18115 0.44092 0.11279 0.18799 0.29394 0.37256 0.18457 0.18115 0.37256 0.29394 0.18799 0.10938 0.44092 0.18115l0.16748 0.04102 6.33008 0 0.16748-0.04102q0.25293-0.07178 0.44092-0.18115 0.18799-0.11279 0.36914-0.29394 0.18457-0.18457 0.29394-0.37256 0.11279-0.18799 0.18457-0.44092l0.04102-0.16748 0.01367-7.84082 0.36572 0q0.26318 0 0.33155-0.00684 0.07178-0.00684 0.1333-0.04101 0.06494-0.0376 0.14697-0.11963 0.08545-0.08545 0.12647-0.16065 0.04443-0.07861 0.04443-0.24609 0-0.16748-0.04102-0.25293-0.09912-0.16748-0.28027-0.2666l-0.08545-0.05469-2.4917 0-0.01367-0.42041q0-0.28027-0.00684-0.37598-0.00684-0.09912-0.03418-0.21191-0.15381-0.56055-0.57422-0.91602-0.42041-0.35889-0.99462-0.41357-0.16748-0.01367-1.31592-0.00684-1.14844 0.00684-1.32959 0.02051z m2.74463 1.20313q0.19482 0.09912 0.29394 0.29394 0.02734 0.07178 0.03418 0.13672 0.00684 0.06152 0.02051 0.32813l0 0.3623-3.5 0 0-0.3623q0.01367-0.2666 0.02051-0.32813 0.00684-0.06494 0.03418-0.13672 0.08545-0.18115 0.22558-0.24951l0-0.01367q0.08203-0.04443 0.16748-0.05811 0.08545-0.01367 0.36573-0.02734l2.23877 0.01367 0.09912 0.04102z m2.09863 6.13183l-0.01367 3.86573-0.02735 0.08545q-0.12646 0.26318-0.37939 0.33496-0.08203 0.02734-3.07959 0.02734-2.99756 0-3.07959-0.02734-0.25293-0.07178-0.37939-0.33496l-0.02735-0.08545-0.01367-7.72803 7 0 0 3.8623z m-4.7749-2.08496q-0.12646 0.01367-0.2461 0.10596-0.11621 0.08887-0.17431 0.21533l-0.04102 0.09912-0.01367 3.33252q0.01367 0.3623 0.02734 0.4751 0.01367 0.08545 0.07178 0.15381l0.01367 0.02734q0.15381 0.21191 0.417 0.23242 0.2666 0.02051 0.46484-0.17431 0.12646-0.12646 0.15381-0.29395 0.02734-0.11279 0.02734-1.86279 0-1.75-0.02734-1.84912-0.04102-0.23584-0.23242-0.36914-0.18799-0.1333-0.44092-0.09229z m2.35156 0q-0.18115 0.01367-0.31445 0.14698-0.1333 0.1333-0.16065 0.31445-0.02734 0.09912-0.02734 1.86279 0 1.76367 0.02734 1.86279 0.02734 0.16748 0.15381 0.28028 0.19824 0.19482 0.46143 0.17431 0.2666-0.02051 0.42041-0.24609l0.01367-0.01367q0.05811-0.08203 0.07178-0.15381 0.01367-0.12646 0.02734-0.4751l0-3.2915-0.04102-0.0957q-0.08545-0.21191-0.25293-0.30762-0.16748-0.09912-0.37939-0.05811z"
+                        fill="#6B7280"
+                      ></path>
+                    </svg>
+                  </div>
+                  <div
+                    data-pencil-name="Qty Value"
+                    class="[box-sizing:content-box] w-[35px] shrink-0 h-[40px] flex flex-row gap-0 justify-center items-center [border-width:0px_1px_0px_1px] [border-style:solid] [border-color:#D1D5DB] [margin:0px_-0.5px_0px_-0.5px]"
+                  >
+                    <div
+                      data-pencil-name="Label"
+                      class="text-[14px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                    >
+                      1
+                    </div>
+                  </div>
+                  <div
+                    data-pencil-name="Qty Increase"
+                    class="box-border w-[36px] shrink-0 h-full flex flex-row gap-0 justify-center items-center"
+                  >
+                    <svg
+                      data-pencil-name="Icon"
+                      data-icon-name="plus"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                        fill="#1A1A2E"
+                      ></path>
+                    </svg>
+                  </div>
+                </div>
+              </div>
+              <div
+                data-pencil-name="In Cart Badge"
+                class="box-border w-fit h-fit [box-shadow:0px_1px_4px_#1A1A2E1F] absolute left-[12px] top-[12px] flex flex-row gap-[5px] p-[5px_10px_5px_8px] justify-start items-center bg-[#FFFFFF] rounded-[999px] [z-index:3]"
+              >
+                <svg
+                  data-pencil-name="In Cart Icon"
+                  data-icon-name="check"
+                  data-icon-set="lucide"
+                  viewBox="0 0 13.99993896484375 14"
+                  preserveAspectRatio="xMidYMid meet"
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="box-border w-[13px] shrink-0 h-[13px]"
+                >
+                  <path
+                    d="M11.48096 2.95313q-0.07178 0.01367-0.12989 0.0581-0.05469 0.04102-3.07617 3.06592l-3.0249 3.00781-1.28857-1.28857q-1.28857-1.28516-1.38086-1.32618-0.08887-0.04443-0.22217-0.04443-0.1333 0-0.23242 0.0376-0.0957 0.03418-0.18799 0.11279-0.08887 0.0752-0.1333 0.1709-0.02734 0.07178-0.03418 0.11279-0.00684 0.04102-0.00684 0.14014l0 0.04102q-0.01367 0.11279 0.04102 0.19824 0.07178 0.10938 0.36572 0.40332 0.19482 0.21191 0.96729 0.98096l1.49707 1.48339q0.28027 0.2666 0.38964 0.33838 0.07178 0.05469 0.18457 0.04102l0.09571 0.01367q0.07178 0 0.14013-0.02734 0.08545-0.07178 0.32129-0.28711 0.23926-0.21875 0.79981-0.76221l2.2832-2.2832q2.08496-2.09863 2.7002-2.71387 0.61524-0.61865 0.64599-0.68701 0.04102-0.08545 0.04102-0.23926 0-0.09912-0.00684-0.14014-0.00684-0.04102-0.03418-0.11279-0.04443-0.08203-0.13672-0.16406-0.08887-0.08545-0.18115-0.11963-0.08887-0.0376-0.20849-0.0376-0.11963 0-0.18799 0.02734z"
+                    fill="#10B981"
+                  ></path>
+                </svg>
+                <div
+                  data-pencil-name="In Cart Label"
+                  class="text-[11.5px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                >
+                  In cart
+                </div>
+              </div>
+            </div>
+          </div>
+          <div
+            data-pencil-name="Option Note"
+            class="text-[12px]/[17px] box-border w-full text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left"
+          >
+            Dividers turn each key into its own cell, like a segmented control. Clearest tap targets
+            of the outline set.
+          </div>
+        </div>
+      </div>
+      <div
+        data-pencil-name="Option Row — Combos"
+        class="box-border w-full h-fit shrink-0 flex flex-row gap-[28px] justify-start items-start"
+      >
+        <div
+          data-pencil-name="Option J · Solid button → outline stepper + corner tab"
+          class="box-border w-[419px] shrink-0 h-fit flex flex-col gap-[10px] justify-start items-start"
+        >
+          <div
+            data-pencil-name="Option Title"
+            class="text-[14px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold text-left [white-space:nowrap]"
+          >
+            J · Solid button → outline stepper + corner tab
+          </div>
+          <div
+            data-pencil-name="Card Pair"
+            class="box-border w-full h-fit shrink-0 flex flex-row gap-[12px] justify-start items-start"
+          >
+            <div
+              data-pencil-name="Card Default"
+              class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start"
+            >
+              <div
+                data-pencil-name="Product Image"
+                class="box-border w-full h-[170px] shrink-0 bg-[url('https://images.unsplash.com/photo-1661148800433-7e0004fa3b08?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzZ8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px]"
+              ></div>
+              <div
+                data-pencil-name="Product Info"
+                class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start"
+              >
+                <div
+                  data-pencil-name="Product Category"
+                  class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                >
+                  BAGS
+                </div>
+                <div
+                  data-pencil-name="Product Name"
+                  class="text-[14.5px]/[20px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                >
+                  Field Tote 18L
+                </div>
+              </div>
+              <div
+                data-pencil-name="Product Row"
+                class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center"
+              >
+                <div
+                  data-pencil-name="Product Price"
+                  class="text-[16px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                >
+                  $128.00
+                </div>
+                <div
+                  data-pencil-name="Add Button"
+                  class="box-border w-fit shrink-0 h-[40px] flex flex-row gap-[7px] p-[0px_16px] justify-start items-center bg-[#2D3748] rounded-[8px]"
+                >
+                  <svg
+                    data-pencil-name="Add Icon"
+                    data-icon-name="plus"
+                    data-icon-set="lucide"
+                    viewBox="0 0 13.99993896484375 14"
+                    preserveAspectRatio="xMidYMid meet"
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="box-border w-[16px] shrink-0 h-[16px]"
+                  >
+                    <path
+                      d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                      fill="#FFFFFF"
+                    ></path>
+                  </svg>
+                  <div
+                    data-pencil-name="Add Label"
+                    class="text-[14px]/[normal] box-border text-[#FFFFFF] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                  >
+                    Add
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div
+              data-pencil-name="Card In Cart"
+              class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start relative"
+            >
+              <div
+                data-pencil-name="Product Image"
+                class="box-border w-full h-[170px] shrink-0 bg-[url('https://images.unsplash.com/photo-1661148800433-7e0004fa3b08?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzZ8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px] relative [z-index:0]"
+              ></div>
+              <div
+                data-pencil-name="Product Info"
+                class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start relative [z-index:1]"
+              >
+                <div
+                  data-pencil-name="Product Category"
+                  class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                >
+                  BAGS
+                </div>
+                <div
+                  data-pencil-name="Product Name"
+                  class="text-[14.5px]/[20px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                >
+                  Field Tote 18L
+                </div>
+              </div>
+              <div
+                data-pencil-name="Product Row"
+                class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center relative [z-index:2]"
+              >
+                <div
+                  data-pencil-name="Product Price"
+                  class="text-[16px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                >
+                  $128.00
+                </div>
+                <div
+                  data-pencil-name="Qty Stepper"
+                  class="box-border w-fit shrink-0 h-[40px] flex flex-row gap-0 justify-start items-center bg-[#FFFFFF] [outline:1px_solid_#D1D5DB] [outline-offset:-0.5px] rounded-[8px]"
+                >
+                  <div
+                    data-pencil-name="Qty Decrease"
+                    class="box-border w-[34px] shrink-0 h-full flex flex-row gap-0 justify-center items-center"
+                  >
+                    <svg
+                      data-pencil-name="Icon"
+                      data-icon-name="trash-2"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M5.65674 0.60156q-0.44775 0.04102-0.84766 0.32129-0.3999 0.28027-0.58105 0.70069-0.08545 0.21191-0.1128 0.37939-0.02734 0.16748-0.02734 0.50244l-0.01367 0.42041-2.4917 0-0.08545 0.05469q-0.18115 0.09912-0.28027 0.2666-0.04102 0.08545-0.04102 0.25293 0 0.16748 0.04102 0.24609 0.04443 0.0752 0.12646 0.16065 0.08545 0.08203 0.14697 0.11963 0.06494 0.03418 0.13331 0.04101 0.07178 0.00684 0.33496 0.00684l0.36572 0 0.01367 7.84082 0.04102 0.16748q0.07178 0.25293 0.18115 0.44092 0.11279 0.18799 0.29394 0.37256 0.18457 0.18115 0.37256 0.29394 0.18799 0.10938 0.44092 0.18115l0.16748 0.04102 6.33008 0 0.16748-0.04102q0.25293-0.07178 0.44092-0.18115 0.18799-0.11279 0.36914-0.29394 0.18457-0.18457 0.29394-0.37256 0.11279-0.18799 0.18457-0.44092l0.04102-0.16748 0.01367-7.84082 0.36572 0q0.26318 0 0.33155-0.00684 0.07178-0.00684 0.1333-0.04101 0.06494-0.0376 0.14697-0.11963 0.08545-0.08545 0.12647-0.16065 0.04443-0.07861 0.04443-0.24609 0-0.16748-0.04102-0.25293-0.09912-0.16748-0.28027-0.2666l-0.08545-0.05469-2.4917 0-0.01367-0.42041q0-0.28027-0.00684-0.37598-0.00684-0.09912-0.03418-0.21191-0.15381-0.56055-0.57422-0.91602-0.42041-0.35889-0.99462-0.41357-0.16748-0.01367-1.31592-0.00684-1.14844 0.00684-1.32959 0.02051z m2.74463 1.20313q0.19482 0.09912 0.29394 0.29394 0.02734 0.07178 0.03418 0.13672 0.00684 0.06152 0.02051 0.32813l0 0.3623-3.5 0 0-0.3623q0.01367-0.2666 0.02051-0.32813 0.00684-0.06494 0.03418-0.13672 0.08545-0.18115 0.22558-0.24951l0-0.01367q0.08203-0.04443 0.16748-0.05811 0.08545-0.01367 0.36573-0.02734l2.23877 0.01367 0.09912 0.04102z m2.09863 6.13183l-0.01367 3.86573-0.02735 0.08545q-0.12646 0.26318-0.37939 0.33496-0.08203 0.02734-3.07959 0.02734-2.99756 0-3.07959-0.02734-0.25293-0.07178-0.37939-0.33496l-0.02735-0.08545-0.01367-7.72803 7 0 0 3.8623z m-4.7749-2.08496q-0.12646 0.01367-0.2461 0.10596-0.11621 0.08887-0.17431 0.21533l-0.04102 0.09912-0.01367 3.33252q0.01367 0.3623 0.02734 0.4751 0.01367 0.08545 0.07178 0.15381l0.01367 0.02734q0.15381 0.21191 0.417 0.23242 0.2666 0.02051 0.46484-0.17431 0.12646-0.12646 0.15381-0.29395 0.02734-0.11279 0.02734-1.86279 0-1.75-0.02734-1.84912-0.04102-0.23584-0.23242-0.36914-0.18799-0.1333-0.44092-0.09229z m2.35156 0q-0.18115 0.01367-0.31445 0.14698-0.1333 0.1333-0.16065 0.31445-0.02734 0.09912-0.02734 1.86279 0 1.76367 0.02734 1.86279 0.02734 0.16748 0.15381 0.28028 0.19824 0.19482 0.46143 0.17431 0.2666-0.02051 0.42041-0.24609l0.01367-0.01367q0.05811-0.08203 0.07178-0.15381 0.01367-0.12646 0.02734-0.4751l0-3.2915-0.04102-0.0957q-0.08545-0.21191-0.25293-0.30762-0.16748-0.09912-0.37939-0.05811z"
+                        fill="#6B7280"
+                      ></path>
+                    </svg>
+                  </div>
+                  <div
+                    data-pencil-name="Qty Value"
+                    class="box-border w-[30px] shrink-0 h-full flex flex-row gap-0 justify-center items-center"
+                  >
+                    <div
+                      data-pencil-name="Label"
+                      class="text-[14px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                    >
+                      1
+                    </div>
+                  </div>
+                  <div
+                    data-pencil-name="Qty Increase"
+                    class="box-border w-[34px] shrink-0 h-full flex flex-row gap-0 justify-center items-center"
+                  >
+                    <svg
+                      data-pencil-name="Icon"
+                      data-icon-name="plus"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                        fill="#1A1A2E"
+                      ></path>
+                    </svg>
+                  </div>
+                </div>
+              </div>
+              <div
+                data-pencil-name="In Cart Badge"
+                class="box-border w-fit h-fit absolute left-0 top-0 flex flex-row gap-[6px] p-[7px_12px_7px_10px] justify-start items-center bg-[#2D3748] rounded-[12px_0px_10px_0px] [z-index:3]"
+              >
+                <svg
+                  data-pencil-name="Icon"
+                  data-icon-name="check"
+                  data-icon-set="lucide"
+                  viewBox="0 0 13.99993896484375 14"
+                  preserveAspectRatio="xMidYMid meet"
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="box-border w-[13px] shrink-0 h-[13px]"
+                >
+                  <path
+                    d="M11.48096 2.95313q-0.07178 0.01367-0.12989 0.0581-0.05469 0.04102-3.07617 3.06592l-3.0249 3.00781-1.28857-1.28857q-1.28857-1.28516-1.38086-1.32618-0.08887-0.04443-0.22217-0.04443-0.1333 0-0.23242 0.0376-0.0957 0.03418-0.18799 0.11279-0.08887 0.0752-0.1333 0.1709-0.02734 0.07178-0.03418 0.11279-0.00684 0.04102-0.00684 0.14014l0 0.04102q-0.01367 0.11279 0.04102 0.19824 0.07178 0.10938 0.36572 0.40332 0.19482 0.21191 0.96729 0.98096l1.49707 1.48339q0.28027 0.2666 0.38964 0.33838 0.07178 0.05469 0.18457 0.04102l0.09571 0.01367q0.07178 0 0.14013-0.02734 0.08545-0.07178 0.32129-0.28711 0.23926-0.21875 0.79981-0.76221l2.2832-2.2832q2.08496-2.09863 2.7002-2.71387 0.61524-0.61865 0.64599-0.68701 0.04102-0.08545 0.04102-0.23926 0-0.09912-0.00684-0.14014-0.00684-0.04102-0.03418-0.11279-0.04443-0.08203-0.13672-0.16406-0.08887-0.08545-0.18115-0.11963-0.08887-0.0376-0.20849-0.0376-0.11963 0-0.18799 0.02734z"
+                    fill="#FFFFFF"
+                  ></path>
+                </svg>
+                <div
+                  data-pencil-name="Label"
+                  class="text-[11.5px]/[normal] box-border text-[#FFFFFF] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                >
+                  In cart
+                </div>
+              </div>
+            </div>
+          </div>
+          <div
+            data-pencil-name="Option Note"
+            class="text-[12px]/[17px] box-border w-full text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left"
+          >
+            G's control with indicator C. The navy moves from the button to the tab: the card still
+            carries one navy accent, now on the image.
+          </div>
+        </div>
+        <div
+          data-pencil-name="Option J · on a dark photo"
+          class="box-border w-[419px] shrink-0 h-fit flex flex-col gap-[10px] justify-start items-start"
+        >
+          <div
+            data-pencil-name="Option Title"
+            class="text-[14px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold text-left [white-space:nowrap]"
+          >
+            J · on a dark photo
+          </div>
+          <div
+            data-pencil-name="Card Pair"
+            class="box-border w-full h-fit shrink-0 flex flex-row gap-[12px] justify-start items-start"
+          >
+            <div
+              data-pencil-name="Card Default"
+              class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start"
+            >
+              <div
+                data-pencil-name="Product Image"
+                class="box-border w-full h-[170px] shrink-0 bg-[url('https://images.unsplash.com/photo-1633069387153-983ac0f13ab0?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzh8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px]"
+              ></div>
+              <div
+                data-pencil-name="Product Info"
+                class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start"
+              >
+                <div
+                  data-pencil-name="Product Category"
+                  class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                >
+                  ACCESSORIES
+                </div>
+                <div
+                  data-pencil-name="Product Name"
+                  class="text-[14.5px]/[20px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                >
+                  Linen Cap
+                </div>
+              </div>
+              <div
+                data-pencil-name="Product Row"
+                class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center"
+              >
+                <div
+                  data-pencil-name="Product Price"
+                  class="text-[16px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                >
+                  $39.00
+                </div>
+                <div
+                  data-pencil-name="Add Button"
+                  class="box-border w-fit shrink-0 h-[40px] flex flex-row gap-[7px] p-[0px_16px] justify-start items-center bg-[#2D3748] rounded-[8px]"
+                >
+                  <svg
+                    data-pencil-name="Add Icon"
+                    data-icon-name="plus"
+                    data-icon-set="lucide"
+                    viewBox="0 0 13.99993896484375 14"
+                    preserveAspectRatio="xMidYMid meet"
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="box-border w-[16px] shrink-0 h-[16px]"
+                  >
+                    <path
+                      d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                      fill="#FFFFFF"
+                    ></path>
+                  </svg>
+                  <div
+                    data-pencil-name="Add Label"
+                    class="text-[14px]/[normal] box-border text-[#FFFFFF] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                  >
+                    Add
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div
+              data-pencil-name="Card In Cart"
+              class="box-border [flex:1_1_0] h-fit flex flex-col gap-[14px] justify-start items-start relative"
+            >
+              <div
+                data-pencil-name="Product Image"
+                class="box-border w-full h-[170px] shrink-0 bg-[url('https://images.unsplash.com/photo-1633069387153-983ac0f13ab0?crop=entropy&amp;cs=tinysrgb&amp;fit=max&amp;fm=jpg&amp;ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODU5NzEzMzh8&amp;ixlib=rb-4.1.0&amp;q=80&amp;w=1080')] bg-no-repeat bg-cover bg-center rounded-[12px] relative [z-index:0]"
+              ></div>
+              <div
+                data-pencil-name="Product Info"
+                class="box-border w-full h-fit shrink-0 flex flex-col gap-[6px] justify-start items-start relative [z-index:1]"
+              >
+                <div
+                  data-pencil-name="Product Category"
+                  class="text-[11px]/[normal] box-border text-[#9CA3AF] font-[Inter,system-ui,sans-serif] font-semibold tracking-[1.6px] text-left [white-space:nowrap]"
+                >
+                  ACCESSORIES
+                </div>
+                <div
+                  data-pencil-name="Product Name"
+                  class="text-[14.5px]/[20px] box-border w-full text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left"
+                >
+                  Linen Cap
+                </div>
+              </div>
+              <div
+                data-pencil-name="Product Row"
+                class="box-border w-full h-fit shrink-0 flex flex-row gap-0 justify-between items-center relative [z-index:2]"
+              >
+                <div
+                  data-pencil-name="Product Price"
+                  class="text-[16px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-bold tracking-[-0.3px] text-left [white-space:nowrap]"
+                >
+                  $39.00
+                </div>
+                <div
+                  data-pencil-name="Qty Stepper"
+                  class="box-border w-fit shrink-0 h-[40px] flex flex-row gap-0 justify-start items-center bg-[#FFFFFF] [outline:1px_solid_#D1D5DB] [outline-offset:-0.5px] rounded-[8px]"
+                >
+                  <div
+                    data-pencil-name="Qty Decrease"
+                    class="box-border w-[34px] shrink-0 h-full flex flex-row gap-0 justify-center items-center"
+                  >
+                    <svg
+                      data-pencil-name="Icon"
+                      data-icon-name="trash-2"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M5.65674 0.60156q-0.44775 0.04102-0.84766 0.32129-0.3999 0.28027-0.58105 0.70069-0.08545 0.21191-0.1128 0.37939-0.02734 0.16748-0.02734 0.50244l-0.01367 0.42041-2.4917 0-0.08545 0.05469q-0.18115 0.09912-0.28027 0.2666-0.04102 0.08545-0.04102 0.25293 0 0.16748 0.04102 0.24609 0.04443 0.0752 0.12646 0.16065 0.08545 0.08203 0.14697 0.11963 0.06494 0.03418 0.13331 0.04101 0.07178 0.00684 0.33496 0.00684l0.36572 0 0.01367 7.84082 0.04102 0.16748q0.07178 0.25293 0.18115 0.44092 0.11279 0.18799 0.29394 0.37256 0.18457 0.18115 0.37256 0.29394 0.18799 0.10938 0.44092 0.18115l0.16748 0.04102 6.33008 0 0.16748-0.04102q0.25293-0.07178 0.44092-0.18115 0.18799-0.11279 0.36914-0.29394 0.18457-0.18457 0.29394-0.37256 0.11279-0.18799 0.18457-0.44092l0.04102-0.16748 0.01367-7.84082 0.36572 0q0.26318 0 0.33155-0.00684 0.07178-0.00684 0.1333-0.04101 0.06494-0.0376 0.14697-0.11963 0.08545-0.08545 0.12647-0.16065 0.04443-0.07861 0.04443-0.24609 0-0.16748-0.04102-0.25293-0.09912-0.16748-0.28027-0.2666l-0.08545-0.05469-2.4917 0-0.01367-0.42041q0-0.28027-0.00684-0.37598-0.00684-0.09912-0.03418-0.21191-0.15381-0.56055-0.57422-0.91602-0.42041-0.35889-0.99462-0.41357-0.16748-0.01367-1.31592-0.00684-1.14844 0.00684-1.32959 0.02051z m2.74463 1.20313q0.19482 0.09912 0.29394 0.29394 0.02734 0.07178 0.03418 0.13672 0.00684 0.06152 0.02051 0.32813l0 0.3623-3.5 0 0-0.3623q0.01367-0.2666 0.02051-0.32813 0.00684-0.06494 0.03418-0.13672 0.08545-0.18115 0.22558-0.24951l0-0.01367q0.08203-0.04443 0.16748-0.05811 0.08545-0.01367 0.36573-0.02734l2.23877 0.01367 0.09912 0.04102z m2.09863 6.13183l-0.01367 3.86573-0.02735 0.08545q-0.12646 0.26318-0.37939 0.33496-0.08203 0.02734-3.07959 0.02734-2.99756 0-3.07959-0.02734-0.25293-0.07178-0.37939-0.33496l-0.02735-0.08545-0.01367-7.72803 7 0 0 3.8623z m-4.7749-2.08496q-0.12646 0.01367-0.2461 0.10596-0.11621 0.08887-0.17431 0.21533l-0.04102 0.09912-0.01367 3.33252q0.01367 0.3623 0.02734 0.4751 0.01367 0.08545 0.07178 0.15381l0.01367 0.02734q0.15381 0.21191 0.417 0.23242 0.2666 0.02051 0.46484-0.17431 0.12646-0.12646 0.15381-0.29395 0.02734-0.11279 0.02734-1.86279 0-1.75-0.02734-1.84912-0.04102-0.23584-0.23242-0.36914-0.18799-0.1333-0.44092-0.09229z m2.35156 0q-0.18115 0.01367-0.31445 0.14698-0.1333 0.1333-0.16065 0.31445-0.02734 0.09912-0.02734 1.86279 0 1.76367 0.02734 1.86279 0.02734 0.16748 0.15381 0.28028 0.19824 0.19482 0.46143 0.17431 0.2666-0.02051 0.42041-0.24609l0.01367-0.01367q0.05811-0.08203 0.07178-0.15381 0.01367-0.12646 0.02734-0.4751l0-3.2915-0.04102-0.0957q-0.08545-0.21191-0.25293-0.30762-0.16748-0.09912-0.37939-0.05811z"
+                        fill="#6B7280"
+                      ></path>
+                    </svg>
+                  </div>
+                  <div
+                    data-pencil-name="Qty Value"
+                    class="box-border w-[30px] shrink-0 h-full flex flex-row gap-0 justify-center items-center"
+                  >
+                    <div
+                      data-pencil-name="Label"
+                      class="text-[14px]/[normal] box-border text-[#1A1A2E] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                    >
+                      1
+                    </div>
+                  </div>
+                  <div
+                    data-pencil-name="Qty Increase"
+                    class="box-border w-[34px] shrink-0 h-full flex flex-row gap-0 justify-center items-center"
+                  >
+                    <svg
+                      data-pencil-name="Icon"
+                      data-icon-name="plus"
+                      data-icon-set="lucide"
+                      viewBox="0 0 13.99993896484375 14"
+                      preserveAspectRatio="xMidYMid meet"
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="box-border w-[16px] shrink-0 h-[16px]"
+                    >
+                      <path
+                        d="M6.90088 2.35156q-0.0957 0.01367-0.17432 0.05127-0.0752 0.03418-0.15381 0.12647-0.0752 0.08887-0.11279 0.16748-0.03418 0.0752-0.03418 0.32812l0 3.40088-3.66748 0-0.08545 0.04102q-0.22217 0.11279-0.30078 0.33838-0.0752 0.22217 0.00684 0.43408 0.05811 0.0957 0.14013 0.18115 0.08545 0.08203 0.16748 0.11963 0.08545 0.03418 0.33838 0.03418l3.40088 0 0 3.40088q0 0.25293 0.03418 0.33838 0.0376 0.08203 0.11963 0.16748 0.08545 0.08203 0.18799 0.1333 0.10596 0.04785 0.23242 0.04785 0.12646 0 0.229-0.04785 0.10596-0.05127 0.18799-0.1333 0.08545-0.08545 0.11963-0.16748 0.0376-0.08545 0.0376-0.33838l0-3.40088 3.40088 0q0.25293 0 0.33496-0.03418 0.08545-0.0376 0.16748-0.11963 0.08545-0.08545 0.1333-0.18799 0.05127-0.10596 0.05127-0.23242 0-0.12646-0.04102-0.23926-0.09912-0.19482-0.29394-0.29394l-0.08545-0.04102-3.66748 0 0-3.38721q0-0.2666-0.02734-0.32128-0.07178-0.19824-0.25293-0.30079-0.18115-0.10596-0.39307-0.06494z"
+                        fill="#1A1A2E"
+                      ></path>
+                    </svg>
+                  </div>
+                </div>
+              </div>
+              <div
+                data-pencil-name="In Cart Badge"
+                class="box-border w-fit h-fit absolute left-0 top-0 flex flex-row gap-[6px] p-[7px_12px_7px_10px] justify-start items-center bg-[#2D3748] rounded-[12px_0px_10px_0px] [z-index:3]"
+              >
+                <svg
+                  data-pencil-name="Icon"
+                  data-icon-name="check"
+                  data-icon-set="lucide"
+                  viewBox="0 0 13.99993896484375 14"
+                  preserveAspectRatio="xMidYMid meet"
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="box-border w-[13px] shrink-0 h-[13px]"
+                >
+                  <path
+                    d="M11.48096 2.95313q-0.07178 0.01367-0.12989 0.0581-0.05469 0.04102-3.07617 3.06592l-3.0249 3.00781-1.28857-1.28857q-1.28857-1.28516-1.38086-1.32618-0.08887-0.04443-0.22217-0.04443-0.1333 0-0.23242 0.0376-0.0957 0.03418-0.18799 0.11279-0.08887 0.0752-0.1333 0.1709-0.02734 0.07178-0.03418 0.11279-0.00684 0.04102-0.00684 0.14014l0 0.04102q-0.01367 0.11279 0.04102 0.19824 0.07178 0.10938 0.36572 0.40332 0.19482 0.21191 0.96729 0.98096l1.49707 1.48339q0.28027 0.2666 0.38964 0.33838 0.07178 0.05469 0.18457 0.04102l0.09571 0.01367q0.07178 0 0.14013-0.02734 0.08545-0.07178 0.32129-0.28711 0.23926-0.21875 0.79981-0.76221l2.2832-2.2832q2.08496-2.09863 2.7002-2.71387 0.61524-0.61865 0.64599-0.68701 0.04102-0.08545 0.04102-0.23926 0-0.09912-0.00684-0.14014-0.00684-0.04102-0.03418-0.11279-0.04443-0.08203-0.13672-0.16406-0.08887-0.08545-0.18115-0.11963-0.08887-0.0376-0.20849-0.0376-0.11963 0-0.18799 0.02734z"
+                    fill="#FFFFFF"
+                  ></path>
+                </svg>
+                <div
+                  data-pencil-name="Label"
+                  class="text-[11.5px]/[normal] box-border text-[#FFFFFF] font-[Inter,system-ui,sans-serif] font-semibold text-left [white-space:nowrap]"
+                >
+                  In cart
+                </div>
+              </div>
+            </div>
+          </div>
+          <div
+            data-pencil-name="Option Note"
+            class="text-[12px]/[17px] box-border w-full text-[#6B7280] font-[Inter,system-ui,sans-serif] font-normal text-left"
+          >
+            Same combo on a dark image. The tab's white text keeps it legible even when the navy
+            blends with the photo.
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
