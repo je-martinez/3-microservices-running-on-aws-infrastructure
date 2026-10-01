@@ -1340,7 +1340,7 @@ echo "HEAD: $(git rev-parse HEAD:assets/web-app/web-app.pen)"
 
 Equal hashes mean the save has not landed — do NOT report this task done on the strength of the MCP call alone. See quirk 6 in [[pencil-design-extraction]].
 
-- [ ] **Step 4: Re-export the affected frames**
+- [x] **Step 4: Re-export the affected frames**
 
 `apps/web/design/exports/cart-line.html` ALREADY EXISTS and is tracked, so this step REPLACES a committed file rather than creating one. `product-card-add-to-cart-states.html` is likewise already tracked (committed in `6141f814`).
 
@@ -1353,7 +1353,7 @@ Print("re-exported");
 
 `outputPath` must be absolute — a relative one resolves against the `.pen`'s own directory.
 
-- [ ] **Step 5: Stage, and present the commit for confirmation**
+- [x] **Step 5: Stage, and present the commit for confirmation**
 
 ```bash
 git add assets/web-app/web-app.pen apps/web/design/exports/
@@ -1379,13 +1379,13 @@ Plan: docs/superpowers/plans/2026-09-30-cart-add-quantity-morph.md
 - Consumes: everything above.
 - Produces: the `propagates-to:` targets this plan and its spec declare.
 
-- [ ] **Step 1: Update `apps/web/DESIGN.md`**
+- [x] **Step 1: Update `apps/web/DESIGN.md`**
 
 Add to the component table: `Qty Stepper` (`a7S8KL`) → `apps/web/src/app/shared/ui/qty-stepper.ts`. Add the three new frames to the frame listing: `N3ZlMt` (Product Card — Add to Cart States), `E9o3g` (Explore — Add Button & Qty Stepper), `ESRzy` (Explore — In Cart Indicator). Record that `Product Card` and `Cart Line` both instance the stepper.
 
 This is the `code → docs` direction the gap audit says is most often skipped, and a doc keeping a value the code has corrected is worse than no doc.
 
-- [ ] **Step 2: Propagate the reusable rules through `obsidian-vault`**
+- [x] **Step 2: Propagate the reusable rules through `obsidian-vault`**
 
 Route these edits through the `obsidian-vault` agent — it is the sole writer of `docs/`:
 - `[[angular-component-authoring]]`: the control-versus-behaviour split (a shared control receives its constraints rather than deriving them), and the CSS-first motion rule with `element.animate()` reserved for cases needing two live nodes.
@@ -1393,18 +1393,18 @@ Route these edits through the `obsidian-vault` agent — it is the sole writer o
 
 Bump each target's `updated:` and add the bidirectional `## Related` links.
 
-- [ ] **Step 3: Validate the vault**
+- [x] **Step 3: Validate the vault**
 
 Run from the repo root: `nvm use && node scripts/validate-vault.mjs`
 Expected: passes, with no broken wikilinks and the propagation gate green.
 
-- [ ] **Step 4: Run the gap audit**
+- [x] **Step 4: Run the gap audit**
 
 Invoke the `spec-implementation-audit` skill against this plan and its spec. It is a gate, not a suggestion, and it audits three directions: spec → code, code → docs, and plan → repo. Re-run it after closing any gap, since closing one routinely reveals another.
 
 A gap that is a real code defect rather than doc drift gets its own change and its own review — never a silent fix inside this propagation pass.
 
-- [ ] **Step 5: Stage, and present the commit for confirmation**
+- [x] **Step 5: Stage, and present the commit for confirmation**
 
 ```bash
 git add apps/web/DESIGN.md docs/
@@ -1422,7 +1422,23 @@ Plan: docs/superpowers/plans/2026-09-30-cart-add-quantity-morph.md
 
 ## Manual verification
 
-Automated tests do not cover motion, so verify these by hand before proposing the PR. Run `pnpm web:dev` from the repo root for the fast edit loop (ng serve with HMR), which is what `docker-compose.yml` itself recommends for editing, against a running local stack; the containerised web service comes up with `make up` instead, and needs `docker compose build web` after a change rather than a restart.
+Automated tests do not cover motion, so verify these by hand before proposing the PR.
+
+**Pick the surface first — the two do not update the same way.**
+
+- **`:4200` — `pnpm web:dev`** (ng serve with HMR), the fast edit loop, which is what `docker-compose.yml` itself recommends for editing. Needs a running local stack for the gateway. Changes appear on save.
+- **`:3004` — the container** (`3mrai-web-1`, nginx serving the production bundle). It comes up with `make up`.
+
+CONTRACT: After ANY change to `apps/web/`, refresh the container with **`docker compose up -d --build web`** before verifying on `:3004`. A `restart` re-serves the SAME bundle, and a bare `docker compose build web` rebuilds the image while the old container keeps running — both make a correct change look ignored. The bundle and the `NG_APP_*` values are baked in at BUILD time; there is no HMR on this port. This is the same invariant `make up` encodes at `Makefile:608-612`.
+
+Confirm the rebuild actually landed rather than assuming it did — compare the hash the container serves against the local build:
+
+```bash
+curl -s localhost:3004 | grep -oE 'styles-[A-Za-z0-9]+\.css' | head -1
+grep -c 'qty-morph' <(curl -s "localhost:3004/$(curl -s localhost:3004 | grep -oE 'styles-[A-Za-z0-9]+\.css' | head -1)")
+```
+
+A changed filename hash means a new bundle is being served; a non-zero count means this milestone's CSS is in it.
 
 - [ ] Clicking Add morphs the button in place: navy fades to white, the border traces itself, then settles grey. No jump, no flash.
 - [ ] The "In cart" chip fades down onto the image corner, and one green sheen crosses it. It does NOT replay on later quantity changes.

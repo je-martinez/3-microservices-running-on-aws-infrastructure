@@ -2,13 +2,13 @@
 title: "Cart Add-to-Cart Morph and Shared Quantity Stepper Design"
 type: spec
 area: shared
-status: draft
+status: active
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-10-01
 tags:
   - type/spec
   - area/shared
-  - status/draft
+  - status/active
 related:
   - "[[2026-09-04-web-gateway-integration-design]]"
   - "[[pencil-design-extraction]]"
@@ -116,18 +116,18 @@ disabled     = input(false);
 itemName     = input('');          // builds the left key's aria-label
 decrement    = output<void>();     // qty > 1
 increment    = output<void>();
-removed      = output<void>();     // qty === 1 (the trash)
+removed      = output<void>();     // qty <= 1 (the trash)
 ```
 
 - The stepper does NOT derive `canIncrement` from stock; it receives it. `cart-line` computes it from the line's `unitsInStock` and `product-card` from the product's: two different sources the control should know nothing about.
-- Likewise the trash threshold: at `quantity() === 1` the left key emits `removed` instead of `decrement`. This is the rule `cart-line` already enforces today (the server has no per-line DELETE, so a stepper that stops at 1 leaves no way to remove an item).
+- Likewise the trash threshold: at `quantity() <= 1` the left key emits `removed` instead of `decrement`. `<=` rather than `===` offers removal at a nonsensical 0 or negative quantity instead of a decrement the server would reject. This is the rule `cart-line` already enforces today (the server has no per-line DELETE, so a stepper that stops at 1 leaves no way to remove an item).
 - Accessibility: the left key's `aria-label` alternates between `Remove <itemName>` and `Decrease quantity`; the counter carries `aria-live="polite"`.
 
 ### `ProductCard` changes
 
 - Injects `CartStore`; `quantity` and `inCart` are computed from `quantityOf`.
 - The `add` output is removed. The card calls `cart.add(id)`, `cart.adjustQuantity(id, n)` and `cart.remove(id)` directly. Rationale: the store's CONTRACTs ("steppers use `adjustQuantity`, never `setQuantity`"; "always `CartStore`, never `CartApi`") are easier to honour from one place than from every page mounting a card.
-- Template: a `relative h-10` wrapper with `[class.in-cart]="inCart()"` holding the Add button, `<app-qty-stepper>`, and the tracing `<svg>`.
+- Template: a `.qty-morph` wrapper with `[class.in-cart]="inCart()"` holding the Add button, `<app-qty-stepper>`, and the tracing `<svg>`. Its `position: relative` and 2.5rem height come from the `.qty-morph` rule in `styles.css`, not from Tailwind utilities on the element — do not add `relative h-10` alongside it.
 - The chip is positioned `top-3 left-3` on the image.
 - **Out of stock:** if `unitsInStock === 0` AND the product is not in the cart, keep today's "Out of stock" text instead of the control. If it IS in the cart and stock runs out, the stepper must stay visible with `canIncrement` false; otherwise the buyer loses the only way to remove it.
 
@@ -143,8 +143,8 @@ Add a `trash-2` lucide icon to `a7S8KL`'s left key, stacked with the existing `m
 
 - `qty-stepper.spec.ts` (new): emits `removed` at qty 1 and `decrement` at qty >1; `increment` blocked when `canIncrement` is false; inert when `disabled`.
 - `product-card.spec.ts` (new; does not exist today): uses the REAL `CartStore` with `provideHttpClient()` + `provideHttpClientTesting()`, following `cart-drawer.spec.ts` and `home.spec.ts`, and drives it through `HttpTestingController` expectations. Cases: qty 0 renders the Add button and no chip; after adding, the stepper and the chip render; out-of-stock with qty >0 still renders the stepper with the `+` disabled. Quantity changes go through a `flushDebounce()`-style helper (`vi.advanceTimersByTime(500)`, then `vi.useRealTimers()`, then `await settle(fixture)`) because the store coalesces clicks over 350ms; real timers must be restored before pumping, since `settle()` awaits a `setTimeout` of its own and under fake timers nothing advances it, so the test hangs and reports a stall instead of the missing PUT the assertion is about (see [[2026-09-04-angular-http-testing-traps]]). Faking the store was considered and rejected: no spec in the app does it, and a fake would bypass the optimistic overlay and the debounce queue, which are precisely the mechanics the card's quantity depends on.
-- `cart-line.spec.ts`: adapt to the new markup; verify `data-testid="cart-line-quantity"` still resolves (it moves into `QtyStepper`).
-- `home.spec.ts`: adapt, since `addToCart` is gone.
+- `cart-line.spec.ts`: has zero diff against `main`. Every selector survives verbatim because it locates controls by `[aria-label="Increase quantity"]` and `[aria-label^="Remove"]`, which moved into `QtyStepper` unchanged. `data-testid="cart-line-quantity"` also moved into `QtyStepper` unchanged and is located by `cart-drawer.spec.ts`. This is the aria-label test contract below holding exactly.
+- `home.spec.ts`: has zero diff against `main`. It never asserts on the `add` output; every card assertion counts `app-product-card` elements, so removing the `(add)` binding touches nothing it tests.
 - The stepper's `aria-label`s are a test contract, not an implementation detail: existing cart specs locate the keys by `[aria-label="Increase quantity"]` and `[aria-label="Decrease quantity"]`, so `QtyStepper` must keep emitting exactly those strings, plus the left key's `Remove <itemName>` form at qty 1. Changing any of them breaks `cart-drawer.spec.ts`.
 - No motion assertions: it is CSS, and a transition test breaks on every curve tweak.
 - No new E2E: the three-layer convention in [[testing]] governs HTTP endpoints, and this change adds none.
@@ -153,6 +153,14 @@ Add a `trash-2` lucide icon to `a7S8KL`'s left key, stacked with the existing `m
 ## Documentation follow-up (code to docs)
 
 `apps/web/DESIGN.md` (a repo file, not a vault note) must be updated with the three new frames (`N3ZlMt`, `E9o3g`, `ESRzy`) and the `Qty Stepper` (`a7S8KL`) to component-path mapping (`apps/web/src/app/shared/ui/qty-stepper.ts`). This is the `code → docs` direction the gap audit says is most often skipped. The `propagates-to:` targets receive the reusable rules: [[angular-component-authoring]] gets the control-versus-behaviour split and the CSS-first motion rule (`element.animate()` only when two live nodes are needed); [[pencil-design-extraction]] gets the `.pen` component to code mapping and the unsaved-file verification step.
+
+## What shipped differently
+
+Places where the implementation departs from this note's letter. The code is the source of truth for these.
+
+- `isLast()` in `QtyStepper` is `count() <= 1`, not `=== 1` (see the trash threshold under Component design).
+- `ProductCard`'s `imports` is `[LucideCheck, LucideImageOff, LucidePlus, QtyStepper]`. Angular `imports` are per-template, and `LucideMinus` and `LucideTrash2` are declared by `qty-stepper.html` itself.
+- The class docblocks the plan drafted exceeded the 12-line hard max in [[code-comments]], so the trash and no-per-line-DELETE CONTRACT lives on `QtyStepper.onDecrease()` rather than the class docblock. It sits with the code it governs.
 
 ## Out of scope
 
