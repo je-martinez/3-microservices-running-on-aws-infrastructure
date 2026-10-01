@@ -3,7 +3,6 @@ import { LucideRefreshCw, LucideTriangleAlert } from '@lucide/angular';
 import { firstValueFrom } from 'rxjs';
 import { CatalogueApi } from '../../core/api/catalogue-api';
 import type { Product } from '../../core/api/types';
-import { CartStore } from '../../core/cart/cart-store';
 import { CatalogueSearchStore } from '../../core/catalogue/catalogue-search-store';
 import { OverlayStore } from '../../core/overlay/overlay-store';
 import { authErrorMessage } from '../auth/auth-errors';
@@ -24,7 +23,6 @@ import { CartDrawer } from '../cart/cart-drawer';
 })
 export class HomePage {
   private readonly catalogueApi = inject(CatalogueApi);
-  private readonly cart = inject(CartStore);
   protected readonly search = inject(CatalogueSearchStore);
 
   protected readonly overlay = inject(OverlayStore);
@@ -87,15 +85,6 @@ export class HomePage {
 
   constructor() {
     void this.load();
-  }
-
-  /**
-   * CONTRACT: Goes through CartStore, never CartApi. Two fast clicks here on a
-   * user with no cart yet are exactly the creation race that makes the losing
-   * PUT answer 500 (JE-246); the store's queue is what serializes them.
-   */
-  protected addToCart(productId: string): void {
-    void this.cart.add(productId);
   }
 
   protected async load(): Promise<void> {
