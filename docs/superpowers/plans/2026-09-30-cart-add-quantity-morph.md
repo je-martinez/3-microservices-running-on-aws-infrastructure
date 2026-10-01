@@ -1429,7 +1429,7 @@ Automated tests do not cover motion, so verify these by hand before proposing th
 - **`:4200` — `pnpm web:dev`** (ng serve with HMR), the fast edit loop, which is what `docker-compose.yml` itself recommends for editing. Needs a running local stack for the gateway. Changes appear on save.
 - **`:3004` — the container** (`3mrai-web-1`, nginx serving the production bundle). It comes up with `make up`.
 
-CONTRACT: After ANY change to `apps/web/`, refresh the container with **`docker compose up -d --build web`** before verifying on `:3004`. A `restart` re-serves the SAME bundle, and a bare `docker compose build web` rebuilds the image while the old container keeps running — both make a correct change look ignored. The bundle and the `NG_APP_*` values are baked in at BUILD time; there is no HMR on this port. This is the same invariant `make up` encodes at `Makefile:608-612`.
+CONTRACT: After ANY change to `apps/web/`, refresh the container with **`docker compose --env-file .env.local.web up -d --build web`** before verifying on `:3004`. Keep the `--env-file` (or use `make`, whose `COMPOSE` carries it): without it the six `NG_APP_*` build args fall back to their defaults and the bundle ships with **Stripe and RUM off**, so the Payment Element renders nothing with no error anywhere. A `restart` re-serves the SAME bundle, and a bare `docker compose build web` rebuilds the image while the old container keeps running — both make a correct change look ignored. The bundle and the `NG_APP_*` values are baked in at BUILD time; there is no HMR on this port. This is the same invariant `make up` encodes at `Makefile:608-612`.
 
 Confirm the rebuild actually landed rather than assuming it did — compare the hash the container serves against the local build:
 

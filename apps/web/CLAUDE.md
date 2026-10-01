@@ -62,17 +62,32 @@ There are two ways to look at this app, and they do NOT update the same way:
   production bundle. Comes up with `make up`.
 
 CONTRACT: After ANY change under `apps/web/`, refresh the container with
-`docker compose up -d --build web` before judging it on `:3004`. There is NO
-HMR on that port: the bundle and every `NG_APP_*` value are baked in at BUILD
-time. A `restart` re-serves the SAME bundle, and a bare `docker compose build
-web` rebuilds the image while the old container keeps running — both make a
-correct, committed change look ignored, and the symptom is indistinguishable
-from a bug in the change itself. `make up` encodes this same invariant
-(`Makefile:608-612`), with the same reason in a `CONTRACT:` comment.
+`docker compose --env-file .env.local.web up -d --build web` before judging it
+on `:3004`. There is NO HMR on that port: the bundle and every `NG_APP_*` value
+are baked in at BUILD time. A `restart` re-serves the SAME bundle, and a bare
+`docker compose build web` rebuilds the image while the old container keeps
+running — both make a correct, committed change look ignored, and the symptom
+is indistinguishable from a bug in the change itself. `make up` encodes this
+same invariant (`Makefile:608-612`).
 
-Confirm the refresh landed instead of assuming it did — the filename hash the
-container serves should match the local build's:
-`curl -s localhost:3004 | grep -oE 'styles-[A-Za-z0-9]+\.css' | head -1`
+CONTRACT: Keep `--env-file .env.local.web`, or use `make` (its `COMPOSE` carries
+the flag). Compose interpolates `${VAR}` from ONE file, and the six `NG_APP_*`
+build args are the only interpolations in `docker-compose.yml`. Without it
+compose looks for a root `.env` this repo does not generate, every build arg
+falls back to its default, and the bundle ships with **Stripe and RUM off** — a
+working integration that renders nothing, with no error anywhere.
+See [[env-files]]
+
+Confirm the refresh landed instead of assuming it did. The filename hash should
+change, and the flags should actually be in the bundle — note `pk_test_` lives
+in a LAZY chunk, not `main`, so grepping `main-*.js` alone reports a false zero:
+
+```bash
+curl -s localhost:3004 | grep -oE 'styles-[A-Za-z0-9]+\.css' | head -1
+for f in $(curl -s localhost:3004 | grep -oE '(chunk|main)-[A-Za-z0-9]+\.js'); do
+  echo "$f: $(curl -s localhost:3004/$f | grep -c pk_test)"
+done
+```
 
 ## 2a. GOLDEN RULE — tokens, never arbitrary values
 
