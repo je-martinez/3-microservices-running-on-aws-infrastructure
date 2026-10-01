@@ -41232,6 +41232,19 @@
               "icon": "minus",
               "library": "lucide",
               "fill": "$text-secondary"
+            },
+            {
+              "type": "icon",
+              "id": "daWPV",
+              "layoutPosition": "absolute",
+              "x": 0,
+              "y": 0,
+              "name": "Remove Icon",
+              "width": 16,
+              "height": 16,
+              "icon": "trash-2",
+              "library": "lucide",
+              "fill": "$text-secondary"
             }
           ]
         },
