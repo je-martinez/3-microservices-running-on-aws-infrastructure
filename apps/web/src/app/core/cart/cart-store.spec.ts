@@ -504,4 +504,80 @@ describe('CartStore', () => {
     expect(store.isEmpty()).toBe(false);
     controller.verify();
   });
+
+  describe('quantityOf', () => {
+    /**
+     * CONTRACT: Answers 0 for a product the cart does not hold, never
+     * undefined. `undefined > 0` is false, so a missing fallback survives an
+     * `inCart` check and then renders the literal text "undefined" in the
+     * counter.
+     */
+    it('answers 0 for a product absent from the cart', async () => {
+      const { store, controller } = setup();
+      const loaded = store.load();
+
+      (await awaitCartRequest(controller, 'GET')).flush(
+        cart([cartLine({ productId: 'prd_held', quantity: 2 })]),
+      );
+      await loaded;
+
+      expect(store.quantityOf()('prd_absent')).toBe(0);
+      controller.verify();
+    });
+
+    /**
+     * CONTRACT: `quantity` is IntLike on the wire, so "3" is legal. An index
+     * built without `toInt` hands the stepper a string, and `"3" > 1` is a
+     * string comparison. See [[money-representation]]
+     */
+    it('answers the held quantity, coerced from its wire form', async () => {
+      const { store, controller } = setup();
+      const loaded = store.load();
+
+      (await awaitCartRequest(controller, 'GET')).flush(
+        cart([cartLine({ productId: 'prd_held', quantity: '3' })]),
+      );
+      await loaded;
+
+      expect(store.quantityOf()('prd_held')).toBe(3);
+      controller.verify();
+    });
+
+    /**
+     * CONTRACT: Built from `lines`, never from `cart().items`. The optimistic
+     * overlay is what makes a card's stepper track the buyer's finger; an index
+     * built from the raw cart shows the pre-click quantity for a whole debounce
+     * window. See [[2026-09-04-web-gateway-integration-design]]
+     */
+    it('reflects an optimistic quantity before its PUT settles', async () => {
+      const { store, controller } = setup();
+      const loaded = store.load();
+
+      (await awaitCartRequest(controller, 'GET')).flush(
+        cart([cartLine({ productId: 'prd_held', quantity: 1, unitsInStock: 10 })]),
+      );
+      await loaded;
+
+      store.adjustQuantity('prd_held', 4);
+
+      expect(store.quantityOf()('prd_held')).toBe(4);
+    });
+
+    /** The index is one Map per change, not one per lookup. */
+    it('reuses the same index across lookups', async () => {
+      const { store, controller } = setup();
+      const loaded = store.load();
+
+      (await awaitCartRequest(controller, 'GET')).flush(
+        cart([cartLine({ productId: 'prd_held', quantity: 2 })]),
+      );
+      await loaded;
+
+      const first = store.quantityByProduct();
+      store.quantityOf()('prd_held');
+
+      expect(store.quantityByProduct()).toBe(first);
+      controller.verify();
+    });
+  });
 });
