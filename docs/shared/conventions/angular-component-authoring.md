@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-08-19
-updated: 2026-09-10
+updated: 2026-10-01
 tags:
   - type/convention
   - area/shared
@@ -20,6 +20,7 @@ related:
   - "[[2026-09-10-signal-forms-required-accepts-whitespace]]"
   - "[[2026-09-10-formfield-reads-the-raw-dom-value]]"
   - "[[2026-09-10-formfield-owns-its-control-bindings-ng8022]]"
+  - "[[2026-09-30-cart-add-quantity-morph-design]]"
 ---
 
 # Angular Component Authoring
@@ -256,6 +257,59 @@ This is specifically a native-element problem; it does not generalise into "Sign
 sanitisation". Full detail, including the OTP and card-number cases:
 [[2026-09-10-formfield-reads-the-raw-dom-value]].
 
+## Rule 11 — a shared control receives its constraints; it never derives them
+
+A reusable control in `shared/ui` takes its limits as inputs. `QtyStepper` receives
+`canIncrement` rather than computing it, because `cart-line` derives it from a line's
+`unitsInStock` and `product-card` from a product's — two sources with different semantics that
+the control must not choose between. The state machine stays with the consumer: `ProductCard`
+owns the morph, and the cart drawer's stepper is born visible carrying none of it.
+
+A control that reaches for the source of its own constraint has to pick one caller's
+semantics, and the other caller is then silently wrong.
+
+## Rule 12 — a control takes flat inputs, never one config object
+
+`QtyStepper` has four flat inputs (`quantity`, `canIncrement`, `disabled`, `itemName`), not one
+`config` object. A config object fails in ways nothing reports:
+
+- `canIncrement = input(true)` means a control with unknown stock CAN increment. With a config
+  object, `config().canIncrement` is `undefined` when omitted, `undefined` is falsy, and the
+  `+` key is **dead by omission** — a defect that passes review because nothing throws.
+- An inline object literal in a template allocates a new reference every change-detection
+  cycle, so `OnPush` does work it did not before. Silent: nothing breaks, it just recomputes.
+- An object defeats `input.required`, so a forgotten field stops being a compile error.
+- One object collapses fine-grained invalidation: a stock change recomputes the `aria-label`.
+
+Group inputs only when the fields genuinely change together. Here the four come from four
+sources changing at different times (cart, stock, product, saving state).
+
+## Motion
+
+### Rule 13 — motion is CSS; `element.animate()` only for two live nodes
+
+Drive motion from a state class in CSS. Reach for `element.animate()` only when the effect
+needs two nodes on screen at once: the rolling counter in `qty-stepper.ts` needs the outgoing
+and incoming numbers simultaneously, which in CSS alone means keeping both nodes in the
+template permanently.
+
+WARNING: Do NOT add `@angular/animations`. It is not a dependency, the initial-bundle budget
+is a real gate, it cannot animate SVG `stroke-dashoffset` (motion would end up in two
+languages), and the package is in maintenance mode.
+
+An imperative animation must independently check `prefers-reduced-motion` — `element.animate()`
+ignores the media query that the CSS rules honour.
+
+### Rule 14 — animate a class on an always-rendered element, never an `@if`
+
+Render the element always and reveal it with a class binding. An element inserted at the moment
+it should animate has no previous state to transition from, so the fade never plays — and the
+failure is silent. The "In cart" chip is always in the DOM with `[class.is-shown]="inCart()"`.
+
+Corollary: because the class stays stable while the condition holds, a one-shot `animation` on
+that class cannot replay. "The sheen plays once across quantity changes" follows from the class
+never toggling, not from code suppressing a repeat.
+
 ## Where this bites — the extraction workflow, not just the component
 
 The Pencil `html-tailwind` export emits fixed `px` for every value and has no `.html`/`.ts`
@@ -271,6 +325,7 @@ colours — and it was the half that got missed when the app was first built.
 
 ## Related
 
+- [[2026-09-30-cart-add-quantity-morph-design]] — the add-to-cart morph milestone, source of Rules 11–14 (`QtyStepper`, the in-cart chip, the rolling counter).
 - [[pencil-design-extraction]] — the sibling convention this note completes: colours must come
   from `GetVariables()` tokens, never an export's hex classes; this note applies the same
   translate-don't-transcribe principle to sizing units and to the export's single-file

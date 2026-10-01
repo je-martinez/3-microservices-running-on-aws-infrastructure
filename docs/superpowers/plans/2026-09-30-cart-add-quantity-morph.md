@@ -108,7 +108,7 @@ Input classes the spec implies but no task's tests exercise by default. Each has
 - Consumes: nothing from earlier tasks.
 - Produces: the `QtyStepper` standalone component, selector `app-qty-stepper`, with inputs `quantity: number` (required), `canIncrement: boolean` (default `true`), `disabled: boolean` (default `false`), `itemName: string` (default `''`); and outputs `increment: void`, `decrement: void`, `removed: void`. Tasks 3 and 4 mount it.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `apps/web/src/app/shared/ui/qty-stepper.spec.ts`:
 
@@ -205,7 +205,7 @@ describe('QtyStepper', () => {
     const root = render({ quantity: '1', itemName: 'Linen Cap' });
     fixture.componentInstance.removed.subscribe(removed);
 
-    expect(root.textContent).toContain('1');
+    expect(root().textContent).toContain('1');
     leftKey(root).click();
 
     expect(removed).toHaveBeenCalledOnce();
@@ -227,7 +227,7 @@ describe('QtyStepper', () => {
     const root = render({ quantity: 2, disabled: true });
 
     expect(leftKey(root).disabled).toBe(true);
-    expect(root.querySelector<HTMLButtonElement>('[data-testid="qty-increase"]')?.disabled).toBe(
+    expect(root().querySelector<HTMLButtonElement>('[data-testid="qty-increase"]')?.disabled).toBe(
       true,
     );
   });
@@ -235,17 +235,17 @@ describe('QtyStepper', () => {
   it('renders the quantity where the cart specs look for it', () => {
     const root = render({ quantity: 7 });
 
-    expect(root.querySelector('[data-testid="cart-line-quantity"]')?.textContent?.trim()).toBe('7');
+    expect(root().querySelector('[data-testid="cart-line-quantity"]')?.textContent?.trim()).toBe('7');
   });
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
-Run: `nvm use && pnpm web:test -- qty-stepper`
+Run: `nvm use && pnpm web:test -- --include 'src/app/shared/ui/qty-stepper.spec.ts'`
 Expected: FAIL — `Cannot find module './qty-stepper'`.
 
-- [ ] **Step 3: Write the component class**
+- [x] **Step 3: Write the component class**
 
 Create `apps/web/src/app/shared/ui/qty-stepper.ts`:
 
@@ -365,7 +365,7 @@ export class QtyStepper {
 }
 ```
 
-- [ ] **Step 4: Write the template**
+- [x] **Step 4: Write the template**
 
 Create `apps/web/src/app/shared/ui/qty-stepper.html`:
 
@@ -418,7 +418,7 @@ Create `apps/web/src/app/shared/ui/qty-stepper.html`:
 </div>
 ```
 
-- [ ] **Step 5: Register the trash icon in the two registries**
+- [x] **Step 5: Register the trash icon in the two registries**
 
 `LucideDynamicIcon` resolves icons by NAME from the registry, so an unregistered one throws at render and the screen dies before a single assertion runs.
 
@@ -432,12 +432,12 @@ grep -nE "LucideCheck|LucideMinus|LucideTrash2" apps/web/src/app/shared/testing/
 ```
 Expected: `LucideTrash2` in both files; all three in `fixtures.ts`.
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [x] **Step 6: Run tests to verify they pass**
 
-Run: `nvm use && pnpm web:test -- qty-stepper`
+Run: `nvm use && pnpm web:test -- --include 'src/app/shared/ui/qty-stepper.spec.ts'`
 Expected: PASS, 7 tests.
 
-- [ ] **Step 7: Verify the golden rules**
+- [x] **Step 7: Verify the golden rules**
 
 Run from the repo root:
 ```bash
@@ -448,7 +448,7 @@ Expected: no matches.
 Run: `nvm use && pnpm web:lint && pnpm web:typecheck`
 Expected: both clean.
 
-- [ ] **Step 8: Stage, and present the commit for confirmation**
+- [x] **Step 8: Stage, and present the commit for confirmation**
 
 ```bash
 git add apps/web/src/app/shared/ui/qty-stepper.ts \
@@ -478,7 +478,7 @@ Plan: docs/superpowers/plans/2026-09-30-cart-add-quantity-morph.md
 - Consumes: nothing from Task 1.
 - Produces: on `CartStore`, `quantityByProduct: Signal<ReadonlyMap<string, number>>` and `quantityOf: Signal<(productId: string) => number>`. Task 3 reads `store.quantityOf()(id)`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `apps/web/src/app/core/cart/cart-store.spec.ts` as a new `describe` inside the existing top-level `describe('CartStore', ...)`. The file already provides `setup()`, `tick()` and `awaitCartRequest(controller, method)` — use them; do not add new helpers.
 
@@ -562,12 +562,12 @@ Append to `apps/web/src/app/core/cart/cart-store.spec.ts` as a new `describe` in
 
 Note the third test deliberately omits `controller.verify()`: `adjustQuantity` arms a 350ms debounce, so a PUT is still pending when the test ends and `verify()` would fail on it. The other three settle fully.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
-Run: `nvm use && pnpm web:test -- cart-store`
+Run: `nvm use && pnpm web:test -- --include 'src/app/core/cart/cart-store.spec.ts'`
 Expected: FAIL — `store.quantityOf is not a function`.
 
-- [ ] **Step 3: Add the index and the selector**
+- [x] **Step 3: Add the index and the selector**
 
 In `apps/web/src/app/core/cart/cart-store.ts`, inside the existing `withComputed(({ cart, pendingQuantities }) => { ... })`, after the `lines` computed and before the returned object:
 
@@ -601,12 +601,12 @@ and add to the returned object, beside `lines`:
       }),
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
-Run: `nvm use && pnpm web:test -- cart-store`
+Run: `nvm use && pnpm web:test -- --include 'src/app/core/cart/cart-store.spec.ts'`
 Expected: PASS, including the four new tests.
 
-- [ ] **Step 5: Stage, and present the commit for confirmation**
+- [x] **Step 5: Stage, and present the commit for confirmation**
 
 ```bash
 git add apps/web/src/app/core/cart/cart-store.ts apps/web/src/app/core/cart/cart-store.spec.ts
@@ -631,7 +631,7 @@ Plan: docs/superpowers/plans/2026-09-30-cart-add-quantity-morph.md
 - Consumes: nothing.
 - Produces: the class contract Task 4's template uses — a wrapper carrying `.qty-morph`, toggled with `.in-cart`, containing `.qty-morph__add`, `.qty-morph__stepper`, `.qty-morph__trace`, and a sibling `.in-cart-chip`.
 
-- [ ] **Step 1: Add the morph and chip rules**
+- [x] **Step 1: Add the morph and chip rules**
 
 Append to `apps/web/src/styles.css`, after the existing `@theme` blocks. These are component styles rather than tokens, so they live outside `@theme`.
 
@@ -781,7 +781,7 @@ Append to `apps/web/src/styles.css`, after the existing `@theme` blocks. These a
 }
 ```
 
-- [ ] **Step 2: Retarget the stale token comment**
+- [x] **Step 2: Retarget the stale token comment**
 
 In `apps/web/src/styles.css`, `--spacing-control-sm` is commented as the quantity stepper's HEIGHT. The stepper is now 40px tall and this token is its key WIDTH, so the comment would misdescribe it. Change:
 
@@ -801,12 +801,12 @@ grep -rn "control-sm" apps/web/src/app/shared/ui/saved-card-row.html
 ```
 Expected: one hit, using it for a square action button — unaffected by the rename of intent.
 
-- [ ] **Step 3: Verify the build compiles the new CSS**
+- [x] **Step 3: Verify the build compiles the new CSS**
 
 Run: `nvm use && pnpm web:build`
 Expected: success, and the initial-bundle budget not exceeded.
 
-- [ ] **Step 4: Stage, and present the commit for confirmation**
+- [x] **Step 4: Stage, and present the commit for confirmation**
 
 ```bash
 git add apps/web/src/styles.css
@@ -836,7 +836,7 @@ Plan: docs/superpowers/plans/2026-09-30-cart-add-quantity-morph.md
 - Consumes: `QtyStepper` from Task 1; `CartStore.quantityOf` from Task 2; the `.qty-morph` / `.in-cart-chip` classes from Task 3.
 - Produces: `ProductCard` with input `product: Product` and NO outputs.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `apps/web/src/app/shared/ui/product-card.spec.ts`. It drives the REAL `CartStore`, which is how every cart spec in this app works — see [[2026-09-04-angular-http-testing-traps]] for the fake-timers trap `flushDebounce` avoids.
 
@@ -854,6 +854,9 @@ import { PRODUCT, SCREEN_TEST_PROVIDERS, cart, cartLine } from '../testing/fixtu
 
 /** Comfortably past CartStore's 350ms quantity debounce. */
 const DEBOUNCE_ADVANCE_MS = 500;
+
+/** GET and PUT both land on this path, so one constant serves every expectation. */
+const CART_URL = '/v1/cart';
 
 /**
  * CONTRACT: Restore real timers before pumping. `settle()` awaits a `setTimeout`
@@ -885,17 +888,21 @@ describe('ProductCard', () => {
     TestBed.resetTestingModule();
   });
 
+  function root(): HTMLElement {
+    return fixture.nativeElement as HTMLElement;
+  }
+
   function render(product = PRODUCT): HTMLElement {
     fixture.componentRef.setInput('product', product);
     fixture.detectChanges();
-    return fixture.nativeElement as HTMLElement;
+    return root();
   }
 
   /** Seeds the store so the card sees a cart holding `quantity` of PRODUCT. */
   async function seedCart(quantity: number): Promise<void> {
     const store = TestBed.inject(CartStore);
     const loading = store.load();
-    const request = await awaitRequest(controller, (r) => r.url.endsWith('/cart'));
+    const request = await awaitRequest(fixture, controller, CART_URL);
     request.flush(
       cart([cartLine({ productId: PRODUCT.id, quantity, unitsInStock: PRODUCT.unitsInStock })]),
     );
@@ -904,11 +911,11 @@ describe('ProductCard', () => {
   }
 
   it('shows the Add button and no chip when the cart does not hold it', () => {
-    const root = render();
+    render();
 
-    expect(root.querySelector('[data-testid="product-card-add"]')).toBeTruthy();
-    expect(root.querySelector('.in-cart-chip.is-shown')).toBeNull();
-    expect(root.querySelector('.qty-morph.in-cart')).toBeNull();
+    expect(root().querySelector('[data-testid="product-card-add"]')).toBeTruthy();
+    expect(root().querySelector('.in-cart-chip.is-shown')).toBeNull();
+    expect(root().querySelector('.qty-morph.in-cart')).toBeNull();
   });
 
   it('shows the stepper and the chip once the cart holds it', async () => {
@@ -946,7 +953,7 @@ describe('ProductCard', () => {
     render({ ...PRODUCT, unitsInStock: 0 });
     const store = TestBed.inject(CartStore);
     const loading = store.load();
-    const request = await awaitRequest(controller, (r) => r.url.endsWith('/cart'));
+    const request = await awaitRequest(fixture, controller, CART_URL);
     request.flush(cart([cartLine({ productId: PRODUCT.id, quantity: 2, unitsInStock: 0 })]));
     await loading;
     fixture.detectChanges();
@@ -959,10 +966,10 @@ describe('ProductCard', () => {
   });
 
   it('shows Out of stock instead of the control when not held', () => {
-    const root = render({ ...PRODUCT, unitsInStock: 0 });
+    render({ ...PRODUCT, unitsInStock: 0 });
 
-    expect(root.textContent).toContain('Out of stock');
-    expect(root.querySelector('.qty-morph')).toBeNull();
+    expect(root().textContent).toContain('Out of stock');
+    expect(root().querySelector('.qty-morph')).toBeNull();
   });
 
   /**
@@ -975,7 +982,8 @@ describe('ProductCard', () => {
     vi.useFakeTimers();
     TestBed.inject(CartStore).add(PRODUCT.id);
     await flushDebounce(fixture);
-    const write = await awaitRequest(controller, (r) => r.method === 'PUT');
+    const write = await awaitRequest(fixture, controller, CART_URL);
+    expect(write.request.method).toBe('PUT');
     write.flush({ message: 'nope' }, { status: 500, statusText: 'Server Error' });
     await settle(fixture);
 
@@ -983,24 +991,21 @@ describe('ProductCard', () => {
     expect(root().querySelector('[data-testid="product-card-add"]')).toBeTruthy();
   });
 
-  function root(): HTMLElement {
-    return fixture.nativeElement as HTMLElement;
-  }
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
-Run: `nvm use && pnpm web:test -- product-card`
+Run: `nvm use && pnpm web:test -- --include 'src/app/shared/ui/product-card.spec.ts'`
 Expected: FAIL — no `.qty-morph` in the template and no `data-testid="product-card-add"`.
 
-- [ ] **Step 3: Update the component class**
+- [x] **Step 3: Update the component class**
 
 In `apps/web/src/app/shared/ui/product-card.ts`: add the `CartStore` injection and the derived signals, remove the `add` output, and add `QtyStepper` plus `LucideCheck`/`LucideTrash2` to `imports`.
 
 ```ts
 import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
-import { LucideCheck, LucideImageOff, LucideMinus, LucidePlus, LucideTrash2 } from '@lucide/angular';
+import { LucideCheck, LucideImageOff, LucidePlus } from '@lucide/angular';
 
 import { QtyStepper } from './qty-stepper';
 import { type Product, toInt } from '../../core/api/types';
@@ -1059,9 +1064,9 @@ export class ProductCard {
 }
 ```
 
-Update the decorator's `imports` to `[LucideCheck, LucideImageOff, LucideMinus, LucidePlus, LucideTrash2, QtyStepper]`, and extend the class doc comment to record that the card now reads the store (keep it under 12 lines, present tense).
+Update the decorator's `imports` to `[LucideCheck, LucideImageOff, LucidePlus, QtyStepper]` — Angular `imports` are PER-TEMPLATE, and `LucideMinus`/`LucideTrash2` are drawn by `qty-stepper.html`, which declares them itself; listing them here emits `NG8113: not used within the template`. Also extend the class doc comment to record that the card now reads the store (keep it under 12 lines, present tense).
 
-- [ ] **Step 4: Update the template**
+- [x] **Step 4: Update the template**
 
 In `apps/web/src/app/shared/ui/product-card.html`, add the chip inside the image block. Both image branches need it, so wrap the existing `@if (product().image; as image) { ... } @else { ... }` in a `relative` container and put the chip there once:
 
@@ -1132,7 +1137,7 @@ Then replace the price row's `@else` branch with the morph wrapper:
   </div>
 ```
 
-- [ ] **Step 5: Drop the removed output at the call site**
+- [x] **Step 5: Drop the removed output at the call site**
 
 In `apps/web/src/app/features/catalogue/home.html:86`, change:
 
@@ -1153,20 +1158,20 @@ grep -n "this.cart" apps/web/src/app/features/catalogue/home.ts
 ```
 Expected: no matches.
 
-- [ ] **Step 6: Adapt `home.spec.ts`**
+- [x] **Step 6: Adapt `home.spec.ts`**
 
 Run the suite first and read the failures rather than guessing which assertions moved:
 
-Run: `nvm use && pnpm web:test -- home`
+Run: `nvm use && pnpm web:test -- --include 'src/app/features/catalogue/home.spec.ts'`
 
 Fix only what broke because `addToCart` and the `(add)` binding are gone. Do not weaken an assertion to make it pass — if a test asserted the card emitted `add`, it now belongs in `product-card.spec.ts`, where Task 4 Step 1 already covers it.
 
-- [ ] **Step 7: Run the full suite**
+- [x] **Step 7: Run the full suite**
 
 Run: `nvm use && pnpm web:test`
 Expected: PASS, with the new `product-card` and `qty-stepper` files included.
 
-- [ ] **Step 8: Verify the golden rules**
+- [x] **Step 8: Verify the golden rules**
 
 ```bash
 grep -rnE '(bg|text|border)-\[#' apps/web/src/
@@ -1176,7 +1181,7 @@ Expected: no matches.
 Run: `nvm use && pnpm web:lint && pnpm web:typecheck && pnpm web:build`
 Expected: all clean, bundle budget respected.
 
-- [ ] **Step 9: Stage, and present the commit for confirmation**
+- [x] **Step 9: Stage, and present the commit for confirmation**
 
 ```bash
 git add apps/web/src/app/shared/ui/product-card.ts \
@@ -1209,7 +1214,7 @@ Plan: docs/superpowers/plans/2026-09-30-cart-add-quantity-morph.md
 - Consumes: `QtyStepper` from Task 1.
 - Produces: `CartLine` with its public API unchanged — inputs `line`, `readonlyQuantity`, `disabled`; outputs `increment`, `decrement`, `removed`. `cart-drawer.html` and `checkout-payment.html` are untouched.
 
-- [ ] **Step 1: Replace the inline stepper**
+- [x] **Step 1: Replace the inline stepper**
 
 In `apps/web/src/app/shared/ui/cart-line.html`, the `@else` branch currently holds a hand-built stepper. Replace the whole `@else { ... }` body with:
 
@@ -1229,7 +1234,7 @@ In `apps/web/src/app/shared/ui/cart-line.html`, the `@else` branch currently hol
 
 The `WHY:` comment about removal at quantity 1 moves with the behaviour — it now lives on `QtyStepper.onDecrease` (written in Task 1), so delete it here rather than duplicating it.
 
-- [ ] **Step 2: Update the imports**
+- [x] **Step 2: Update the imports**
 
 In `apps/web/src/app/shared/ui/cart-line.ts`, add `QtyStepper` and drop `LucideMinus` and `LucidePlus` (the template no longer draws them; `LucideTriangleAlert` stays for the unavailable badge):
 
@@ -1240,32 +1245,32 @@ import { QtyStepper } from './qty-stepper';
 
 and in the decorator: `imports: [LucideTriangleAlert, QtyStepper],`.
 
-- [ ] **Step 3: Run the cart-line suite and read the failures**
+- [x] **Step 3: Run the cart-line suite and read the failures**
 
-Run: `nvm use && pnpm web:test -- cart-line`
+Run: `nvm use && pnpm web:test -- --include 'src/app/shared/ui/cart-line.spec.ts'`
 
 Expect breakage only where a test reached into the old markup. Fix the selectors, not the assertions. The quantity test must keep resolving `[data-testid="cart-line-quantity"]`, which Task 1's template preserves.
 
-- [ ] **Step 4: Verify the drawer suite still passes untouched**
+- [x] **Step 4: Verify the drawer suite still passes untouched**
 
-Run: `nvm use && pnpm web:test -- cart-drawer`
+Run: `nvm use && pnpm web:test -- --include 'src/app/features/cart/cart-drawer.spec.ts'`
 Expected: PASS with NO edits to `cart-drawer.spec.ts`. That suite locates keys by `[aria-label="Increase quantity"]` and `[aria-label="Decrease quantity"]`, which Task 1 preserves verbatim.
 
 If it fails, the `aria-label` contract was broken in Task 1 — fix the stepper, not this spec.
 
-- [ ] **Step 5: Confirm the checkout summary is unaffected**
+- [x] **Step 5: Confirm the checkout summary is unaffected**
 
 `checkout-payment.html:480` mounts `<app-cart-line [line]="line" [readonlyQuantity]="true" />`, which renders the "Qty N" text branch and no stepper. So the 34px→40px growth touches the cart drawer only, not the Order Summary.
 
-Run: `nvm use && pnpm web:test -- checkout-payment`
+Run: `nvm use && pnpm web:test -- --include 'src/app/features/checkout/checkout-payment.spec.ts'`
 Expected: PASS, untouched.
 
-- [ ] **Step 6: Run the full gate**
+- [x] **Step 6: Run the full gate**
 
 Run: `nvm use && pnpm web:test && pnpm web:lint && pnpm web:typecheck && pnpm web:build`
 Expected: all clean.
 
-- [ ] **Step 7: Stage, and present the commit for confirmation**
+- [x] **Step 7: Stage, and present the commit for confirmation**
 
 ```bash
 git add apps/web/src/app/shared/ui/cart-line.html \
@@ -1292,7 +1297,7 @@ Plan: docs/superpowers/plans/2026-09-30-cart-add-quantity-morph.md
 - Consumes: nothing.
 - Produces: nothing code depends on. This closes the design/code gap Task 1 already implemented.
 
-- [ ] **Step 1: Read the current state of the key**
+- [x] **Step 1: Read the current state of the key**
 
 Over the Pencil MCP (`get_app_state` first, with all three flags, per [[pencil-design-extraction]]):
 
@@ -1302,7 +1307,7 @@ Print(JSON.stringify(Get("pZx5L", { resolveVariables: true }), null, 1));
 
 Expected: one `icon` child, `qt3sI`, `icon: "minus"`, `fill: "#6B7280"`.
 
-- [ ] **Step 2: Add the trash glyph beside the minus**
+- [x] **Step 2: Add the trash glyph beside the minus**
 
 ```js
 Insert("pZx5L", {
@@ -1323,7 +1328,7 @@ Then confirm both glyphs are present:
 Get("pZx5L", (n, ctx) => Print("  ".repeat(ctx.depth) + n.type + " " + n.id + " " + (n.icon ?? n.name)));
 ```
 
-- [ ] **Step 3: Ask the user to save, then verify on disk**
+- [x] **Step 3: Ask the user to save, then verify on disk**
 
 An MCP edit lives in the open editor's memory only. Tell the user the `.pen` needs saving in the desktop app, then verify:
 
@@ -1336,6 +1341,8 @@ echo "HEAD: $(git rev-parse HEAD:assets/web-app/web-app.pen)"
 Equal hashes mean the save has not landed — do NOT report this task done on the strength of the MCP call alone. See quirk 6 in [[pencil-design-extraction]].
 
 - [ ] **Step 4: Re-export the affected frames**
+
+`apps/web/design/exports/cart-line.html` ALREADY EXISTS and is tracked, so this step REPLACES a committed file rather than creating one. `product-card-add-to-cart-states.html` is likewise already tracked (committed in `6141f814`).
 
 ```js
 base = "/Users/josemartinez/Repositories/Personal/3-microservices-running-on-aws-infrastructure/apps/web/design/exports/";
