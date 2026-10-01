@@ -39,6 +39,10 @@ export class AppLayout {
   constructor() {
     this.socket.connect();
     void this.notifications.load();
+    // CONTRACT: The cart loads HERE, not only when the drawer opens. The header
+    // badge and every product card's stepper read it on first paint.
+    // See [[2026-09-30-cart-add-quantity-morph-design]]
+    void this.cart.load();
     inject(DestroyRef).onDestroy(() => this.socket.disconnect());
   }
 
