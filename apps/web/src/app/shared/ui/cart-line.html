@@ -27,36 +27,15 @@
       @if (readonlyQuantity()) {
         <span class="text-ink-secondary text-body-sm">Qty {{ quantity() }}</span>
       } @else {
-        <div
-          class="border-line-strong flex h-control-sm w-fit shrink-0 flex-row items-center justify-start rounded-lg border"
-        >
-          <!-- WHY: At quantity 1 this removes the line rather than disabling.
-               The server has no per-line DELETE, so a stepper that stops at 1
-               leaves no way to take an item out of the cart. -->
-          <button
-            type="button"
-            class="flex h-control-sm w-8 shrink-0 flex-row items-center justify-center disabled:opacity-40"
-            [disabled]="disabled()"
-            [attr.aria-label]="quantity() <= 1 ? 'Remove ' + name() : 'Decrease quantity'"
-            (click)="quantity() <= 1 ? removed.emit() : decrement.emit()"
-          >
-            <svg lucideMinus class="text-ink-secondary h-3.5 w-3.5"></svg>
-          </button>
-          <div class="flex h-control-sm w-stepper shrink-0 flex-row items-center justify-center">
-            <span data-testid="cart-line-quantity" class="text-ink-primary text-sm font-semibold">{{
-              quantity()
-            }}</span>
-          </div>
-          <button
-            type="button"
-            class="flex h-control-sm w-8 shrink-0 flex-row items-center justify-center disabled:opacity-40"
-            [disabled]="!canIncrement()"
-            aria-label="Increase quantity"
-            (click)="increment.emit()"
-          >
-            <svg lucidePlus class="text-ink-primary h-3.5 w-3.5"></svg>
-          </button>
-        </div>
+        <app-qty-stepper
+          [quantity]="quantity()"
+          [canIncrement]="canIncrement()"
+          [disabled]="disabled()"
+          [itemName]="name()"
+          (increment)="increment.emit()"
+          (decrement)="decrement.emit()"
+          (removed)="removed.emit()"
+        />
       }
       <!-- WHY: Guards on `subtotal` itself. Only an unknown_product line nulls
            it; a low-stock line is fully priced and shows its money. -->
