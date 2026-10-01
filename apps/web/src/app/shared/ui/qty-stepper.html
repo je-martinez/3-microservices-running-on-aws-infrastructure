@@ -1,0 +1,46 @@
+<div
+  class="border-line-strong bg-surface-white flex h-10 w-fit shrink-0 flex-row items-center justify-start rounded-lg border"
+>
+  <button
+    type="button"
+    data-testid="qty-decrease"
+    class="relative flex h-full w-control-sm shrink-0 flex-row items-center justify-center disabled:opacity-40"
+    [disabled]="disabled()"
+    [attr.aria-label]="decreaseLabel()"
+    (click)="onDecrease()"
+  >
+    <!-- WHY: Both glyphs stay mounted and cross-fade. Swapping the element
+         instead restarts the icon at full opacity, so the morph reads as a
+         flicker rather than a transition. -->
+    <svg
+      lucideTrash2
+      class="text-ink-secondary absolute h-4 w-4 transition-[opacity,transform] duration-150"
+      [class.opacity-0]="!isLast()"
+      [class.scale-50]="!isLast()"
+    ></svg>
+    <svg
+      lucideMinus
+      class="text-ink-secondary absolute h-4 w-4 transition-[opacity,transform] duration-150"
+      [class.opacity-0]="isLast()"
+      [class.-rotate-90]="isLast()"
+    ></svg>
+  </button>
+  <div
+    #counter
+    data-testid="cart-line-quantity"
+    aria-live="polite"
+    class="text-ink-primary relative h-full w-stepper shrink-0 overflow-hidden text-sm font-semibold"
+  >
+    <span class="absolute inset-0 flex items-center justify-center">{{ count() }}</span>
+  </div>
+  <button
+    type="button"
+    data-testid="qty-increase"
+    class="flex h-full w-control-sm shrink-0 flex-row items-center justify-center disabled:opacity-40"
+    [disabled]="disabled() || !canIncrement()"
+    aria-label="Increase quantity"
+    (click)="increment.emit()"
+  >
+    <svg lucidePlus class="text-ink-primary h-4 w-4"></svg>
+  </button>
+</div>
