@@ -4,7 +4,7 @@ type: runbook
 area: infra
 status: active
 created: 2026-07-10
-updated: 2026-09-30
+updated: 2026-10-02
 integration-status: n/a
 verified-on: null
 verified-by: null
@@ -13,6 +13,7 @@ related:
   - local-dev-floci
   - local-dev
   - git-workflow
+  - package-manager
 ---
 
 # MCP servers for local dev (drawio, pencil)
@@ -35,8 +36,8 @@ MCP servers for this repo are declared in `.mcp.json` at the repo root:
 {
   "mcpServers": {
     "drawio": {
-      "command": "npx",
-      "args": ["-y", "@drawio/mcp"]
+      "command": "pnpm",
+      "args": ["dlx", "@drawio/mcp"]
     },
     "pencil": {
       "command": "sh",
@@ -49,7 +50,9 @@ MCP servers for this repo are declared in `.mcp.json` at the repo root:
 }
 ```
 
-- **`drawio`** — `npx -y @drawio/mcp`, no secrets required.
+- **`drawio`** — `pnpm dlx @drawio/mcp`, no secrets required. The repo's package manager is
+  pnpm, never `npx` — see [[package-manager]]. `pnpm dlx` never prompts before running a
+  fetched package, so there is no `-y` equivalent.
 - **`pencil`** — a stdio server behind `scripts/pencil_mcp.py`, which resolves the Pen
   desktop binary per platform. Its optional `PENCIL_MCP_BIN` override lives in an env
   file (gitignored), never exported in a developer's shell profile.
@@ -119,4 +122,5 @@ set -a && [ -f .env ] && . ./.env; set +a; exec <server command>
 - [[local-dev-floci]]
 - [[local-dev]]
 - [[env-files]]
+- [[package-manager]]
 - [[git-workflow]]
