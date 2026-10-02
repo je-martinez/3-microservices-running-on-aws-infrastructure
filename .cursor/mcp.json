@@ -1,9 +1,9 @@
 {
   "mcpServers": {
     "drawio": {
-      "command": "npx",
+      "command": "pnpm",
       "args": [
-        "-y",
+        "dlx",
         "@drawio/mcp"
       ]
     },

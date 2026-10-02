@@ -7,8 +7,8 @@
     "drawio": {
       "type": "local",
       "command": [
-        "npx",
-        "-y",
+        "pnpm",
+        "dlx",
         "@drawio/mcp"
       ]
     },

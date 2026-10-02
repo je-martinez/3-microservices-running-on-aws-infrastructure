@@ -1,6 +1,6 @@
 [mcp_servers.drawio]
-command = "npx"
-args = ["-y", "@drawio/mcp"]
+command = "pnpm"
+args = ["dlx", "@drawio/mcp"]
 
 [mcp_servers.pencil]
 command = "sh"

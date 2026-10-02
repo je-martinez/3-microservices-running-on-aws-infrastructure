@@ -1,9 +1,13 @@
 {
   // For more information, visit: https://angular.dev/ai/mcp
+  // CONTRACT: launch the Angular CLI pinned in apps/web/package.json, never
+  // `npx`/`pnpm dlx` — those fetch whatever @angular/cli is latest, so the MCP
+  // server can disagree with the app's Angular version. See [[package-manager]]
   "servers": {
     "angular-cli": {
-      "command": "npx",
-      "args": ["-y", "@angular/cli", "mcp"]
+      "type": "stdio",
+      "command": "pnpm",
+      "args": ["--dir", "${workspaceFolder}", "exec", "ng", "mcp"]
     }
   }
 }

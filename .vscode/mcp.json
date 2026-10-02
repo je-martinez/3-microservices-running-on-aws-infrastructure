@@ -3,9 +3,9 @@
   "servers": {
     "drawio": {
       "type": "stdio",
-      "command": "npx",
+      "command": "pnpm",
       "args": [
-        "-y",
+        "dlx",
         "@drawio/mcp"
       ]
     },
