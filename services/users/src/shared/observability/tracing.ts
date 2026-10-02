@@ -57,7 +57,7 @@ const sdk = new NodeSDK({
 
 // CONTRACT: Register Prisma's own instrumentation HERE, before the first
 // PrismaClient is constructed — it is absent from getNodeAutoInstrumentations, and
-// registering it from the Awilix container patches nothing, silently, leaving the
+// registering it from a Nest provider patches nothing, silently, leaving the
 // DB layer with zero spans. Do NOT add a BasicTracerProvider or context manager as
 // @prisma/instrumentation's README does: NodeSDK above already owns both.
 // See [[logging-context]]

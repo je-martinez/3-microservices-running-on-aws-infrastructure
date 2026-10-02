@@ -8,7 +8,7 @@ import { AuditActor } from "#shared/audit/audit-actor";
 import { appLogger } from "#shared/logging/app-logger";
 import { ME_KEY_PREFIX, meCacheKey } from "#shared/cache/cache-keys";
 
-// Constructor-injected from the Awilix cradle (PROXY injection mode).
+// Built by a `useFactory` provider in users.module.ts, which passes the deps object.
 // Soft-deletes (never hard-deletes) every user tagged "E2E Source".
 // `stripe` is OPTIONAL: this command exists whenever E2E_TESTING_ENABLED is
 // set, independent of STRIPE_ENABLED, so a caller with no Stripe wiring at

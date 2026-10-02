@@ -68,7 +68,7 @@ export class NoMatchingUserError extends Error {
 // two ways: over HTTP from the prod Lambda shim, and in-process from register()
 // when NODE_ENV !== "production". Nothing here knows about HTTP.
 //
-// Constructor-injected from the Awilix cradle (PROXY injection mode).
+// Built by a `useFactory` provider in users.module.ts, which passes the deps object.
 export class CaptureCognitoIdentityCommand {
   private readonly db: Db;
 
