@@ -75,6 +75,104 @@ respond `BYPASS`, log `WARN` with `app_event=cache_unavailable` and a machine-re
 `reason` per [[logging-context]]. A cache-write failure never affects the response. The cache
 may never break or degrade a read.
 
+> [!warning] Corrected 2026-08-26 — a corrupt entry is classified differently per service
+> This rule reads as uniform ("respond `BYPASS`" on any failure), but a corrupt/unparseable
+> cache entry is treated three different ways as shipped: Tracking answers `MISS` (not
+> `BYPASS`) and logs `app_event=cache_entry_unreadable`
+> (`services/tracking-go/internal/adapter/redis/gateway.go`); Users answers `BYPASS`
+> (`services/users/src/shared/cache/cache-gateway.ts:87-93`); Orders answers `MISS` for a
+> deserialized `null` but `BYPASS` for a thrown deserialization error
+> (`services/orders/src/Orders.Infrastructure/Caching/CacheGateway.cs:73-97`). All three are
+> individually defensible under fail-open, but a dashboard assuming one classification will
+> misattribute corrupt-entry noise. Full detail:
+> [[2026-08-25-response-caching-layer-design#Observability]].
+
+## Kill switch
+
+`CACHE_ENABLED`, per service, sourced from the generated env file (see [[env-files]]). When
+`false` the interceptor is skipped entirely and no `X-Cache` header is emitted.
+
+## Cacheability rules
+
+- Only `GET` routes are ever cached; `POST`/`PUT`/`PATCH`/`DELETE` never are.
+- Only `200` responses populate the cache.
+- Every key carries an identity segment and `user_id` unless the resource has no owner (e.g.
+  the product catalog), following [[current-caller-context]]. **The identity segment is the
+  raw `x-user-id` header value, not necessarily a canonical `cognito_sub`** — see the danger
+  callout above and [[2026-08-26-cache-keys-built-from-a-raw-identity-header]].
+- `/v1/health` and every `e2e-*` endpoint are excluded from caching.
+
+## Identity-mapping cache (Orders and Tracking only)
+
+Because response keys carry `user_id`, the `cognito_sub -> user_id` resolution has to run
+**before** the response key can be built — including on what would otherwise be a fast cache
+hit. Orders and Tracking (not Users, which needs no resolution) also cache that mapping itself
+under its own key prefix, consulted before the response key is built:
+
+| Key | TTL | Invalidation |
+|---|---|---|
+| `identity:sub-to-user:v1:{identity}` | 1 h | TTL, plus explicit invalidation on account deletion. See below. |
+
+> [!warning] Corrected 2026-08-26 — no longer TTL-only
+> When this convention was written, no account-deletion flow existed anywhere in the repo, so
+> TTL was the only bound (reasoning preserved below). It shipped from the account-deletion
+> milestone and now invalidates this key explicitly:
+> `services/tracking-go/internal/adapter/redis/user_invalidator.go` (`UserInvalidator.InvalidateUser`,
+> called from `internal/app/delete_by_user.go`) and
+> `services/orders/src/Orders.Infrastructure/Caching/CacheInvalidator.cs:92-93`
+> (`InvalidateDeletedUserAsync`, called from `InternalEndpoints.cs:296`) both delete
+> `CacheKeys.identity(...)` for the deleted account, for **both** the caller's raw-header
+> identity and their resolved `user_id` — sweeping only the canonical identity was tried first
+> and missed keys written under the other alias; see
+> [[2026-08-26-cache-keys-built-from-a-raw-identity-header]]. TTL remains the fallback for
+> everything that isn't a deletion.
+
+**Originally: invalidated by TTL only** (superseded above). No event in this repo needed
+to trigger an early invalidation for a *non-deleted* account: Users' Cognito webhook accepts
+only `PostConfirmation_ConfirmSignUp`/`PostConfirmation_ConfirmForgotPassword`
+(`services/users/src/features/users/webhooks/cognito-payload.ts:18-21`), and — at the time —
+no account-deletion flow existed anywhere in the repo outside the E2E-only
+`E2eCleanupCommand` (`services/users/src/features/users/http/e2e-cleanup.ts:7`). Because the
+mapping is effectively immutable, a stale entry cannot serve a *wrong* answer for an existing
+account, only a momentarily-late one; the 1h TTL still bounds every case except deletion, which
+is now covered explicitly rather than waiting out the hour. Full rationale, the account-deletion
+cascade as shipped, and the raw-identity-header trap it fell into:
+[[2026-08-25-response-caching-layer-design]].
+
+Same fail-open contract as the response cache (50ms timeout, fall back to gRPC/DB on miss or
+error). Its hit-rate reports under its own `KeyPrefix` dimension
+(`identity:sub-to-user:v1`) on `cache_requests_total` and must never be averaged together with
+response-cache hit-rates — the two measure different things.
+
+## Per-user key index
+
+Orders and Tracking each keep a Redis SET of a caller's live response-cache keys, so an
+invalidation with a variable-suffix key (`t0`/`t1`, an `order_ids` hash) can be swept without
+`KEYS`/`SCAN`. TTL is 1h — longer than every response TTL it guards, so the index cannot expire
+before an entry it points at.
+
+| Service | Key shape | TTL |
+|---|---|---|
+| Orders | `orders:index:v1:{sub}` (one segment) | 1 h |
+| Tracking | `tracking:index:v1:{sub}:{user_id}` (two segments) | 1 h |
+
+Users has no index: it caches exactly one route (`GET /v1/users/me`), so a single explicit key
+invalidation is enough. **This index was required by the design from the start but was missing
+from this convention's key tables — added 2026-08-26.** Full rationale:
+[[2026-08-25-response-caching-layer-design]].
+
+## Metrics
+
+Published via each service's existing CloudWatch metrics publisher (Orders'
+`IMetricsPublisher`, Users' `MetricsPublisher`, Tracking's `MetricsPublisher` Protocol) under
+the shared `3MRAI` namespace — **not** an OTel metrics pipeline; none of the three services
+runs one today (`OTEL_METRICS_EXPORTER=none` in every generated env). `cache_requests_total`
+carries CloudWatch dimensions `Service`, `KeyPrefix` (prefix only — never a full key, which
+would explode cardinality and leak `cognito_sub`/`user_id`), `Result`; `cache_operation_duration_ms`
+carries `Service`, `Operation`; its unit differs per service (see the callout below). These publishers must not throw — a
+metrics failure must never break a cached read. Full rationale:
+[[2026-08-25-response-caching-layer-design]].
+
 > [!warning] Corrected 2026-08-26, re-checked 2026-10-02 — dimension VALUES and units diverge per service
 > `Result` and `Operation` are not shared enums across the three services, and
 > `cache_requests_total` is not published on every operation in every service.
