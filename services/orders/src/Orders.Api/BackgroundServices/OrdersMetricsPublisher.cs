@@ -79,26 +79,12 @@ public class OrdersMetricsPublisher : BackgroundService
             new Dictionary<string, object?> { ["app_event"] = "metrics_tick_started" },
             async () =>
             {
-                // OrdersReadDbContext is registered SCOPED, so a singleton hosted
-                // service must open its own scope per tick.
-                using var scope = _scopeFactory.CreateScope();
-                var db = scope.ServiceProvider.GetRequiredService<OrdersReadDbContext>();
-
-                // The global query filter (o => o.DeletedAt == null) applies
-                // automatically — no Where() needed, and never filter on IsDeleted,
-                // which is a computed property EF cannot translate.
-                var total = await db.Orders.AsNoTracking().CountAsync(stoppingToken);
-
-                await _metrics.PublishAsync(
-                    "orders_total",
-                    total,
-                    new Dictionary<string, string> { ["Service"] = "orders" },
-                    stoppingToken);
-
-                // CONTRACT: Seed the failure counters at zero. http_errors_total is emitted
-                // from the error path only, so until something fails the series does not
-                // exist and its panel renders "Error Loading Data" — a healthy system reads
-                // as broken. The zero is free: CloudWatch sums within a period.
+                // CONTRACT: Publish every zero seed BEFORE the DB read, which runs last via
+                // PublishOrdersTotalAsync. Do NOT read the DB first: a failed read throws out
+                // of the tick, and every seed after it goes missing with it. http_errors_total
+                // is emitted from the error path only, so until something fails the series
+                // does not exist and its panel renders "Error Loading Data" — a healthy system
+                // reads as broken. The zero is free: CloudWatch sums within a period.
                 foreach (var statusClass in new[] { "4xx", "5xx" })
                 {
                     await _metrics.PublishAsync(
@@ -140,6 +126,7 @@ public class OrdersMetricsPublisher : BackgroundService
                 // log lookup return anything. It also states WHAT went out — "the tick
                 // ran" alone would not distinguish a healthy publish from one that
                 // shipped a zero because the count silently matched nothing.
+                var total = await PublishOrdersTotalAsync(stoppingToken);
                 _tracer.SetAttribute("app_event", "metrics_tick_succeeded");
                 _tracer.SetAttribute("orders_total", total);
                 _logger.LogInformation(
@@ -149,4 +136,25 @@ public class OrdersMetricsPublisher : BackgroundService
                 // report, so it returns a discarded placeholder.
                 return true;
             });
+
+    private async Task<int> PublishOrdersTotalAsync(CancellationToken stoppingToken)
+    {
+        // OrdersReadDbContext is registered SCOPED, so a singleton hosted
+        // service must open its own scope per tick.
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<OrdersReadDbContext>();
+
+        // The global query filter (o => o.DeletedAt == null) applies
+        // automatically — no Where() needed, and never filter on IsDeleted,
+        // which is a computed property EF cannot translate.
+        var total = await db.Orders.AsNoTracking().CountAsync(stoppingToken);
+
+        await _metrics.PublishAsync(
+            "orders_total",
+            total,
+            new Dictionary<string, string> { ["Service"] = "orders" },
+            stoppingToken);
+
+        return total;
+    }
 }

@@ -21,7 +21,8 @@ namespace Orders.Tests.Observability;
 /// </summary>
 public class OrdersMetricsPublisherTracingTests
 {
-    private sealed record Publication(string Name, double Value, Activity? Activity);
+    private sealed record Publication(
+        string Name, double Value, string Dimensions, Activity? Activity);
 
     private sealed class RecordingMetricsPublisher : IMetricsPublisher
     {
@@ -33,7 +34,11 @@ public class OrdersMetricsPublisherTracingTests
             IReadOnlyDictionary<string, string> dimensions,
             CancellationToken cancellationToken = default)
         {
-            Published.Add(new Publication(name, value, Activity.Current));
+            Published.Add(new Publication(
+                name,
+                value,
+                string.Join(",", dimensions.OrderBy(d => d.Key).Select(d => $"{d.Key}={d.Value}")),
+                Activity.Current));
             return Task.CompletedTask;
         }
     }
@@ -74,6 +79,17 @@ public class OrdersMetricsPublisherTracingTests
         db.SaveChanges();
 
         return provider;
+    }
+
+    // WHY: A real Pomelo context aimed at a closed port, so the failure is the one
+    // production sees — CountAsync throwing on connect — not a stubbed exception.
+    private static ServiceProvider BuildUnreachableDbProvider()
+    {
+        var services = new ServiceCollection();
+        services.AddDbContext<OrdersReadDbContext>(o => o.UseMySql(
+            "Server=127.0.0.1;Port=1;Database=orders;User=orders;Password=x;Connection Timeout=2",
+            new MySqlServerVersion(new Version(8, 0, 36))));
+        return services.BuildServiceProvider();
     }
 
     private static IConfiguration EmptyConfig() =>
@@ -146,6 +162,57 @@ public class OrdersMetricsPublisherTracingTests
         // TagObjects, not Tags: Activity.Tags only surfaces string values, and the
         // count is set as an int (OTel's numeric attribute type).
         Assert.Contains(span.TagObjects, t => t.Key == "orders_total" && (int?)t.Value == 3);
+    }
+
+    [Fact]
+    public async Task Tick_PublishesEverySeedAtZero_WhenTheDbReadFails()
+    {
+        var recorded = new List<Activity>();
+        using var listener = ListenerFor(recorded);
+        ActivitySource.AddActivityListener(listener);
+
+        // CONTRACT: The expected seeds come from a healthy tick, not a hard-coded list, so
+        // a seed added to the tick later is covered here without editing this test.
+        using var healthyProvider = BuildProvider(
+            nameof(Tick_PublishesEverySeedAtZero_WhenTheDbReadFails), orderCount: 1);
+        var healthy = new RecordingMetricsPublisher();
+        await new OrdersMetricsPublisher(
+            healthyProvider.GetRequiredService<IServiceScopeFactory>(),
+            healthy,
+            new WorkflowTracer(),
+            new SpanScopedLogger<OrdersMetricsPublisher>(),
+            EmptyConfig()).CollectAndPublishAsync(CancellationToken.None);
+        var expectedSeeds = healthy.Published
+            .Where(p => p.Name != "orders_total")
+            .Select(p => (p.Name, p.Dimensions))
+            .ToHashSet();
+        Assert.NotEmpty(expectedSeeds);
+        recorded.Clear();
+
+        using var failingProvider = BuildUnreachableDbProvider();
+        var metrics = new RecordingMetricsPublisher();
+        var logger = new SpanScopedLogger<OrdersMetricsPublisher>();
+        var publisher = new OrdersMetricsPublisher(
+            failingProvider.GetRequiredService<IServiceScopeFactory>(),
+            metrics,
+            new WorkflowTracer(),
+            logger,
+            EmptyConfig());
+
+        // The read failure still reaches the caller, so ExecuteAsync logs it and the span
+        // comes out ERROR exactly as for any other failed tick.
+        var thrown = await Assert.ThrowsAnyAsync<Exception>(
+            () => publisher.CollectAndPublishAsync(CancellationToken.None));
+        var span = Assert.Single(recorded);
+        Assert.Equal(ActivityStatusCode.Error, span.Status);
+        Assert.Equal(thrown.Message, span.StatusDescription);
+        Assert.Empty(logger.Entries);
+
+        Assert.DoesNotContain(metrics.Published, p => p.Name == "orders_total");
+        Assert.All(metrics.Published, p => Assert.Equal(0, p.Value));
+        Assert.Equal(
+            expectedSeeds,
+            metrics.Published.Select(p => (p.Name, p.Dimensions)).ToHashSet());
     }
 
     [Fact]
