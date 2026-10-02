@@ -20,6 +20,8 @@ propagates-to:
   - "[[floci-storage-modes-and-tmp-corruption]]"
   - "[[floci-vs-ministack-spike-findings]]"
 related:
+  - "[[2026-10-02-dev-stack-floci-2-1]]"
+  - "[[2026-10-02-floci-preprod-environment]]"
   - "[[local-dev-floci]]"
   - "[[local-dev]]"
   - "[[aws-resources]]"
@@ -320,3 +322,5 @@ Floci 2.1.0 findings (claims→header works, SIGKILL persistence fix, lazy ECS r
 - [[ADR-0019-distributed-tracing-opentelemetry]]
 - [[testing]]
 - [[git-workflow]]
+- [[2026-10-02-dev-stack-floci-2-1]]
+- [[2026-10-02-floci-preprod-environment]]
