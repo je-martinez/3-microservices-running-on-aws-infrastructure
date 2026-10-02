@@ -392,9 +392,10 @@ cd services/users && sed -n '337,344p' src/features/users/http/routes.ts
 
 Expected: the handler returns `{ status: "ok" }`. **If it returns anything else, use that exact body in the test above** — the E2E specs assert on it and this plan must not change the contract.
 
-- [ ] **Step 3: Run the test to verify it fails**
+- [x] **Step 3: Run the test to verify it fails**
 
-> [!note] Depends on the missing health test (Step 1).
+> [!note] Satisfied by two files; the path is `tests/shared/`, not `tests/nest/`
+> Run as `pnpm exec vitest run tests/shared/shared-modules.test.ts`; the test was verified by removing a provider and an export, each of which fails it.
 
 ```bash
 cd services/users && nvm use && pnpm exec vitest run tests/nest/health.test.ts
@@ -571,10 +572,10 @@ Every later handler injects from these. They wrap the **existing** `src/shared/`
   - `REDIS` → `RedisClient`
   - `ResetCodeStore`, `CacheGateway`, `MetricsPublisher`, `BusinessMetricsPoller`, `CascadeClient`, `WebsocketPublisher` — injected **by type**, no token.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
-> [!note] Partly done late (2026-10-02) in `services/users/tests/boot-smoke.test.ts`; the plan's `tests/nest/` path does not exist
-> The "does NOT start the business-metrics poller" assertion is done there (it boots through `createNestApp()` rather than `Test.createTestingModule()`, and checks the poller's `timer` is undefined after `init()`), and `MetricsPublisher` and `BusinessMetricsPoller` resolve. **Still absent:** the `DB`, `AUTH_PROVIDER`, `EVENT_PUBLISHER`, `REDIS`, `CacheGateway`, `ResetCodeStore` and `CascadeClient` resolution checks, and the separate `shared-modules.test.ts` file. `tests/shared/metrics/metrics-module.test.ts` (PR #91) covers the poller provider only.
+> [!note] Satisfied by two files; the path is `tests/shared/`, not `tests/nest/`
+> `services/users/tests/shared/shared-modules.test.ts` compiles `AppModule` offline and resolves `DB`, `AUTH_PROVIDER`, `EVENT_PUBLISHER`, `REDIS`, `CacheGateway`, `ResetCodeStore`, `MetricsPublisher`, `BusinessMetricsPoller` and `CascadeClient` (9 tests). `services/users/tests/boot-smoke.test.ts` asserts the poller is NOT started after `init()`. The plan's `tests/nest/` directory does not exist; the shared-modules test lives under `tests/shared/`.
 
 Create `services/users/tests/nest/shared-modules.test.ts`:
 
@@ -924,10 +925,10 @@ import { HealthController } from "./health/health.controller.ts";
 export class AppModule {}
 ```
 
-- [ ] **Step 11: Run the test to verify it passes**
+- [x] **Step 11: Run the test to verify it passes**
 
-> [!note] Partly done late (2026-10-02)
-> `tests/nest/shared-modules.test.ts` does not exist, so this command cannot run as written. The poller assertions it would run are covered by `services/users/tests/boot-smoke.test.ts` (3 tests, not 2); the other shared-provider checks from Step 1 remain absent.
+> [!note] Satisfied by two files; the path is `tests/shared/`, not `tests/nest/`
+> `services/users/tests/shared/shared-modules.test.ts` compiles `AppModule` offline and resolves `DB`, `AUTH_PROVIDER`, `EVENT_PUBLISHER`, `REDIS`, `CacheGateway`, `ResetCodeStore`, `MetricsPublisher`, `BusinessMetricsPoller` and `CascadeClient` (9 tests). `services/users/tests/boot-smoke.test.ts` asserts the poller is NOT started after `init()`. The plan's `tests/nest/` directory does not exist; the shared-modules test lives under `tests/shared/`.
 
 ```bash
 cd services/users && nvm use && pnpm exec vitest run tests/nest/shared-modules.test.ts
