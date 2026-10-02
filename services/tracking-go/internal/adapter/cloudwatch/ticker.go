@@ -70,8 +70,8 @@ func SplitStatusCounts(raw map[string]int64) (delivered, inProgress int64) {
 // before the first interval yields only an unactionable failure line.
 //
 // CONTRACT: ctx must be the process-lifetime context, never a request's, which
-// is cancelled when its response is sent. A per-tick failure is swallowed —
-// a blip costs one datapoint, not the process's metrics.
+// is cancelled when its response is sent. A failed status query is swallowed —
+// a blip costs that tick's status series, never its seeds or later ticks.
 // See [[logging-context]]
 func RunTicker(ctx context.Context, p Publisher, counts StatusCounter, seeds []Series, interval time.Duration, log *slog.Logger) {
 	if interval <= 0 {
@@ -90,7 +90,7 @@ func RunTicker(ctx context.Context, p Publisher, counts StatusCounter, seeds []S
 	}
 }
 
-// publishTick runs one tick's query and its publishes inside a metrics-tick span.
+// publishTick runs one tick's seeds, query and publishes inside a metrics-tick span.
 //
 // CONTRACT: Keep the wrapping span. Without it every tick's SQL and AWS spans
 // reach the backend as their OWN root traces, burying real request traces under
@@ -100,6 +100,8 @@ func RunTicker(ctx context.Context, p Publisher, counts StatusCounter, seeds []S
 func publishTick(ctx context.Context, p Publisher, counts StatusCounter, seeds []Series, log *slog.Logger) {
 	ctx, end := tracing.WorkflowSpan(ctx, "metrics-tick",
 		attribute.String("app_event", "metrics_tick_started"))
+
+	publishSeeds(ctx, p, seeds)
 
 	raw, err := counts.CountByStatus(ctx)
 	if err != nil {
@@ -122,7 +124,16 @@ func publishTick(ctx context.Context, p Publisher, counts StatusCounter, seeds [
 	p.Publish(ctx, MetricOrdersByStatus, float64(delivered+inProgress),
 		[][2]string{{"Service", ServiceDimension}, {"Status", StatusAll}})
 
-	// Seeded at zero so a panel renders "no errors" rather than an error.
+	end(nil)
+}
+
+// publishSeeds publishes every zero seed for one tick: the http_errors_total
+// classes and the caller's seeds.
+//
+// CONTRACT: Call it BEFORE the status query and never behind its error. A seed
+// gated on the database stops during an outage, and its panel reads "Error
+// Loading Data" exactly when an http_errors_total or cache card must keep working.
+func publishSeeds(ctx context.Context, p Publisher, seeds []Series) {
 	for _, class := range httpErrorClasses {
 		p.Publish(ctx, MetricHTTPErrors, 0,
 			[][2]string{{"Service", ServiceDimension}, {"StatusClass", class}})
@@ -130,6 +141,4 @@ func publishTick(ctx context.Context, p Publisher, counts StatusCounter, seeds [
 	for _, seed := range seeds {
 		p.Publish(ctx, seed.Name, 0, seed.Dimensions)
 	}
-
-	end(nil)
 }
