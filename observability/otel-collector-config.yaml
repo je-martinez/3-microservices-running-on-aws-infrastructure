@@ -273,9 +273,9 @@ receivers:
         # cache, near 100% hit-rate by design. Never sum it with the response-cache
         # prefixes, and keep bypass out of every hit-rate denominator.
 
-        # cache_requests_total. Only Users seeds zeros, so the Orders and Tracking
-        # series exist only while their routes take traffic. Users' bypass also
-        # counts failed cache writes, not only failed reads.
+        # cache_requests_total. Every service seeds a 0 per (KeyPrefix, Result)
+        # on each metrics tick, so a quiet window reads 0 rather than empty.
+        # Users' bypass also counts failed cache writes, not only failed reads.
         - namespace: "3MRAI"
           metric_name: "cache_requests_total"
           dimensions: { Service: users, KeyPrefix: "users:me:v1", Result: hit }
@@ -390,7 +390,6 @@ receivers:
         # the per-window mean; SampleCount weights it when a panel spans several
         # windows (an unweighted mean of means is wrong); Maximum is the tail. No
         # pNN: extended statistics return no data unless the metric enables them.
-        # WARNING: Users' `del` series carries only FAILED invalidations, at 0ms.
         - namespace: "3MRAI"
           metric_name: "cache_operation_duration_ms"
           dimensions: { Service: users, Operation: get }
