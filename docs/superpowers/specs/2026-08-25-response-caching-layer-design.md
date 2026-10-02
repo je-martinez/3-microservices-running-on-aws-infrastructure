@@ -37,6 +37,9 @@ A shared-Redis, HTTP-layer response cache across all three 3MRAI services (Users
 Orders/.NET Minimal APIs, Tracking/FastAPI), reporting hit/miss/bypass via an `X-Cache`
 response header (see [http.dev/x-cache](https://http.dev/x-cache)).
 
+> [!note] Tracking paths updated 2026-10-02
+> Tracking was rewritten in Go. File:line citations outside the Observability metrics callout now point at `services/tracking-go/internal/...`. The Python-era wording around them (`FastAPI`, `redis-py`) is historical.
+
 ## Context
 
 Redis/Valkey already exists in this repo: `infra/modules/redis` provisions an ElastiCache
@@ -180,9 +183,9 @@ provide. The response-caching layer described above does not, by itself, cache g
 > staleness. The account-deletion milestone ([[2026-08-25-account-deletion-design]],
 > [[account-deletion-milestone]]) shipped `DELETE /v1/users/me` and, as part of its own
 > cascade, added the invalidation this section said could not exist:
-> `services/tracking/src/shared/cache/invalidation.py:213-214` deletes
-> `CacheKeys.identity(identifier)`, called from
-> `services/tracking/src/features/tracking/api/internal_router.py:165-171`; Orders does the
+> `services/tracking-go/internal/adapter/redis/invalidation.go:88` deletes
+> `IdentityKey(identifier)`, called from
+> `services/tracking-go/internal/app/delete_by_user.go:92`; Orders does the
 > same in `services/orders/src/Orders.Infrastructure/Caching/CacheInvalidator.cs:92-93`
 > (`InvalidateDeletedUserAsync`), called from
 > `services/orders/src/Orders.Api/Endpoints/InternalEndpoints.cs:296`. **The reasoning below
@@ -227,7 +230,7 @@ DTO shape changes.
 > the client sent. Users' `GetUserById` resolves either a Cognito sub or an internal `usr_` id,
 > and clients legitimately send either (the E2E suite sends the `usr_` id on the direct path).
 > The same person can therefore produce two different cache keys depending on which identifier
-> they authenticate with. See `services/tracking/src/shared/cache/keys.py:11-30` and `:101-111`,
+> they authenticate with. See `services/tracking-go/internal/adapter/redis/keys.go:35-65`,
 > `services/orders/src/Orders.Infrastructure/Caching/CacheKeys.cs:32-42`, and
 > [[2026-08-26-cache-keys-built-from-a-raw-identity-header]] for the incident this false premise
 > caused: a canonical-identity deletion cascade silently missed keys written under the other
@@ -291,7 +294,7 @@ per endpoint, so the two effects are visible separately.
 | `ChangePasswordCommand`, `ConfirmPasswordResetCommand` | `users:me:v1:{sub}:{user_id}` |
 | `E2eEndpoints` restock (Orders, E2E-only) | `orders:products:v1` only, via `InvalidateProductsAsync` — restocking a drained catalogue after an E2E run leaves per-user entries alone, since the endpoint has no caller identity to sweep by (`services/orders/src/Orders.Api/Endpoints/E2eEndpoints.cs:102`). **Missing from the original matrix — added 2026-08-26 (A2/B5).** |
 | Users E2E cleanup (`E2eCleanupCommand`) | `users:me:v1:{sub}:{user_id}` for every soft-deleted E2E row, via `invalidate(ME_KEY_PREFIX, ...keys)` (`services/users/src/features/users/http/e2e-cleanup.ts:63`). **Missing from the original matrix — added 2026-08-26 (A2/B5).** |
-| Account-deletion cascade (all three services) | `identity:sub-to-user:v1:{identity}` for both identity aliases plus each service's per-user index, from `services/users/src/features/users/commands/delete-account.ts:179` (profile key), `services/orders/src/Orders.Api/Endpoints/InternalEndpoints.cs:296` (`InvalidateDeletedUserAsync`), and `services/tracking/src/features/tracking/api/internal_router.py:165` (`invalidate_user`). **Missing from the original matrix — added 2026-08-26 (A2/B5); see [Account-deletion cascade](#account-deletion-cascade-landed-2026-08-26) for the raw-identity-header trap this cascade fell into and fixed.** |
+| Account-deletion cascade (all three services) | `identity:sub-to-user:v1:{identity}` for both identity aliases plus each service's per-user index, from `services/users/src/features/users/commands/delete-account.ts:179` (profile key), `services/orders/src/Orders.Api/Endpoints/InternalEndpoints.cs:296` (`InvalidateDeletedUserAsync`), and `services/tracking-go/internal/adapter/redis/invalidation.go:72` (`InvalidateUser`). **Missing from the original matrix — added 2026-08-26 (A2/B5); see [Account-deletion cascade](#account-deletion-cascade-landed-2026-08-26) for the raw-identity-header trap this cascade fell into and fixed.** |
 
 The password-change row exists because both commands also mutate `mustChangePassword`, which
 is part of `UserSchema` and therefore part of the cached `GET /v1/users/me` body — not because
@@ -341,7 +344,7 @@ cascade this spec had predicted:
   `services/users/src/features/users/commands/delete-account.ts:179` (the profile key),
   `services/orders/src/Orders.Api/Endpoints/InternalEndpoints.cs:296`
   (`InvalidateDeletedUserAsync`), and
-  `services/tracking/src/features/tracking/api/internal_router.py:165` (`invalidate_user`).
+  `services/tracking-go/internal/adapter/redis/invalidation.go:72` (`InvalidateUser`).
 - Deletes that user's response-cache entries via the per-user key index each service already
   needed for the `my-orders`/tracking-list sweep — the same index drives both cleanups, per the
   prediction above.
@@ -453,7 +456,7 @@ normalize-at-write):
    > names three states — `HIT`/`MISS`/`BYPASS` — plus "no header = cache disabled". A caller
    > whose `user_id` cannot be resolved is a distinct, real case the header contract never
    > named, and the three services disagree on how to report it:
-   > - **Tracking** stamps `X-Cache: MISS` (`services/tracking/src/features/tracking/api/trackings_router.py:184-185`, guarded by `if key is None`).
+   > - **Tracking** stamps `X-Cache: MISS` (`services/tracking-go/internal/adapter/http/handler_reads.go:245-247`, guarded by `if !keyable`).
    > - **Orders** emits **no header at all** (`services/orders/src/Orders.Api/Caching/CachedReadFilter.cs:73-77` — `key is null` falls through to `next(ctx)` with nothing set).
    > - **Users** likewise emits **no header** (`services/users/src/features/users/http/cache-hooks.ts:81-86` — a missing `row?.id` returns from the `preHandler` with no header set, and no `onSend` hook fires to add one).
    >
@@ -467,7 +470,7 @@ normalize-at-write):
    > **A corrupt cache entry is also classified inconsistently.** This spec's fail-open section
    > implies uniform treatment; the shipped behavior is not uniform:
    > - **Tracking** treats an unparseable JSON payload as a `MISS` (not `BYPASS`) and logs
-   >   `app_event=cache_entry_unreadable` (`services/tracking/src/shared/cache/gateway.py:127-143`)
+   >   `app_event=cache_entry_unreadable` (`services/tracking-go/internal/adapter/redis/gateway.go:158-170`)
    >   — the reasoning given is that Redis itself is fine, only the entry is bad, so the right
    >   response is to recompute and overwrite, which a `MISS` triggers and a `BYPASS` also would.
    > - **Users** treats the same case as `BYPASS`
@@ -489,10 +492,10 @@ normalize-at-write):
    >   `invalidate_failed`, `track_key_failed`, `invalidate_user_keys_failed` (named directly at
    >   each `LogUnavailable` call site in `CacheGateway.cs`).
    > - **Tracking**: a single `redis_unavailable` for every gateway failure
-   >   (`services/tracking/src/shared/cache/gateway.py:270`), plus `malformed_payload` for a
-   >   corrupt entry (`:138`), and — from a different module —
+   >   (`services/tracking-go/internal/adapter/redis/gateway.go:298`), plus `malformed_payload` for a
+   >   corrupt entry (`gateway.go:166`), and — from a different module —
    >   `cache_invalidation_skipped` with `no_owner_sub`/`no_owner_user_id`
-   >   (`services/tracking/src/shared/cache/invalidation.py:78,95`) for the carrier-webhook case
+   >   (`services/tracking-go/internal/adapter/redis/invalidation.go:27,40`) for the carrier-webhook case
    >   that cannot resolve an owner.
    > - **Users**: `timeout`, `redis_error` (`services/users/src/shared/cache/cache-gateway.ts:200`).
    >
