@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: accepted
 created: 2026-09-10
-updated: 2026-09-15
+updated: 2026-10-02
 tags:
   - type/spec
   - area/shared
@@ -16,6 +16,8 @@ propagates-to:
   - "[[testing]]"
   - "[[logging-context]]"
   - "[[2026-08-17-web-app-foundation-design]]"
+  - "[[live-session-indicator]]"
+  - "[[2026-10-02-a-websocket-can-die-without-telling-you]]"
 related:
   - "[[users-service-design]]"
   - "[[events-pipeline-design]]"
@@ -37,6 +39,8 @@ related:
   - "[[count-only-assertions-hide-cause]]"
   - "[[2026-09-15-a-falsy-default-that-means-disabled-erases-the-difference-from-unconfigured]]"
   - "[[2026-09-15-a-live-push-cascade-invalidates-exact-ui-assertions]]"
+  - "[[live-session-indicator]]"
+  - "[[2026-10-02-a-websocket-can-die-without-telling-you]]"
 ---
 
 # In-App Notifications Design
@@ -482,6 +486,32 @@ The `Dismiss` link and `Close Button` in the frame dismiss the toast without mar
 notification read — dismissing a toast is not reading the notification, and the unread dot
 survives in the panel.
 
+## Approved decision 11 — The socket reports its own health: `liveState`, retry control, drop detection
+
+Added 2026-10-02 (PR #90). The web socket (`apps/web/src/app/core/notifications/notifications-socket.ts`)
+stops being a fire-and-forget channel and exposes what the header indicator needs:
+
+- **`liveState`** — four values, `connecting | live | reconnecting | offline`. The transport's
+  `closed` is not shown directly: it covers both "a retry is armed" and "nothing is coming".
+- **`nextRetryAt`** — when the armed retry fires, or `null`.
+- **`retryNow()`** — redials immediately and resets the backoff; a no-op after `disconnect()`.
+- **Attempts are counted**, not "has it ever opened", so a failing retry is not mistaken for a
+  first attempt.
+
+Drop detection, because the socket does not reliably report its own death:
+
+- `error` arms the retry itself (a CSP-refused socket is born closed and never fires `close`),
+  idempotent via a `this.socket !== socket` guard.
+- The browser's `offline` / `online` events drop and redial it (a lost network leaves the socket
+  OPEN with no event).
+- A **70 s silence watchdog** covers drops the browser never reports. No client ping exists: the
+  channel is server-to-client only and `functions/realtime-events/src/default.ts` answers any
+  inbound frame with HTTP 400, so the evidence has to be the absence of traffic.
+
+The UI split (a silent header badge; words and Retry in a chip inside the account menu) is
+recorded in [[live-session-indicator]]. The measured failures are in
+[[2026-10-02-a-websocket-can-die-without-telling-you]].
+
 ## Scope
 
 In scope: SNS fan-out + Floci POC; three producers switched to SNS; the Users table, consumer,
@@ -591,3 +621,7 @@ a manual PRODUCER span, as the pipeline's publisher does.
 - [[2026-09-15-a-live-push-cascade-invalidates-exact-ui-assertions]] — writing this design's web
   and gateway E2E surfaced that a TestMode order's cascade, and registration's own WELCOME push,
   invalidate any exact-emptiness assertion on the notification surface.
+- [[live-session-indicator]] — decision 11's UI side: the silent header badge and the account-menu
+  chip, and the evidence-only rule for connection state.
+- [[2026-10-02-a-websocket-can-die-without-telling-you]] — the two measured silent-death modes
+  behind decision 11's drop detection.
