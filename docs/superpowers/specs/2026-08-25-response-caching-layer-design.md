@@ -385,10 +385,12 @@ normalize-at-write):
      >   duration, and a successful invalidation publishes nothing.
      > - **Tracking** (`services/tracking-go/internal/adapter/redis/gateway.go`) publishes
      >   `cache_requests_total` on `get` only. `set`, `invalidate` and `invalidate_index` call
-     >   `record` with an empty result, so only a duration goes out.
+     >   `record` with an empty result, so only a duration goes out. Every metrics tick Tracking
+     >   seeds `cache_requests_total` = 0 for each `KeyPrefix` and `Result` it emits.
      > - **Orders** (`services/orders/src/Orders.Infrastructure/Caching/CacheGateway.cs`)
      >   publishes `cache_requests_total` on `get` only. `InvalidateAsync`, `TrackKeyAsync` and
-     >   `InvalidateUserKeysAsync` log a failure and publish no metric.
+     >   `InvalidateUserKeysAsync` log a failure and publish no metric. Every metrics tick Orders
+     >   seeds `cache_requests_total` = 0 for each `KeyPrefix` and `Result` it emits.
      > - **The documented hit-rate formula therefore has a different denominator per service.**
      >   Users' `bypass` count includes write-path failures that Tracking's and Orders'
      >   equivalents never contribute. Document this divergence honestly in dashboards rather
@@ -398,19 +400,24 @@ normalize-at-write):
      > Per-service vocabulary is kept once in [[x-cache-response-header]].
    - `cache_operation_duration_ms` — dimensions `Service`, `Operation`. The `Operation` values
      diverge per service, because each gateway passes a literal string rather than a shared enum:
-     Users emits `get`|`set`|`del`, with the `del` series published only on failure at a
-     hard-coded 0 ms, so it does not measure latency; Tracking emits `get`|`set`|`invalidate`|
-     `invalidate_index`; Orders emits `get`|`set` only. The **unit also diverges**: Users publishes
-     `Milliseconds`, while Orders and Tracking publish `Count` (the values are milliseconds in all
-     three), so a query filtering on the unit sees Users apart from the other two. See
+     Users emits `get`|`set`|`del`, with `del` reporting the real elapsed time on success and on
+     failure; Tracking emits `get`|`set`|`invalidate`|
+     `invalidate_index`; Orders emits `get`|`set` only. The **unit is uniform**: all three services
+     publish `Milliseconds`, so a query filtering on the unit sees one population. See
      [[x-cache-response-header]].
 
      > [!note] Re-checked 2026-10-02
      > This passage was re-checked against the three gateways on 2026-10-02 and the code was
      > right: the drift was in this text (a `del` result, Orders `invalidate`|`index` durations, a
      > uniform `Milliseconds` unit and a stale Tracking path), not in the gateways. The collector
-     > now scrapes these metrics from CloudWatch into OpenObserve
-     > (`observability/otel-collector-config.yaml`), pending live verification.
+     > scrapes these metrics from CloudWatch into OpenObserve
+     > (`observability/otel-collector-config.yaml`), verified live on 2026-10-02: a collector
+     > running this config received `cache_requests_total` for `users:me:v1`,
+     > `orders:products:v1`, `orders:cart:v1` and `identity:sub-to-user:v1`, and
+     > `cache_operation_duration_ms` for Orders `get`/`set` and Tracking `get`, each with
+     > `Average`, `Maximum` and `SampleCount`. Floci returned the duration even when the series
+     > carried unit `Count`, so the Orders/Tracking unit change to `Milliseconds` cannot break
+     > the queries.
    - Both are emitted through each service's existing publisher — Orders'
      `IMetricsPublisher.PublishAsync` (`services/orders/src/Orders.Application/Abstractions/IMetricsPublisher.cs:12-19`),
      Users' `MetricsPublisher.publish` (`services/users/src/shared/metrics/cloudwatch-metrics.ts:26-31`),

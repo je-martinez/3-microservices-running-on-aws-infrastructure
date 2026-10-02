@@ -169,38 +169,42 @@ the shared `3MRAI` namespace — **not** an OTel metrics pipeline; none of the t
 runs one today (`OTEL_METRICS_EXPORTER=none` in every generated env). `cache_requests_total`
 carries CloudWatch dimensions `Service`, `KeyPrefix` (prefix only — never a full key, which
 would explode cardinality and leak `cognito_sub`/`user_id`), `Result`; `cache_operation_duration_ms`
-carries `Service`, `Operation`; its unit differs per service (see the callout below). These publishers must not throw — a
+carries `Service`, `Operation`; its unit is `Milliseconds` in all three services. These publishers must not throw — a
 metrics failure must never break a cached read. Full rationale:
 [[2026-08-25-response-caching-layer-design]].
 
-> [!warning] Corrected 2026-08-26, re-checked 2026-10-02 — dimension VALUES and units diverge per service
+> [!warning] Corrected 2026-08-26, re-checked 2026-10-02 — dimension VALUES diverge per service; units are uniform
 > `Result` and `Operation` are not shared enums across the three services, and
 > `cache_requests_total` is not published on every operation in every service.
 >
 > - **Users** (`services/users/src/shared/cache/cache-gateway.ts`) publishes `Result` as `hit`,
 >   `miss` or `bypass` only; it never publishes `Result: "del"`. A successful `set` publishes
 >   only a duration; a successful invalidation publishes nothing. A failed `get`, `set` or `del`
->   goes through `reportUnavailable` (l.186-209) and counts as `Result: bypass`. Its duration
->   `Operation` values are `get`, `set` and `del`, but the `del` series is published only on
->   failure, with a hard-coded 0 ms (l.125), so it does not measure latency.
+>   goes through `reportUnavailable` and counts as `Result: bypass`. Its duration `Operation`
+>   values are `get`, `set` and `del`; the `del` series reports the real elapsed time on success
+>   and on failure.
 > - **Tracking** (`services/tracking-go/internal/adapter/redis/gateway.go`) publishes
 >   `cache_requests_total` on `get` only (`hit`, `miss`, `bypass`); `set`, `invalidate` and
 >   `invalidate_index` call `record` with an empty result (l.194, 233, 256), so only a duration
 >   goes out (`record`, l.308). Its `Operation` values are `get`, `set`, `invalidate` and
->   `invalidate_index`.
+>   `invalidate_index`. Every metrics tick it seeds `cache_requests_total` = 0 for each
+>   `KeyPrefix` it emits (`tracking:order:v1`, `tracking:list:v1`, `identity:sub-to-user:v1`)
+>   and each `Result` (`hit`, `miss`, `bypass`), derived from code constants.
 > - **Orders** (`services/orders/src/Orders.Infrastructure/Caching/CacheGateway.cs`) publishes
 >   `cache_requests_total` on `get` only. Its duration `Operation` values are `get` and `set`
 >   only (l.109 for `set`; `Record` for `get`, l.193-223). `InvalidateAsync`, `TrackKeyAsync` and
->   `InvalidateUserKeysAsync` log a failure (l.135, 151, 170) and publish no metric.
+>   `InvalidateUserKeysAsync` log a failure (l.135, 151, 170) and publish no metric. Every metrics
+>   tick it seeds `cache_requests_total` = 0 for each `KeyPrefix` it emits (`orders:products:v1`,
+>   `orders:cart:v1`, `orders:my-orders:v1`, `orders:order:v1`, `identity:sub-to-user:v1`) and each
+>   `Result` (`hit`, `miss`, `bypass`), derived from code constants.
 > - **The documented `hit / (hit + miss)` formula therefore has a different denominator per
 >   service.** Users' `bypass` count includes write-path failures that Tracking and Orders never
 >   contribute, so do not average or directly compare the three services' hit-rates without
 >   accounting for this.
-> - **Duration units differ.** Users publishes `cache_operation_duration_ms` with unit
->   `Milliseconds` (`reportDuration`, l.177-183). Orders (`CloudWatchMetricsPublisher.cs`, l.67)
->   and Tracking (`cloudwatch/publisher.go`, l.115) publish it with unit `Count`; the values are
->   milliseconds in all three. A query or dashboard filtering on the unit sees Users apart from
->   the other two.
+> - **Duration units are uniform.** All three services publish `cache_operation_duration_ms`
+>   with unit `Milliseconds`, so a query or dashboard filtering on the unit sees one population.
+>   The collector's queries select `Average`, `Maximum` and `SampleCount` and do not depend on
+>   the unit.
 >
 > The code was re-checked against the three gateways on 2026-10-02. Full per-service vocabulary
 > (also covering the `reason` field, which likewise does not match across services) and the fifth

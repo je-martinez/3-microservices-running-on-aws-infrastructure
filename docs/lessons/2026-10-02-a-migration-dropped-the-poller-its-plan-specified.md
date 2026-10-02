@@ -75,9 +75,9 @@ PR #91 (squash `d9f93604`):
 - The 13 poller tests and the helper are restored.
 - A new `metrics-module.test.ts` was verified to fail when the provider registration is removed.
 
-## Open follow-ups
+## Follow-ups
 
-Done:
+All closed.
 
 - The Task 24 boot smoke test exists as `services/users/tests/boot-smoke.test.ts`. It boots the
   whole app through `createNestApp()` and asserts that `MetricsPublisher` and
@@ -87,19 +87,31 @@ Done:
   (provider removed; `start()` in the constructor; `start()` in `onModuleInit`; `controllers: []`
   in `NotificationsModule`).
 
-Pending live verification:
+Collector scrape, verified live on 2026-10-02:
 
-- `observability/otel-collector-config.yaml` now queries `users_deleted_total` and the exact
+- `observability/otel-collector-config.yaml` queries `users_deleted_total` and the exact
   dimension sets of `cache_requests_total` and `cache_operation_duration_ms` for Users, Orders
-  and Tracking (27 + 9 queries), and the collector's own `validate` command accepts it offline.
-  No stream for them has been observed in OpenObserve yet, so the scrape is not confirmed to work.
+  and Tracking (27 + 9 queries).
+- One real `BusinessMetricsPoller` tick against the live Users database and Floci published
+  `users_total`; the running collector created `amazonaws_com_3mrai_users_total` in OpenObserve
+  within about 80 s, and the dashboard's exact card queries returned Users=1, Password login=0
+  and Email OTP=1, matching the database.
+- A temporary collector with this branch's config received `users_deleted_total`,
+  `cache_requests_total` and `cache_operation_duration_ms` from Floci for all three services.
 
-Still open:
+Orphaned tests and cache-metric fixes, closed on sibling branches:
 
-- The cut-over deleted tests for 14 still-live modules, none of which has a test importing it
-  today: api-key-interceptor, cognito-auth-provider, prisma-extensions, current-user, email-hash,
-  email-mask, nano-id, workflow-tracing, request-span, websocket-publisher, event-publisher,
-  sql-logging, request-id, and the grpc address helper.
+- `test/users-restore-orphaned-tests` restores direct tests for all 14 modules whose tests the
+  cut-over deleted: api-key-interceptor, cognito-auth-provider, prisma-extensions, current-user,
+  email-hash, email-mask, nano-id, workflow-tracing, request-span, websocket-publisher,
+  event-publisher, sql-logging, request-id, and the grpc address helper.
+- `test/users-shared-modules` adds the shared-provider resolution test.
+- `fix/users-cache-del-duration` makes `cache_operation_duration_ms{Operation=del}` report real
+  elapsed time.
+- `fix/orders-cache-metric-unit-seeds` and `fix/tracking-cache-metric-unit-seeds` publish the
+  duration with unit `Milliseconds` and seed `cache_requests_total` every tick.
+- The zero-seeds no longer depend on the database read in any service; see
+  [[2026-10-02-a-zero-seed-behind-a-failing-read-is-not-a-seed]].
 
 ## Rules
 
@@ -125,3 +137,5 @@ Still open:
 - [[2026-09-19-users-nestjs-migration-design]] — the migration spec that stated the constraint.
 - [[dependency-injection]] — the DI pattern the poller's factory provider follows.
 - [[testing]] — the testing convention this gap slipped through.
+- [[2026-10-02-a-zero-seed-behind-a-failing-read-is-not-a-seed]] — a sibling lesson found while
+  closing these follow-ups: the zero-seeds sat behind the database read.
