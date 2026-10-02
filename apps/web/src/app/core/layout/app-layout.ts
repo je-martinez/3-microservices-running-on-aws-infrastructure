@@ -27,7 +27,7 @@ export class AppLayout {
   protected readonly cart = inject(CartStore);
   protected readonly notifications = inject(NotificationsStore);
   protected readonly toasts = inject(ToastQueue);
-  private readonly socket = inject(NotificationsSocket);
+  protected readonly socket = inject(NotificationsSocket);
 
   /**
    * CONTRACT: This layout is the ONLY caller of `connect()`, and it sits behind

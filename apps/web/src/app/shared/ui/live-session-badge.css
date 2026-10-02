@@ -1,0 +1,65 @@
+/* Concept N of `assets/web-app/prototypes/live-session-indicator.html`: a bar
+ * sweeping the button's lower edge, which becomes a comet that orbits once and
+ * closes into a ring.
+ *
+ * CONTRACT: Every animation stops under `prefers-reduced-motion`. These loop
+ * for as long as the session does, and the state stays legible from the
+ * account menu's chip, which carries the words. */
+
+/* The scanner sweeps +/-8px, half a second each way, as the prototype does. */
+.badge-scan {
+  animation: badge-scan 0.5s ease-in-out infinite alternate;
+}
+
+/* WHY: The ring is drawn from the bottom, where the scanner it grew out of sat.
+ * An unrotated circle starts at 3 o'clock and the motion reads as unrelated. */
+.badge-orbit {
+  rotate: 90deg;
+}
+
+/* CONTRACT: `stroke-dasharray` animates in `pathLength` units, which the
+ * element normalises to 100 — so `14 86` is a 14% comet and `100 0` the closed
+ * ring, independent of the radius. */
+.badge-arc {
+  stroke: var(--color-success-green);
+  animation: badge-close 0.75s cubic-bezier(0.65, 0, 0.35, 1) forwards;
+}
+
+@keyframes badge-scan {
+  from {
+    translate: -0.5rem 0;
+  }
+  to {
+    translate: 0.5rem 0;
+  }
+}
+
+/* The comet: a short arc that travels the full circle, its tail stretching
+ * until the two ends meet. */
+@keyframes badge-close {
+  0% {
+    stroke-dasharray: 14 86;
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+  70% {
+    stroke-dasharray: 55 45;
+    stroke-dashoffset: -70;
+  }
+  100% {
+    stroke-dasharray: 100 0;
+    stroke-dashoffset: -100;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .badge-scan {
+    animation: none;
+  }
+
+  .badge-arc {
+    animation: none;
+    stroke-dasharray: 100 0;
+  }
+}

@@ -1,4 +1,4 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
 
 import { NotificationWire, toNotification } from '../api/notifications-api';
 import { TokenStore } from '../auth/token-store';
@@ -7,6 +7,14 @@ import { NotificationsStore } from './notifications-store';
 import { ToastQueue } from './toast-queue';
 
 export type SocketStatus = 'idle' | 'connecting' | 'open' | 'closed';
+
+/**
+ * What the user is told, which is NOT what the transport reports. `closed`
+ * covers two opposite situations — a retry is armed, or nothing is coming — and
+ * a badge showing one as the other either hides an outage or invents one.
+ * See [[browser-rum]]
+ */
+export type LiveSessionState = 'connecting' | 'live' | 'reconnecting' | 'offline';
 
 /** First backoff step; each retry doubles it up to the cap below. */
 const BASE_RETRY_MS = 1000;
@@ -63,8 +71,38 @@ export class NotificationsSocket {
   private retryDelay = BASE_RETRY_MS;
   /** False from `disconnect()` until the next `connect()`, suppressing retries. */
   private wanted = false;
+  /**
+   * CONTRACT: Counts ATTEMPTS, not successes. A handshake the network never
+   * completes — a blocking CSP, a dead gateway — leaves a success flag false
+   * forever, and every redial then reads as the first one: an eternal
+   * "Connecting…" over a socket that has failed a dozen times.
+   */
+  private readonly attempts = signal(0);
+  private readonly retryAt = signal<number | null>(null);
 
   readonly status = this.state.asReadonly();
+
+  /** When the armed retry fires, as an epoch ms, or null when none is armed. */
+  readonly nextRetryAt = this.retryAt.asReadonly();
+
+  /**
+   * CONTRACT: `connecting` is the FIRST attempt only. A redial after a dropped
+   * connection is `reconnecting` — telling a user who had live updates that we
+   * are "setting up" reads as a fresh page, and hides that they are stale.
+   */
+  readonly liveState = computed<LiveSessionState>(() => {
+    const firstTry = this.attempts() <= 1;
+    switch (this.state()) {
+      case 'open':
+        return 'live';
+      case 'connecting':
+        return firstTry ? 'connecting' : 'reconnecting';
+      case 'closed':
+        return this.retryAt() === null ? 'offline' : 'reconnecting';
+      default:
+        return this.attempts() === 0 ? 'connecting' : 'offline';
+    }
+  });
 
   /**
    * Opens the socket, reconnecting until `disconnect()`.
@@ -83,14 +121,33 @@ export class NotificationsSocket {
   /** Closes cleanly and cancels any armed retry, so a sign-out stays signed out. */
   disconnect(): void {
     this.wanted = false;
-    if (this.retry !== null) clearTimeout(this.retry);
-    this.retry = null;
+    this.clearRetry();
     this.retryDelay = BASE_RETRY_MS;
+    this.attempts.set(0);
 
     const socket = this.socket;
     this.socket = null;
     socket?.close();
     this.state.set('closed');
+  }
+
+  /**
+   * Redials now instead of waiting out the backoff, for the badge's "Retry now".
+   *
+   * CONTRACT: Reset the delay too, or the next failure waits out the old doubled
+   * interval the user asked to skip. Stays closed after `disconnect()`.
+   */
+  retryNow(): void {
+    if (!this.wanted || this.socket !== null) return;
+    this.clearRetry();
+    this.retryDelay = BASE_RETRY_MS;
+    void this.open();
+  }
+
+  private clearRetry(): void {
+    if (this.retry !== null) clearTimeout(this.retry);
+    this.retry = null;
+    this.retryAt.set(null);
   }
 
   private async open(): Promise<void> {
@@ -106,6 +163,7 @@ export class NotificationsSocket {
       return;
     }
 
+    this.attempts.update((n) => n + 1);
     const socket = new WebSocket(`${url}?token=${encodeURIComponent(tokens.accessToken)}`);
     this.socket = socket;
 
@@ -114,15 +172,13 @@ export class NotificationsSocket {
       this.state.set('open');
     };
     socket.onmessage = (event: MessageEvent) => this.dispatch(event.data);
-    socket.onclose = () => {
-      if (this.socket !== socket) return;
-      this.socket = null;
-      this.state.set('closed');
-      this.scheduleRetry();
-    };
-    // WHY: no reconnect here — a failed handshake also fires `close`, and
-    // retrying from both handlers doubles the rate on every failure.
-    socket.onerror = () => socket.close();
+    socket.onclose = () => this.lost(socket);
+    /**
+     * CONTRACT: `error` arms the retry ITSELF. A socket refused by CSP is born
+     * `CLOSED` — it never fires `close`, and `close()` on it is a no-op, so
+     * waiting for `close` leaves it dead and stuck on "Connecting…".
+     */
+    socket.onerror = () => this.lost(socket);
   }
 
   /**
@@ -145,12 +201,22 @@ export class NotificationsSocket {
     this.toasts.enqueue(notification);
   }
 
+  /** Drops a dead socket and arms the next attempt, whichever event reported it. */
+  private lost(socket: WebSocket): void {
+    if (this.socket !== socket) return;
+    this.socket = null;
+    this.state.set('closed');
+    this.scheduleRetry();
+  }
+
   private scheduleRetry(): void {
     if (!this.wanted || this.retry !== null) return;
     const delay = this.retryDelay;
     this.retryDelay = Math.min(delay * 2, MAX_RETRY_MS);
+    this.retryAt.set(Date.now() + delay);
     this.retry = setTimeout(() => {
       this.retry = null;
+      this.retryAt.set(null);
       void this.open();
     }, delay);
   }

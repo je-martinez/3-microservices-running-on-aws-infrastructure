@@ -1,0 +1,43 @@
+<!-- The host wraps the header control this indicator rides. -->
+<ng-content />
+
+<!--
+  CONTRACT: Decorative, and never a control. It sits on the account-menu
+  button, which owns the click, and the state's words live in that menu's chip
+  — so this layer carries no pointer target and no text of its own.
+-->
+<span class="pointer-events-none absolute inset-0" aria-hidden="true">
+  @if (showsScanner()) {
+    <!-- The track the scanner sweeps, hugging the button's bottom edge. -->
+    <span class="bg-line absolute bottom-1 left-1/2 h-0.75 w-6 -translate-x-1/2 rounded-sm"></span>
+    <span
+      [class]="
+        'badge-scan absolute bottom-1 left-1/2 h-0.75 w-2 -translate-x-1/2 rounded-sm ' +
+        copy().scanner
+      "
+    ></span>
+  }
+
+  @if (showsRing()) {
+    <!--
+      CONTRACT: 36x36, inset 4px — the ring sits INSIDE the 44px button, as the
+      prototype places it. Spanning the full button pushes the stroke past the
+      rounded corners and reads as a hoop around it rather than a status on it.
+      `pathLength="100"` makes the dash values percentages, not radius-bound.
+    -->
+    <svg viewBox="0 0 36 36" class="badge-orbit absolute top-1 left-1 h-9 w-9">
+      <circle
+        class="badge-arc"
+        cx="18"
+        cy="18"
+        r="16"
+        pathLength="100"
+        fill="none"
+        stroke-width="2.5"
+        stroke-linecap="round"
+      />
+    </svg>
+  }
+</span>
+
+<span class="sr-only" role="status">{{ copy().announcement }}</span>

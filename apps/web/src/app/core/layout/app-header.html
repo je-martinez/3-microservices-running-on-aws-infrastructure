@@ -58,13 +58,17 @@
       }
     </button>
 
-    <button
-      type="button"
-      class="border-line text-brand-navy flex h-10 w-10 items-center justify-center rounded-md border md:h-11 md:w-11"
-      (click)="profileClicked.emit()"
-    >
-      <svg lucideUser class="text-lg md:text-title"></svg>
-    </button>
+    <!-- WHY: The badge wraps this button rather than sitting beside it — the
+         design pins it to the button's own corner, clear of the bell's dot. -->
+    <app-live-session-badge [state]="liveSessionState()">
+      <button
+        type="button"
+        class="border-line text-brand-navy flex h-10 w-10 items-center justify-center rounded-md border md:h-11 md:w-11"
+        (click)="profileClicked.emit()"
+      >
+        <svg lucideUser class="text-lg md:text-title"></svg>
+      </button>
+    </app-live-session-badge>
 
     <button
       type="button"

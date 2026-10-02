@@ -1,7 +1,9 @@
 import { Component, inject, input, output, ChangeDetectionStrategy } from '@angular/core';
 import { LucideBell, LucideSearch, LucideShoppingBag, LucideUser } from '@lucide/angular';
 import { CatalogueSearchStore } from '../catalogue/catalogue-search-store';
+import { LiveSessionBadge } from '../../shared/ui/live-session-badge';
 import { LogoLockup } from '../../shared/ui/logo-lockup';
+import type { LiveSessionState } from '../notifications/notifications-socket';
 import { RouterLink } from '@angular/router';
 
 /**
@@ -16,7 +18,15 @@ import { RouterLink } from '@angular/router';
  */
 @Component({
   selector: 'app-app-header',
-  imports: [RouterLink, LogoLockup, LucideBell, LucideSearch, LucideShoppingBag, LucideUser],
+  imports: [
+    RouterLink,
+    LiveSessionBadge,
+    LogoLockup,
+    LucideBell,
+    LucideSearch,
+    LucideShoppingBag,
+    LucideUser,
+  ],
   templateUrl: './app-header.html',
   // CONTRACT: The host must be a block. A custom element defaults to
   // display:inline, so it shrinks to its content and the inner header's
@@ -32,6 +42,7 @@ export class AppHeader {
 
   readonly cartCount = input(0);
   readonly hasUnreadNotifications = input(false);
+  readonly liveSessionState = input<LiveSessionState>('connecting');
 
   readonly notificationsClicked = output<void>();
   readonly profileClicked = output<void>();

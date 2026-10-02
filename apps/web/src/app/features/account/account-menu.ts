@@ -1,10 +1,12 @@
-import { Component, computed, inject, ChangeDetectionStrategy } from '@angular/core';
+import { Component, computed, inject, input, output, ChangeDetectionStrategy } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
 import { LucideLogOut, LucidePackage, LucideUser } from '@lucide/angular';
 import { SessionStore } from '../../core/auth/session-store';
 import { OverlayStore } from '../../core/overlay/overlay-store';
+import { LiveSessionChip } from '../../shared/ui/live-session-chip';
+import type { LiveSessionState } from '../../core/notifications/notifications-socket';
 import { SignOut } from '../auth/sign-out';
 
 /**
@@ -36,7 +38,7 @@ import { SignOut } from '../auth/sign-out';
  */
 @Component({
   selector: 'app-account-menu',
-  imports: [LucideLogOut, LucidePackage, LucideUser],
+  imports: [LucideLogOut, LucidePackage, LucideUser, LiveSessionChip],
   templateUrl: './account-menu.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
@@ -46,6 +48,9 @@ import { SignOut } from '../auth/sign-out';
   },
 })
 export class AccountMenu {
+  readonly liveState = input<LiveSessionState>('connecting');
+  readonly retryRequested = output<void>();
+
   protected readonly overlay = inject(OverlayStore);
   private readonly router = inject(Router);
   private readonly signOutService = inject(SignOut);
