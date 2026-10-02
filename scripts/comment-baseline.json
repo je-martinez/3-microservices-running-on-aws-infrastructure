@@ -12,12 +12,6 @@
         "fingerprint": "5533c0cac567",
         "message": "density: 54% (37/69) exceeds 50% for typescript"
       }
-    ],
-    "services/users/src/shared/logging/log-context.ts": [
-      {
-        "fingerprint": "d4890f377735",
-        "message": "density: 57% (40/70) exceeds 50% for typescript"
-      }
     ]
   }
 }
