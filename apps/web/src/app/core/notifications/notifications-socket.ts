@@ -26,6 +26,13 @@ const BASE_RETRY_MS = 1000;
  */
 const MAX_RETRY_MS = 30_000;
 
+/**
+ * CONTRACT: A silent socket is a dead one. A lost network leaves the socket
+ * OPEN with no event at all, and this channel is server-to-client only, so no
+ * ping exists to send — absence of traffic is the only evidence available.
+ */
+const SILENCE_MS = 70_000;
+
 interface CreatedFrame {
   type: 'NOTIFICATION_CREATED';
   notification: NotificationWire;
@@ -79,6 +86,9 @@ export class NotificationsSocket {
    */
   private readonly attempts = signal(0);
   private readonly retryAt = signal<number | null>(null);
+  private silence: ReturnType<typeof setTimeout> | null = null;
+  /** Listeners are global and outlive a reconnect, so they bind exactly once. */
+  private networkBound = false;
 
   readonly status = this.state.asReadonly();
 
@@ -115,13 +125,34 @@ export class NotificationsSocket {
   connect(): void {
     if (this.socket !== null || this.state() === 'connecting') return;
     this.wanted = true;
+    this.listenToNetwork();
     void this.open();
+  }
+
+  /**
+   * CONTRACT: The browser knows before the socket does. Losing the network
+   * leaves an established WebSocket OPEN with no event of its own, so these two
+   * are the fastest honest signal — the watchdog above is the fallback for a
+   * drop the browser never reports.
+   */
+  private listenToNetwork(): void {
+    if (this.networkBound) return;
+    this.networkBound = true;
+    globalThis.addEventListener?.('offline', () => {
+      const socket = this.socket;
+      if (socket === null) return;
+      socket.close();
+      this.lost(socket);
+    });
+    // A restored network is worth a redial now rather than at the backoff's end.
+    globalThis.addEventListener?.('online', () => this.retryNow());
   }
 
   /** Closes cleanly and cancels any armed retry, so a sign-out stays signed out. */
   disconnect(): void {
     this.wanted = false;
     this.clearRetry();
+    this.clearSilence();
     this.retryDelay = BASE_RETRY_MS;
     this.attempts.set(0);
 
@@ -170,8 +201,12 @@ export class NotificationsSocket {
     socket.onopen = () => {
       this.retryDelay = BASE_RETRY_MS;
       this.state.set('open');
+      this.watchSilence(socket);
     };
-    socket.onmessage = (event: MessageEvent) => this.dispatch(event.data);
+    socket.onmessage = (event: MessageEvent) => {
+      this.watchSilence(socket);
+      this.dispatch(event.data);
+    };
     socket.onclose = () => this.lost(socket);
     /**
      * CONTRACT: `error` arms the retry ITSELF. A socket refused by CSP is born
@@ -204,9 +239,25 @@ export class NotificationsSocket {
   /** Drops a dead socket and arms the next attempt, whichever event reported it. */
   private lost(socket: WebSocket): void {
     if (this.socket !== socket) return;
+    this.clearSilence();
     this.socket = null;
     this.state.set('closed');
     this.scheduleRetry();
+  }
+
+  /** Restarts the deadline; a frame of any kind proves the socket still carries. */
+  private watchSilence(socket: WebSocket): void {
+    this.clearSilence();
+    this.silence = setTimeout(() => {
+      // Closing it is what produces the `close` the handlers already act on.
+      socket.close();
+      this.lost(socket);
+    }, SILENCE_MS);
+  }
+
+  private clearSilence(): void {
+    if (this.silence !== null) clearTimeout(this.silence);
+    this.silence = null;
   }
 
   private scheduleRetry(): void {

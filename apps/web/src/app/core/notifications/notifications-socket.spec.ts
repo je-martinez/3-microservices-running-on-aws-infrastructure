@@ -366,4 +366,59 @@ describe('NotificationsSocket', () => {
     expect(FakeSocket.opened).toHaveLength(2);
     vi.useRealTimers();
   });
+  /**
+   * CONTRACT: Losing the network does NOT close an established socket —
+   * `readyState` stays OPEN and no event fires — so the browser's own signal is
+   * what spares a tab from reporting "Live updates on" over a dead connection.
+   */
+  it('drops the socket when the browser goes offline, and redials when it returns', async () => {
+    vi.useFakeTimers();
+    socket.connect();
+    await vi.waitFor(() => expect(FakeSocket.opened).toHaveLength(1));
+    FakeSocket.last?.onopen?.();
+    expect(socket.liveState()).toBe('live');
+
+    globalThis.dispatchEvent(new Event('offline'));
+    expect(socket.liveState()).toBe('reconnecting');
+
+    globalThis.dispatchEvent(new Event('online'));
+    await vi.waitFor(() => expect(FakeSocket.opened).toHaveLength(2));
+    vi.useRealTimers();
+  });
+
+  /**
+   * CONTRACT: Silence is the only evidence available. This channel is
+   * server-to-client only, so there is no ping to send — a socket that stops
+   * carrying frames is dropped on the deadline instead.
+   */
+  it('drops a socket that has gone silent', async () => {
+    vi.useFakeTimers();
+    socket.connect();
+    await vi.waitFor(() => expect(FakeSocket.opened).toHaveLength(1));
+    FakeSocket.last?.onopen?.();
+
+    await vi.advanceTimersByTimeAsync(69_000);
+    expect(socket.liveState()).toBe('live');
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(socket.liveState()).toBe('reconnecting');
+    vi.useRealTimers();
+  });
+
+  /** Any frame proves the socket still carries, so the deadline restarts. */
+  it('keeps a socket that is still receiving', async () => {
+    vi.useFakeTimers();
+    socket.connect();
+    await vi.waitFor(() => expect(FakeSocket.opened).toHaveLength(1));
+    FakeSocket.last?.onopen?.();
+
+    for (let i = 0; i < 3; i++) {
+      await vi.advanceTimersByTimeAsync(60_000);
+      FakeSocket.last?.receive(CREATED_FRAME);
+    }
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(socket.liveState()).toBe('live');
+    vi.useRealTimers();
+  });
 });
