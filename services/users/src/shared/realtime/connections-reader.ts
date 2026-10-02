@@ -5,7 +5,7 @@
 // See [[2026-09-10-in-app-notifications-design]]
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, QueryCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
-import { envSchema, type Env } from "#config/env.schema";
+import type { Env } from "#config/env.schema";
 
 export type ConnectionsConfig = Pick<
   Env,
@@ -58,24 +58,3 @@ export function createConnectionsReader(config: ConnectionsConfig) {
 
   return { queryByCognitoSub, deleteConnection };
 }
-
-// CONTRACT: Resolve LAZILY. Parsing the environment at module-eval time kills
-// the process on import, before Nest can report which variable is missing, and
-// forces every test that merely imports this module to supply a full
-// environment.
-// CONTRACT: Temporary bridge. It disappears once a Nest module provides this;
-// nothing new may import it.
-let bridge: ReturnType<typeof createConnectionsReader> | undefined;
-
-function resolveBridge(): ReturnType<typeof createConnectionsReader> {
-  bridge ??= createConnectionsReader(envSchema.parse(process.env));
-  return bridge;
-}
-
-export const queryByCognitoSub: ReturnType<typeof createConnectionsReader>["queryByCognitoSub"] = (
-  ...args
-) => resolveBridge().queryByCognitoSub(...args);
-
-export const deleteConnection: ReturnType<typeof createConnectionsReader>["deleteConnection"] = (
-  ...args
-) => resolveBridge().deleteConnection(...args);
