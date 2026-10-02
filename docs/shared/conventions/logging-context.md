@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-19
-updated: 2026-09-30
+updated: 2026-10-02
 tags:
   - type/convention
   - area/shared
@@ -200,6 +200,20 @@ shared context table already follows.
 > library's defaults assume a generic service; verify them against what your service's queries
 > actually carry. See
 > [[2026-08-27-a-librarys-defaults-encode-assumptions-about-a-generic-service]].
+
+> [!warning] A thrown error's message is telemetry
+> Users' `withWorkflowSpan` (`src/shared/observability/workflow-tracing.ts`) and
+> `WorkflowInterceptor` (`src/shared/observability/workflow.interceptor.ts`) call
+> `span.recordException(err)` and set the span status message to `err.message`, so anything
+> interpolated into `new Error(...)` is exported to OpenObserve exactly like a log field. Three
+> errors once interpolated a plaintext email (Cognito `AdminCreateUser` "no sub", CUSTOM_AUTH
+> "no session", and `NoMatchingUserError` in the Cognito webhook); verified 2026-10-02 and fixed on
+> `fix/users-email-in-error-messages`.
+>
+> **Rule:** never interpolate PII (plaintext email, tokens, passwords, full bodies) into an error
+> message. Use `email_hash` (or the masked form in auth flows), or leave it out — the caller's log
+> line already carries the sanctioned field. A grep over log calls alone does not catch this:
+> the leak is in `throw new Error(...)`, not in a logger call.
 
 > [!warning] Pitfall — mask at the call site, not in the ambient context
 > The masked email goes on the **log call site**, not in the AsyncLocalStorage context. Putting
