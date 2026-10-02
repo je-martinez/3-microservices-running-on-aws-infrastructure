@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Orders.Application.Abstractions;
+using Orders.Infrastructure.Caching;
 using Orders.Infrastructure.Observability;
 using Orders.Infrastructure.Persistence;
 
@@ -109,6 +110,28 @@ public class OrdersMetricsPublisher : BackgroundService
                             ["StatusClass"] = statusClass,
                         },
                         stoppingToken);
+                }
+
+                // CONTRACT: Seed cache_requests_total at zero for every (KeyPrefix, Result) the
+                // gateway emits, bypass included, for the same reason as above: a quiet
+                // window otherwise has no series and its card throws instead of reading 0.
+                // Do NOT seed cache_operation_duration_ms — a synthetic 0 ms drags every
+                // average toward zero and reports a fast cache when nothing is cached.
+                foreach (var prefix in CacheKeys.ReadPrefixes)
+                {
+                    foreach (var result in Enum.GetValues<CacheResult>())
+                    {
+                        await _metrics.PublishAsync(
+                            CacheGateway.RequestsMetricName,
+                            0,
+                            new Dictionary<string, string>
+                            {
+                                ["Service"] = "orders",
+                                ["KeyPrefix"] = prefix,
+                                ["Result"] = CacheGateway.ResultLabel(result),
+                            },
+                            stoppingToken);
+                    }
                 }
 
                 // Logged from INSIDE the span, deliberately: the failure line in

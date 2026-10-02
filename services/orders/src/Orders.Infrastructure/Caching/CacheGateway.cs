@@ -32,6 +32,12 @@ public class CacheGateway : ICacheGateway
 
     private static readonly ActivitySource Source = new(ActivitySourceName);
 
+    /// <summary>The per-lookup counter, dimensioned by Service, KeyPrefix and Result.</summary>
+    public const string RequestsMetricName = "cache_requests_total";
+
+    /// <summary>The <c>Result</c> dimension value for <paramref name="result"/>.</summary>
+    public static string ResultLabel(CacheResult result) => result.ToString().ToLowerInvariant();
+
     private readonly IDatabase _db;
     private readonly IMetricsPublisher _metrics;
     private readonly ILogger<CacheGateway> _logger;
@@ -198,10 +204,10 @@ public class CacheGateway : ICacheGateway
         Activity? activity,
         CancellationToken ct)
     {
-        var label = result.ToString().ToLowerInvariant();
+        var label = ResultLabel(result);
         activity?.SetTag("cache.result", label);
         FireAndForget(_metrics.PublishAsync(
-            "cache_requests_total",
+            RequestsMetricName,
             1,
             new Dictionary<string, string>
             {
