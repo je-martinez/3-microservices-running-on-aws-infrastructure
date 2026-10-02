@@ -7,3 +7,4 @@ export const AUTH_PROVIDER = Symbol.for("users:authProvider");
 export const EVENT_PUBLISHER = Symbol.for("users:eventPublisher");
 export const REDIS = Symbol.for("users:redis");
 export const STRIPE_CLIENT = Symbol.for("users:stripeClient");
+export const PUBLISH_TO_USER = Symbol.for("users:publishToUser");

@@ -3,7 +3,7 @@ import {
   PostToConnectionCommand,
 } from "@aws-sdk/client-apigatewaymanagementapi";
 import { SpanKind, trace } from "@opentelemetry/api";
-import { envSchema, type Env } from "#config/env.schema";
+import type { Env } from "#config/env.schema";
 import { appLogger } from "#shared/logging/app-logger";
 import {
   createConnectionsReader,
@@ -118,16 +118,3 @@ export function createPublishToUser(config: PublishConfig) {
     );
   };
 }
-
-// CONTRACT: Resolve LAZILY. Parsing the environment at module-eval time kills
-// the process on import, before Nest can report which variable is missing, and
-// forces every test that merely imports this module to supply a full
-// environment.
-// CONTRACT: Temporary bridge. It disappears once a Nest module provides this;
-// nothing new may import it.
-let publisher: ReturnType<typeof createPublishToUser> | undefined;
-
-export const publishToUser: ReturnType<typeof createPublishToUser> = (...args) => {
-  publisher ??= createPublishToUser(envSchema.parse(process.env));
-  return publisher(...args);
-};

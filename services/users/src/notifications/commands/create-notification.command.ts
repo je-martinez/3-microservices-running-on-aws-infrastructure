@@ -5,7 +5,7 @@ import type { Db } from "#shared/db/prisma";
 import { AuditActor } from "#shared/audit/audit-actor";
 import { appLogger } from "#shared/logging/app-logger";
 import { NanoIdConfig } from "#shared/id/nano-id";
-import { DB } from "#shared/tokens";
+import { DB, PUBLISH_TO_USER } from "#shared/tokens";
 import { Workflow } from "#shared/observability/workflow-metadata";
 import {
   TRACKING_EVENT_STATUSES,
@@ -44,10 +44,6 @@ export interface NotificationEnvelope {
 
 /** Fan-out to the owner's open sockets. Never throws in production. */
 export type PublishToUser = (cognitoSub: string, message: unknown) => Promise<void>;
-
-// WHY: WebsocketPublisher is not yet a Nest class in shared; a token lets tests
-// provide a double without importing the env-bound module singleton.
-export const PUBLISH_TO_USER = Symbol.for("users:publishToUser");
 
 /**
  * CONTRACT: Narrows to the FOUR transition statuses. `PLACED` fails this check on

@@ -27,14 +27,16 @@ type TestingModule = import("@nestjs/testing").TestingModule;
 type RedisClient = import("#shared/cache/redis").RedisClient;
 const { Test } = await import("@nestjs/testing");
 const { AppModule } = await import("../../src/app.module.ts");
-const { AUTH_PROVIDER, DB, EVENT_PUBLISHER, REDIS } = await import("#shared/tokens");
+const { AUTH_PROVIDER, DB, EVENT_PUBLISHER, PUBLISH_TO_USER, REDIS } = await import(
+  "#shared/tokens"
+);
 const { CacheGateway } = await import("#shared/cache/cache-gateway");
 const { ResetCodeStore } = await import("#shared/cache/reset-code-store");
 const { MetricsPublisher } = await import("#shared/metrics/cloudwatch-metrics");
 const { BusinessMetricsPoller } = await import("#shared/metrics/business-metrics");
 const { CascadeClient } = await import("#shared/http/cascade-client");
 
-// CONTRACT: Every handler injects these from the @Global shared modules. A
+// CONTRACT: Handlers inject these from the module that provides them. A
 // provider dropped from its module's providers/exports compiles cleanly and
 // fails only at bootstrap with "Nest can't resolve dependencies".
 describe("shared infrastructure providers", () => {
@@ -56,6 +58,7 @@ describe("shared infrastructure providers", () => {
     ["AUTH_PROVIDER", AUTH_PROVIDER],
     ["EVENT_PUBLISHER", EVENT_PUBLISHER],
     ["REDIS", REDIS],
+    ["PUBLISH_TO_USER", PUBLISH_TO_USER],
   ])("resolves the %s token", (_name, token) => {
     expect(moduleRef.get(token)).toBeDefined();
   });
