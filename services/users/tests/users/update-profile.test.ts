@@ -23,7 +23,7 @@ async function buildBus(overrides: { resolved?: unknown } = {}) {
   const seenActor: { value?: string } = {};
   const db = {
     user: {
-      update: vi.fn(async () => {
+      update: vi.fn(async (_args: { data: Record<string, unknown> }) => {
         seenActor.value = getActor();
         return {
           id: "usr_1",

@@ -28,7 +28,7 @@ async function buildBus(overrides: { user?: unknown; publishRejects?: boolean; s
     }),
   };
   const resetCodeStore = {
-    store: vi.fn(async () => {
+    store: vi.fn<ResetCodeStore["store"]>(async () => {
       if (overrides.storeRejects) throw new Error("redis down");
     }),
   };
@@ -148,7 +148,7 @@ describe("ForgotPasswordCommand through the CommandBus", () => {
     await bus.execute(new ForgotPasswordCommand({ email: EMAIL }));
     const [, code] = resetCodeStore.store.mock.calls[0]!;
     const serialized = JSON.stringify(span()!.attributes);
-    expect(serialized).not.toContain(code as string);
+    expect(serialized).not.toContain(code);
     expect(serialized).not.toContain(EMAIL);
     expect(span()!.attributes.email_hash).toBeDefined();
     await close();

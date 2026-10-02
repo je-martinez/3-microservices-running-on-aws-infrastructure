@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    // CONTRACT: Keep the `development` condition. With rootDir "." tsc can no longer map
+    // the `default` targets (./dist/...) back to src, and every `#…` import is TS2307.
+    "customConditions": ["development"]
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
+}

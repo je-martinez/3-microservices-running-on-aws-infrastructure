@@ -163,9 +163,13 @@ ps: ## Show container status
 
 ## --- Tests (the three-layer convention: docs/shared/conventions/testing.md) ---
 
-test-unit: ## Layer 1 — unit/integration for orders (dotnet), users + both Lambdas + the Cognito trigger + the web app (vitest), tracking (go test) + e2e typecheck. Tracking needs the local DB.
+test-unit: ## Layer 1 — unit/integration for orders (dotnet), users + both Lambdas + the Cognito trigger + the web app (vitest), tracking (go test) + users and e2e typecheck. Tracking needs the local DB.
 	dotnet test services/orders/Orders.sln
 	pnpm --filter @3mrai/users test
+	# CONTRACT: Keep the Users typecheck beside its tests. Vitest strips types without
+	# checking them and `pnpm build` compiles only src/, so this is the only gate that
+	# type-checks tests/ — without it a stale signature in a test still runs green.
+	pnpm --filter @3mrai/users typecheck
 	# Safe in the no-stack layer: the events-pipeline suites that need real
 	# infrastructure guard themselves. The DocumentDB suite skips when DOCDB_* is
 	# absent and the Mailpit suite skips when :8025 does not answer, both printing

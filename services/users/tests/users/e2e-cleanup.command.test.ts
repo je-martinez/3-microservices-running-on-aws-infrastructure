@@ -27,12 +27,25 @@ const { testSpanExporter } = await import("../setup.ts");
 const { appLogger } = await import("#shared/logging/app-logger");
 const Stripe = (await import("stripe")).default;
 const { E2eCleanupCommand } = await import("#features/users/http/e2e-cleanup");
+type Db = import("#shared/db/prisma").Db;
+type CacheGateway = import("#shared/cache/cache-gateway").CacheGateway;
+type StripeClientHolder = import("#shared/stripe/stripe-client.provider").StripeClientHolder;
 
-function fakeCacheGateway() {
-  return { invalidate: vi.fn(async () => undefined) };
+// The command touches only user.findMany/deleteMany, cacheGateway.invalidate and
+// customers.del, so each double implements just those and is cast to the full type.
+function fakeDb(db: { user: { findMany: unknown; deleteMany: unknown } }): Db {
+  return db as unknown as Db;
 }
 
-function stripeErrorResourceMissing(): Stripe.errors.StripeInvalidRequestError {
+function fakeCacheGateway(): CacheGateway {
+  return { invalidate: vi.fn(async () => undefined) } as unknown as CacheGateway;
+}
+
+function fakeStripe(client: { customers: { del: unknown } } | null): StripeClientHolder {
+  return { enabled: true, client } as unknown as StripeClientHolder;
+}
+
+function stripeErrorResourceMissing() {
   return new Stripe.errors.StripeInvalidRequestError({
     message: "No such customer",
     code: "resource_missing",
@@ -54,9 +67,9 @@ describe("E2eCleanupCommand — Stripe customer cleanup", () => {
       },
     };
     const command = new E2eCleanupCommand({
-      db,
+      db: fakeDb(db),
       cacheGateway: fakeCacheGateway(),
-      stripe: { enabled: true, client: { customers: { del } } },
+      stripe: fakeStripe({ customers: { del } }),
     });
 
     const result = await command.execute();
@@ -81,7 +94,7 @@ describe("E2eCleanupCommand — Stripe customer cleanup", () => {
         deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
     };
-    const command = new E2eCleanupCommand({ db, cacheGateway: fakeCacheGateway() });
+    const command = new E2eCleanupCommand({ db: fakeDb(db), cacheGateway: fakeCacheGateway() });
 
     const result = await command.execute();
 
@@ -98,9 +111,9 @@ describe("E2eCleanupCommand — Stripe customer cleanup", () => {
       },
     };
     const command = new E2eCleanupCommand({
-      db,
+      db: fakeDb(db),
       cacheGateway: fakeCacheGateway(),
-      stripe: { enabled: true, client: null },
+      stripe: fakeStripe(null),
     });
 
     const result = await command.execute();
@@ -126,9 +139,9 @@ describe("E2eCleanupCommand — Stripe customer cleanup", () => {
       },
     };
     const command = new E2eCleanupCommand({
-      db,
+      db: fakeDb(db),
       cacheGateway: fakeCacheGateway(),
-      stripe: { enabled: true, client: { customers: { del } } },
+      stripe: fakeStripe({ customers: { del } }),
     });
 
     const result = await command.execute();
