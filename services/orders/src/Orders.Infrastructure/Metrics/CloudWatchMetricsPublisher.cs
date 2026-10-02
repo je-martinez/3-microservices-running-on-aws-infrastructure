@@ -32,6 +32,18 @@ public class CloudWatchMetricsPublisher : IMetricsPublisher
         _logger = logger;
     }
 
+    /// <summary>
+    /// CloudWatch unit for <paramref name="name"/>: <c>Milliseconds</c> for a <c>_ms</c>
+    /// metric, <c>Count</c> for everything else.
+    /// </summary>
+    /// <remarks>
+    /// CONTRACT: Keep the unit aligned with Users, which publishes the same metric names. A
+    /// query or alarm that names a unit matches only datums stored with that unit, so a
+    /// duration stored as Count is invisible to a Milliseconds query. See [[x-cache-response-header]]
+    /// </remarks>
+    public static StandardUnit UnitFor(string name) =>
+        name.EndsWith("_ms", StringComparison.Ordinal) ? StandardUnit.Milliseconds : StandardUnit.Count;
+
     public async Task PublishAsync(
         string name,
         double value,
@@ -64,7 +76,7 @@ public class CloudWatchMetricsPublisher : IMetricsPublisher
                         {
                             MetricName = name,
                             Value = value,
-                            Unit = StandardUnit.Count,
+                            Unit = UnitFor(name),
                             // The exact dimension set matters: the collector must query
                             // the same one, since Floci does not aggregate across
                             // dimensions and answers a mismatched query with an EMPTY

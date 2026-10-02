@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Orders.Application.Abstractions;
+using Orders.Infrastructure.Caching;
 using Orders.Infrastructure.Observability;
 using Orders.Infrastructure.Persistence;
 
@@ -78,26 +79,12 @@ public class OrdersMetricsPublisher : BackgroundService
             new Dictionary<string, object?> { ["app_event"] = "metrics_tick_started" },
             async () =>
             {
-                // OrdersReadDbContext is registered SCOPED, so a singleton hosted
-                // service must open its own scope per tick.
-                using var scope = _scopeFactory.CreateScope();
-                var db = scope.ServiceProvider.GetRequiredService<OrdersReadDbContext>();
-
-                // The global query filter (o => o.DeletedAt == null) applies
-                // automatically — no Where() needed, and never filter on IsDeleted,
-                // which is a computed property EF cannot translate.
-                var total = await db.Orders.AsNoTracking().CountAsync(stoppingToken);
-
-                await _metrics.PublishAsync(
-                    "orders_total",
-                    total,
-                    new Dictionary<string, string> { ["Service"] = "orders" },
-                    stoppingToken);
-
-                // CONTRACT: Seed the failure counters at zero. http_errors_total is emitted
-                // from the error path only, so until something fails the series does not
-                // exist and its panel renders "Error Loading Data" — a healthy system reads
-                // as broken. The zero is free: CloudWatch sums within a period.
+                // CONTRACT: Publish every zero seed BEFORE the DB read, which runs last via
+                // PublishOrdersTotalAsync. Do NOT read the DB first: a failed read throws out
+                // of the tick, and every seed after it goes missing with it. http_errors_total
+                // is emitted from the error path only, so until something fails the series
+                // does not exist and its panel renders "Error Loading Data" — a healthy system
+                // reads as broken. The zero is free: CloudWatch sums within a period.
                 foreach (var statusClass in new[] { "4xx", "5xx" })
                 {
                     await _metrics.PublishAsync(
@@ -111,12 +98,35 @@ public class OrdersMetricsPublisher : BackgroundService
                         stoppingToken);
                 }
 
+                // CONTRACT: Seed cache_requests_total at zero for every (KeyPrefix, Result) the
+                // gateway emits, bypass included, for the same reason as above: a quiet
+                // window otherwise has no series and its card throws instead of reading 0.
+                // Do NOT seed cache_operation_duration_ms — a synthetic 0 ms drags every
+                // average toward zero and reports a fast cache when nothing is cached.
+                foreach (var prefix in CacheKeys.ReadPrefixes)
+                {
+                    foreach (var result in Enum.GetValues<CacheResult>())
+                    {
+                        await _metrics.PublishAsync(
+                            CacheGateway.RequestsMetricName,
+                            0,
+                            new Dictionary<string, string>
+                            {
+                                ["Service"] = "orders",
+                                ["KeyPrefix"] = prefix,
+                                ["Result"] = CacheGateway.ResultLabel(result),
+                            },
+                            stoppingToken);
+                    }
+                }
+
                 // Logged from INSIDE the span, deliberately: the failure line in
                 // ExecuteAsync is outside it (see above), so this success line is the
                 // only one that carries the tick span's own id and makes a span-scoped
                 // log lookup return anything. It also states WHAT went out — "the tick
                 // ran" alone would not distinguish a healthy publish from one that
                 // shipped a zero because the count silently matched nothing.
+                var total = await PublishOrdersTotalAsync(stoppingToken);
                 _tracer.SetAttribute("app_event", "metrics_tick_succeeded");
                 _tracer.SetAttribute("orders_total", total);
                 _logger.LogInformation(
@@ -126,4 +136,25 @@ public class OrdersMetricsPublisher : BackgroundService
                 // report, so it returns a discarded placeholder.
                 return true;
             });
+
+    private async Task<int> PublishOrdersTotalAsync(CancellationToken stoppingToken)
+    {
+        // OrdersReadDbContext is registered SCOPED, so a singleton hosted
+        // service must open its own scope per tick.
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<OrdersReadDbContext>();
+
+        // The global query filter (o => o.DeletedAt == null) applies
+        // automatically — no Where() needed, and never filter on IsDeleted,
+        // which is a computed property EF cannot translate.
+        var total = await db.Orders.AsNoTracking().CountAsync(stoppingToken);
+
+        await _metrics.PublishAsync(
+            "orders_total",
+            total,
+            new Dictionary<string, string> { ["Service"] = "orders" },
+            stoppingToken);
+
+        return total;
+    }
 }

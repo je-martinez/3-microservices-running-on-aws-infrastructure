@@ -15,6 +15,20 @@ public static class CacheKeys
     public const string IdentityPrefix = "identity:sub-to-user:v1";
     public const string UserIndexPrefix = "orders:index:v1";
 
+    /// <summary>
+    /// The prefix of every key a cached READ looks up — the <c>KeyPrefix</c> values
+    /// <c>cache_requests_total</c> carries. <see cref="UserIndexPrefix"/> is absent: it is
+    /// bookkeeping, never read through <c>GetAsync</c>.
+    /// </summary>
+    public static readonly IReadOnlyList<string> ReadPrefixes =
+    [
+        ProductsPrefix,
+        CartPrefix,
+        MyOrdersPrefix,
+        OrderPrefix,
+        IdentityPrefix,
+    ];
+
     public static readonly TimeSpan ProductsTtl = TimeSpan.FromMinutes(10);
     public static readonly TimeSpan CartTtl = TimeSpan.FromSeconds(60);
     public static readonly TimeSpan OrdersTtl = TimeSpan.FromMinutes(2);

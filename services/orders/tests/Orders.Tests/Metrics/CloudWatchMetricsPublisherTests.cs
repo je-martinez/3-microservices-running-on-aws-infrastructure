@@ -44,6 +44,32 @@ public class CloudWatchMetricsPublisherTests
         Assert.Equal("orders", dimension.Value);
     }
 
+    [Theory]
+    [InlineData("cache_operation_duration_ms", "Milliseconds")]
+    [InlineData("cache_requests_total", "Count")]
+    [InlineData("orders_total", "Count")]
+    [InlineData("http_errors_total", "Count")]
+    public async Task PublishAsync_SendsTheUnitOfEachMetric(string name, string expectedUnit)
+    {
+        PutMetricDataRequest? captured = null;
+        var client = new Mock<IAmazonCloudWatch>();
+        client
+            .Setup(c => c.PutMetricDataAsync(It.IsAny<PutMetricDataRequest>(), It.IsAny<CancellationToken>()))
+            .Callback<PutMetricDataRequest, CancellationToken>((r, _) => captured = r)
+            .ReturnsAsync(new PutMetricDataResponse());
+
+        var publisher = new CloudWatchMetricsPublisher(
+            client.Object, NullLogger<CloudWatchMetricsPublisher>.Instance);
+
+        await publisher.PublishAsync(name, 1, new Dictionary<string, string>
+        {
+            ["Service"] = "orders",
+        });
+
+        var datum = Assert.Single(captured!.MetricData);
+        Assert.Equal(expectedUnit, datum.Unit.Value);
+    }
+
     [Fact]
     public async Task PublishAsync_SwallowsClientFailures()
     {
