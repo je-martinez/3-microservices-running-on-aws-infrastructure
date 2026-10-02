@@ -57,9 +57,11 @@ function isMessageIdConflict(err: unknown): boolean {
 // user before capture runs, so this is an unexpected condition rather than a routine
 // outcome: the route maps it to an error response, and Cognito retries the trigger in
 // prod, so a transient race self-heals.
+// WARNING: The message carries `email_hash`, never the email — withWorkflowSpan exports
+// it as the span's exception event and status. See [[logging-context]]
 export class NoMatchingUserError extends Error {
   constructor(email: string) {
-    super(`No users row found for email ${email}`);
+    super(`No users row found for email_hash ${hashEmail(email)}`);
     this.name = "NoMatchingUserError";
   }
 }

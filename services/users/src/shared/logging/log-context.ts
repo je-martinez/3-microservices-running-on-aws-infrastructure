@@ -3,38 +3,29 @@ import { AsyncLocalStorage } from "node:async_hooks";
 // CONTRACT: Every field is optional and OMITTED when unknown, never null — a
 // `user_id: null` reads as a resolved value rather than "not known yet". Merged
 // into every line by `formatters.log` in logger.ts. AsyncLocalStorage rather than
-// the Awilix scope because the Pino logger is a process-wide singleton.
+// a request-scoped provider because the Pino logger is a process-wide singleton.
 // See [[logging-context]]
 export interface LogContextStore {
   /**
-   * Correlation id for one logical request, `req_` + nanoid, seeded at ingress and
-   * forwarded on every outbound hop. Distinct from `trace_id`: the events-pipeline
-   * and realtime Lambdas run no OTel SDK, so this is the only id spanning them.
+   * `req_` + nanoid, seeded at ingress and forwarded on every outbound hop — the only
+   * id spanning the events-pipeline and realtime Lambdas, which run no OTel SDK.
    * See [[2026-08-15-request-id-correlation-design]]
    */
   request_id?: string;
   /** Raw sub, from the x-user-id header — NOT the `usr_` id. */
   cognito_sub?: string;
   user_id?: string;
-  /** Non-reversible — safe to carry on every line. */
+  /**
+   * WARNING: The only email identifier this store carries — it reaches every later
+   * line. A masked email goes on the log call site. See [[logging-context]]
+   */
   email_hash?: string;
-  /**
-   * Plaintext email. ONLY set on the login/register flows, where no user_id
-   * exists yet and the email is the sole diagnostic key. Never set elsewhere.
-   */
-  email?: string;
   order_id?: string;
-  /**
-   * Cache outcome: "hit" | "miss" | "bypass", set by the response-cache hooks on
-   * cacheable routes. OMITTED elsewhere, never null — an absent key reads as "not
-   * cached", a null as "cached and somehow produced no outcome".
-   */
+  /** Set by MeCacheInterceptor on `GET /v1/users/me` only. */
   cache_result?: "hit" | "miss" | "bypass";
   /**
-   * E2E ONLY. The Playwright run behind this request, seeded at ingress from
-   * `x-e2e-run-id` and only when `E2E_TESTING_ENABLED`, so an unflagged environment
-   * ignores the header. On the context rather than a parameter so it reaches every
-   * event published — see [[2026-08-29-e2e-email-support-store]].
+   * E2E ONLY: the Playwright run, seeded from `x-e2e-run-id` only when `E2E_TESTING_ENABLED`.
+   * Ambient so it reaches every published event. See [[2026-08-29-e2e-email-support-store]]
    */
   run_id?: string;
 }
@@ -45,10 +36,7 @@ export function getLogContext(): LogContextStore {
   return logContext.getStore() ?? {};
 }
 
-/**
- * No-op outside a request. Mutates in place so continuations that already
- * captured the reference observe the update.
- */
+/** No-op outside a request. Mutates in place so continuations holding the store see the update. */
 export function setLogContext(fields: Partial<LogContextStore>): void {
   const store = logContext.getStore();
   if (store) Object.assign(store, fields);
