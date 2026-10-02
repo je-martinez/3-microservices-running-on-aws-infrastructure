@@ -871,7 +871,7 @@ ai-sync: ## Propagate agent config from .claude/ to the other AI providers
 	@# corruption. The five without a .ai/skills/ counterpart own their content and are
 	@# legitimately real directories. See [[2026-09-09-makefile-orchestration-invariants]]
 	@before=$$(shasum CLAUDE.md | cut -d' ' -f1); \
-	npx -y lnai@$(LNAI_VERSION) sync; \
+	pnpm dlx lnai@$(LNAI_VERSION) sync; \
 	after=$$(shasum CLAUDE.md | cut -d' ' -f1); \
 	test "$$before" = "$$after" \
 	  || { echo "ERROR: CLAUDE.md changed during sync — the arrow inverted"; exit 1; }
@@ -879,7 +879,7 @@ ai-sync: ## Propagate agent config from .claude/ to the other AI providers
 	  || { echo "ERROR: .claude/CLAUDE.md was created — lnai's claudeCode target is enabled"; exit 1; }
 
 ai-sync-check: ## Verify provider configs are valid and the guard is in place (CI gate)
-	npx -y lnai@$(LNAI_VERSION) validate
+	pnpm dlx lnai@$(LNAI_VERSION) validate
 	@# The arrow points one way: .claude/ -> .ai/ -> providers. lnai's claudeCode
 	@# plugin, if enabled, writes .claude/CLAUDE.md as a symlink to generated
 	@# output — so both its absence and the config flag are checked. This gate
@@ -894,7 +894,7 @@ ai-sync-check: ## Verify provider configs are valid and the guard is in place (C
 	@# .claude/ and forgets to sync. Re-run the sync and fail if it changed
 	@# anything: the output is deterministic, so a diff here means the committed
 	@# config no longer matches its source.
-	@npx -y lnai@$(LNAI_VERSION) sync >/dev/null 2>&1
+	@pnpm dlx lnai@$(LNAI_VERSION) sync >/dev/null 2>&1
 	@test -z "$$(git status --porcelain .ai/ .cursor/ .windsurf/ .gemini/ .codex/ .agents/ .github/ .opencode/ .vscode/ AGENTS.md GEMINI.md opencode.json)" \
 	  || { echo "ERROR: provider config is stale — run 'make ai-sync' and commit the result"; \
 	       git status --porcelain .ai/ .cursor/ .windsurf/ .gemini/ .codex/ .agents/ .github/ .opencode/ .vscode/ AGENTS.md GEMINI.md opencode.json; exit 1; }
