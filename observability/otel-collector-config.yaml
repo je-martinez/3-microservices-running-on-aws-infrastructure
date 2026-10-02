@@ -79,6 +79,10 @@ receivers:
           metric_name: "password_resets_total"
           dimensions: { Service: users }
           stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "users_deleted_total"
+          dimensions: { Service: users }
+          stats: [Sum]
         # Two series, one per HasPassword value. Both are always published (zero
         # included) so a value with no users reads as 0 rather than as "no data".
         - namespace: "3MRAI"
@@ -258,6 +262,171 @@ receivers:
           metric_name: "http_errors_total"
           dimensions: { Service: tracking, StatusClass: 5xx }
           stats: [Sum]
+
+        # --- Response cache, all three HTTP services -------------------------
+        # CONTRACT: There is no wildcard. Every (KeyPrefix, Result) pair and every
+        # Operation a service publishes needs its own entry, or that series never
+        # reaches OpenObserve, silently. The values come from each service's cache
+        # gateway, not the design spec: Result and Operation vocabularies differ
+        # per service. See [[x-cache-response-header]]
+        # WARNING: identity:sub-to-user:v1 (Orders, Tracking) is the identity
+        # cache, near 100% hit-rate by design. Never sum it with the response-cache
+        # prefixes, and keep bypass out of every hit-rate denominator.
+
+        # cache_requests_total. Only Users seeds zeros, so the Orders and Tracking
+        # series exist only while their routes take traffic. Users' bypass also
+        # counts failed cache writes, not only failed reads.
+        - namespace: "3MRAI"
+          metric_name: "cache_requests_total"
+          dimensions: { Service: users, KeyPrefix: "users:me:v1", Result: hit }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "cache_requests_total"
+          dimensions: { Service: users, KeyPrefix: "users:me:v1", Result: miss }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "cache_requests_total"
+          dimensions: { Service: users, KeyPrefix: "users:me:v1", Result: bypass }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "cache_requests_total"
+          dimensions: { Service: orders, KeyPrefix: "orders:products:v1", Result: hit }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "cache_requests_total"
+          dimensions: { Service: orders, KeyPrefix: "orders:products:v1", Result: miss }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "cache_requests_total"
+          dimensions: { Service: orders, KeyPrefix: "orders:products:v1", Result: bypass }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "cache_requests_total"
+          dimensions: { Service: orders, KeyPrefix: "orders:cart:v1", Result: hit }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "cache_requests_total"
+          dimensions: { Service: orders, KeyPrefix: "orders:cart:v1", Result: miss }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "cache_requests_total"
+          dimensions: { Service: orders, KeyPrefix: "orders:cart:v1", Result: bypass }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "cache_requests_total"
+          dimensions: { Service: orders, KeyPrefix: "orders:my-orders:v1", Result: hit }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "cache_requests_total"
+          dimensions: { Service: orders, KeyPrefix: "orders:my-orders:v1", Result: miss }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "cache_requests_total"
+          dimensions: { Service: orders, KeyPrefix: "orders:my-orders:v1", Result: bypass }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "cache_requests_total"
+          dimensions: { Service: orders, KeyPrefix: "orders:order:v1", Result: hit }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "cache_requests_total"
+          dimensions: { Service: orders, KeyPrefix: "orders:order:v1", Result: miss }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "cache_requests_total"
+          dimensions: { Service: orders, KeyPrefix: "orders:order:v1", Result: bypass }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "cache_requests_total"
+          dimensions: { Service: orders, KeyPrefix: "identity:sub-to-user:v1", Result: hit }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "cache_requests_total"
+          dimensions: { Service: orders, KeyPrefix: "identity:sub-to-user:v1", Result: miss }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "cache_requests_total"
+          dimensions: { Service: orders, KeyPrefix: "identity:sub-to-user:v1", Result: bypass }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "cache_requests_total"
+          dimensions: { Service: tracking, KeyPrefix: "tracking:order:v1", Result: hit }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "cache_requests_total"
+          dimensions: { Service: tracking, KeyPrefix: "tracking:order:v1", Result: miss }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "cache_requests_total"
+          dimensions: { Service: tracking, KeyPrefix: "tracking:order:v1", Result: bypass }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "cache_requests_total"
+          dimensions: { Service: tracking, KeyPrefix: "tracking:list:v1", Result: hit }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "cache_requests_total"
+          dimensions: { Service: tracking, KeyPrefix: "tracking:list:v1", Result: miss }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "cache_requests_total"
+          dimensions: { Service: tracking, KeyPrefix: "tracking:list:v1", Result: bypass }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "cache_requests_total"
+          dimensions: { Service: tracking, KeyPrefix: "identity:sub-to-user:v1", Result: hit }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "cache_requests_total"
+          dimensions: { Service: tracking, KeyPrefix: "identity:sub-to-user:v1", Result: miss }
+          stats: [Sum]
+        - namespace: "3MRAI"
+          metric_name: "cache_requests_total"
+          dimensions: { Service: tracking, KeyPrefix: "identity:sub-to-user:v1", Result: bypass }
+          stats: [Sum]
+
+        # cache_operation_duration_ms, never seeded: an idle window is empty, not
+        # 0ms. Each stat lands in the one stream as a `stat` attribute. Average is
+        # the per-window mean; SampleCount weights it when a panel spans several
+        # windows (an unweighted mean of means is wrong); Maximum is the tail. No
+        # pNN: extended statistics return no data unless the metric enables them.
+        # WARNING: Users' `del` series carries only FAILED invalidations, at 0ms.
+        - namespace: "3MRAI"
+          metric_name: "cache_operation_duration_ms"
+          dimensions: { Service: users, Operation: get }
+          stats: [Average, Maximum, SampleCount]
+        - namespace: "3MRAI"
+          metric_name: "cache_operation_duration_ms"
+          dimensions: { Service: users, Operation: set }
+          stats: [Average, Maximum, SampleCount]
+        - namespace: "3MRAI"
+          metric_name: "cache_operation_duration_ms"
+          dimensions: { Service: users, Operation: del }
+          stats: [Average, Maximum, SampleCount]
+        - namespace: "3MRAI"
+          metric_name: "cache_operation_duration_ms"
+          dimensions: { Service: orders, Operation: get }
+          stats: [Average, Maximum, SampleCount]
+        - namespace: "3MRAI"
+          metric_name: "cache_operation_duration_ms"
+          dimensions: { Service: orders, Operation: set }
+          stats: [Average, Maximum, SampleCount]
+        - namespace: "3MRAI"
+          metric_name: "cache_operation_duration_ms"
+          dimensions: { Service: tracking, Operation: get }
+          stats: [Average, Maximum, SampleCount]
+        - namespace: "3MRAI"
+          metric_name: "cache_operation_duration_ms"
+          dimensions: { Service: tracking, Operation: set }
+          stats: [Average, Maximum, SampleCount]
+        - namespace: "3MRAI"
+          metric_name: "cache_operation_duration_ms"
+          dimensions: { Service: tracking, Operation: invalidate }
+          stats: [Average, Maximum, SampleCount]
+        - namespace: "3MRAI"
+          metric_name: "cache_operation_duration_ms"
+          dimensions: { Service: tracking, Operation: invalidate_index }
+          stats: [Average, Maximum, SampleCount]
 
 processors:
   # Parse the service's JSON stdout line (carried in body) into top-level

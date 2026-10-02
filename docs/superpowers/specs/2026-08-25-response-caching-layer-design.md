@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: draft
 created: 2026-08-25
-updated: 2026-08-26
+updated: 2026-10-02
 tags:
   - type/spec
   - area/shared
@@ -375,39 +375,46 @@ normalize-at-write):
      key — a full key (with `cognito_sub`/`user_id` embedded) would explode cardinality and
      cost, on top of the PII concern the span rule below also exists for.
 
-     > [!warning] Corrected 2026-08-26 — `Result` is not just `hit`\|`miss`\|`bypass`, and each service's write path publishes differently (C5/C6)
+     > [!warning] Corrected 2026-08-26, re-checked 2026-10-02 — `Result` is not just `hit`\|`miss`\|`bypass` per service, and each service's write path publishes differently (C5/C6)
      > This spec originally documented `Result` as a closed three-value enum and implied
-     > `cache_requests_total` is published uniformly on every operation. Neither holds as
-     > shipped:
-     > - **`Result` also carries write-path values, per service.** Users publishes `del`
-     >   (`services/users/src/shared/cache/cache-gateway.ts:154,177,189`). Tracking publishes
-     >   `invalidate` and `invalidate_index` as their own operation names, not as a `Result`
-     >   value on `get`/`set` (`services/tracking/src/shared/cache/gateway.py:210,236`). Orders
-     >   publishes only `get`/`set` results — its `InvalidateAsync`/`TrackKeyAsync`/
-     >   `InvalidateUserKeysAsync` never call `RecordAsync` at all
-     >   (`services/orders/src/Orders.Infrastructure/Caching/CacheGateway.cs`).
-     >   `cache_requests_total` is therefore **not published on writes** in Tracking (`set`
-     >   calls `_record(None, ...)`, `gateway.py:189`, and `invalidate`/`invalidate_index` do
-     >   the same at `:210`/`:236` — `result=None` means no `Result`-dimensioned metric goes
-     >   out) or in Orders (`SetAsync`/`InvalidateAsync`/`TrackKeyAsync`/
-     >   `InvalidateUserKeysAsync` publish duration only, never `cache_requests_total`) — but
-     >   Users **does** publish `Result: "bypass"` for a write failure
-     >   (`cache-gateway.ts:208`, via `reportUnavailable` calling `report("bypass", ...)`).
+     > `cache_requests_total` is published uniformly on every operation. The shipped values are
+     > `hit`, `miss` and `bypass` in all three services, but what feeds them differs:
+     > - **Users** (`services/users/src/shared/cache/cache-gateway.ts`) never publishes
+     >   `Result: "del"`; that value does not exist. A failed `get`, `set` or `del` goes through
+     >   `reportUnavailable` and counts as `Result: bypass`. A successful `set` publishes only a
+     >   duration, and a successful invalidation publishes nothing.
+     > - **Tracking** (`services/tracking-go/internal/adapter/redis/gateway.go`) publishes
+     >   `cache_requests_total` on `get` only. `set`, `invalidate` and `invalidate_index` call
+     >   `record` with an empty result, so only a duration goes out.
+     > - **Orders** (`services/orders/src/Orders.Infrastructure/Caching/CacheGateway.cs`)
+     >   publishes `cache_requests_total` on `get` only. `InvalidateAsync`, `TrackKeyAsync` and
+     >   `InvalidateUserKeysAsync` log a failure and publish no metric.
      > - **The documented hit-rate formula therefore has a different denominator per service.**
-     >   Users' `hit + miss + bypass` counts include write-path bypasses that Tracking's and
-     >   Orders' equivalents never contribute. Document this divergence honestly in dashboards
-     >   rather than treating the three services' `cache_requests_total` as directly comparable
-     >   — a cross-service hit-rate comparison computed naively will be wrong, not merely
-     >   imprecise.
-   - `cache_operation_duration_ms` — dimensions `Service`, `Operation` (values also diverge per
-     service: Users emits `get`|`set`|`del`; Tracking emits `get`|`set`|`invalidate`|
-     `invalidate_index`; Orders emits `get`|`set`|`invalidate`|`index` — see
-     `CacheGateway.cs`'s `PublishDurationAsync` call sites, whose second argument is the literal
-     string passed, not a shared enum), published with unit `Milliseconds`.
+     >   Users' `bypass` count includes write-path failures that Tracking's and Orders'
+     >   equivalents never contribute. Document this divergence honestly in dashboards rather
+     >   than treating the three services' `cache_requests_total` as directly comparable — a
+     >   cross-service hit-rate comparison computed naively will be wrong, not merely imprecise.
+     >
+     > Per-service vocabulary is kept once in [[x-cache-response-header]].
+   - `cache_operation_duration_ms` — dimensions `Service`, `Operation`. The `Operation` values
+     diverge per service, because each gateway passes a literal string rather than a shared enum:
+     Users emits `get`|`set`|`del`, with the `del` series published only on failure at a
+     hard-coded 0 ms, so it does not measure latency; Tracking emits `get`|`set`|`invalidate`|
+     `invalidate_index`; Orders emits `get`|`set` only. The **unit also diverges**: Users publishes
+     `Milliseconds`, while Orders and Tracking publish `Count` (the values are milliseconds in all
+     three), so a query filtering on the unit sees Users apart from the other two. See
+     [[x-cache-response-header]].
+
+     > [!note] Re-checked 2026-10-02
+     > This passage was re-checked against the three gateways on 2026-10-02 and the code was
+     > right: the drift was in this text (a `del` result, Orders `invalidate`|`index` durations, a
+     > uniform `Milliseconds` unit and a stale Tracking path), not in the gateways. The collector
+     > now scrapes these metrics from CloudWatch into OpenObserve
+     > (`observability/otel-collector-config.yaml`), pending live verification.
    - Both are emitted through each service's existing publisher — Orders'
      `IMetricsPublisher.PublishAsync` (`services/orders/src/Orders.Application/Abstractions/IMetricsPublisher.cs:12-19`),
      Users' `MetricsPublisher.publish` (`services/users/src/shared/metrics/cloudwatch-metrics.ts:26-31`),
-     Tracking's `MetricsPublisher` Protocol (`services/tracking/src/shared/metrics/cloudwatch_metrics.py:63,73,144`)
+     Tracking's CloudWatch publisher (`services/tracking-go/internal/adapter/cloudwatch/publisher.go`)
      — under the shared `3MRAI` namespace, same as every other metric in the repo.
    - **These publishers must not throw**, and this design relies on that existing contract
      rather than adding its own try/catch: Orders' `IMetricsPublisher` documents "Implementations

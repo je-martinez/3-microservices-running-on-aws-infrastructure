@@ -369,6 +369,21 @@ SELECT COALESCE(MAX(CASE WHEN haspassword = 'ALL' THEN value END), 0) AS total
 FROM "amazonaws_com_3mrai_users_total"
 ```
 
+### A multi-stat query lands in ONE stream — filter on `stat`
+
+A collector query that asks for several statistics (`cache_operation_duration_ms`
+uses `[Average, Maximum, SampleCount]`) writes all of them into the same stream,
+told apart only by the `stat` column. A panel that aggregates without filtering
+on `stat` mixes averages, maxima and counts into one meaningless number:
+
+```sql
+SELECT COALESCE(MAX(CASE WHEN stat = 'Maximum' AND service = 'orders' THEN value END), 0) AS total
+FROM "amazonaws_com_3mrai_cache_operation_duration_ms"
+```
+
+Averaging per-window `Average` values over a long range is also wrong unless it
+is weighted by that window's `SampleCount`.
+
 ### The filter goes in `CASE WHEN`, never in `WHERE`
 
 This is the part that is easy to get wrong. A `WHERE` can eliminate every row,

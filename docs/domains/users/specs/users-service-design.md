@@ -719,11 +719,12 @@ response; the cache metrics come from the cache gateway on every cache operation
 metrics' dimensions, the `KeyPrefix` rule and the per-service differences are defined once in
 [[x-cache-response-header]] and [[2026-08-25-response-caching-layer-design]].
 
-> [!note] Open follow-up — three metrics are not scraped into OpenObserve
-> `users_deleted_total`, `cache_requests_total` and `cache_operation_duration_ms` are published to
-> CloudWatch but are not currently scraped by the collector
-> (`observability/otel-collector-config.yaml` has no `metric_name` entry for any of them), so they
-> are NOT queryable in OpenObserve today. Whether that is intended has not been established.
+> [!note] Scraped into OpenObserve — pending live verification
+> The collector (`observability/otel-collector-config.yaml`) queries `users_deleted_total`
+> (`Service=users`, Sum), every exact dimension set of `cache_requests_total` (Sum) and of
+> `cache_operation_duration_ms` (Average, Maximum, SampleCount), for Users, Orders and Tracking.
+> The collector's `validate` command accepts the file offline; no stream for these metrics has
+> been observed in OpenObserve yet, so treat them as not-yet-confirmed there.
 
 > [!warning] CONTRACT — `users_total` publishes `HasPassword=ALL` as its own series
 > The poller publishes the sum of the two breakdowns as a third series. Do NOT expect a dashboard
