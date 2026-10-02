@@ -3,8 +3,8 @@ import { setLogContext } from "#shared/logging/log-context";
 
 // Request-scoped caller context. `identity` is the raw x-user-id (Cognito sub or
 // usr_ id). `resolve()` turns it into a user row lazily, caching the promise so
-// repeat consumers in one request don't re-hit the DB. Registered SCOPED in
-// Awilix (routes.ts onRequest hook).
+// repeat consumers in one request don't re-hit the DB. One instance per request,
+// built by CurrentUserInterceptor and attached to the Fastify request.
 export class CurrentUser {
   readonly identity: string;
   private readonly db: Db;
@@ -22,7 +22,7 @@ export class CurrentUser {
   }
 
   // CONTRACT: Enrich the log context HERE. This is the single point where a request
-  // learns its internal `usr_` id — the onRequest hook only knows the raw x-user-id,
+  // learns its internal `usr_` id — request ingress only knows the raw x-user-id,
   // which may be a Cognito sub — so every later line carries `user_id` without a call
   // site passing it. `resolve()` is lazy, so routes that never need the user pay no
   // lookup. See [[logging-context]]

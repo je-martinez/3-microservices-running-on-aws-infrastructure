@@ -90,8 +90,10 @@ export class CognitoAuthProvider implements AuthProvider {
     );
     // CONTRACT: Do NOT fall back to email when Cognito returns no sub — the email
     // hashes into the idempotency key as if it were a sub (silent corruption). Throw.
+    // WARNING: Keep the email out of the message — workflow spans export it as the
+    // exception event and status. See [[logging-context]]
     const sub = created.User?.Attributes?.find((a) => a.Name === "sub")?.Value;
-    if (!sub) throw new Error(`Cognito AdminCreateUser returned no sub for ${email}`);
+    if (!sub) throw new Error("Cognito AdminCreateUser returned no sub");
     const emailVerified = created.User?.Attributes?.find((a) => a.Name === "email_verified")?.Value;
     return { sub, email, emailVerified, userPoolId: this.userPoolId, clientId: this.clientId };
   }
@@ -143,7 +145,8 @@ export class CognitoAuthProvider implements AuthProvider {
       if (e?.name === "UserNotFoundException") throw new InvalidCredentialsError();
       throw e;
     }
-    if (!res.Session) throw new Error(`CUSTOM_AUTH InitiateAuth returned no session for ${email}`);
+    // WARNING: No email in this message, same reason as signUp's missing-sub throw.
+    if (!res.Session) throw new Error("CUSTOM_AUTH InitiateAuth returned no session");
     return { session: res.Session };
   }
 
