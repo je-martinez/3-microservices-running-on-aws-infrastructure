@@ -6,6 +6,8 @@ import { withWorkflowSpan } from "../observability/workflow-tracing.ts";
 import type { MetricsPublisher } from "./cloudwatch-metrics.ts";
 import { ME_KEY_PREFIX } from "../cache/cache-keys.ts";
 
+type UserCounts = { withPassword: number; withoutPassword: number };
+
 /**
  * Periodically publishes gauge metrics describing the CURRENT state of the users
  * table. Gauges, not counters: "how many users have no password" is a question
@@ -90,10 +92,22 @@ export class BusinessMetricsPoller {
    * "the tick ran" alone would not distinguish a healthy publish from one that
    * shipped zeros because the query silently matched nothing.
    */
-  private async collectAndPublishTick(): Promise<{
-    withPassword: number;
-    withoutPassword: number;
-  }> {
+  private async collectAndPublishTick(): Promise<UserCounts> {
+    // CONTRACT: Run the zero-seeds independently of the users count, and rethrow
+    // only once both have settled. The seeds keep the error cards reading 0 while
+    // the database is down — the moment `http_errors_total` matters most — so a
+    // failed count must NOT skip them. The rethrow still turns the tick span ERROR
+    // and logs `metrics_collection_failed`. See [[logging-context]]
+    const [counts, seeds] = await Promise.allSettled([
+      this.publishUserCounts(),
+      this.publishZeroSeeds(),
+    ]);
+    if (counts.status === "rejected") throw counts.reason;
+    if (seeds.status === "rejected") throw seeds.reason;
+    return counts.value;
+  }
+
+  private async publishUserCounts(): Promise<UserCounts> {
     // CONTRACT: Two counts, not a groupBy — a groupBy omits rows for a value with no
     // users, so the series stops publishing instead of publishing a 0, and a stalled
     // series reads as "no data" in a dashboard rather than "zero".
@@ -122,6 +136,10 @@ export class BusinessMetricsPoller {
       HasPassword: "ALL",
     });
 
+    return { withPassword, withoutPassword };
+  }
+
+  private async publishZeroSeeds(): Promise<void> {
     // CONTRACT: Seed the failure counters at zero every tick. They are only emitted
     // from error paths, so until something fails the series does not exist and the
     // panel renders "Error Loading Data" — the card that should read "no errors"
@@ -166,7 +184,5 @@ export class BusinessMetricsPoller {
         }),
       ),
     );
-
-    return { withPassword, withoutPassword };
   }
 }

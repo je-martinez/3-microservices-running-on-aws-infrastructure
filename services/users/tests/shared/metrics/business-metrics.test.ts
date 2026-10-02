@@ -173,6 +173,40 @@ describe("BusinessMetricsPoller logging", () => {
     expect(failed!.reason).toBe("db down");
   });
 
+  it("publishes every zero-seed when the database query fails, and still fails the tick", async () => {
+    const d = makeDeps({ password: 0, passwordless: 0 });
+    d.db.user.count = vi.fn(async () => {
+      throw new Error("db down");
+    });
+    const poller = new BusinessMetricsPoller(d as any);
+
+    const lines = await captureAppLogs(() => poller.collectAndPublish());
+
+    const seeds: Array<[string, Record<string, string>]> = [
+      ["http_errors_total", { Service: "users", StatusClass: "4xx" }],
+      ["http_errors_total", { Service: "users", StatusClass: "5xx" }],
+      ["users_registered_total", { Service: "users" }],
+      ["password_resets_total", { Service: "users" }],
+      ["users_deleted_total", { Service: "users" }],
+      ...["hit", "miss", "bypass"].map(
+        (result): [string, Record<string, string>] => [
+          "cache_requests_total",
+          { Service: "users", KeyPrefix: "users:me:v1", Result: result },
+        ],
+      ),
+    ];
+    for (const [name, dims] of seeds) {
+      expect(d.publish).toHaveBeenCalledWith(name, 0, dims);
+    }
+    expect(d.publish).not.toHaveBeenCalledWith("users_total", expect.anything(), expect.anything());
+
+    const tick = testSpanExporter.getFinishedSpans().find((s) => s.name === "metrics-tick");
+    expect(tick!.status.code).toBe(SpanStatusCode.ERROR);
+    expect(tick!.status.message).toBe("db down");
+    expect(lineFor(lines, "metrics_tick_succeeded")).toBeUndefined();
+    expect(lineFor(lines, "metrics_collection_failed")!.reason).toBe("db down");
+  });
+
   it("keeps the failure line OUTSIDE the span, as the span must see the throw to go ERROR", async () => {
     // Not an oversight being pinned: the catch is deliberately outside the span
     // (business-metrics.ts), which is what lets the span come out ERROR. The
