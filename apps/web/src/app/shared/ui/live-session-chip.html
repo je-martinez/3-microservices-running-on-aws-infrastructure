@@ -1,0 +1,49 @@
+<div class="relative flex w-full flex-row items-center gap-2.5 px-3">
+  <!--
+    CONTRACT: Hover and FOCUS both open the card. The chip is a small target
+    and reachable by keyboard only through this button, so hover alone hides
+    the explanation from anyone not using a pointer.
+  -->
+  <button
+    type="button"
+    [class]="'flex cursor-default flex-row items-center gap-1.5 rounded-md px-2 py-0.75 ' + copy().chip"
+    [attr.aria-describedby]="open() ? 'live-session-explainer' : null"
+    (mouseenter)="setOpen(true)"
+    (mouseleave)="setOpen(false)"
+    (focus)="setOpen(true)"
+    (blur)="setOpen(false)"
+  >
+    <span [class]="'h-1.5 w-1.5 shrink-0 rounded-full ' + copy().dot" aria-hidden="true"></span>
+    <span [class]="'text-[0.71875rem] font-semibold whitespace-nowrap ' + copy().text">
+      {{ copy().label }}
+    </span>
+  </button>
+
+  @if (showsRetry()) {
+    <button
+      type="button"
+      class="text-ink-primary text-[0.71875rem] font-semibold underline-offset-2 hover:underline"
+      (click)="retryRequested.emit()"
+    >
+      Retry
+    </button>
+  }
+
+  @if (open()) {
+    <!--
+      WHY: Anchored to the chip's right edge and pulled left of the menu, where
+      the design places it — inside the menu it would overflow a 260px panel.
+    -->
+    <div
+      id="live-session-explainer"
+      role="tooltip"
+      class="bg-brand-navy-deep absolute top-full right-0 z-50 mt-1.5 flex w-47.5 flex-col gap-0.75 rounded-md p-3 text-left shadow-lg"
+    >
+      <div class="flex items-center gap-1.5">
+        <span [class]="'h-1.5 w-1.5 shrink-0 rounded-full ' + copy().dot" aria-hidden="true"></span>
+        <span class="text-surface-white text-xs font-semibold">{{ copy().label }}</span>
+      </div>
+      <p class="text-ink-muted-on-dark text-[0.6875rem] leading-[1.4]">{{ copy().detail }}</p>
+    </div>
+  }
+</div>

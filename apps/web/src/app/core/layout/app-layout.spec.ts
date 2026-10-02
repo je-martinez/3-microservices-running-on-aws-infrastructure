@@ -68,4 +68,25 @@ describe('AppLayout', () => {
 
     expect(TestBed.inject(CartStore).itemCount()).toBe(0);
   });
+
+  /**
+   * CONTRACT: The badge reads the socket's state through the header. Wiring it
+   * to anything else leaves a live-looking dot over a dead socket.
+   */
+  it('shows the live-session badge carrying the socket state', async () => {
+    fixture.detectChanges();
+    const request = await awaitRequest(fixture, controller, CART_URL);
+    request.flush(cart([]));
+    await settle(fixture);
+
+    const indicator = (fixture.nativeElement as HTMLElement).querySelector(
+      'app-live-session-badge',
+    );
+
+    expect(indicator?.querySelector('[role="status"]')?.textContent).toContain('Connecting');
+    // Still scanning: the ring only closes once the socket opens.
+    expect(indicator?.querySelector('.badge-scan')).not.toBeNull();
+    expect(indicator?.querySelector('.badge-arc')).toBeNull();
+  });
+
 });

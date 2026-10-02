@@ -15,6 +15,11 @@ body.con{--c:var(--con)}
 body.live{--c:var(--live)}
 body.rec{--c:var(--rec)}
 body.off{--c:var(--off)}
+body[data-con=blue]{--con:#2563EB}
+body[data-con=navy]{--con:#2D3748}
+body[data-con=slate]{--con:#64748B}
+body[data-con=teal]{--con:#0D9488}
+body[data-con=hollow]{--con:#10B981}
 button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
 svg{display:block;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 
@@ -68,12 +73,12 @@ body.off .cB .pf{color:var(--off)}
 .ring .base{stroke:var(--c);stroke-dasharray:100 0}
 body.rec .ring .base{stroke-dasharray:28 72}
 body.off .ring .base{stroke:var(--border)}
-body.rec .cC .ring{animation:spin calc(1s*var(--s)) linear infinite}
+body.rec .cC .ring,body.rec .cJ .ring,body.rec .cK .ring{animation:spin calc(1s*var(--s)) linear infinite}
 .ring .comet{stroke:#D1FAE5;stroke-dasharray:14 86;opacity:0}
 
 .badge{position:absolute;right:-5px;bottom:-5px;width:18px;height:18px;border-radius:50%;background:var(--c);box-shadow:0 0 0 2px #fff;display:grid;place-items:center;color:#fff;transition:background-color calc(.3s*var(--s)),color calc(.3s*var(--s))}
 body.off .badge{background:var(--border);color:var(--text-2)}
-.badge svg{position:absolute;width:11px;height:11px;stroke-width:2.5;opacity:0;transform:scale(.6);transition:opacity calc(.2s*var(--s)),transform calc(.25s*var(--s))}
+.badge svg{position:absolute;width:10px;height:10px;stroke-width:2.5;opacity:0;transform:scale(.6);transition:opacity calc(.2s*var(--s)),transform calc(.25s*var(--s))}
 body.live .badge .i-live,body.rec .badge .i-rec,body.off .badge .i-off{opacity:1;transform:none}
 body.live .badge .w1{animation:wave calc(1.6s*var(--s)) ease-in-out infinite}
 body.live .badge .w2{animation:wave calc(1.6s*var(--s)) ease-in-out calc(.25s*var(--s)) infinite}
@@ -104,9 +109,36 @@ body.live .led{animation:ledglow calc(2.4s*var(--s)) ease-in-out infinite}
 body.rec .led{animation:blink calc(1s*var(--s)) ease-in-out infinite}
 body.off .led{background:var(--border-strong)}
 
+:is(.cL,.cM,.cN,.cO) .pf>svg.user{transform:translateY(-6px);transition:transform calc(.4s*var(--s)) cubic-bezier(.65,0,.35,1)}
+body.live :is(.cL,.cM,.cN,.cO) .pf>svg.user{transform:none}
+.mtrack{position:absolute;left:50%;bottom:7px;width:24px;height:3px;margin-left:-12px;border-radius:2px;background:var(--border);opacity:0;transition:opacity calc(.25s*var(--s))}
+body.con .mtrack,body.rec .mtrack{opacity:1}
+.morph{position:absolute;left:50%;bottom:7px;width:8px;height:3px;margin-left:-4px;border-radius:2px;background-color:var(--c);box-shadow:inset 0 0 0 0 var(--c);transition:height calc(.3s*var(--s)) cubic-bezier(.65,0,.35,1),bottom calc(.3s*var(--s)) cubic-bezier(.65,0,.35,1),border-radius calc(.3s*var(--s)) cubic-bezier(.65,0,.35,1),box-shadow calc(.3s*var(--s)),background-color calc(.3s*var(--s)),width calc(.3s*var(--s)) cubic-bezier(.65,0,.35,1) calc(.2s*var(--s)),margin-left calc(.3s*var(--s)) cubic-bezier(.65,0,.35,1) calc(.2s*var(--s))}
+body.con .morph,body.rec .morph{animation:scan calc(.5s*var(--s)) ease-in-out infinite alternate}
+body.rec .morph{animation-delay:calc(.3s*var(--s))}
+body.con[data-con=hollow] .morph{background-color:color-mix(in srgb,var(--con) 45%,transparent)}
+body.off .morph{width:14px;margin-left:-7px;background-color:var(--border-strong)}
+body.live .cL .morph{width:36px;height:36px;margin-left:-18px;bottom:4px;border-radius:50%;background-color:transparent;box-shadow:inset 0 0 0 2px var(--c);transition:width calc(.3s*var(--s)) cubic-bezier(.65,0,.35,1),margin-left calc(.3s*var(--s)) cubic-bezier(.65,0,.35,1),height calc(.35s*var(--s)) cubic-bezier(.65,0,.35,1) calc(.2s*var(--s)),bottom calc(.35s*var(--s)) cubic-bezier(.65,0,.35,1) calc(.2s*var(--s)),border-radius calc(.35s*var(--s)) cubic-bezier(.65,0,.35,1) calc(.2s*var(--s)),background-color calc(.3s*var(--s)) calc(.25s*var(--s)),box-shadow calc(.3s*var(--s)) calc(.2s*var(--s))}
+body.tick .cL .morph{animation:ringpulse calc(.7s*var(--s)) ease-out}
+:is(.cM,.cN) .morph,:is(.cM,.cN) .mtrack{bottom:5px}
+.hb>svg.arc2{position:absolute;top:4px;left:4px;width:36px;height:36px;transform:rotate(90deg)}
+.arc2 circle{stroke:var(--c);stroke-width:2.5}
+.cM .morph{transition:opacity calc(.08s*var(--s)) calc(.3s*var(--s)),background-color calc(.3s*var(--s)),width calc(.2s*var(--s)),margin-left calc(.2s*var(--s))}
+body.live .cM .morph{width:14px;margin-left:-7px;opacity:0;transition:width calc(.08s*var(--s)),margin-left calc(.08s*var(--s)),opacity calc(.08s*var(--s)) calc(.06s*var(--s))}
+.cM .arc2 circle{stroke-dasharray:14 86;stroke-dashoffset:7;opacity:0;transition:opacity calc(.08s*var(--s)) calc(.3s*var(--s)),stroke-dasharray calc(.3s*var(--s)) cubic-bezier(.65,0,.35,1),stroke-dashoffset calc(.3s*var(--s)) cubic-bezier(.65,0,.35,1)}
+body.live .cM .arc2 circle{stroke-dasharray:100 0;stroke-dashoffset:50;opacity:1;transition:opacity calc(.08s*var(--s)),stroke-dasharray calc(.5s*var(--s)) cubic-bezier(.65,0,.35,1) calc(.06s*var(--s)),stroke-dashoffset calc(.5s*var(--s)) cubic-bezier(.65,0,.35,1) calc(.06s*var(--s))}
+.cN .morph{transition:opacity calc(.15s*var(--s)) calc(.15s*var(--s)),background-color calc(.3s*var(--s)),width calc(.2s*var(--s)),margin-left calc(.2s*var(--s))}
+body.live .cN .morph{opacity:0;transition:opacity calc(.06s*var(--s))}
+.cN .arc2{opacity:0;transition:opacity calc(.2s*var(--s))}
+.cN .arc2 circle{stroke-dasharray:100 0}
+body.live .cN .arc2{opacity:1;transition:none;animation:orbit calc(.75s*var(--s)) cubic-bezier(.5,0,.3,1)}
+body.live .cN .arc2 circle{animation:grow calc(.75s*var(--s)) cubic-bezier(.5,0,.3,1)}
+.cO .pf>svg.user{position:relative;z-index:1}
+body.live .cO .morph{width:36px;height:36px;margin-left:-18px;bottom:4px;border-radius:50%;background-color:transparent;box-shadow:inset 0 0 0 2px var(--c);transition:none;animation:bloom calc(.65s*var(--s)) cubic-bezier(.65,0,.35,1)}
+body.tick :is(.cM,.cN,.cO) .pf{animation:halo calc(.7s*var(--s)) ease-out}
 .tip{position:absolute;top:54px;left:-69px;width:206px;padding:10px 12px;border-radius:10px;background:var(--navy-deep);box-shadow:0 6px 18px #1A1A2E33;color:#fff;text-align:left;opacity:0;transform:translateY(-4px);pointer-events:none;transition:opacity calc(.16s*var(--s)) ease,transform calc(.2s*var(--s)) cubic-bezier(.2,.8,.2,1);z-index:5}
 .tip::before{content:"";position:absolute;top:-5px;left:86px;width:10px;height:10px;background:var(--navy-deep);transform:rotate(45deg);border-radius:2px}
-.cH .pf:hover .tip,.cH .pf:focus-within .tip,.cI .pf:hover .tip,.cI .pf:focus-within .tip,body.pin .tip{opacity:1;transform:none;pointer-events:auto}
+.cH .pf:hover .tip,.cH .pf:focus-within .tip,.cI .pf:hover .tip,.cI .pf:focus-within .tip,.cJ .pf:hover .tip,.cJ .pf:focus-within .tip,.cK .pf:hover .tip,.cK .pf:focus-within .tip,body.pin .tip{opacity:1;transform:none;pointer-events:auto}
 .cI .tip{top:58px}
 .tip .blk{display:none}
 body.con .tip .b-con,body.live .tip .b-live,body.rec .tip .b-rec,body.off .tip .b-off{display:block}
@@ -117,6 +149,15 @@ body.live .tip .tt .w1{animation:wave calc(1.6s*var(--s)) ease-in-out infinite}
 body.live .tip .tt .w2{animation:wave calc(1.6s*var(--s)) ease-in-out calc(.25s*var(--s)) infinite}
 body.rec .tip .tt svg.spin{animation:spin0 calc(1s*var(--s)) linear infinite}
 .tip p{margin:4px 0 0;font-size:11px;line-height:1.4;color:#A9B2C0}
+.tip .tt svg.mring{transform:rotate(-90deg)}
+.mring circle{stroke:var(--c);stroke-width:2.5;stroke-dasharray:100 0;transition:stroke-dasharray calc(.5s*var(--s)) cubic-bezier(.65,0,.35,1)}
+body.con .mring circle{animation:fillRing calc(1.4s*var(--s)) cubic-bezier(.65,0,.35,1) infinite}
+body.rec .mring circle{stroke-dasharray:28 72}
+body.rec .tip .tt svg.mring{animation:spin calc(1s*var(--s)) linear infinite}
+.cd{margin-top:8px;height:3px;border-radius:2px;background:#FFFFFF1F;overflow:hidden}
+.cd i{display:block;height:100%;background:#A9B2C0;transform-origin:left}
+body.off .cK .cd i{animation:drain calc(8s*var(--s)) linear infinite}
+body.off .cK .ring .base{stroke:var(--border-strong);animation:drainRing calc(8s*var(--s)) linear infinite}
 .tip .retry{margin-top:6px;font-size:11.5px;font-weight:600;color:#fff;text-decoration:underline}
 
 body.con .dot{animation:dotBreath calc(1.2s*var(--s)) ease-in-out infinite}
@@ -131,11 +172,28 @@ body.con .pill .t-con b{animation:dotjump calc(.9s*var(--s)) ease-in-out infinit
 body.con .pill .t-con b:nth-child(2){animation-delay:calc(.15s*var(--s))}
 body.con .pill .t-con b:nth-child(3){animation-delay:calc(.3s*var(--s))}
 body.con .led{animation:ledscan calc(1.2s*var(--s)) ease-in-out infinite alternate}
+body.con[data-con=hollow] .dot{background:#fff;box-shadow:0 0 0 2px #fff,inset 0 0 0 2px var(--con)}
+body.con[data-con=hollow] .badge{background:#fff;color:var(--con);box-shadow:0 0 0 2px #fff,inset 0 0 0 1.5px var(--con)}
+body.con[data-con=hollow] .pill{background:#fff;color:var(--con);box-shadow:0 0 0 1.5px #fff,inset 0 0 0 1px var(--con)}
+body.con[data-con=hollow] .pill .t-con b{background:var(--con)}
+body.con[data-con=hollow] .led{background:color-mix(in srgb,var(--con) 45%,transparent)}
+body.con[data-con=hollow] .tip .tt i{background:transparent;box-shadow:inset 0 0 0 1.5px var(--con)}
+body[data-con=hollow] .sw-con{background:#fff!important;box-shadow:inset 0 0 0 2px var(--live)}
+.seg .sw.ring{background:#fff!important;box-shadow:inset 0 0 0 2px var(--live)}
+.seg-label{font-size:12px;font-weight:600;color:var(--text-2);margin-right:-6px}
 @keyframes dotBreath{50%{transform:scale(.7);opacity:.55}}
-@keyframes blinkC{50%{box-shadow:inset 0 0 0 1.5px #2563EB55}}
+@keyframes blinkC{50%{box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--con) 35%,transparent)}}
 @keyframes fillRing{0%{stroke-dasharray:0 100;opacity:1}70%{stroke-dasharray:100 0;opacity:1}100%{stroke-dasharray:100 0;opacity:.2}}
 @keyframes seek{0%{opacity:.15}35%{opacity:1}100%{opacity:.15}}
 @keyframes dotjump{0%,100%{opacity:.4;transform:translateY(0)}40%{opacity:1;transform:translateY(-1.5px)}}
+@keyframes orbit{from{transform:rotate(90deg)}to{transform:rotate(450deg)}}
+@keyframes grow{0%{stroke-dasharray:14 86}55%{stroke-dasharray:30 70}100%{stroke-dasharray:100 0}}
+@keyframes bloom{0%{width:8px;height:3px;margin-left:-4px;bottom:7px;border-radius:2px;background-color:var(--c);box-shadow:inset 0 0 0 0 var(--c)}35%{width:6px;height:6px;margin-left:-3px;bottom:19px;border-radius:50%;background-color:var(--c);box-shadow:inset 0 0 0 0 var(--c)}100%{width:36px;height:36px;margin-left:-18px;bottom:4px;border-radius:50%;background-color:transparent;box-shadow:inset 0 0 0 2px var(--c)}}
+@keyframes halo{30%{box-shadow:inset 0 0 0 1px var(--border),0 0 12px 3px #10B98155}}
+@keyframes scan{from{translate:-8px 0}to{translate:8px 0}}
+@keyframes ringpulse{30%{box-shadow:inset 0 0 0 2px var(--c),0 0 10px 3px #10B98166}}
+@keyframes drain{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+@keyframes drainRing{from{stroke-dasharray:100 0}to{stroke-dasharray:0 100}}
 @keyframes ledscan{from{width:4px}to{width:14px}}
 
 body.tick .cA .dot,body.tick .cH .dot,body.tick .cD .badge,body.tick .cI .badge{animation:pop calc(.5s*var(--s)) cubic-bezier(.34,1.56,.64,1)}
@@ -161,7 +219,7 @@ body.tick .cG .led{animation:ledflash calc(.6s*var(--s)) ease-out}
 body.rm *,body.rm *::before,body.rm *::after{animation:none!important;transition-duration:calc(.12s*var(--s))!important}
 </style>
 </head>
-<body class="con">
+<body class="con" data-con="hollow">
 <header class="topbar">
   <div class="title">
     <h1>Live session indicator — motion exploration</h1>
@@ -169,10 +227,18 @@ body.rm *,body.rm *::before,body.rm *::after{animation:none!important;transition
   </div>
   <div class="controls">
     <div class="seg" role="group" aria-label="Socket state" id="state">
-      <button data-st="con" aria-pressed="false"><i class="sw" style="background:var(--con)"></i>Connecting</button>
+      <button data-st="con" aria-pressed="false"><i class="sw sw-con" style="background:var(--con)"></i>Connecting</button>
       <button data-st="live" aria-pressed="true"><i class="sw" style="background:var(--live)"></i>Live</button>
       <button data-st="rec" aria-pressed="false"><i class="sw" style="background:var(--rec)"></i>Reconnecting</button>
       <button data-st="off" aria-pressed="false"><i class="sw" style="background:var(--off)"></i>Offline</button>
+    </div>
+    <span class="seg-label">Connecting color</span>
+    <div class="seg" role="group" aria-label="Connecting color" id="conc">
+      <button data-con="navy" aria-pressed="false"><i class="sw" style="background:#2D3748"></i>Navy</button>
+      <button data-con="slate" aria-pressed="false"><i class="sw" style="background:#64748B"></i>Slate</button>
+      <button data-con="teal" aria-pressed="false"><i class="sw" style="background:#0D9488"></i>Teal</button>
+      <button data-con="hollow" aria-pressed="true"><i class="sw ring"></i>Hollow green ✓</button>
+      <button data-con="blue" aria-pressed="false"><i class="sw" style="background:#2563EB"></i>Blue (v1)</button>
     </div>
     <button class="btn" id="tick"></button>
     <button class="btn ghost" id="cycle"></button>
@@ -181,7 +247,7 @@ body.rm *,body.rm *::before,body.rm *::after{animation:none!important;transition
       <button data-s="2" aria-pressed="false">0.5×</button>
       <button data-s="4" aria-pressed="false">0.25×</button>
     </div>
-    <label class="toggle"><input type="checkbox" id="pin">Pin explainers (H, I)</label>
+    <label class="toggle"><input type="checkbox" id="pin">Pin explainers (H–K)</label>
     <label class="toggle"><input type="checkbox" id="rm">Reduced motion</label>
   </div>
 </header>
@@ -214,25 +280,45 @@ const tip=`<div class="tip" role="tooltip">
   <div class="blk b-rec"><div class="tt"><i></i>Reconnecting…</div><p>Updates are paused while we restore the connection.</p></div>
   <div class="blk b-off"><div class="tt"><i></i>Offline</div><p>Not receiving updates. Retrying in 8s.</p><button class="retry" data-retry>Retry now</button></div>
 </div>`;
+const mring='<svg viewBox="0 0 14 14" class="mring" aria-hidden="true"><circle cx="7" cy="7" r="5" pathLength="100"/></svg>';
+const tipK=`<div class="tip" role="tooltip">
+  <div class="blk b-con"><div class="tt">${mring}Connecting…</div><p>Setting up live updates for this session.</p></div>
+  <div class="blk b-live"><div class="tt">${mring}Live updates on</div><p>Orders, tracking and notifications update in real time.</p></div>
+  <div class="blk b-rec"><div class="tt">${mring}Reconnecting…</div><p>Updates are paused while we restore the connection.</p></div>
+  <div class="blk b-off"><div class="tt">${mring}Offline</div><p>Not receiving updates. Retrying in 8s.</p><div class="cd"><i></i></div><button class="retry" data-retry>Retry now</button></div>
+</div>`;
+const ARC='<svg viewBox="0 0 36 36" class="arc2" aria-hidden="true"><circle cx="18" cy="18" r="16" pathLength="100"/></svg>';
 const CONCEPTS=[
   {k:"A",name:"A · Presence dot",desc:"Green dot on the button corner, the universal “online” signal. Tiny, calm, instantly read.",extra:'<span class="dot"></span>',
-   now:{con:"Blue dot breathes (scale .7↔1) · 1.2s loop",live:"Ping ring expands 1→2.6× and fades · 2s loop",rec:"Dot blinks 1→.35 opacity · 1s loop",off:"Hollow grey dot · static"},tick:"dot pops 1.45×"},
+   now:{con:"Dot breathes (scale .7↔1) · 1.2s loop",live:"Ping ring expands 1→2.6× and fades · 2s loop",rec:"Dot blinks 1→.35 opacity · 1s loop",off:"Hollow grey dot · static"},tick:"dot pops 1.45×"},
   {k:"B",name:"B · Glow ring",desc:"The whole button border turns green and breathes a soft glow while the socket is open.",extra:"",
-   now:{con:"Blue border fades in/out · 1.4s loop",live:"Green border + glow breathes 0→12px · 2.4s loop",rec:"Amber border fades in/out · 1.2s loop",off:"Default border · icon dimmed"},tick:"glow flashes to 18px"},
+   now:{con:"Border fades in/out · 1.4s loop",live:"Green border + glow breathes 0→12px · 2.4s loop",rec:"Amber border fades in/out · 1.2s loop",off:"Default border · icon dimmed"},tick:"glow flashes to 18px"},
   {k:"C",name:"C · Status arc",desc:"A thin ring around the icon: full when connected, a spinning arc while reconnecting.",extra:ring("ring"),
    now:{con:"Ring fills 0→100% and fades · 1.4s loop (fills, never spins)",live:"Full ring · static (calm)",rec:"28% arc spins · 1s loop; closes into a full ring on reconnect",off:"Faint grey ring"},tick:"a light comet runs once around the ring"},
   {k:"D",name:"D · Signal badge",desc:"A broadcast badge that literally says “live feed”, not “online”.",extra:`<span class="badge">${svg("radio","i-live")}${svg("refresh","i-rec")}${svg("wifiOff","i-off")}</span>`,
-   now:{con:"Blue badge · radio waves search outward · 1.2s loop",live:"Radio waves breathe outward · 1.6s loop",rec:"Refresh icon rotates · 1s loop",off:"wifi-off · grey · static"},tick:"badge pops 1.45×"},
+   now:{con:"Badge · radio waves search outward · 1.2s loop",live:"Radio waves breathe outward · 1.6s loop",rec:"Refresh icon rotates · 1s loop",off:"wifi-off · grey · static"},tick:"badge pops 1.45×"},
   {k:"E",name:"E · LIVE micro-pill",desc:"A tiny LIVE tag clipped to the bottom edge, like a broadcast label.",extra:'<span class="pill"><i class="pd"></i><span class="t-con"><b></b><b></b><b></b></span><span class="t-live">LIVE</span><span class="t-rec">SYNC</span><span class="t-off">OFF</span></span>',
-   now:{con:"Three dots hop inside a blue pill · .9s loop",live:"Pill dot blinks · 1.2s loop",rec:"SYNC pill blinks · 1s loop",off:"Grey OFF pill · static"},tick:"pill pops 1.25×"},
+   now:{con:"Three dots hop inside the pill · .9s loop",live:"Pill dot blinks · 1.2s loop",rec:"SYNC pill blinks · 1s loop",off:"Grey OFF pill · static"},tick:"pill pops 1.25×"},
   {k:"F",name:"F · Initials + status ring",desc:"The profile becomes the user's initials inside a status ring, story-style.",extra:ring("av-ring")+'<span class="avatar">JM</span>',
-   now:{con:"Blue ring fills 0→100% · 1.4s loop",live:"Full green ring · static",rec:"Dashed amber ring rotates · 3s loop",off:"Grey ring · avatar greyed"},tick:"a light comet runs once around the ring"},
+   now:{con:"Ring fills 0→100% · 1.4s loop",live:"Full green ring · static",rec:"Dashed amber ring rotates · 3s loop",off:"Grey ring · avatar greyed"},tick:"a light comet runs once around the ring"},
   {k:"G",name:"G · LED underline",desc:"A short LED bar under the icon, like a hardware status light.",extra:'<span class="led"></span>',
-   now:{con:"Blue LED scans 4→14px · 1.2s",live:"LED glow breathes · 2.4s loop",rec:"LED blinks · 1s loop",off:"Grey LED · static"},tick:"LED flares and widens 14→22px"},
+   now:{con:"LED scans 4→14px · 1.2s",live:"LED glow breathes · 2.4s loop",rec:"LED blinks · 1s loop",off:"Grey LED · static"},tick:"LED flares and widens 14→22px"},
   {k:"H",name:"H · Dot + hover explainer",desc:"Concept A plus a card on hover/focus that names the state and offers Retry when offline.",extra:'<span class="dot"></span>'+tip,
    now:{con:"Dot breathes · card says “Connecting…”",live:"Dot as A · hover the button for the card (fade + 4px, 160ms)",rec:"Dot blinks · card explains the pause",off:"Hollow dot · card offers Retry now"},tick:"dot pops 1.45×"}
   ,{k:"I",name:"I · Signal badge + hover explainer",desc:"D’s broadcast badge plus H’s card on hover/focus. The card title reuses the badge icon for each state.",extra:BADGE+tipI,
    now:{con:"Badge waves search · card says “Connecting…”",live:"Radio waves breathe · hover for the card (fade + 4px, 160ms)",rec:"Refresh icon rotates · card explains the pause",off:"wifi-off · card offers Retry now"},tick:"badge pops 1.45×"}
+  ,{k:"J",name:"J · Status arc + hover explainer",desc:"C’s ring around the icon plus H’s card on hover/focus, so the arc’s state is named instead of guessed.",extra:ring("ring")+tip,
+   now:{con:"Ring fills 0→100% · card says “Connecting…”",live:"Full ring · hover for the card (fade + 4px, 160ms)",rec:"28% arc spins · card explains the pause",off:"Faint grey ring · card offers Retry now"},tick:"a light comet runs once around the ring"}
+  ,{k:"K",name:"K · Status arc + synced explainer",desc:"J, but the card title carries a mini arc that mirrors the button’s ring, and offline the ring drains as the retry countdown.",extra:ring("ring")+tipK,
+   now:{con:"Ring and mini arc fill together · 1.4s loop",live:"Both rings full · static",rec:"Both arcs spin · 1s loop",off:"Ring drains 100→0% over 8s with the card’s countdown bar · Retry now"},tick:"a light comet runs once around the ring"}
+  ,{k:"L",name:"L · LED scanner → status arc",desc:"G’s LED sweeps left↔right while connecting, then morphs into C’s ring once the socket opens, and back when it drops.",extra:'<span class="mtrack"></span><span class="morph"></span>',
+   now:{con:"Bar sweeps ±8px on a faint track · .5s each way",live:"Bar widens, then curls into a full ring; icon drops to centre · .55s",rec:"Ring collapses back into an amber scanner and sweeps",off:"Grey LED · static"},tick:"ring glow pulses once"}
+  ,{k:"M",name:"M · Scanner → wrap-around arc",desc:"The scanner settles at the bottom edge, then both ends wrap up around the button until they meet at the top.",extra:'<span class="mtrack"></span><span class="morph"></span>'+ARC,
+   now:{con:"Bar sweeps ±8px along the bottom edge · .5s each way",live:"Bar centres, both ends climb the sides and close at the top · .55s",rec:"Ring retracts to the bottom and becomes the amber scanner",off:"Grey LED · static"},tick:"button halo pulses once"}
+  ,{k:"N",name:"N · Scanner → orbit close",desc:"The scanner leaves its track as a comet, orbits the button once and stretches its tail until the ring closes.",extra:'<span class="mtrack"></span><span class="morph"></span>'+ARC,
+   now:{con:"Bar sweeps ±8px along the bottom edge · .5s each way",live:"Comet launches from the bottom, orbits 360° and its tail closes the ring · .75s",rec:"Ring fades, the amber scanner returns",off:"Grey LED · static"},tick:"button halo pulses once"}
+  ,{k:"O",name:"O · Scanner → bloom",desc:"The scanner shrinks to a dot, rises behind the icon and blooms outward into the ring.",extra:'<span class="mtrack"></span><span class="morph"></span>',
+   now:{con:"Bar sweeps ±8px on a faint track · .5s each way",live:"Bar → dot rising behind the icon → ring blooming outward · .65s",rec:"Ring collapses back into the amber scanner",off:"Grey LED · static"},tick:"button halo pulses once"}
 ];
 document.getElementById("grid").innerHTML=CONCEPTS.map(c=>`
 <section class="card c${c.k}">
@@ -249,7 +335,7 @@ document.getElementById("grid").innerHTML=CONCEPTS.map(c=>`
 </section>`).join("");
 
 const LABEL={con:"Connecting",live:"Live",rec:"Reconnecting",off:"Offline"};
-let S=1,state="live",cycling=false,cycleTimer=0;
+let S=1,state="live",cycling=false,cycleTimer=0,touched=false;
 const setNow=()=>document.querySelectorAll(".now").forEach(p=>{
   const c=CONCEPTS.find(x=>x.k===p.dataset.k);
   p.innerHTML=`<b>${LABEL[state]}:</b> ${c.now[state]}<br><b>On update:</b> ${c.tick}`;
@@ -261,13 +347,13 @@ function tick(){
 }
 function setState(st){
   const was=state;state=st;
-  document.body.classList.remove("con","live","rec","off");document.body.classList.add(st);
+  document.body.classList.remove("con","live","rec","off","tick");document.body.classList.add(st);
   document.querySelectorAll("#state button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.st===st));
   document.getElementById("tick").disabled=st!=="live";
   setNow();
   if(st==="live"&&was!=="live")setTimeout(tick,350*S);
 }
-document.querySelectorAll("#state button").forEach(b=>b.addEventListener("click",()=>{stopCycle();setState(b.dataset.st);}));
+document.querySelectorAll("#state button").forEach(b=>b.addEventListener("click",()=>{touched=true;stopCycle();setState(b.dataset.st);}));
 document.getElementById("tick").innerHTML=svg("zap")+"Simulate update";
 document.getElementById("tick").addEventListener("click",tick);
 document.getElementById("grid").addEventListener("click",e=>{
@@ -293,6 +379,11 @@ document.querySelectorAll("#speed button").forEach(b=>b.addEventListener("click"
   S=Number(b.dataset.s);document.body.style.setProperty("--s",S);
   document.querySelectorAll("#speed button").forEach(x=>x.setAttribute("aria-pressed",x===b));
 }));
+document.querySelectorAll("#conc button").forEach(b=>b.addEventListener("click",()=>{
+  touched=true;document.body.dataset.con=b.dataset.con;
+  document.querySelectorAll("#conc button").forEach(x=>x.setAttribute("aria-pressed",x===b));
+  if(state!=="con"){stopCycle();setState("con");}
+}));
 const pin=document.getElementById("pin");
 pin.addEventListener("change",()=>document.body.classList.toggle("pin",pin.checked));
 const rm=document.getElementById("rm");
@@ -301,8 +392,8 @@ document.body.classList.toggle("still",still);
 rm.checked=matchMedia("(prefers-reduced-motion: reduce)").matches||still;
 const applyRm=()=>document.body.classList.toggle("rm",rm.checked);
 rm.addEventListener("change",applyRm);applyRm();
-setState("con");
-setTimeout(()=>{if(state==="con"&&!cycling)setState("live");},1800*S);
+setState(still?"live":"con");
+if(!still)setTimeout(()=>{if(state==="con"&&!cycling&&!touched)setState("live");},1800*S);
 </script>
 </body>
 </html>

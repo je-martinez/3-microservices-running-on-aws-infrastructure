@@ -63,6 +63,7 @@
   --color-info-bg: #EFF6FF;
   --color-warn-ink: #B45309;
   --color-warn-bg: #FFF7ED;
+  --color-warn-amber: #F59E0B;
   /* CONTRACT: A bubble tint, NOT a reuse of --color-line. The two share a value
      today and are different roles; collapsing them lets a border change silently
      retint the PLACED notification. See [[pencil-design-extraction]] */
@@ -145,6 +146,15 @@
   --spacing-control-xl: 3.125rem; /* 50px — mobile menu row */
   --spacing-control-2xl: 3.625rem; /* 58px — primary CTA / payment row (NOT --spacing-field, 56px) */
   --spacing-header-offset: 5.375rem; /* 86px — sticky offset below header */
+}
+
+/* Every enabled control gets the pointer, so no button has to ask for it.
+ * `:enabled` excludes disabled ones, which read as inert and keep the arrow;
+ * `[role="button"]` covers the elements Angular wires as controls without
+ * being a <button>. */
+button:enabled,
+[role='button']:not([aria-disabled='true']) {
+  cursor: pointer;
 }
 
 /* CONTRACT: The DOCUMENT must never scroll — the app scrolls inside

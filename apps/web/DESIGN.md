@@ -4,7 +4,7 @@ Design source: `assets/web-app/web-app.pen`
 
 ## Design Tokens
 
-`GetVariables()` returned exactly 32 variables (read live from the `.pen`, verified again 2026-09-19 for the Stripe payments milestone — see [[2026-09-19-stripe-payments-design]]). 11 were renamed on emission into `apps/web/src/styles.css` to avoid Tailwind v4 utility stutter (e.g. `bg-body` would otherwise collide with a `bg-*` utility named `bg-bg-body`). Everything else maps straight through. The Stripe payments milestone's six new frames (`Saved Card Row` and its consumers) use only existing tokens — no new variable was added in that pass.
+`GetVariables()` returned exactly 33 variables (read live from the `.pen`, verified again 2026-10-01 for the live-session indicator — see [[2026-09-19-stripe-payments-design]] for the preceding 32-variable pass). 11 were renamed on emission into `apps/web/src/styles.css` to avoid Tailwind v4 utility stutter (e.g. `bg-body` would otherwise collide with a `bg-*` utility named `bg-bg-body`). Everything else maps straight through. The Stripe payments milestone's six new frames (`Saved Card Row` and its consumers) use only existing tokens. `warn-amber` is the live-session indicator's one addition: the reconnecting badge, which had no equivalent among the existing warn tokens (`warn-ink` `#B45309` and `brand-orange` `#F7941D` are both too far from it to substitute).
 
 | `.pen` name | Value | Tailwind utility |
 |---|---|---|
@@ -35,6 +35,7 @@ Design source: `assets/web-app/web-app.pen`
 | `info-bg` | `#EFF6FF` | `bg-info-bg` |
 | `warn-text` | `#B45309` | `text-warn-ink` |
 | `warn-bg` | `#FFF7ED` | `bg-warn-bg` |
+| `warn-amber` | `#F59E0B` | `bg-warn-amber` |
 | `neutral-bg` | `#E5E7EB` | `bg-neutral-bg` |
 | `font-heading` | `Inter` | `font-heading` |
 | `font-body` | `Inter` | `font-body` |
@@ -82,6 +83,8 @@ Three more root frames are neither components nor variant sheets: `Product Card 
 | Notifications Panel | `LWQ8g` | `src/app/features/notifications/notifications-panel.ts` | mounts off `OverlayStore`; one component reads each item's `read` flag to cover the Unread (`mSssa`) / Read (`YZIGp`) pair |
 | Toast Notification | `jYz4h` | `src/app/shared/ui/toast-notification.ts` | covers `IQCEF`/`UpmOQ` |
 | Saved Card Row | `vPwZ1` | `src/app/shared/ui/saved-card-row.ts` | `card: SavedCardView`, `selected: boolean`, `isDefault: boolean`, `expired: boolean` — three states: selected+default, unselected/not-default, expired (dimmed bubble, `text-danger-red font-semibold` expiry). Shared by the checkout's `Saved Cards List` and the profile's `Cards List` — never rebuilt per surface. |
+| Live Session Badge | concept N of `pacf4` | `src/app/shared/ui/live-session-badge.ts` | `state: LiveSessionState`. Wraps the header's profile button: a scanner sweeps its lower edge, and on `live` a comet orbits once and closes into a 36px ring inset 4px. SILENT by design — no text, no control; the words and the retry belong to the chip below. |
+| Live Session Chip | option E of `QgShq` | `src/app/shared/ui/live-session-chip.ts` | `state: LiveSessionState`; outputs `retryRequested`. Sits inside the account menu's identity block, above the first divider, so Profile stays the first action. Explains itself on hover and focus; `Retry` shows on `offline` alone. |
 | Qty Stepper | `a7S8KL` | `src/app/shared/ui/qty-stepper.ts` | `quantity: number` (required), `canIncrement: boolean` (default `true`), `disabled: boolean`, `itemName: string`; outputs `increment`, `decrement`, `removed`. Instanced by both `Product Card` (`QmNIg`) and `Cart Line` (`L5XVFs`) — never rebuilt per surface. |
 
 Every component is `standalone: true` and uses `input()`/`output()` signals, never `@Input()`/`@Output()` decorators. Structure (flex layout, gaps, paddings) is legitimately copied from each frame's `apps/web/design/exports/<name>.html` export; arbitrary colour classes in that export (`bg-[#2D3748]`) are not — replace them with the matching token utility from the table above.

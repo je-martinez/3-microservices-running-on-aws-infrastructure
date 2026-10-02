@@ -2,6 +2,7 @@
   <app-app-header
     [cartCount]="cart.itemCount()"
     [hasUnreadNotifications]="notifications.hasUnread()"
+    [liveSessionState]="socket.liveState()"
     (notificationsClicked)="overlay.toggleNotifications()"
     (profileClicked)="overlay.toggleAccountMenu()"
     (cartClicked)="openCart()"

@@ -1,6 +1,7 @@
 import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { AccountMenu } from '../../features/account/account-menu';
+import { NotificationsSocket } from '../notifications/notifications-socket';
 import { NotificationsPanel } from '../../features/notifications/notifications-panel';
 import { OverlayStore } from '../overlay/overlay-store';
 import { Scrim } from '../overlay/scrim';
@@ -20,4 +21,6 @@ import { Scrim } from '../overlay/scrim';
 })
 export class Shell {
   protected readonly overlay = inject(OverlayStore);
+  /** The account menu's chip reports this session's state and retries it. */
+  protected readonly socket = inject(NotificationsSocket);
 }
