@@ -307,11 +307,7 @@ func (g *gateway) warnUnavailable(ctx context.Context, operation, prefix string)
 // Result dimension would be a real, queryable series meaning nothing.
 func (g *gateway) record(ctx context.Context, result, prefix, operation string, started time.Time) {
 	if result != "" {
-		g.metrics.Publish(ctx, MetricCacheRequests, 1, [][2]string{
-			{"Service", ServiceDimension},
-			{"KeyPrefix", prefix},
-			{"Result", result},
-		})
+		g.metrics.Publish(ctx, MetricCacheRequests, 1, cacheRequestDimensions(prefix, result))
 	}
 	g.metrics.Publish(ctx, MetricCacheOperationDuration,
 		float64(time.Since(started).Microseconds())/1000.0,
@@ -319,6 +315,40 @@ func (g *gateway) record(ctx context.Context, result, prefix, operation string, 
 			{"Service", ServiceDimension},
 			{"Operation", operation},
 		})
+}
+
+// cacheRequestDimensions is the ONE builder of cache_requests_total's dimension
+// set, shared by record and CacheRequestDimensions so the seeds cannot drift
+// from what Get publishes.
+func cacheRequestDimensions(prefix, result string) [][2]string {
+	return [][2]string{
+		{"Service", ServiceDimension},
+		{"KeyPrefix", prefix},
+		{"Result", result},
+	}
+}
+
+// CacheRequestDimensions returns every dimension set Get publishes
+// cache_requests_total under: each cached key prefix crossed with each result.
+//
+// CONTRACT: The metrics ticker publishes a 0 under each of these every tick. Do
+// NOT drop a prefix or a result: in a quiet window that series has no
+// datapoints, and an OpenObserve card over it throws instead of reading 0.
+// Prefixes come from the key builders themselves, so a renamed key moves its
+// seed with it. See [[x-cache-response-header]]
+func CacheRequestDimensions() [][][2]string {
+	const placeholder = "seed"
+	orderKey, _ := TrackingOrderKey(placeholder, placeholder, placeholder)
+	listKey, _ := TrackingListKey(placeholder, placeholder, nil)
+	prefixes := []string{PrefixOf(orderKey), PrefixOf(listKey), PrefixOf(IdentityKey(placeholder))}
+
+	out := make([][][2]string, 0, len(prefixes)*3)
+	for _, prefix := range prefixes {
+		for _, result := range []string{ResultHit, ResultMiss, ResultBypass} {
+			out = append(out, cacheRequestDimensions(prefix, result))
+		}
+	}
+	return out
 }
 
 // nullGateway is the binding used when CACHE_ENABLED=false — a null object, not

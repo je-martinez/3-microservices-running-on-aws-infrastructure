@@ -112,7 +112,7 @@ func (p *publisher) Publish(ctx context.Context, name string, value float64, dim
 		MetricData: []cwtypes.MetricDatum{{
 			MetricName: aws.String(name),
 			Value:      aws.Float64(value),
-			Unit:       cwtypes.StandardUnitCount,
+			Unit:       unitFor(name),
 			Dimensions: dims,
 		}},
 	})
@@ -129,6 +129,18 @@ func (p *publisher) Publish(ctx context.Context, name string, value float64, dim
 		return
 	}
 	span.SetStatus(codes.Ok, "")
+}
+
+// unitFor returns the CloudWatch unit a metric is published with.
+//
+// CONTRACT: Do NOT publish a duration as Count. The series shares its name with
+// Users', which publishes Milliseconds, and a Count-unit duration reads as a bare
+// number in every console. Every other metric here is a counter or a gauge.
+func unitFor(name string) cwtypes.StandardUnit {
+	if name == MetricCacheOperationDuration {
+		return cwtypes.StandardUnitMilliseconds
+	}
+	return cwtypes.StandardUnitCount
 }
 
 func otelTracer() oteltrace.Tracer { return tracing.Tracer(tracing.TracerMetrics) }
