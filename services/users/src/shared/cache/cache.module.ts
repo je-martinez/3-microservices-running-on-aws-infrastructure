@@ -29,12 +29,9 @@ import { REDIS } from "#shared/tokens";
       // constructor takes the whole validated Env — hand it the parsed config
       // rather than a hand-built partial, so a field added later is already there.
       provide: CacheGateway,
-      inject: [REDIS, MetricsPublisher, AppConfigService],
-      useFactory: (
-        redis: RedisClient,
-        metricsPublisher: MetricsPublisher,
-        config: AppConfigService,
-      ) => new CacheGateway({ redis, metricsPublisher, env: envSchema.parse(process.env) }),
+      inject: [REDIS, MetricsPublisher],
+      useFactory: (redis: RedisClient, metricsPublisher: MetricsPublisher) =>
+        new CacheGateway({ redis, metricsPublisher, env: envSchema.parse(process.env) }),
     },
   ],
   exports: [REDIS, ResetCodeStore, CacheGateway],

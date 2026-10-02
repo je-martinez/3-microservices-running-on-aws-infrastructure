@@ -41,7 +41,7 @@ class CqrsHandlerContext implements ExecutionContext {
     return this.handlerClass as Type<T>;
   }
 
-  getHandler(): Function {
+  getHandler(): (command: unknown) => unknown {
     return this.handlerClass.prototype.execute;
   }
 
@@ -90,22 +90,22 @@ export class WorkflowInterceptor implements NestInterceptor, OnApplicationBootst
   onApplicationBootstrap(): void {
     for (const nestModule of this.modulesContainer.values()) {
       for (const wrapper of nestModule.providers.values()) {
-        const instance = wrapper.instance as { execute?: Function; [key: symbol]: unknown } | undefined;
+        const instance = wrapper.instance as { execute?: (command: unknown) => unknown; [key: symbol]: unknown } | undefined;
         const metatype = wrapper.metatype as Type<unknown> | undefined;
         if (!instance || !metatype || typeof instance.execute !== "function") continue;
         if (!Reflect.getMetadata(WORKFLOW_FLOW, metatype)) continue;
         if (instance[EXECUTE_WRAPPED]) continue;
 
         const original = instance.execute.bind(instance);
-        const self = this;
-        instance.execute = function workflowWrappedExecute(command: unknown) {
+        const workflowWrappedExecute = (command: unknown): Promise<unknown> => {
           const context = new CqrsHandlerContext(metatype);
           return firstValue(
-            self.intercept(context, {
+            this.intercept(context, {
               handle: () => from((async () => original(command))()),
             }),
           );
         };
+        instance.execute = workflowWrappedExecute;
         instance[EXECUTE_WRAPPED] = true;
       }
     }
