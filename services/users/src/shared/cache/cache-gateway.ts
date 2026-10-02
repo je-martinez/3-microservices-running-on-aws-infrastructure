@@ -113,16 +113,18 @@ export class CacheGateway {
   async invalidate(keyPrefix: string, ...keys: string[]): Promise<void> {
     if (!this.enabled || keys.length === 0) return;
 
+    const started = Date.now();
     try {
       // Variadic DEL, one round trip regardless of key count.
       await this.withTimeout(this.redis.del(...keys), "del");
+      this.reportDuration("del", Date.now() - started);
     } catch (err) {
       // Swallowed, and this is the one swallow that deserves its own note.
       // Invalidation runs AFTER the write has persisted, so a failure here
       // leaves a stale entry that the 5-minute TTL still clears. Throwing
       // would turn a successful profile update into a 500 for the user, which
       // is strictly worse than five minutes of staleness.
-      this.reportUnavailable(err, keyPrefix, "del", 0);
+      this.reportUnavailable(err, keyPrefix, "del", Date.now() - started);
     }
   }
 
