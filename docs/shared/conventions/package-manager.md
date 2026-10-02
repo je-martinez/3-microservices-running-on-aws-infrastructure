@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-08-13
-updated: 2026-08-13
+updated: 2026-10-02
 tags:
   - type/convention
   - area/shared
@@ -49,6 +49,8 @@ Two concrete incidents anchor this, one documented and one caught in review:
 - **Node itself is pinned by [`.nvmrc`](../../../.nvmrc)** (currently 24.18.0). Run `nvm use`
   before any pnpm command — see the Node.js rule in the root `CLAUDE.md` and [[scripting-language]]
   for the same pattern applied to script languages.
+  In a Claude Code isolated worktree `nvm` cannot be sourced; see
+  [[2026-10-02-nvm-cannot-be-sourced-in-isolated-worktrees]] for the PATH workaround.
 
 ## Command mapping
 
@@ -66,6 +68,7 @@ already relies on this, e.g. `pnpm --filter @3mrai/e2e test` for the gateway E2E
 
 ## Related
 
+- [[2026-10-02-nvm-cannot-be-sourced-in-isolated-worktrees]] — running the pinned Node where `nvm use` is blocked.
 - [[local-dev]] — Makefile and local dev flow this workspace supports.
 - [[scripting-language]] — sibling convention: same "why this exists" evidence-first shape,
   covering the Python/JavaScript/Bash decision for scripts rather than the JS package manager.
