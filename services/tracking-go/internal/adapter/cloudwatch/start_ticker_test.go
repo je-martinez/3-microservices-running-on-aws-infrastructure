@@ -36,7 +36,7 @@ func startLogger() *slog.Logger { return slog.New(slog.NewJSONHandler(io.Discard
 func TestStartTickerReturnsNilWhenDisabled(t *testing.T) {
 	publisher := &startStubPublisher{}
 
-	done := cloudwatch.StartTicker(t.Context(), false, publisher, startStubCounter{},
+	done := cloudwatch.StartTicker(t.Context(), false, publisher, startStubCounter{}, nil,
 		time.Millisecond, startLogger())
 
 	if done != nil {
@@ -60,7 +60,7 @@ func TestStartTickerRunsForTheLifetimeOfItsContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	done := cloudwatch.StartTicker(ctx, true, publisher, startStubCounter{},
+	done := cloudwatch.StartTicker(ctx, true, publisher, startStubCounter{}, nil,
 		5*time.Millisecond, startLogger())
 	if done == nil {
 		t.Fatal("no join channel was returned with metrics enabled; the goroutine never started")
@@ -95,7 +95,7 @@ func TestStartTickerStopsWhenItsContextIsAlreadyDead(t *testing.T) {
 	dead, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	done := cloudwatch.StartTicker(dead, true, publisher, startStubCounter{},
+	done := cloudwatch.StartTicker(dead, true, publisher, startStubCounter{}, nil,
 		5*time.Millisecond, startLogger())
 
 	select {

@@ -3,6 +3,7 @@ package cloudwatch_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"sync"
@@ -91,7 +92,7 @@ func TestOneTickPublishesFiveDataPoints(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go cloudwatch.RunTicker(ctx, pub, counts, 10*time.Millisecond, quietLogger())
+	go cloudwatch.RunTicker(ctx, pub, counts, nil, 10*time.Millisecond, quietLogger())
 
 	pub.waitFor(t, 5)
 	cancel()
@@ -122,6 +123,41 @@ func TestOneTickPublishesFiveDataPoints(t *testing.T) {
 	}
 }
 
+// Every seed is published at ZERO each tick, under exactly its own dimension set.
+func TestEveryTickPublishesEachSeedAtZero(t *testing.T) {
+	pub := newRecordingPublisher()
+	counts := &stubCounter{counts: map[string]int64{"DELIVERED": 1}}
+	seeds := []cloudwatch.Series{
+		{Name: "cache_requests_total", Dimensions: [][2]string{{"Service", "tracking"}, {"KeyPrefix", "a:b:v1"}, {"Result", "hit"}}},
+		{Name: "cache_requests_total", Dimensions: [][2]string{{"Service", "tracking"}, {"KeyPrefix", "a:b:v1"}, {"Result", "bypass"}}},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go cloudwatch.RunTicker(ctx, pub, counts, seeds, 10*time.Millisecond, quietLogger())
+
+	// Two full ticks: a seed published once and then dropped still goes flat.
+	pub.waitFor(t, 2*(5+len(seeds)))
+	cancel()
+
+	perSeed := map[string]int{}
+	for _, d := range pub.snapshot() {
+		if d.name != "cache_requests_total" {
+			continue
+		}
+		if d.value != 0 {
+			t.Errorf("seed %v published %v, want 0", d.dimensions, d.value)
+		}
+		perSeed[fmt.Sprint(d.dimensions)]++
+	}
+	for _, s := range seeds {
+		if perSeed[fmt.Sprint(s.Dimensions)] < 2 {
+			t.Errorf("seed %v published %d times over two ticks, want every tick",
+				s.Dimensions, perSeed[fmt.Sprint(s.Dimensions)])
+		}
+	}
+}
+
 // Both status series are published even at zero.
 func TestZeroCountsAreStillPublished(t *testing.T) {
 	pub := newRecordingPublisher()
@@ -129,7 +165,7 @@ func TestZeroCountsAreStillPublished(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go cloudwatch.RunTicker(ctx, pub, counts, 10*time.Millisecond, quietLogger())
+	go cloudwatch.RunTicker(ctx, pub, counts, nil, 10*time.Millisecond, quietLogger())
 
 	pub.waitFor(t, 5)
 	cancel()
@@ -155,7 +191,7 @@ func TestTickerSleepsBeforeItsFirstPublish(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go cloudwatch.RunTicker(ctx, pub, counts, 300*time.Millisecond, quietLogger())
+	go cloudwatch.RunTicker(ctx, pub, counts, nil, 300*time.Millisecond, quietLogger())
 
 	time.Sleep(80 * time.Millisecond)
 	if n := len(pub.snapshot()); n != 0 {
@@ -175,7 +211,7 @@ func TestTickerContinuesAfterAFailedTick(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go cloudwatch.RunTicker(ctx, pub, counts, 10*time.Millisecond, quietLogger())
+	go cloudwatch.RunTicker(ctx, pub, counts, nil, 10*time.Millisecond, quietLogger())
 
 	// Let several ticks fail.
 	time.Sleep(120 * time.Millisecond)
@@ -201,7 +237,7 @@ func TestTickerStopsOnContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		cloudwatch.RunTicker(ctx, pub, counts, 10*time.Millisecond, quietLogger())
+		cloudwatch.RunTicker(ctx, pub, counts, nil, 10*time.Millisecond, quietLogger())
 		close(done)
 	}()
 

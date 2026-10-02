@@ -27,3 +27,18 @@ func selectCacheMetrics(metricsEnabled bool, publisher cloudwatch.Publisher) cac
 	// either package importing the other. This assignment is the whole adapter.
 	return publisher
 }
+
+// cacheRequestSeeds is what the metrics ticker publishes at zero every tick: one
+// cache_requests_total series per dimension set the cache gateway publishes.
+//
+// CONTRACT: Pass this to StartTicker, never nil. Unit tests on either side stay
+// green while the cache cards throw in every quiet window.
+// See [[2026-08-27-a-component-can-be-fully-unit-tested-and-still-never-run-in-production]]
+func cacheRequestSeeds() []cloudwatch.Series {
+	dimensions := cache.CacheRequestDimensions()
+	seeds := make([]cloudwatch.Series, 0, len(dimensions))
+	for _, dims := range dimensions {
+		seeds = append(seeds, cloudwatch.Series{Name: cache.MetricCacheRequests, Dimensions: dims})
+	}
+	return seeds
+}

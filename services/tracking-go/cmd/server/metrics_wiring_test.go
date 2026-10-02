@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"sort"
 	"testing"
 
 	"github.com/jemartinez/3mrai/services/tracking-go/internal/adapter/cloudwatch"
@@ -74,6 +76,31 @@ func TestCacheMetricsToleratesAnAbsentPublisher(t *testing.T) {
 		t.Fatal("selectCacheMetrics returned a nil Metrics; the gateway would panic on the first cache operation")
 	}
 	metrics.Publish(context.Background(), cache.MetricCacheRequests, 1, nil)
+}
+
+// TestCacheRequestSeedsCoverEveryPublishedSeries pins what main hands the ticker:
+// cache_requests_total for every prefix and result, and no duration seed.
+func TestCacheRequestSeedsCoverEveryPublishedSeries(t *testing.T) {
+	var got []string
+	for _, s := range cacheRequestSeeds() {
+		if s.Name != "cache_requests_total" {
+			t.Errorf("seeded %q; only cache_requests_total may be seeded", s.Name)
+		}
+		got = append(got, fmt.Sprint(s.Dimensions))
+	}
+	var want []string
+	for _, prefix := range []string{"tracking:order:v1", "tracking:list:v1", "identity:sub-to-user:v1"} {
+		for _, result := range []string{"hit", "miss", "bypass"} {
+			want = append(want, fmt.Sprint([][2]string{
+				{"Service", "tracking"}, {"KeyPrefix", prefix}, {"Result", result},
+			}))
+		}
+	}
+	sort.Strings(got)
+	sort.Strings(want)
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("cacheRequestSeeds() =\n%v\nwant\n%v", got, want)
+	}
 }
 
 // recordingPublisher is a cloudwatch.Publisher that remembers what it was asked

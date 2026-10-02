@@ -313,6 +313,7 @@ func run() error {
 		// whole live table forever and must not spend write connections.
 		tickerDone = cloudwatch.StartTicker(ctx, cfg.MetricsEnabled, cwPublisher,
 			adaptermysql.NewMetricsRepository(readerDB),
+			cacheRequestSeeds(),
 			time.Duration(cfg.MetricsIntervalSeconds*float64(time.Second)),
 			logger)
 	}

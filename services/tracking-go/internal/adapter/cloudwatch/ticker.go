@@ -31,6 +31,17 @@ const (
 	StatusAll        = "ALL"
 )
 
+// Series is one metric under one exact dimension set, published at ZERO on every
+// tick so a dashboard card reads 0 in a quiet window instead of throwing.
+//
+// CONTRACT: Seed counters only, never a duration: a synthetic 0ms every tick
+// drags every average toward zero and reports a fast cache exactly when nothing
+// is cached.
+type Series struct {
+	Name       string
+	Dimensions [][2]string
+}
+
 // DefaultInterval matches METRICS_INTERVAL_SECONDS' default of 15.0.
 const DefaultInterval = 15 * time.Second
 
@@ -62,7 +73,7 @@ func SplitStatusCounts(raw map[string]int64) (delivered, inProgress int64) {
 // is cancelled when its response is sent. A per-tick failure is swallowed —
 // a blip costs one datapoint, not the process's metrics.
 // See [[logging-context]]
-func RunTicker(ctx context.Context, p Publisher, counts StatusCounter, interval time.Duration, log *slog.Logger) {
+func RunTicker(ctx context.Context, p Publisher, counts StatusCounter, seeds []Series, interval time.Duration, log *slog.Logger) {
 	if interval <= 0 {
 		interval = DefaultInterval
 	}
@@ -74,7 +85,7 @@ func RunTicker(ctx context.Context, p Publisher, counts StatusCounter, interval 
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			publishTick(ctx, p, counts, log)
+			publishTick(ctx, p, counts, seeds, log)
 		}
 	}
 }
@@ -86,7 +97,7 @@ func RunTicker(ctx context.Context, p Publisher, counts StatusCounter, interval 
 // unattributable fragments. The name is shared with Users and events-pipeline so
 // one query means the same thing everywhere; INTERNAL, not CONSUMER, because
 // this is our own timer. See [[ADR-0019-distributed-tracing-opentelemetry]]
-func publishTick(ctx context.Context, p Publisher, counts StatusCounter, log *slog.Logger) {
+func publishTick(ctx context.Context, p Publisher, counts StatusCounter, seeds []Series, log *slog.Logger) {
 	ctx, end := tracing.WorkflowSpan(ctx, "metrics-tick",
 		attribute.String("app_event", "metrics_tick_started"))
 
@@ -115,6 +126,9 @@ func publishTick(ctx context.Context, p Publisher, counts StatusCounter, log *sl
 	for _, class := range httpErrorClasses {
 		p.Publish(ctx, MetricHTTPErrors, 0,
 			[][2]string{{"Service", ServiceDimension}, {"StatusClass", class}})
+	}
+	for _, seed := range seeds {
+		p.Publish(ctx, seed.Name, 0, seed.Dimensions)
 	}
 
 	end(nil)

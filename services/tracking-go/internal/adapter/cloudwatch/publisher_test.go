@@ -77,6 +77,36 @@ func TestPublishShape(t *testing.T) {
 	}
 }
 
+// CONTRACT: The unit is per metric. A duration published as Count reads as a
+// dimensionless number in every console and does not match Users' series of the
+// same name, which publishes Milliseconds.
+func TestPublishUnitPerMetric(t *testing.T) {
+	tests := []struct {
+		name string
+		want cwtypes.StandardUnit
+	}{
+		{cloudwatch.MetricOrdersByStatus, cwtypes.StandardUnitCount},
+		{cloudwatch.MetricHTTPErrors, cwtypes.StandardUnitCount},
+		{cloudwatch.MetricCacheRequests, cwtypes.StandardUnitCount},
+		{cloudwatch.MetricCacheOperationDuration, cwtypes.StandardUnitMilliseconds},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &fakeCW{}
+			cloudwatch.NewPublisher(client).Publish(context.Background(), tc.name, 1,
+				[][2]string{{"Service", "tracking"}})
+
+			calls := client.snapshot()
+			if len(calls) != 1 {
+				t.Fatalf("got %d PutMetricData calls, want 1", len(calls))
+			}
+			if got := calls[0].MetricData[0].Unit; got != tc.want {
+				t.Errorf("Unit = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 // A zero is published as given: a series that stops being published reads as
 // "no data" in a dashboard, not as zero.
 func TestPublishDoesNotShortCircuitOnZero(t *testing.T) {

@@ -23,6 +23,7 @@ func StartTicker(
 	enabled bool,
 	publisher Publisher,
 	counts StatusCounter,
+	seeds []Series,
 	interval time.Duration,
 	log *slog.Logger,
 ) <-chan struct{} {
@@ -36,7 +37,7 @@ func StartTicker(
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		RunTicker(ctx, publisher, counts, interval, log)
+		RunTicker(ctx, publisher, counts, seeds, interval, log)
 	}()
 	return done
 }
