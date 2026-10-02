@@ -31,7 +31,16 @@ services:
   # joins them to the compose network via FLOCI_SERVICES_ECS_DOCKER_NETWORK, so the
   # Nginx ECS task resolves `users` by service name through Docker DNS.
   floci:
-    image: floci/floci:latest
+    # CONTRACT: Pinned. `latest` moved 1.7.0 -> 2.x under this repo once already,
+    # changing restart semantics and dropping curl from the image.
+    image: floci/floci:2.1.0
+    # CONTRACT: SIGKILL, never the default SIGTERM. Floci's graceful shutdown
+    # DELETES its DocumentDB and ElastiCache containers and never relaunches them,
+    # so a plain restart leaves both `available` in the API with no container and
+    # no data. Killed, Floci skips that shutdown and the containers keep their data.
+    # Safe only with FLOCI_STORAGE_MODE=persistent below.
+    # See [[floci-recreate-destroys-backing-containers]]
+    stop_signal: SIGKILL
     ports:
       - "4566:4566"
       # RDS proxy ports. Floci assigns one per cluster BY CREATION ORDER, so
@@ -63,6 +72,12 @@ services:
       # the nginx reverse-proxy task depends on and the one this repo verified.
       - FLOCI_SERVICES_DOCKER_NETWORK=3mrai_3mrai-network
       - FLOCI_SERVICES_ECS_DOCKER_NETWORK=3mrai_3mrai-network
+      # WORKAROUND(local): Do NOT use FLOCI_SERVICES_ECS_ALLOW_UNSAFE_HOST_VOLUMES.
+      # Without this allowlist the nginx task definition fails with
+      # "volumes[].host.sourcePath is rejected by default". Must equal the
+      # compute module's host_path (abspath of infra/modules/compute/nginx);
+      # every make target runs compose from the repo root, so ${PWD} matches it.
+      - FLOCI_SERVICES_ECS_HOST_VOLUME_ROOTS=${PWD}/infra/modules/compute/nginx
       # ElastiCache proxy range — must match the published ports above exactly.
       # Floci allocates one port per replication group from this range, starting
       # at BASE. Moved off the 6379-6399 default so a developer's own local Redis
@@ -98,8 +113,8 @@ services:
       mailpit:
         condition: service_started
     healthcheck:
-      # The floci image ships curl (Quarkus app on :4566).
-      test: ["CMD", "curl", "-fsS", "http://localhost:4566/"]
+      # WHY: bash /dev/tcp, not curl — the 2.x image ships bash and coreutils only.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/4566 && printf 'GET /_floci/health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && read -r status <&3 && [[ $$status == *' 200 '* ]]"]
       interval: 10s
       timeout: 3s
       retries: 5
