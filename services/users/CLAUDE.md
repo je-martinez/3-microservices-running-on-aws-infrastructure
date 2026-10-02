@@ -46,6 +46,7 @@ every time. Cross-cutting rules are **referenced**, never duplicated.
 - Build: `pnpm build`
 - Test: `pnpm test` (watch: `pnpm test:watch`)
 - Lint: `pnpm lint`
+- Typecheck (src + tests): `pnpm typecheck` — `tsconfig.json` covers only `src/`; vitest strips types without checking them. Also run by `make test-unit`.
 - Run local (docker-watch): `docker compose up users --watch` (from repo root)
 - Migrate: `pnpm prisma migrate dev` (via the `prisma` passthrough script). The
   local bootstrap chain applies migrations with `make migrate` (`migrate deploy`).

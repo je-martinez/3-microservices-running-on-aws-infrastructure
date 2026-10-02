@@ -2,12 +2,8 @@
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 
-// Flat config (ESLint 9+ style). Type-aware linting is scoped to `src/` and
-// `tests/` via `tseslint.config`'s project service, which resolves each
-// file's tsconfig automatically — this repo has a single `tsconfig.json`
-// covering `src/**/*.ts`; tests are linted syntactically (no separate
-// tsconfig includes them, see `vitest.config.ts` for how they're type-checked
-// instead via `vitest`/`tsc --noEmit` at the editor level).
+// Flat config (ESLint 9+ style). Linting is syntactic only; type-checking of
+// `src/` and `tests/` is `pnpm typecheck` (tsconfig.test.json).
 export default tseslint.config(
   {
     // Generated Prisma client, compiled output, and dependencies are never linted.

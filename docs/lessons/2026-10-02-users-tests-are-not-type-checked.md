@@ -2,13 +2,13 @@
 title: "Users tests are not type-checked by anything"
 type: lesson
 area: users
-status: active
+status: accepted
 created: 2026-10-02
 updated: 2026-10-02
 tags:
   - type/lesson
   - area/users
-  - status/active
+  - status/accepted
   - severity/medium
 related:
   - "[[testing]]"
@@ -17,14 +17,15 @@ related:
 
 # Users tests are not type-checked by anything
 
-> [!warning] Open gap, not fixed
-> As of 2026-10-02 no tool type-checks `services/users/tests/`.
+> [!success] Resolved
+> `services/users/tsconfig.test.json` and a `typecheck` script now type-check `src` and `tests`. `make test-unit`
+> runs it after the Users unit tests.
 
-## Symptom
+## Symptom (before the fix)
 
 A Users test with a wrong type, or a stale import signature, compiles and runs. Nothing flags it.
 
-## Cause
+## Cause (before the fix)
 
 - `services/users/tsconfig.json` has `"include": ["src/**/*.ts"]` and `"rootDir": "src"`, so `tsc` (and
   therefore `pnpm build`) never sees a test file.
@@ -37,13 +38,27 @@ A Users test with a wrong type, or a stale import signature, compiles and runs. 
 
 ## Consequence
 
-A green `test` run says the tests execute, not that they are type-correct. A signature change in `src`
-can leave a stale call in a test that still passes at runtime until the argument is actually used.
+Before the fix, a green `test` run said the tests execute, not that they are type-correct. A signature change in
+`src` could leave a stale call in a test that still passed at runtime until the argument was actually used.
+The `typecheck` gate now catches that class of drift.
 
-## Open question
+## Fix
 
-A dedicated tsconfig for tests needs either the `development` condition (`customConditions`) or `paths`
-that mirror the vitest aliases. Neither is in place, and no issue tracks it.
+- `services/users/tsconfig.test.json` extends `tsconfig.json` with `noEmit`, `rootDir: "."`, `include` of `src` and
+  `tests`, and `customConditions: ["development"]`.
+- `services/users/package.json` has `"typecheck": "tsc -p tsconfig.test.json"`, and `make test-unit` runs it after
+  the Users unit tests.
+- The first run surfaced 37 type errors in 9 test files and no bug in `src`. They were fixed by typing mocks
+  against the real ports, casting partial doubles once in helpers, and aliasing dynamically imported classes as
+  types.
+- The gate fails on a deliberate type error.
+
+## Mechanism: rootDir and customConditions
+
+Widening `rootDir` to `"."` breaks `tsc`'s mapping of the `package.json` `imports` `default` target (`./dist/*.js`)
+back to source, so every `#…` import fails with TS2307 (568 errors). `customConditions: ["development"]` makes
+`tsc` read the `development` target (`./src/*.ts`) directly. `package.json` stays the single alias table: `paths`
+would add a third copy beside `imports` and the vitest `resolve.alias`, so it is not used.
 
 ## Related
 

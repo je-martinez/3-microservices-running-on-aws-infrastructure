@@ -29,6 +29,7 @@ const { FastifyAdapter } = await import("@nestjs/platform-fastify");
 type NestFastifyApplication = import("@nestjs/platform-fastify").NestFastifyApplication;
 const { CommandBus, CqrsModule } = await import("@nestjs/cqrs");
 const Stripe = (await import("stripe")).default;
+type Stripe = import("stripe").default;
 const { appLogger } = await import("#shared/logging/app-logger");
 const { AppConfigService } = await import("#config/config.module");
 const { STRIPE_CLIENT } = await import("#shared/tokens");

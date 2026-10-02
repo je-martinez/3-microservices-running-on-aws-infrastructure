@@ -39,7 +39,7 @@ async function buildBus(
   const db = {
     user: {
       findFirst: vi.fn(async () => ("user" in overrides ? overrides.user : USER)),
-      update: vi.fn(async () => USER),
+      update: vi.fn(async (_args: { data: Record<string, unknown> }) => USER),
     },
   };
   const auth = {

@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-17
-updated: 2026-09-30
+updated: 2026-10-02
 tags: [type/convention, area/shared, status/active]
 related:
   - "[[2026-09-19-users-nestjs-migration-design]]"
@@ -90,6 +90,9 @@ three layers:
 - `make test-e2e` — layers 2+3 (Playwright internal + gateway); requires the stack up.
 - `pnpm --filter @3mrai/e2e typecheck` (or `pnpm run typecheck` from `e2e/`) — static type-check
   of the E2E specs; also runs as part of `make test-unit`.
+- `pnpm typecheck` in `services/users/` (`tsc -p tsconfig.test.json`) type-checks `src` **and** `tests`, which
+  the build and Vitest's SWC transform never do; it runs in `make test-unit` after the Users unit tests. See
+  [[2026-10-02-users-tests-are-not-type-checked]].
 - Granular package.json scripts: `pnpm orders:test`, `pnpm users:test`, `pnpm e2e:internal`,
   `pnpm e2e:gateway`, `pnpm e2e` (both projects).
 

@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { SpanStatusCode } from "@opentelemetry/api";
 import { APP_INTERCEPTOR } from "@nestjs/core";
 import { Module } from "@nestjs/common";
@@ -14,17 +14,25 @@ import { AuditActor } from "#shared/audit/audit-actor";
 import { getActor } from "#shared/audit/actor-context";
 import { MetricsPublisher } from "#shared/metrics/cloudwatch-metrics";
 import { CaptureCognitoIdentityCommand } from "#features/users/webhooks/capture-cognito-identity";
+import type { AuthProvider } from "#shared/auth/auth-provider";
+import type { EventPublisher } from "#shared/messaging/event-publisher";
+
+type SignUp = AuthProvider["signUp"];
+type PublishUserCreated = EventPublisher["publishUserCreated"];
+type MetricsPublish = MetricsPublisher["publish"];
+type CaptureExecute = CaptureCognitoIdentityCommand["execute"];
+type CreateUser = (args: { data: Record<string, unknown> }) => Promise<Record<string, unknown>>;
 
 const CREATED_AT = new Date("2026-01-15T10:30:00.000Z");
 const SUB = "7904d681-f590-4b4d-bbce-15348a898873";
 
 async function buildBus(
   overrides: {
-    signUp?: unknown;
-    create?: unknown;
-    publishUserCreated?: unknown;
-    metricsPublish?: unknown;
-    capture?: unknown;
+    signUp?: Mock<SignUp>;
+    create?: Mock<CreateUser>;
+    publishUserCreated?: Mock<PublishUserCreated>;
+    metricsPublish?: Mock<MetricsPublish>;
+    capture?: Mock<CaptureExecute>;
     nodeEnv?: string;
   } = {},
 ) {
@@ -35,7 +43,7 @@ async function buildBus(
     user: {
       create:
         overrides.create ??
-        vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        vi.fn<CreateUser>(async ({ data }) => {
           Object.assign(created, data);
           created._actor = getActor();
           return { ...data, createdAt: CREATED_AT };
@@ -45,7 +53,7 @@ async function buildBus(
   const auth = {
     signUp:
       overrides.signUp ??
-      vi.fn(async () => ({
+      vi.fn<SignUp>(async () => ({
         sub: SUB,
         email: "a@b.c",
         emailVerified: "true",
@@ -54,13 +62,13 @@ async function buildBus(
       })),
   };
   const events = {
-    publishUserCreated: overrides.publishUserCreated ?? vi.fn(async () => {}),
+    publishUserCreated: overrides.publishUserCreated ?? vi.fn<PublishUserCreated>(async () => {}),
   };
   const metrics = {
-    publish: overrides.metricsPublish ?? vi.fn(async () => {}),
+    publish: overrides.metricsPublish ?? vi.fn<MetricsPublish>(async () => {}),
   };
   const capture = {
-    execute: overrides.capture ?? vi.fn(async () => ({ status: "captured" as const })),
+    execute: overrides.capture ?? vi.fn<CaptureExecute>(async () => ({ status: "captured" })),
   };
 
   @Module({
@@ -188,7 +196,7 @@ describe("RegisterPasswordlessCommand through the CommandBus", () => {
   });
 
   it("publishes users_registered_total on success", async () => {
-    const publish = vi.fn(async () => {});
+    const publish = vi.fn<MetricsPublish>(async () => {});
     const { bus, close } = await buildBus({ metricsPublish: publish });
     await bus.execute(
       new RegisterPasswordlessCommand({
@@ -221,7 +229,7 @@ describe("RegisterPasswordlessCommand through the CommandBus", () => {
   it("still returns the user when capture fails (best-effort)", async () => {
     const { bus, close } = await buildBus({
       nodeEnv: "development",
-      capture: vi.fn(async () => {
+      capture: vi.fn<CaptureExecute>(async () => {
         throw new Error("db down");
       }),
     });
@@ -270,7 +278,7 @@ describe("RegisterPasswordlessCommand through the CommandBus", () => {
 
   it("emits ERROR status and reason=duplicate_email when the email is taken", async () => {
     const { bus, close } = await buildBus({
-      signUp: vi.fn(async () => {
+      signUp: vi.fn<SignUp>(async () => {
         throw new EmailAlreadyExistsError();
       }),
     });
@@ -286,7 +294,7 @@ describe("RegisterPasswordlessCommand through the CommandBus", () => {
 
   it("reports reason=cognito_error when signUp fails for another reason", async () => {
     const { bus, close } = await buildBus({
-      signUp: vi.fn(async () => {
+      signUp: vi.fn<SignUp>(async () => {
         throw new Error("cognito down");
       }),
     });
@@ -297,7 +305,7 @@ describe("RegisterPasswordlessCommand through the CommandBus", () => {
 
   it("reports reason=database_error when the create fails", async () => {
     const { bus, close } = await buildBus({
-      create: vi.fn(async () => {
+      create: vi.fn<CreateUser>(async () => {
         throw new Error("db down");
       }),
     });

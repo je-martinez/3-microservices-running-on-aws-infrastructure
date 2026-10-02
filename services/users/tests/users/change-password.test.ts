@@ -65,7 +65,7 @@ async function buildBus(
     "resolved" in overrides
       ? overrides.resolved
       : { id: "usr_1", email: "jose@example.com" };
-  const db = { user: { update: vi.fn(async () => ROW) } };
+  const db = { user: { update: vi.fn(async (_args: { data: Record<string, unknown> }) => ROW) } };
   const auth = {
     setPassword: vi.fn(async () => {
       if (overrides.cognitoRejects) throw new Error("cognito down");

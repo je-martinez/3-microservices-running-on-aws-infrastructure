@@ -47,9 +47,13 @@ const { CurrentUserInterceptor } = await import(
 const { ListNotificationsQuery } = await import(
   "../../src/notifications/queries/list-notifications.query.ts"
 );
+type ListNotificationsQuery =
+  import("../../src/notifications/queries/list-notifications.query.ts").ListNotificationsQuery;
 const { MarkNotificationsReadCommand } = await import(
   "../../src/notifications/commands/mark-notifications-read.command.ts"
 );
+type MarkNotificationsReadCommand =
+  import("../../src/notifications/commands/mark-notifications-read.command.ts").MarkNotificationsReadCommand;
 
 function page(overrides?: Record<string, unknown>) {
   return {
