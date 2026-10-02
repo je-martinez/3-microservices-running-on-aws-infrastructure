@@ -3,9 +3,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { resolve } from "node:path";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
-import { Module } from "@nestjs/common";
+import { type INestMicroservice, Module } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
-import { type INestMicroservice, type MicroserviceOptions } from "@nestjs/microservices";
+import { type MicroserviceOptions } from "@nestjs/microservices";
 import { QueryBus } from "@nestjs/cqrs";
 import { testSpanExporter } from "../setup.ts";
 import { grpcMicroserviceOptions } from "../../src/users/grpc/grpc-options.ts";
@@ -29,9 +29,20 @@ const queryBus = { execute: vi.fn() };
 })
 class GrpcTestModule {}
 
+type GrpcUnaryCall = (
+  request: Record<string, unknown>,
+  metadata: grpc.Metadata,
+  callback: (err: unknown, reply: never) => void,
+) => void;
+
+type GrpcClientConstructor = new (
+  address: string,
+  credentials: grpc.ChannelCredentials,
+) => Record<string, GrpcUnaryCall>;
+
 describe("Users gRPC surface on @nestjs/microservices", () => {
   let app: INestMicroservice;
-  let client: Record<string, Function>;
+  let client: Record<string, GrpcUnaryCall>;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [GrpcTestModule] }).compile();
@@ -43,7 +54,7 @@ describe("Users gRPC surface on @nestjs/microservices", () => {
 
     const pkg = grpc.loadPackageDefinition(
       protoLoader.loadSync(PROTO, { keepCase: true, longs: String, defaults: true, oneofs: true }),
-    ) as never as { users: { v1: { Users: new (...a: never[]) => Record<string, Function> } } };
+    ) as never as { users: { v1: { Users: GrpcClientConstructor } } };
     client = new pkg.users.v1.Users(URL, grpc.credentials.createInsecure());
   });
 
