@@ -108,12 +108,16 @@ Before proposing a commit or PR, do a **best-effort** lookup of context
 references — the tracker issue (if any), the plan, the design spec — and attach
 them as footers (`Refs:`, `Closes:`, `Plan:`, `Spec:`, `Design:`) and as a
 `## References` section in the PR body. This is enrichment, **never a blocker**:
-absence of a reference never stops the commit.
+absence of a reference never stops the commit. When the work has no Linear issue,
+omit `Refs:`/`Closes:` and put no Linear link in the PR.
 
 ## Branch flow
 
 - Milestone → `feature/<milestone-slug>`, branched off `main`.
 - Issue/task → `<type>/<ISSUE-ID>-<slug>`, branched off its feature branch.
+- **A Linear issue is optional — never create one by default.** Fixes,
+  follow-ups, docs work and audit findings often have none: the branch is then
+  `<type>/<slug>`. Full rule: `docs/shared/conventions/linear-references.md`.
 - Task PR targets the feature branch (squash-merge; merged branches are
   auto-deleted).
 - On milestone completion, **propose** a PR from the feature branch to `main`

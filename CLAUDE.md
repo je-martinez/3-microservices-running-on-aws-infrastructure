@@ -170,6 +170,7 @@ Anything brainstorming/writing-plans produces is a first-class vault note:
 
 ### Branch flow (Linear-driven)
 Full convention: `docs/shared/conventions/git-workflow.md` → [[git-workflow]]. In short: milestone → `feature/<milestone-slug>` (off `main`); issue/task → `<type>/<ISSUE-ID>-<slug>` (off its feature branch); task PR → feature (squash-merge; the repo auto-deletes merged branches); on milestone completion, **propose** a PR feature → `main` and stop — the user merges after review (no auto-merge).
+- **A Linear issue is optional — never create one by default.** Fixes, follow-ups, docs work and audit findings often have none: the branch is then `<type>/<slug>`, with no `Refs:`/`Closes:` footer and no Linear link in the PR. Full rule: `docs/shared/conventions/linear-references.md` → [[linear-references]].
 
 ### Phase C review flow (batch review + dependency gates)
 How Phase C issues are chained and reviewed (full convention: `docs/shared/conventions/phase-c-review-flow.md`):

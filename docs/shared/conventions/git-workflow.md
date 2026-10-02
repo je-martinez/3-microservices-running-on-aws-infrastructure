@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-03
-updated: 2026-09-15
+updated: 2026-10-02
 tags:
   - type/convention
   - area/shared
@@ -160,6 +160,10 @@ genuinely help someone understand or trace the change.
 
 - **Milestone → feature branch** `feature/<milestone-slug>` (off `main`).
 - **Issue/task → task branch** `<type>/<ISSUE-ID>-<slug>` (off its feature branch).
+- **No Linear issue → `<type>/<slug>`** (no ID). A Linear issue is optional — see
+  [[linear-references]]. Examples from this repo: `fix/business-metric-dashboard`,
+  `docs/business-metrics-poller-audit`, `test/users-boot-smoke`. Commit `Refs:`/`Closes:`
+  footers and the PR's Linear link are omitted.
 - **Task integration:** PR task branch → feature branch; on approval, **squash-merge**.
   The repo auto-deletes merged head branches; pull the base after each merge.
 - **Milestone completion:** when all task PRs are merged, **propose** a PR feature →

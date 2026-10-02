@@ -95,6 +95,11 @@ All commits and PR titles follow **Conventional Commits v1.0.0**:
 Attach context references as footers (`Refs:`, `Plan:`, `Spec:`) on a best-effort
 basis — enrichment, never a blocker.
 
+**A Linear issue is optional — never create one by default.** Fixes, follow-ups,
+docs work and audit findings often have none: the branch is then `<type>/<slug>`,
+with no `Refs:`/`Closes:` footer and no Linear link in the PR. Full rule:
+`docs/shared/conventions/linear-references.md`.
+
 ### Review the diff against the brief, not on its own merits
 
 *"Is this correct?"* and *"does this do everything it was asked to do?"* are
