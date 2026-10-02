@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-28
-updated: 2026-07-28
+updated: 2026-10-02
 tags:
   - type/convention
   - area/shared
@@ -15,6 +15,7 @@ related:
   - "[[scripting-language]]"
   - "[[env-files]]"
   - "[[logging-context]]"
+  - "[[2026-10-02-a-websocket-can-die-without-telling-you]]"
 ---
 
 # Doc Propagation
@@ -145,6 +146,14 @@ separate cleanup pass. The Phase C flow already routes vault normalization throu
 spec/plan that reaches PR time without its `propagates-to:` targets updated is an incomplete
 change, the same way an endpoint without gateway E2E is incomplete per [[testing]].
 
+Propagation happens **in the PR's own commits, before `gh pr create`**. The
+`spec-implementation-audit` skill's step 7 (propagate) is part of that gate, not a follow-up: the
+audit, the propagation commits, and only then the PR. A PR that opens and merges first and
+offers propagation afterwards leaves its docs behind the code they describe. The live-session
+indicator work (PR #90) did exactly that — the audit ran, the PR merged, and propagation was
+offered afterwards; it landed in a separate pass only because the user corrected it. See
+[[live-session-indicator]] for what that pass produced.
+
 ## The historical debt
 
 The 63 superpowers notes (33 specs + 30 plans) predating this gate were **backfilled under
@@ -163,3 +172,4 @@ this rule breaking — it is the rule surfacing debt that used to be invisible.
 - [[scripting-language]]
 - [[env-files]]
 - [[logging-context]]
+- [[live-session-indicator]] — propagated after PR #90 merged, the ordering this note now forbids.

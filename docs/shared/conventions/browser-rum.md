@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-09-20
-updated: 2026-09-30
+updated: 2026-10-02
 tags:
   - type/convention
   - area/shared
@@ -19,6 +19,7 @@ related:
   - "[[openobserve-runbook]]"
   - "[[2026-08-21-verify-in-the-viewer-not-the-api]]"
   - "[[2026-09-20-a-shared-stream-widens-every-scoped-count]]"
+  - "[[live-session-indicator]]"
 ---
 
 # Browser RUM — Keeping New Work Observable
@@ -142,6 +143,12 @@ this convention. They call the gateway through `ApiClient` and are verified **in
 viewer** like any other new surface — a green component test does not show that their gateway
 calls appear as `RUM - <method> <route>` spans.
 
+## Related surface — connection-state indicators
+
+A UI that reports whether the notifications socket is alive must derive that from evidence the
+transport provides, not from `close` firing; the same silent-failure family as the rules above.
+See [[live-session-indicator]] and [[2026-10-02-a-websocket-can-die-without-telling-you]].
+
 ## Known limitations — current facts, not aspirations
 
 - **`cognito_sub` is never emitted.** The app never decodes the JWT client-side, so no
@@ -173,3 +180,5 @@ calls appear as `RUM - <method> <route>` spans.
   rule to query the stream, not trust a 200.
 - [[2026-09-20-a-shared-stream-widens-every-scoped-count]] — the trap behind the cross-cutting
   rule that an aggregate over `app_traces` must scope itself in SQL.
+- [[live-session-indicator]] — evidence-only connection state and the silent-badge UI split.
+- [[2026-10-02-a-websocket-can-die-without-telling-you]] — the measured failures behind that rule.
