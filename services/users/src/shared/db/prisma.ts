@@ -7,12 +7,18 @@ import { attachSqlLogging } from "./sql-logging.ts";
 
 type PrismaConfig = Pick<Env, "DATABASE_WRITER_URL" | "DATABASE_READER_URL">;
 
-// CONTRACT: Apply `readReplicas` LAST, outermost. Extensions compose onion-style, and
-// only as the outer layer can it route every call — including the ones our own query
-// extensions make via `query(args)` — to the primary or a replica. Applied first, a
-// rewritten call like soft-delete's `delete` -> `update` bypasses routing entirely.
-// Reads go to the replica, writes to the primary; `$primary()` forces the primary for
-// read-your-writes.
+// CONTRACT: Apply `readReplicas` LAST. Prisma runs query hooks in the order the
+// extensions were applied, and `readReplicas` answers a read by calling the BARE
+// replica client instead of `query(args)` — so any hook applied after it never runs
+// for reads. Applied first, every replica read skips the `deletedAt: null` filter and
+// returns soft-deleted rows. Reads go to the replica, writes to the primary;
+// `$primary()` forces the primary for read-your-writes. See [[soft-delete]]
+export function composeDbClients(writerClient: PrismaClient, replicaClient: PrismaClient) {
+  return writerClient
+    .$extends(crossCuttingExtension)
+    .$extends(readReplicas({ replicas: [replicaClient] }));
+}
+
 export function createPrismaClient(config: PrismaConfig) {
   const writerAdapter = new PrismaPg({ connectionString: config.DATABASE_WRITER_URL });
   const readerAdapter = new PrismaPg({ connectionString: config.DATABASE_READER_URL });
@@ -35,9 +41,7 @@ export function createPrismaClient(config: PrismaConfig) {
   attachSqlLogging(writerClient);
   attachSqlLogging(replicaClient);
 
-  return writerClient
-    .$extends(crossCuttingExtension)
-    .$extends(readReplicas({ replicas: [replicaClient] }));
+  return composeDbClients(writerClient, replicaClient);
 }
 
 export type Db = ReturnType<typeof createPrismaClient>;
