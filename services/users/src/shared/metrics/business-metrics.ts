@@ -24,7 +24,7 @@ export class BusinessMetricsPoller {
   }: {
     db: Db;
     metricsPublisher: MetricsPublisher;
-    env: Env;
+    env: Pick<Env, "METRICS_INTERVAL_MS">;
   }) {
     this.db = db;
     this.metrics = metricsPublisher;

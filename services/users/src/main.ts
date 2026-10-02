@@ -10,6 +10,7 @@ import { buildLoggerOptions } from "./shared/logging/logger.ts";
 import { envSchema } from "./config/env.schema.ts";
 import { AppModule } from "./app.module.ts";
 import { NotificationConsumerService } from "./notifications/messaging/notification-consumer.service.ts";
+import { BusinessMetricsPoller } from "#shared/metrics/business-metrics";
 import { type MicroserviceOptions } from "@nestjs/microservices";
 import { grpcMicroserviceOptions } from "./users/grpc/grpc-options.ts";
 
@@ -44,16 +45,20 @@ export async function bootstrap(): Promise<void> {
 
   await app.listen({ port: env.PORT, host: "0.0.0.0" });
 
-  // CONTRACT: Start the consumer HERE, never in a constructor or onModuleInit.
-  // The test suite compiles this module many times over, and a lifecycle hook
-  // would open a live long-poll in each one — receiving and DELETING real
-  // messages outside any test's control.
-  // See [[2026-09-10-in-app-notifications-design]]
+  // CONTRACT: Start the consumer and the metrics poller HERE, never in a
+  // constructor or onModuleInit. The test suite compiles these modules many times
+  // over, and a lifecycle hook would open a live long-poll and a live DB timer in
+  // each one — receiving and DELETING real messages outside any test's control.
+  // Nothing else starts the poller: drop this line and every `users_total` card
+  // reads "Search stream not found". See [[2026-09-10-in-app-notifications-design]]
   const consumer = app.get(NotificationConsumerService);
   consumer.start();
+  const metricsPoller = app.get(BusinessMetricsPoller);
+  metricsPoller.start();
 
   process.on("SIGTERM", () => {
     consumer.stop();
+    metricsPoller.stop();
   });
 }
 
