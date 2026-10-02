@@ -5,7 +5,7 @@ import type { Db } from "#shared/db/prisma";
 // shelling out to psql from a Playwright spec. Registered only when
 // E2E_TESTING_ENABLED — it must never exist in production.
 //
-// Constructor-injected from the Awilix cradle (PROXY injection mode).
+// Built by a `useFactory` provider in users.module.ts, which passes the deps object.
 export class E2eIdentityQuery {
   private readonly db: Db;
 

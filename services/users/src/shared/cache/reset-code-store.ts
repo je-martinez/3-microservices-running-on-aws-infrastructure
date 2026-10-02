@@ -22,7 +22,7 @@ function keyFor(email: string): string {
 export class ResetCodeStore {
   private readonly redis: RedisClient;
 
-  // Constructor-injected from the Awilix cradle (PROXY injection mode).
+  // Built by a `useFactory` provider in cache.module.ts, which passes the deps object.
   constructor({ redis }: { redis: RedisClient }) {
     this.redis = redis;
   }

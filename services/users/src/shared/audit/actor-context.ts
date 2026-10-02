@@ -1,8 +1,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
-// The Prisma client is a process-wide singleton, so it cannot read the acting user
-// from a per-request Awilix scope. The audit extension reads it from this
-// AsyncLocalStorage, which `routes.ts` populates once per request.
+// The Prisma client is a process-wide singleton provider, so it cannot read the
+// acting user from a request-scoped one. The audit extension reads it from this
+// AsyncLocalStorage, which `RequestContextMiddleware` populates once per request.
 // See [[audit-fields]]
 export interface ActorStore {
   actor: string | undefined;
