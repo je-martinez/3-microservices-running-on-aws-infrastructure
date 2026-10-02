@@ -719,11 +719,20 @@ response; the cache metrics come from the cache gateway on every cache operation
 metrics' dimensions, the `KeyPrefix` rule and the per-service differences are defined once in
 [[x-cache-response-header]] and [[2026-08-25-response-caching-layer-design]].
 
-> [!note] Open follow-up — three metrics are not scraped into OpenObserve
-> `users_deleted_total`, `cache_requests_total` and `cache_operation_duration_ms` are published to
-> CloudWatch but are not currently scraped by the collector
-> (`observability/otel-collector-config.yaml` has no `metric_name` entry for any of them), so they
-> are NOT queryable in OpenObserve today. Whether that is intended has not been established.
+> [!note] Scraped into OpenObserve — verified live 2026-10-02
+> The collector (`observability/otel-collector-config.yaml`) queries `users_deleted_total`
+> (`Service=users`, Sum), every exact dimension set of `cache_requests_total` (Sum) and of
+> `cache_operation_duration_ms` (Average, Maximum, SampleCount), for Users, Orders and Tracking.
+> Verified against the running local stack on 2026-10-02, without restarting it:
+> - A real `BusinessMetricsPoller` tick against the live Users database and Floci published
+>   `users_total`; the running collector created `amazonaws_com_3mrai_users_total` in OpenObserve
+>   within about 80 s, and the dashboard's exact card queries returned Users=1, Password
+>   login=0 and Email OTP=1, matching the database.
+> - A temporary collector with this configuration (debug exporter) received `users_deleted_total`,
+>   `cache_requests_total` for `users:me:v1` (hit, miss, bypass) and
+>   `cache_operation_duration_ms` series, each with `Average`, `Maximum` and `SampleCount`.
+> - `cache_operation_duration_ms{Operation=del}` reports the real elapsed time on success and on
+>   failure.
 
 > [!warning] CONTRACT — `users_total` publishes `HasPassword=ALL` as its own series
 > The poller publishes the sum of the two breakdowns as a third series. Do NOT expect a dashboard
@@ -767,6 +776,10 @@ Every tick the poller publishes a `0` for each series that is otherwise emitted 
 `users_registered_total`, `password_resets_total`, `users_deleted_total`, `http_errors_total`
 (`4xx`, `5xx`) and `cache_requests_total` (`hit`, `miss`, `bypass`). Without it a quiet window has
 no datapoints, and the OpenObserve card errors instead of reading 0. Summing a 0 changes no count.
+The seeds are independent of the database read: the tick publishes the `users_total` counts and
+the seeds through `Promise.allSettled`, so a database outage cannot suppress the seeds. A database
+failure still fails the tick (span ERROR, `metrics_collection_failed`). See
+[[2026-10-02-a-zero-seed-behind-a-failing-read-is-not-a-seed]].
 `cache_operation_duration_ms` is deliberately **not** seeded: a synthetic 0 ms every tick would
 drag every average and percentile toward zero and report a fast cache exactly when nothing is
 being cached.
@@ -1034,6 +1047,10 @@ convention/pattern notes in `shared/`) live in `docs/domains/users/decisions/`:
   this flow depends on.
 - [[2026-08-12-custom-business-metrics-cloudwatch-design]] — the design for the CloudWatch
   metrics Users publishes and the `BusinessMetricsPoller`'s start-in-`main.ts` constraint.
+- [[2026-10-02-a-zero-seed-behind-a-failing-read-is-not-a-seed]] — the per-tick zero-seeds are
+  published independently of the database read, so an outage does not blank the error cards.
+- [[2026-10-02-prisma-read-replicas-must-be-the-last-extension]] — the read-replica extension
+  must be applied last so soft-delete filtering reaches replica reads.
 - [[2026-10-02-a-migration-dropped-the-poller-its-plan-specified]] — the poller's `start()` was
   dropped in the NestJS cut-over; the `users_total` gauge and the per-tick zero-seeds stopped for
   about two weeks.
