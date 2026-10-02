@@ -4,12 +4,26 @@ type: convention
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-06-26
+updated: 2026-10-02
 tags: [type/convention, area/shared, status/active]
-related: ["[[2026-06-26-3mrai-docs-vault-design]]"]
+related: ["[[2026-06-26-3mrai-docs-vault-design]]", "[[git-workflow]]"]
 ---
 
 # Linear references in the vault
+
+## Linear issues are optional
+
+**Creating a Linear issue is optional.** We do not create one per ticket: not every change, fix, or task gets an issue. Small fixes, follow-ups, docs/vault work, and audit findings routinely ship with no issue at all.
+
+When there is no issue:
+
+- The vault note simply carries **no `issue/*` tag and no Linear link**. The rules below apply only when an issue exists.
+- The branch is named `<type>/<slug>` with **no issue ID** (see [[git-workflow]] → Branch flow).
+- Commit `Refs:` / `Closes:` footers and the PR's Linear link are **omitted**.
+
+Creating an issue is a **deliberate choice** — milestone work, or something worth tracking and prioritizing later. It is never a precondition for starting work, and an agent must **not** create one by default.
+
+## Scope
 
 When a vault note relates to work tracked in Linear, the note **references** Linear rather than mirroring it. Linear stays the single home of issue/milestone detail (description, state, comments); the vault note carries only lightweight references.
 
@@ -44,5 +58,6 @@ In the body: "The module follows our Terraform conventions and was delivered in 
 ## Related
 
 - [[2026-06-26-3mrai-docs-vault-design]] — vault design that defines the tag/frontmatter scheme this convention extends.
+- [[git-workflow]] — branch naming and commit/PR footers, including the no-issue variants.
 - The `linear-pm` agent — the READ path: fetch issue/milestone detail from Linear on demand instead of copying it here.
 - The `obsidian-vault` agent — the WRITE path: the sole writer that adds these reference tags and inline links to vault notes.
