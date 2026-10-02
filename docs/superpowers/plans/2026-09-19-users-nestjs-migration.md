@@ -392,9 +392,10 @@ cd services/users && sed -n '337,344p' src/features/users/http/routes.ts
 
 Expected: the handler returns `{ status: "ok" }`. **If it returns anything else, use that exact body in the test above** — the E2E specs assert on it and this plan must not change the contract.
 
-- [ ] **Step 3: Run the test to verify it fails**
+- [x] **Step 3: Run the test to verify it fails**
 
-> [!note] Depends on the missing health test (Step 1).
+> [!note] Satisfied by two files; the path is `tests/shared/`, not `tests/nest/`
+> Run as `pnpm exec vitest run tests/shared/shared-modules.test.ts`; the test was verified by removing a provider and an export, each of which fails it.
 
 ```bash
 cd services/users && nvm use && pnpm exec vitest run tests/nest/health.test.ts
@@ -571,10 +572,10 @@ Every later handler injects from these. They wrap the **existing** `src/shared/`
   - `REDIS` → `RedisClient`
   - `ResetCodeStore`, `CacheGateway`, `MetricsPublisher`, `BusinessMetricsPoller`, `CascadeClient`, `WebsocketPublisher` — injected **by type**, no token.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
-> [!warning] Not implemented — see [[2026-10-02-a-migration-dropped-the-poller-its-plan-specified]]
-> `tests/nest/shared-modules.test.ts` does not exist. The narrower `tests/shared/metrics/metrics-module.test.ts` (added in PR #91) covers only that `BusinessMetricsPoller` resolves; the "does NOT start the business-metrics poller when the module compiles" assertion and the other shared-provider checks are absent.
+> [!note] Satisfied by two files; the path is `tests/shared/`, not `tests/nest/`
+> `services/users/tests/shared/shared-modules.test.ts` compiles `AppModule` offline and resolves `DB`, `AUTH_PROVIDER`, `EVENT_PUBLISHER`, `REDIS`, `CacheGateway`, `ResetCodeStore`, `MetricsPublisher`, `BusinessMetricsPoller` and `CascadeClient` (9 tests). `services/users/tests/boot-smoke.test.ts` asserts the poller is NOT started after `init()`. The plan's `tests/nest/` directory does not exist; the shared-modules test lives under `tests/shared/`.
 
 Create `services/users/tests/nest/shared-modules.test.ts`:
 
@@ -924,10 +925,10 @@ import { HealthController } from "./health/health.controller.ts";
 export class AppModule {}
 ```
 
-- [ ] **Step 11: Run the test to verify it passes**
+- [x] **Step 11: Run the test to verify it passes**
 
-> [!warning] Not implemented — see [[2026-10-02-a-migration-dropped-the-poller-its-plan-specified]]
-> Depends on the missing shared-modules test (Step 1).
+> [!note] Satisfied by two files; the path is `tests/shared/`, not `tests/nest/`
+> `services/users/tests/shared/shared-modules.test.ts` compiles `AppModule` offline and resolves `DB`, `AUTH_PROVIDER`, `EVENT_PUBLISHER`, `REDIS`, `CacheGateway`, `ResetCodeStore`, `MetricsPublisher`, `BusinessMetricsPoller` and `CascadeClient` (9 tests). `services/users/tests/boot-smoke.test.ts` asserts the poller is NOT started after `init()`. The plan's `tests/nest/` directory does not exist; the shared-modules test lives under `tests/shared/`.
 
 ```bash
 cd services/users && nvm use && pnpm exec vitest run tests/nest/shared-modules.test.ts
@@ -2834,14 +2835,17 @@ Each follows Task 8's shape exactly. They are listed with the details that diffe
 
 | Task | Handler | Flow name | Injects | Reasons that must survive | Routine branch |
 |---|---|---|---|---|---|
-| 10 | `RegisterHandler` | `register` | `DB`, `AUTH_PROVIDER`, `EVENT_PUBLISHER` | `email_taken`, `cognito_error` | no |
-| 11 | `RegisterPasswordlessHandler` | `register_passwordless` | `DB`, `AUTH_PROVIDER`, `EVENT_PUBLISHER` | `email_taken`, `cognito_error` | no |
-| 12 | `StartOtpChallengeHandler` | `otp_challenge` | `DB`, `AUTH_PROVIDER` | `unknown_user`, `cognito_error` | check the original |
+| 10 | `RegisterHandler` | `register` | `DB`, `AUTH_PROVIDER`, `EVENT_PUBLISHER` | `duplicate_email`, `cognito_error`, `database_error` | no |
+| 11 | `RegisterPasswordlessHandler` | `register_passwordless` | `DB`, `AUTH_PROVIDER`, `EVENT_PUBLISHER` | `duplicate_email`, `cognito_error`, `database_error` | no |
+| 12 | `StartOtpChallengeHandler` | `otp_challenge` | `DB`, `AUTH_PROVIDER` | `cognito_error` (no `unknown_user` reason exists in the original or the port) | check the original |
 | 13 | `VerifyOtpChallengeHandler` | `otp_verify` | `DB`, `AUTH_PROVIDER` | `invalid_otp`, `cognito_error` | check the original |
-| 14 | `RefreshTokenHandler` + `SignOutHandler` | `refresh`, `sign_out` | `AUTH_PROVIDER` | `invalid_refresh_token`, `cognito_error` | no |
-| 15 | `ForgotPasswordHandler` + `ConfirmPasswordResetHandler` | `password_reset_requested`, `password_reset_confirm` | `DB`, `AUTH_PROVIDER`, `ResetCodeStore`, `EVENT_PUBLISHER` | `unknown_user`, `invalid_code`, `cognito_error` | check both |
-| 16 | `UpdateProfileHandler` | `update_profile` | `DB`, `CacheGateway` | `unknown_user` | yes — returns null |
-| 17 | `DeleteAccountHandler` | `delete_account` | `DB`, `AUTH_PROVIDER`, `CascadeClient`, `EVENT_PUBLISHER` | `unknown_user`, `cascade_failed` | yes — returns null |
+| 14 | `RefreshTokenHandler` + `SignOutHandler` | `refresh`, `sign_out` | `AUTH_PROVIDER` | `cognito_error` only, for both handlers (no `invalid_refresh_token` exists; the port's refresh `app_event` is `refresh_failed`) | no |
+| 15 | `ForgotPasswordHandler` + `ConfirmPasswordResetHandler` | `password_reset_requested`, `password_reset_confirm` | `DB`, `AUTH_PROVIDER`, `ResetCodeStore`, `EVENT_PUBLISHER` | Forgot: `unknown_email` (routine, non-throwing), `publish_threw`. Confirm: `unknown_email`, `invalid_or_expired_code`. No `unknown_user`, `invalid_code` or `cognito_error` in either | check both |
+| 16 | `UpdateProfileHandler` | `update_profile` | `DB`, `CacheGateway` | `unknown_user` (added by the port; the Fastify original returned null without a reason) | yes — returns null |
+| 17 | `DeleteAccountHandler` | `delete_account` | `DB`, `AUTH_PROVIDER`, `CascadeClient`, `EVENT_PUBLISHER` | `not_found`, `missing_cognito_sub`, `cascade_failed_<service>` (or bare `cascade_failed`), `redis_error`, and a `reason` of the error's `name` on the best-effort publish legs. No `unknown_user`. Could not map one-to-one: the last is dynamic | yes — returns `"not_found"` / `"deleted"`, not null |
+
+> [!note] Table corrected on 2026-10-02
+> The `reason` values in this table drifted from the code (e.g. `email_taken`, `invalid_refresh_token`, `invalid_code`, `unknown_user` on Tasks 12/15/17 never existed). It was corrected on 2026-10-02 to match the code, which was right: the ported handlers keep the original Fastify handlers' reasons. Verified against `services/users/src/users/commands/*.command.ts` and the pre-migration handlers at `f24da7be^`.
 
 - [x] **Before writing each task's handler, read its original and enumerate its reasons:**
 
@@ -3381,7 +3385,7 @@ Spike-verified: the generated path resolves to exactly `{ $ref: "#/components/sc
 
 Create `services/users/src/nest/shared/openapi/generate-openapi.ts` mirroring the current one — boot the app, build the document, write `openapi.yaml`. Point `package.json`'s `generate:openapi` script at it.
 
-- [x] **Step 6: Generate and diff against the committed artifact**
+- [ ] **Step 6: Generate and diff against the committed artifact**
 
 ```bash
 cd services/users && nvm use && cp openapi.yaml /tmp/openapi.fastify.yaml
@@ -3389,6 +3393,9 @@ pnpm run generate:openapi && diff /tmp/openapi.fastify.yaml openapi.yaml
 ```
 
 **This diff is the acceptance step, not "it ran without errors."** `openapi.yaml` is a committed artifact under a GOLDEN RULE (`services/users/CLAUDE.md` §2a) consumed by API clients. Expected differences: the description's "Fastify" → "NestJS". **Any route, component, or `$ref` that differs is a defect to fix here.** Restore the committed file if the diff is not clean, and report the differences.
+
+> [!note] Unticked on 2026-10-02: no recorded run of its own
+> Tick this only with the recorded output of `pnpm run generate:openapi && diff /tmp/openapi.fastify.yaml openapi.yaml` showing only the "Fastify" → "NestJS" description change, or an equivalent committed diff of `services/users/openapi.yaml`.
 
 - [x] **Step 7: Run the test and leave the work in the working tree**
 
@@ -3754,10 +3761,10 @@ The spec names this explicitly: Awilix's `asFunction, NOT asClass` trap surfaced
 **Files:**
 - Test: `services/users/tests/nest/boot-smoke.test.ts`
 
-- [ ] **Step 1: Write the smoke test**
+- [x] **Step 1: Write the smoke test**
 
-> [!warning] Not implemented — see [[2026-10-02-a-migration-dropped-the-poller-its-plan-specified]]
-> `tests/nest/boot-smoke.test.ts` (now `tests/boot-smoke.test.ts`) does not exist.
+> [!note] Done late (2026-10-02) in `services/users/tests/boot-smoke.test.ts`; the plan's `tests/nest/` path does not exist
+> It differs from the code below: it boots through `createNestApp()` from `main.ts` (not `NestFactory.create` directly), seeds the env before import, and has three tests: provider resolution, "poller does not start on init", and route registration. The route check uses `fastify.hasRoute({ method, url })` over 26 method+URL pairs, not `printRoutes()` and `toContain`.
 
 ```typescript
 import "reflect-metadata";
@@ -3823,9 +3830,10 @@ describe("application bootstrap", () => {
 });
 ```
 
-- [ ] **Step 2: Replace the route assertion with a real one**
+- [x] **Step 2: Replace the route assertion with a real one**
 
-> [!warning] Not implemented — see [[2026-10-02-a-migration-dropped-the-poller-its-plan-specified]]
+> [!note] Done late (2026-10-02) in `services/users/tests/boot-smoke.test.ts`
+> The full set is 26 routes, not the 18 stated below: every route the E2E specs call, cross-checked against `services/users/openapi.yaml`. `GET /v1/users/health` is excluded on purpose, because nginx rewrites it to `/v1/health`. A deliberate mutation (`controllers: []` in `NotificationsModule`) was shown to fail the test.
 
 `printRoutes()` returns a formatted tree, which makes the `toContain` above weak. Enumerate the router's real table instead:
 
@@ -3843,9 +3851,10 @@ import('#nest/app.module').then(async (m) => {
 
 Use whatever structure that prints to assert the **full set** of 18 paths, so a dropped route fails this test rather than reaching the gateway.
 
-- [ ] **Step 3: Run it and leave the work in the working tree**
+- [x] **Step 3: Run it and leave the work in the working tree**
 
-> [!warning] Not implemented — see [[2026-10-02-a-migration-dropped-the-poller-its-plan-specified]]
+> [!note] Done late (2026-10-02)
+> `services/users/tests/boot-smoke.test.ts` passes, and each assertion was shown to fail under a deliberate mutation (provider removed; `start()` in the constructor; `start()` in `onModuleInit`; `controllers: []` in `NotificationsModule`). The work is uncommitted in the working tree.
 
 ---
 ## Phase 4 — Cut-over (Tasks 25–27)
@@ -3943,11 +3952,14 @@ cd e2e/load-tests && nvm use && pnpm exec gatling run --simulation <the users si
 
 Compare the drain rate and error rate against the Fastify run, not a single before/after latency number — see [[e2e-variance-exceeds-effect]].
 
-- [x] **Step 8: STOP and report**
+- [ ] **Step 8: STOP and report**
 
 **This is a stop point.** Do not proceed to Task 26 until the user has seen the full E2E result. Deleting the Fastify implementation is irreversible without a revert (spec: "No rollback window after cut-over"), and the evidence for that decision is this task's output.
 
 Report: the baseline vs. Nest diff, any spec that needed a re-run, and the load-test comparison.
+
+> [!note] Unticked on 2026-10-02: no recorded report of its own
+> Tick this only with the recorded report to the user: the baseline vs. Nest E2E diff, any re-run spec, and the Gatling drain-rate and error-rate comparison against the Fastify run.
 
 ---
 
