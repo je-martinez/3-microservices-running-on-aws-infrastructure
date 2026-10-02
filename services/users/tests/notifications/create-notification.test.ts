@@ -7,12 +7,11 @@ import { CommandBus, CqrsModule } from "@nestjs/cqrs";
 import { Test } from "@nestjs/testing";
 import { testSpanExporter } from "../setup.ts";
 import { appLogger } from "#shared/logging/app-logger";
-import { DB } from "#shared/tokens";
+import { DB, PUBLISH_TO_USER } from "#shared/tokens";
 import { WorkflowInterceptor } from "#shared/observability/workflow.interceptor";
 import {
   CreateNotificationCommand,
   CreateNotificationHandler,
-  PUBLISH_TO_USER,
 } from "../../src/notifications/commands/create-notification.command.ts";
 
 function fakeDb(overrides?: {
