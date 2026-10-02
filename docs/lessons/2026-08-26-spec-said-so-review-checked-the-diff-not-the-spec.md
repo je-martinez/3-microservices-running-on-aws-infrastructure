@@ -4,7 +4,7 @@ type: lesson
 area: orders
 status: active
 created: 2026-08-26
-updated: 2026-09-30
+updated: 2026-10-02
 tags:
   - type/lesson
   - area/orders
@@ -125,3 +125,4 @@ The process change this note calls for now exists as the `spec-implementation-au
   sufficient: none of those layers, however complete, is designed to catch a requirement that
   was specified and never implemented, only requirements that were implemented incorrectly.
 - [[phase-c-review-flow]] — requires the `spec-implementation-audit` skill before each batch of PRs and before the milestone close; the mechanism this lesson lacked.
+- [[2026-10-02-a-migration-dropped-the-poller-its-plan-specified]] — Users recurrence: a migration dropped the poller start its plan specified.

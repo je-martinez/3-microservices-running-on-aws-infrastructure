@@ -4,7 +4,7 @@ type: plan
 area: users
 status: draft
 created: 2026-09-19
-updated: 2026-09-30
+updated: 2026-10-02
 tags:
   - type/plan
   - area/users
@@ -171,7 +171,7 @@ This task exists because of DI-1: without it, every later task's handlers resolv
 - Consumes: nothing.
 - Produces: a working Nest DI toolchain. Every later task relies on `constructor(private readonly x: SomeClass)` resolving correctly under `pnpm test`.
 
-- [ ] **Step 1: Install the dependencies**
+- [x] **Step 1: Install the dependencies**
 
 ```bash
 cd /Users/josemartinez/Repositories/Personal/3-microservices-running-on-aws-infrastructure
@@ -182,7 +182,7 @@ pnpm --filter @3mrai/users add @nestjs/core@12.0.3 @nestjs/common@12.0.3 \
 pnpm --filter @3mrai/users add -D @nestjs/testing@12.0.3 unplugin-swc @swc/core
 ```
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Create `services/users/tests/nest/di-metadata.test.ts`:
 
@@ -233,7 +233,7 @@ describe("decorator metadata under the test toolchain", () => {
 });
 ```
 
-- [ ] **Step 3: Run it to confirm it fails**
+- [x] **Step 3: Run it to confirm it fails**
 
 ```bash
 cd services/users && nvm use && pnpm exec vitest run tests/nest/di-metadata.test.ts
@@ -241,7 +241,7 @@ cd services/users && nvm use && pnpm exec vitest run tests/nest/di-metadata.test
 
 Expected: FAIL. The first test reports `undefined` instead of `[Probe]`; the second throws `TypeError: Cannot read properties of undefined (reading 'value')`.
 
-- [ ] **Step 4: Add the SWC config**
+- [x] **Step 4: Add the SWC config**
 
 Create `services/users/.swcrc`:
 
@@ -257,7 +257,7 @@ Create `services/users/.swcrc`:
 }
 ```
 
-- [ ] **Step 5: Wire the SWC plugin into Vitest**
+- [x] **Step 5: Wire the SWC plugin into Vitest**
 
 In `services/users/vitest.config.ts`, add the import and the `plugins` entry. Keep the existing `resolve.alias` and the whole `test` block exactly as they are:
 
@@ -282,7 +282,7 @@ export default defineConfig({
 });
 ```
 
-- [ ] **Step 6: Enable decorators in tsconfig**
+- [x] **Step 6: Enable decorators in tsconfig**
 
 In `services/users/tsconfig.json`, add two compiler options to the existing block (leave every other option untouched):
 
@@ -295,7 +295,7 @@ In `services/users/tsconfig.json`, add two compiler options to the existing bloc
 }
 ```
 
-- [ ] **Step 7: Add `reflect-metadata` to the setup file**
+- [x] **Step 7: Add `reflect-metadata` to the setup file**
 
 At the very top of `services/users/tests/setup-tracing.ts`, before every other import:
 
@@ -306,7 +306,7 @@ At the very top of `services/users/tests/setup-tracing.ts`, before every other i
 import "reflect-metadata";
 ```
 
-- [ ] **Step 8: Run the test to verify it passes**
+- [x] **Step 8: Run the test to verify it passes**
 
 ```bash
 cd services/users && nvm use && pnpm exec vitest run tests/nest/di-metadata.test.ts
@@ -314,7 +314,7 @@ cd services/users && nvm use && pnpm exec vitest run tests/nest/di-metadata.test
 
 Expected: PASS, 2 tests.
 
-- [ ] **Step 9: Run the whole existing suite to prove SWC broke nothing**
+- [x] **Step 9: Run the whole existing suite to prove SWC broke nothing**
 
 ```bash
 cd services/users && nvm use && pnpm test
@@ -322,7 +322,7 @@ cd services/users && nvm use && pnpm test
 
 Expected: the full suite passes with the same test count as before this task. If any test now fails, the SWC transform changed behaviour for existing code — fix that before continuing; do not proceed on a red suite.
 
-- [ ] **Step 10: Leave the work in the working tree**
+- [x] **Step 10: Leave the work in the working tree**
 
 Report the changed files to the main session. Do not run git.
 
@@ -346,6 +346,9 @@ Report the changed files to the main session. Do not run git.
   - `AppModule` — the root module every later module registers into.
 
 - [ ] **Step 1: Write the failing test**
+
+> [!warning] Not implemented — see [[2026-10-02-a-migration-dropped-the-poller-its-plan-specified]]
+> No health test exists under `services/users/tests/`; `/v1/health` is covered only by the E2E gate.
 
 Create `services/users/tests/nest/health.test.ts`:
 
@@ -381,7 +384,7 @@ describe("GET /v1/health", () => {
 });
 ```
 
-- [ ] **Step 2: Confirm the shape of the current health response**
+- [x] **Step 2: Confirm the shape of the current health response**
 
 ```bash
 cd services/users && sed -n '337,344p' src/features/users/http/routes.ts
@@ -391,6 +394,8 @@ Expected: the handler returns `{ status: "ok" }`. **If it returns anything else,
 
 - [ ] **Step 3: Run the test to verify it fails**
 
+> [!note] Depends on the missing health test (Step 1).
+
 ```bash
 cd services/users && nvm use && pnpm exec vitest run tests/nest/health.test.ts
 ```
@@ -398,6 +403,8 @@ cd services/users && nvm use && pnpm exec vitest run tests/nest/health.test.ts
 Expected: FAIL — `Cannot find module '#nest/app.module'`.
 
 - [ ] **Step 4: Add the `#nest/*` subpath import**
+
+> [!note] Superseded: the `#nest/*` alias no longer exists. Task 26 flattened `src/nest/` into `src/`, so the code now resolves through `#shared/*`, `#config/*`, `#users/*` and so on.
 
 In `services/users/package.json`, add a third entry to the existing `imports` block, matching the `#shared`/`#features` shape exactly (see [[users-path-aliases-hash]] — these are Node subpath imports, resolved without a bundler):
 
@@ -414,7 +421,7 @@ Add the matching alias to `vitest.config.ts`'s `resolve.alias`:
 "#nest/": fileURLToPath(new URL("./src/nest/", import.meta.url)),
 ```
 
-- [ ] **Step 5: Write the DI tokens**
+- [x] **Step 5: Write the DI tokens**
 
 Create `services/users/src/nest/shared/tokens.ts`:
 
@@ -430,7 +437,7 @@ export const EVENT_PUBLISHER = Symbol.for("users:eventPublisher");
 export const REDIS = Symbol.for("users:redis");
 ```
 
-- [ ] **Step 6: Write the config module**
+- [x] **Step 6: Write the config module**
 
 Create `services/users/src/nest/shared/config/config.module.ts`:
 
@@ -449,7 +456,7 @@ import { ENV } from "../tokens.ts";
 export class ConfigModule {}
 ```
 
-- [ ] **Step 7: Write the health controller**
+- [x] **Step 7: Write the health controller**
 
 Create `services/users/src/nest/health/health.controller.ts`:
 
@@ -465,7 +472,7 @@ export class HealthController {
 }
 ```
 
-- [ ] **Step 8: Write the root module**
+- [x] **Step 8: Write the root module**
 
 Create `services/users/src/nest/app.module.ts`:
 
@@ -481,7 +488,7 @@ import { HealthController } from "./health/health.controller.ts";
 export class AppModule {}
 ```
 
-- [ ] **Step 9: Write the bootstrap**
+- [x] **Step 9: Write the bootstrap**
 
 Create `services/users/src/nest/main.ts`:
 
@@ -518,6 +525,8 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
 
 - [ ] **Step 10: Run the test to verify it passes**
 
+> [!note] Depends on the missing health test (Step 1).
+
 ```bash
 cd services/users && nvm use && pnpm exec vitest run tests/nest/health.test.ts
 ```
@@ -526,6 +535,8 @@ Expected: PASS.
 
 - [ ] **Step 11: Boot the real app against the Fastify one**
 
+> [!note] No recorded evidence of the side-by-side boot; the E2E gate (Task 25) is the surviving proof.
+
 ```bash
 cd services/users && nvm use && pnpm exec tsx --conditions=development src/nest/main.ts &
 sleep 3 && curl -s localhost:3000/v1/health && kill %1
@@ -533,7 +544,7 @@ sleep 3 && curl -s localhost:3000/v1/health && kill %1
 
 Expected: `{"status":"ok"}`. If the port is taken by the running Fastify service, set `PORT=3100` for this check.
 
-- [ ] **Step 12: Leave the work in the working tree**
+- [x] **Step 12: Leave the work in the working tree**
 
 ---
 
@@ -561,6 +572,9 @@ Every later handler injects from these. They wrap the **existing** `src/shared/`
   - `ResetCodeStore`, `CacheGateway`, `MetricsPublisher`, `BusinessMetricsPoller`, `CascadeClient`, `WebsocketPublisher` — injected **by type**, no token.
 
 - [ ] **Step 1: Write the failing test**
+
+> [!warning] Not implemented — see [[2026-10-02-a-migration-dropped-the-poller-its-plan-specified]]
+> `tests/nest/shared-modules.test.ts` does not exist. The narrower `tests/shared/metrics/metrics-module.test.ts` (added in PR #91) covers only that `BusinessMetricsPoller` resolves; the "does NOT start the business-metrics poller when the module compiles" assertion and the other shared-provider checks are absent.
 
 Create `services/users/tests/nest/shared-modules.test.ts`:
 
@@ -609,7 +623,7 @@ describe("shared infrastructure modules", () => {
 });
 ```
 
-- [ ] **Step 2: Confirm the poller's idle-state field name**
+- [x] **Step 2: Confirm the poller's idle-state field name**
 
 ```bash
 cd services/users && grep -n "private\|start()\|setInterval" src/shared/metrics/business-metrics.ts | head -20
@@ -619,13 +633,15 @@ Use the field the class actually assigns its `setInterval` handle to. **If it is
 
 - [ ] **Step 3: Run the test to verify it fails**
 
+> [!note] Depends on the missing shared-modules test (Step 1).
+
 ```bash
 cd services/users && nvm use && pnpm exec vitest run tests/nest/shared-modules.test.ts
 ```
 
 Expected: FAIL — `Nest could not find DB element`.
 
-- [ ] **Step 4: Write the Prisma module**
+- [x] **Step 4: Write the Prisma module**
 
 Create `services/users/src/nest/shared/prisma/prisma.module.ts`:
 
@@ -646,7 +662,7 @@ import { DB } from "../tokens.ts";
 export class PrismaModule {}
 ```
 
-- [ ] **Step 5: Write the auth module**
+- [x] **Step 5: Write the auth module**
 
 Create `services/users/src/nest/shared/auth/auth.module.ts`:
 
@@ -695,7 +711,7 @@ const COGNITO_CLIENT = Symbol.for("users:cognitoClient");
 export class AuthModule {}
 ```
 
-- [ ] **Step 6: Write the cache module**
+- [x] **Step 6: Write the cache module**
 
 Create `services/users/src/nest/shared/cache/cache.module.ts`:
 
@@ -742,7 +758,7 @@ cd services/users && grep -n "constructor" src/shared/cache/reset-code-store.ts 
 
 They destructure from the Awilix cradle (`constructor({ redis })`). The `useFactory` above passes `{ redis }` to match. **If a constructor destructures more names, pass each one** — Awilix resolved them by cradle key and Nest will not.
 
-- [ ] **Step 7: Write the messaging module**
+- [x] **Step 7: Write the messaging module**
 
 Create `services/users/src/nest/shared/messaging/messaging.module.ts`:
 
@@ -785,7 +801,7 @@ const SNS_CLIENT = Symbol.for("users:snsClient");
 export class MessagingModule {}
 ```
 
-- [ ] **Step 8: Write the metrics module**
+- [x] **Step 8: Write the metrics module**
 
 Create `services/users/src/nest/shared/metrics/metrics.module.ts`:
 
@@ -843,6 +859,8 @@ Pass exactly the names it destructures.
 
 - [ ] **Step 9: Write the realtime module**
 
+> [!note] No `realtime.module.ts` exists. `notifications.module.ts` imports `publishToUser` from `#shared/realtime/websocket-publisher` directly instead.
+
 Create `services/users/src/nest/shared/realtime/realtime.module.ts`. Read the two classes first:
 
 ```bash
@@ -876,7 +894,7 @@ export class RealtimeModule {}
 
 Adjust both factories to the real constructor parameter names found above.
 
-- [ ] **Step 10: Register the modules in the root module**
+- [x] **Step 10: Register the modules in the root module**
 
 `services/users/src/nest/app.module.ts`:
 
@@ -908,13 +926,16 @@ export class AppModule {}
 
 - [ ] **Step 11: Run the test to verify it passes**
 
+> [!warning] Not implemented — see [[2026-10-02-a-migration-dropped-the-poller-its-plan-specified]]
+> Depends on the missing shared-modules test (Step 1).
+
 ```bash
 cd services/users && nvm use && pnpm exec vitest run tests/nest/shared-modules.test.ts
 ```
 
 Expected: PASS, 2 tests.
 
-- [ ] **Step 12: Leave the work in the working tree**
+- [x] **Step 12: Leave the work in the working tree**
 
 ---
 
@@ -931,7 +952,7 @@ This carries over the single most trap-laden piece of `routes.ts`: the `onReques
 - Consumes: `isPublicRoute` from `#shared/http/public-routes`, `actorContext` from `#shared/audit/actor-context`, `logContext`/`resolveRequestId`/`resolveRunId` from `#shared/logging/*`.
 - Produces: `RequestContextMiddleware`, applied to every route. Downstream handlers read the actor via `actorContext` and the correlation fields via `logContext` — no controller passes them explicitly.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `services/users/tests/nest/request-context.test.ts`:
 
@@ -1011,7 +1032,7 @@ describe("request context middleware", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 ```bash
 cd services/users && nvm use && pnpm exec vitest run tests/nest/request-context.test.ts
@@ -1019,7 +1040,7 @@ cd services/users && nvm use && pnpm exec vitest run tests/nest/request-context.
 
 Expected: FAIL — the actor is `undefined` and the 401 test gets a 200.
 
-- [ ] **Step 3: Write the middleware**
+- [x] **Step 3: Write the middleware**
 
 Create `services/users/src/nest/shared/http/request-context.middleware.ts`:
 
@@ -1078,7 +1099,7 @@ export class RequestContextMiddleware implements NestMiddleware {
 }
 ```
 
-- [ ] **Step 4: Check how `isPublicRoute` matches, then reconcile the path**
+- [x] **Step 4: Check how `isPublicRoute` matches, then reconcile the path**
 
 ```bash
 cd services/users && cat src/shared/http/public-routes.ts
@@ -1086,7 +1107,7 @@ cd services/users && cat src/shared/http/public-routes.ts
 
 Fastify's hook passed `req.routeOptions.url` (the route **pattern**, e.g. `/v1/users/:id`); middleware sees the raw URL with query string. **If `isPublicRoute` matches on patterns, strip the query string and confirm each public route still matches**; if any public route is parameterised, move this guard to a Nest `APP_GUARD` instead, where `ExecutionContext` exposes the matched route. Add a test for every entry the file lists before moving on.
 
-- [ ] **Step 5: Apply the middleware to all routes**
+- [x] **Step 5: Apply the middleware to all routes**
 
 In `services/users/src/nest/app.module.ts`, implement `NestModule`:
 
@@ -1102,7 +1123,7 @@ export class AppModule implements NestModule {
 }
 ```
 
-- [ ] **Step 6: Run the test to verify it passes**
+- [x] **Step 6: Run the test to verify it passes**
 
 ```bash
 cd services/users && nvm use && pnpm exec vitest run tests/nest/request-context.test.ts
@@ -1110,7 +1131,7 @@ cd services/users && nvm use && pnpm exec vitest run tests/nest/request-context.
 
 Expected: PASS, 4 tests.
 
-- [ ] **Step 7: Prove the ALS store survives an awaited Prisma call**
+- [x] **Step 7: Prove the ALS store survives an awaited Prisma call**
 
 Add this test to the same file. It guards [[2026-07-12-prisma-lazy-promise-als]]: Prisma promises are lazy, so an `await` outside the ALS callback loses the context.
 
@@ -1128,7 +1149,7 @@ it("keeps the actor store across an awaited async boundary", async () => {
 });
 ```
 
-- [ ] **Step 8: Leave the work in the working tree**
+- [x] **Step 8: Leave the work in the working tree**
 
 ---
 ### Task 5: The workflow interceptor — tracing, `app_event`, and reason-deferral
@@ -1158,7 +1179,7 @@ The three rules, restated as this task's acceptance criteria:
     }
     ```
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `services/users/tests/nest/workflow-interceptor.test.ts`. **These tests go through the real `CommandBus`, never a direct handler call** — spec finding #4 exists because 709 direct-call tests missed a production-path bug.
 
@@ -1325,7 +1346,7 @@ describe("WorkflowInterceptor", () => {
 });
 ```
 
-- [ ] **Step 2: Confirm the test exporter's export name**
+- [x] **Step 2: Confirm the test exporter's export name**
 
 ```bash
 cd services/users && grep -n "export" tests/setup-tracing.ts
@@ -1333,7 +1354,7 @@ cd services/users && grep -n "export" tests/setup-tracing.ts
 
 Use whatever `setup-tracing.ts` actually exports; if the existing tests import it differently (check `tests/features/users/commands/login.test.ts`'s imports), match that import exactly.
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [x] **Step 3: Run the tests to verify they fail**
 
 ```bash
 cd services/users && nvm use && pnpm exec vitest run tests/nest/workflow-interceptor.test.ts
@@ -1341,7 +1362,7 @@ cd services/users && nvm use && pnpm exec vitest run tests/nest/workflow-interce
 
 Expected: FAIL — `Cannot find module '#nest/shared/observability/workflow-metadata'`.
 
-- [ ] **Step 4: Write the metadata decorator and the routine marker**
+- [x] **Step 4: Write the metadata decorator and the routine marker**
 
 Create `services/users/src/nest/shared/observability/workflow-metadata.ts`:
 
@@ -1374,7 +1395,7 @@ export class RoutineFailure<T = null> {
 }
 ```
 
-- [ ] **Step 5: Write the interceptor**
+- [x] **Step 5: Write the interceptor**
 
 Create `services/users/src/nest/shared/observability/workflow.interceptor.ts`:
 
@@ -1467,7 +1488,7 @@ export class WorkflowInterceptor implements NestInterceptor {
 }
 ```
 
-- [ ] **Step 6: Replace the log-suppression placeholder with a real signal**
+- [x] **Step 6: Replace the log-suppression placeholder with a real signal**
 
 `this.handlerLogged` in Step 5 does not exist — it stands in for the decision the interceptor cannot make by reading the span alone. Implement it by having `appLogger` record the last `app_event` it emitted within the active span, and read that:
 
@@ -1499,7 +1520,7 @@ if (hasLoggedEvent(span, `${flow}_failed`)) return;
 
 **Run the "exactly ONE line" and "logs its own line" tests after this step specifically** — they are the only two that distinguish a working suppression from a no-op.
 
-- [ ] **Step 7: Add the `firstValue` helper**
+- [x] **Step 7: Add the `firstValue` helper**
 
 At the bottom of `workflow.interceptor.ts`:
 
@@ -1513,7 +1534,7 @@ function firstValue(source: Obs<unknown>): Promise<unknown> {
 }
 ```
 
-- [ ] **Step 8: Run the tests to verify they pass**
+- [x] **Step 8: Run the tests to verify they pass**
 
 ```bash
 cd services/users && nvm use && pnpm exec vitest run tests/nest/workflow-interceptor.test.ts
@@ -1522,6 +1543,8 @@ cd services/users && nvm use && pnpm exec vitest run tests/nest/workflow-interce
 Expected: PASS, 6 tests.
 
 - [ ] **Step 9: Mutation-test the three critical assertions**
+
+> [!note] No record of the hand mutation run.
 
 Spec finding #5: a green suite is not evidence, and this exact file is where three vacuous-test traps were found before. Break each rule by hand, confirm the matching test goes red, then revert:
 
@@ -1533,7 +1556,7 @@ Spec finding #5: a green suite is not evidence, and this exact file is where thr
 
 **If any mutation leaves the suite green, that test is vacuous — fix it before continuing.** Record the outcome in the handoff summary.
 
-- [ ] **Step 10: Leave the work in the working tree**
+- [x] **Step 10: Leave the work in the working tree**
 
 ---
 
@@ -1556,7 +1579,7 @@ The three remaining cross-cutting pieces, grouped because they share one accepta
   - `DomainExceptionFilter` — registered globally.
   - `ResponseLogInterceptor` — registered globally.
 
-- [ ] **Step 1: Determine the current validation-error body**
+- [x] **Step 1: Determine the current validation-error body**
 
 The E2E specs assert on this shape, so it must be reproduced exactly, not approximated.
 
@@ -1567,7 +1590,7 @@ cd /Users/josemartinez/Repositories/Personal/3-microservices-running-on-aws-infr
 
 Record the exact body the service returns for a Zod rejection today. **Use that shape verbatim in Step 3's test and in the pipe.** Fastify's default for a failed `validatorCompiler` is `{ statusCode: 400, code, error: "Bad Request", message }` — confirm before assuming it.
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 Create `services/users/tests/nest/http-cross-cutting.test.ts`:
 
@@ -1696,7 +1719,7 @@ cd services/users && grep -n "statusCode\|code" src/shared/auth/auth-errors.ts s
 
 Use the real values; a guessed 401/`invalid_credentials` that happens to be wrong makes this test assert the wrong contract.
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [x] **Step 3: Run the tests to verify they fail**
 
 ```bash
 cd services/users && nvm use && pnpm exec vitest run tests/nest/http-cross-cutting.test.ts
@@ -1704,7 +1727,7 @@ cd services/users && nvm use && pnpm exec vitest run tests/nest/http-cross-cutti
 
 Expected: FAIL — the pipe and filter modules do not exist.
 
-- [ ] **Step 4: Write the Zod pipe**
+- [x] **Step 4: Write the Zod pipe**
 
 Create `services/users/src/nest/shared/http/zod-validation.pipe.ts`:
 
@@ -1742,7 +1765,7 @@ export class ZodValidationPipe implements PipeTransform {
 
 Adjust the thrown object to the exact shape recorded in Step 1.
 
-- [ ] **Step 5: Write the exception filter**
+- [x] **Step 5: Write the exception filter**
 
 Create `services/users/src/nest/shared/http/domain-exception.filter.ts`:
 
@@ -1777,7 +1800,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
 }
 ```
 
-- [ ] **Step 6: Write the response-log interceptor**
+- [x] **Step 6: Write the response-log interceptor**
 
 Create `services/users/src/nest/shared/http/response-log.interceptor.ts`, carrying over the three contracts from `routes.ts`'s `onResponse` hook verbatim:
 
@@ -1856,7 +1879,7 @@ export class ResponseLogInterceptor implements NestInterceptor {
 }
 ```
 
-- [ ] **Step 7: Disable Nest's own request logging**
+- [x] **Step 7: Disable Nest's own request logging**
 
 In `main.ts`, build the adapter with the service's Pino options and Fastify's own request logging off — the interceptor above replaces it:
 
@@ -1873,7 +1896,7 @@ const adapter = new FastifyAdapter({
 });
 ```
 
-- [ ] **Step 8: Register all three globally**
+- [x] **Step 8: Register all three globally**
 
 In `app.module.ts`'s `providers`:
 
@@ -1892,7 +1915,7 @@ import { WorkflowInterceptor } from "./shared/observability/workflow.interceptor
 
 The pipe is **not** global — it takes a schema per parameter, so controllers construct it inline.
 
-- [ ] **Step 9: Run the tests to verify they pass**
+- [x] **Step 9: Run the tests to verify they pass**
 
 ```bash
 cd services/users && nvm use && pnpm exec vitest run tests/nest/http-cross-cutting.test.ts
@@ -1900,7 +1923,7 @@ cd services/users && nvm use && pnpm exec vitest run tests/nest/http-cross-cutti
 
 Expected: PASS, 5 tests.
 
-- [ ] **Step 10: Run every Nest test written so far**
+- [x] **Step 10: Run every Nest test written so far**
 
 ```bash
 cd services/users && nvm use && pnpm exec vitest run tests/nest/
@@ -1908,7 +1931,7 @@ cd services/users && nvm use && pnpm exec vitest run tests/nest/
 
 Expected: all green. This is the foundation every handler task builds on; do not proceed on a red suite.
 
-- [ ] **Step 11: Leave the work in the working tree**
+- [x] **Step 11: Leave the work in the working tree**
 
 ---
 ## Phase 2 — Handlers behind the bus (Tasks 7–17)
@@ -1942,7 +1965,7 @@ Every task in this phase follows the same five-move shape, and each one migrates
   - `GetUserByIdHandler.execute(query: GetUserByIdQuery): Promise<User | null>` — **consumed by Task 22's gRPC controller.** Split out of today's `UserQueryService`, which groups both reads behind one class.
   - `UsersModule` — later user tasks add their handlers to its `providers`.
 
-- [ ] **Step 1: Read the original handler and its test side by side**
+- [x] **Step 1: Read the original handler and its test side by side**
 
 ```bash
 cd services/users && cat src/features/users/queries/get-me.ts
@@ -1951,7 +1974,7 @@ cat tests/features/users/queries/get-me.test.ts
 
 Count the assertions in the original test file and write the number down. The rewritten file must carry at least as many, each at least as strict.
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Create `services/users/tests/nest/users/get-me.test.ts`:
 
@@ -2059,7 +2082,7 @@ describe("GetMeQuery through the QueryBus", () => {
 });
 ```
 
-- [ ] **Step 3: Run it to verify it fails**
+- [x] **Step 3: Run it to verify it fails**
 
 ```bash
 cd services/users && nvm use && pnpm exec vitest run tests/nest/users/get-me.test.ts
@@ -2067,7 +2090,7 @@ cd services/users && nvm use && pnpm exec vitest run tests/nest/users/get-me.tes
 
 Expected: FAIL — `Cannot find module '#nest/users/queries/get-me.query'`.
 
-- [ ] **Step 4: Write the query handler**
+- [x] **Step 4: Write the query handler**
 
 Create `services/users/src/nest/users/queries/get-me.query.ts`:
 
@@ -2109,7 +2132,7 @@ export class GetMeHandler implements IQueryHandler<GetMeQuery> {
 }
 ```
 
-- [ ] **Step 5: Split out the second read and cover it**
+- [x] **Step 5: Split out the second read and cover it**
 
 `UserQueryService` groups `getMe` and `getUserById` because both share the same reader-backed, soft-delete-aware shape. Nest discovers handlers one command/query at a time, so the pair becomes two handlers.
 
@@ -2198,7 +2221,7 @@ describe("GetUserByIdQuery through the QueryBus", () => {
 });
 ```
 
-- [ ] **Step 6: Write the users module**
+- [x] **Step 6: Write the users module**
 
 Create `services/users/src/nest/users/users.module.ts`:
 
@@ -2219,7 +2242,7 @@ export class UsersModule {}
 
 Add `UsersModule` to `app.module.ts`'s `imports`.
 
-- [ ] **Step 7: Run both tests to verify they pass**
+- [x] **Step 7: Run both tests to verify they pass**
 
 ```bash
 cd services/users && nvm use && pnpm exec vitest run tests/nest/users/
@@ -2227,11 +2250,11 @@ cd services/users && nvm use && pnpm exec vitest run tests/nest/users/
 
 Expected: PASS — 5 tests for `get-me`, 3 for `get-user-by-id`.
 
-- [ ] **Step 8: Diff the assertions against the original**
+- [x] **Step 8: Diff the assertions against the original**
 
 Open `tests/features/users/queries/get-me.test.ts` beside the new file and confirm, assertion by assertion, that nothing verified before is unverified now. **Write the comparison into the handoff summary** — "5 assertions before, 5 after, none weakened" is the reviewable claim; "tests pass" is not.
 
-- [ ] **Step 9: Leave the work in the working tree**
+- [x] **Step 9: Leave the work in the working tree**
 
 ---
 
@@ -2251,14 +2274,14 @@ Spec finding #2's primary evidence lives here: `login.test.ts` asserts `invalid_
   - `class LoginCommand { constructor(public readonly input: LoginInput) {} }` where `LoginInput = { email: string; password: string }`
   - `LoginHandler.execute(command: LoginCommand): Promise<AuthTokens>` — throws `InvalidCredentialsError`; the HTTP contract is unchanged.
 
-- [ ] **Step 1: Read the original handler and test**
+- [x] **Step 1: Read the original handler and test**
 
 ```bash
 cd services/users && cat src/features/users/commands/login.ts
 cat tests/features/users/commands/login.test.ts
 ```
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Create `services/users/tests/nest/users/login.test.ts`. It mirrors the original's assertions and adds one the original could not make — that the reason survives the **bus pipeline**, not just a direct call:
 
@@ -2443,7 +2466,7 @@ describe("LoginCommand through the CommandBus", () => {
 });
 ```
 
-- [ ] **Step 3: Run it to verify it fails**
+- [x] **Step 3: Run it to verify it fails**
 
 ```bash
 cd services/users && nvm use && pnpm exec vitest run tests/nest/users/login.test.ts
@@ -2451,7 +2474,7 @@ cd services/users && nvm use && pnpm exec vitest run tests/nest/users/login.test
 
 Expected: FAIL — the module does not exist.
 
-- [ ] **Step 4: Write the command handler**
+- [x] **Step 4: Write the command handler**
 
 Create `services/users/src/nest/users/commands/login.command.ts`. The body is the original `doExecute` verbatim; only the wrapper and the constructor change:
 
@@ -2550,11 +2573,11 @@ export class LoginHandler implements ICommandHandler<LoginCommand> {
 
 Note what moved and what did not: the `login_succeeded` span attribute is now the interceptor's job, but **every `*_failed` reason stays in the handler** — that is what the interceptor defers to.
 
-- [ ] **Step 5: Register the handler**
+- [x] **Step 5: Register the handler**
 
 Add `LoginHandler` to `users.module.ts`'s `providers`.
 
-- [ ] **Step 6: Run the test to verify it passes**
+- [x] **Step 6: Run the test to verify it passes**
 
 ```bash
 cd services/users && nvm use && pnpm exec vitest run tests/nest/users/login.test.ts
@@ -2564,11 +2587,13 @@ Expected: PASS, 10 tests.
 
 - [ ] **Step 7: Mutation-check the clobber guard one more time**
 
+> [!note] No record of the mutation check.
+
 In `workflow.interceptor.ts`, temporarily change `recordedReason(span) ?? "unhandled_error"` to `"unhandled_error"` and run this file.
 
 Expected: the `invalid_credentials`, `passwordless_user` and `cognito_error` tests all go RED. **Revert the mutation.** If they stayed green, the interceptor is not on the pipeline for this handler and every later task would inherit the defect.
 
-- [ ] **Step 8: Diff the assertions against the original and leave the work in the working tree**
+- [x] **Step 8: Diff the assertions against the original and leave the work in the working tree**
 
 ---
 
@@ -2588,14 +2613,14 @@ The second half of spec finding #2: this handler has **both** a thrown branch (`
   - `class ChangePasswordCommand { constructor(public readonly currentUser: CurrentUser, public readonly input: ChangePasswordInput) {} }` where `ChangePasswordInput = { newPassword: string }`
   - `ChangePasswordHandler.execute(...): Promise<User | RoutineFailure>`
 
-- [ ] **Step 1: Read the original handler and test in full**
+- [x] **Step 1: Read the original handler and test in full**
 
 ```bash
 cd services/users && cat src/features/users/commands/change-password.ts
 cat tests/features/users/commands/change-password.test.ts
 ```
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Create `services/users/tests/nest/users/change-password.test.ts`, carrying over all four span assertions the original makes plus the audit-actor one:
 
@@ -2744,7 +2769,7 @@ describe("ChangePasswordCommand through the CommandBus", () => {
 });
 ```
 
-- [ ] **Step 3: Run it to verify it fails**
+- [x] **Step 3: Run it to verify it fails**
 
 ```bash
 cd services/users && nvm use && pnpm exec vitest run tests/nest/users/change-password.test.ts
@@ -2752,7 +2777,7 @@ cd services/users && nvm use && pnpm exec vitest run tests/nest/users/change-pas
 
 Expected: FAIL — module not found.
 
-- [ ] **Step 4: Write the handler**
+- [x] **Step 4: Write the handler**
 
 Create `services/users/src/nest/users/commands/change-password.command.ts`. Port the original's body, replacing the `return null` with `return new RoutineFailure("unknown_user")` and keeping both the log line and the span attributes on that branch:
 
@@ -2772,7 +2797,7 @@ if (!target) {
 
 The `runAsActor` wrapper around the database write carries over unchanged. **Keep the `await` INSIDE the `runAsActor` callback** — Prisma promises are lazy, so an `await` outside it loses the actor and the audit extension writes null. See [[2026-07-12-prisma-lazy-promise-als]].
 
-- [ ] **Step 5: Register the handler, run the test, verify it passes**
+- [x] **Step 5: Register the handler, run the test, verify it passes**
 
 ```bash
 cd services/users && nvm use && pnpm exec vitest run tests/nest/users/change-password.test.ts
@@ -2782,6 +2807,8 @@ Expected: PASS, 6 tests.
 
 - [ ] **Step 6: Checkpoint — stop and report before porting the remaining handlers**
 
+> [!note] No record that the checkpoint stop-and-report happened.
+
 This is the explicit checkpoint the spec calls for. Confirm all three rules hold against real handlers before 12 more are built on the same pipeline:
 
 ```bash
@@ -2790,7 +2817,7 @@ cd services/users && nvm use && pnpm exec vitest run tests/nest/
 
 Report in the handoff: the mutation-test outcomes from Task 5 Step 9 and Task 8 Step 7, and the assertion diff for all three handlers. **If any rule does not hold, fix the interceptor now** — retrofitting it after 15 handlers is the sequence the spec explicitly warns produced the original bug.
 
-- [ ] **Step 7: Leave the work in the working tree**
+- [x] **Step 7: Leave the work in the working tree**
 
 ---
 
@@ -2816,7 +2843,7 @@ Each follows Task 8's shape exactly. They are listed with the details that diffe
 | 16 | `UpdateProfileHandler` | `update_profile` | `DB`, `CacheGateway` | `unknown_user` | yes — returns null |
 | 17 | `DeleteAccountHandler` | `delete_account` | `DB`, `AUTH_PROVIDER`, `CascadeClient`, `EVENT_PUBLISHER` | `unknown_user`, `cascade_failed` | yes — returns null |
 
-- [ ] **Before writing each task's handler, read its original and enumerate its reasons:**
+- [x] **Before writing each task's handler, read its original and enumerate its reasons:**
 
 ```bash
 cd services/users && grep -n "reason:" src/features/users/commands/<name>.ts
@@ -2824,7 +2851,7 @@ cd services/users && grep -n "reason:" src/features/users/commands/<name>.ts
 
 **Every `reason` string that appears there must appear in the ported handler and be asserted in the rewritten test.** A reason dropped in translation leaves no trace — the shipped code is self-consistent and the new test covers what was built rather than what was specified. See [[2026-08-26-spec-said-so-review-checked-the-diff-not-the-spec]].
 
-- [ ] **After Task 17, run the whole Nest suite:**
+- [x] **After Task 17, run the whole Nest suite:**
 
 ```bash
 cd services/users && nvm use && pnpm exec vitest run tests/nest/
@@ -2853,7 +2880,7 @@ Expected: green, with one test file per migrated handler.
   - `class ListNotificationsQuery { constructor(public readonly currentUser: CurrentUser, public readonly filter: NotificationFilter) {} }`
   - `NotificationsModule`.
 
-- [ ] **Step 1: Read the three originals and their tests**
+- [x] **Step 1: Read the three originals and their tests**
 
 ```bash
 cd services/users && cat src/features/notifications/commands/create-notification.ts \
@@ -2861,7 +2888,7 @@ cd services/users && cat src/features/notifications/commands/create-notification
   src/features/notifications/queries/list-notifications.ts
 ```
 
-- [ ] **Step 2: Note the one routine branch `list-notifications` carries**
+- [x] **Step 2: Note the one routine branch `list-notifications` carries**
 
 The spec names `list-notifications.ts` alongside `get-me.ts` as carrying the routine-vs-thrown shape. Find it and port it as a `RoutineFailure`:
 
@@ -2869,11 +2896,11 @@ The spec names `list-notifications.ts` alongside `get-me.ts` as carrying the rou
 cd services/users && grep -n "app_event\|reason" src/features/notifications/queries/list-notifications.ts
 ```
 
-- [ ] **Step 3: Write the three test files, run them red, write the three handlers, run them green**
+- [x] **Step 3: Write the three test files, run them red, write the three handlers, run them green**
 
 Follow Task 8's shape for each. Each handler gets `@Workflow("<flow>")` with the flow name its original uses, and keeps its own `reason` attributes.
 
-- [ ] **Step 4: Write the notifications module and register it**
+- [x] **Step 4: Write the notifications module and register it**
 
 ```typescript
 import { Module } from "@nestjs/common";
@@ -2891,7 +2918,7 @@ export class NotificationsModule {}
 
 Add `NotificationsModule` to `app.module.ts`'s `imports`.
 
-- [ ] **Step 5: Run the notifications tests and leave the work in the working tree**
+- [x] **Step 5: Run the notifications tests and leave the work in the working tree**
 
 ---
 ## Phase 3 — The HTTP surface and the remaining transports (Tasks 19–24)
@@ -2911,7 +2938,7 @@ Add `NotificationsModule` to `app.module.ts`'s `imports`.
 - Consumes: every handler from Tasks 7–17, `ZodValidationPipe`, the schemas in `#features/users/http/schemas`.
 - Produces: `UsersController` (13 routes), `CognitoWebhookController` (1), `E2eController` (2, behind `E2E_TESTING_ENABLED`). `serializeUser` moves to `serializers.ts` unchanged.
 
-- [ ] **Step 1: Enumerate the routes to port**
+- [x] **Step 1: Enumerate the routes to port**
 
 ```bash
 cd services/users && grep -n 'r\.\(get\|post\|patch\|delete\)("' src/features/users/http/routes.ts
@@ -2919,11 +2946,11 @@ cd services/users && grep -n 'r\.\(get\|post\|patch\|delete\)("' src/features/us
 
 Expected: 20 registrations — 13 user routes, 3 notification routes (Task 20), 1 webhook, 2 E2E-only, 1 health (already done in Task 2). **Every one must have a counterpart when this task and Task 20 are done; a missing route 404s at the gateway while the service looks healthy.**
 
-- [ ] **Step 2: Copy the serializers unchanged**
+- [x] **Step 2: Copy the serializers unchanged**
 
 Create `services/users/src/nest/users/http/serializers.ts` with `serializeUser` and `bearerToken` copied verbatim from `routes.ts` (lines ~82–115). They are pure functions with no Fastify coupling. Keep their comments — the `WARNING:` on `bearerToken`'s return value is load-bearing.
 
-- [ ] **Step 3: Write the failing test**
+- [x] **Step 3: Write the failing test**
 
 Create `services/users/tests/nest/users/users-routes.test.ts`. Cover, at minimum, one route per HTTP verb plus the three that carry non-obvious wiring:
 
@@ -3027,13 +3054,13 @@ describe("users HTTP routes", () => {
 });
 ```
 
-- [ ] **Step 4: Run it to verify it fails**
+- [x] **Step 4: Run it to verify it fails**
 
 ```bash
 cd services/users && nvm use && pnpm exec vitest run tests/nest/users/users-routes.test.ts
 ```
 
-- [ ] **Step 5: Write the controller**
+- [x] **Step 5: Write the controller**
 
 Create `services/users/src/nest/users/http/users.controller.ts`. Every route follows this shape — dispatch through the bus, map a routine `null` to 404, serialize at the boundary:
 
@@ -3071,7 +3098,7 @@ export class UsersController {
 }
 ```
 
-- [ ] **Step 6: Build the `@CurrentUserParam()` decorator**
+- [x] **Step 6: Build the `@CurrentUserParam()` decorator**
 
 `CurrentUser` was a per-request Awilix registration; Nest needs a param decorator. Create it in `services/users/src/nest/shared/auth/current-user.decorator.ts`:
 
@@ -3094,7 +3121,7 @@ export const CurrentUserParam = createParamDecorator((_data: unknown, ctx: Execu
 });
 ```
 
-- [ ] **Step 7: Port the remaining 12 user routes**
+- [x] **Step 7: Port the remaining 12 user routes**
 
 Work through the list from Step 1. For each: same path, same method, same status code, same request and response schema, same 404/401 behaviour. **The status codes matter** — `@HttpCode(200)` is needed on every `@Post` that does not return 201 today, and Nest defaults POST to 201.
 
@@ -3102,17 +3129,17 @@ Work through the list from Step 1. For each: same path, same method, same status
 cd services/users && sed -n '344,600p' src/features/users/http/routes.ts
 ```
 
-- [ ] **Step 8: Port the webhook and E2E controllers**
+- [x] **Step 8: Port the webhook and E2E controllers**
 
 The Cognito webhook keeps its shared-secret guard (`verifyWebhookSecret`) and its `NoMatchingUserError` handling. The two E2E routes stay behind `E2E_TESTING_ENABLED` — register the controller conditionally in the module, exactly as `routes.ts` wraps them in an `if` today.
 
-- [ ] **Step 9: Run the test, then the whole Nest suite**
+- [x] **Step 9: Run the test, then the whole Nest suite**
 
 ```bash
 cd services/users && nvm use && pnpm exec vitest run tests/nest/
 ```
 
-- [ ] **Step 10: Leave the work in the working tree**
+- [x] **Step 10: Leave the work in the working tree**
 
 ---
 
@@ -3129,11 +3156,11 @@ cd services/users && nvm use && pnpm exec vitest run tests/nest/
 - Consumes: the three notification handlers (Task 18), `CacheGateway`.
 - Produces: `NotificationsController` (3 routes), `MeCacheInterceptor`.
 
-- [ ] **Step 1: Port the three notification routes**
+- [x] **Step 1: Port the three notification routes**
 
 `GET /v1/notifications`, `GET /v1/notifications/unread-count`, `PATCH /v1/notifications/read`. Same shape as Task 19; the list route takes `NotificationFilterQuerySchema` on the query string via `@Query(new ZodValidationPipe(...))`.
 
-- [ ] **Step 2: Read the cache hooks and their two traps**
+- [x] **Step 2: Read the cache hooks and their two traps**
 
 ```bash
 cd services/users && cat src/features/users/http/cache-hooks.ts
@@ -3141,11 +3168,11 @@ cd services/users && cat src/features/users/http/cache-hooks.ts
 
 The file documents two: the cache key needs `CurrentUser.resolve()`, and `@fastify/otel` nulls the span inside `onSend`. Both carry over — the interceptor runs in the same positions the `preHandler`/`onSend` pair did.
 
-- [ ] **Step 3: Write the cache interceptor**
+- [x] **Step 3: Write the cache interceptor**
 
 A Nest interceptor is the idiomatic home for a response-wrapping concern, and `GET /v1/users/me` is the only cached route. Preserve the `x-cache` response header and the `cache_result` log-context field exactly — the E2E `cache.spec.ts` has 21 tests asserting on them. See [[x-cache-response-header]].
 
-- [ ] **Step 4: Verify against the cache E2E spec's expectations**
+- [x] **Step 4: Verify against the cache E2E spec's expectations**
 
 ```bash
 cd /Users/josemartinez/Repositories/Personal/3-microservices-running-on-aws-infrastructure && grep -n "x-cache\|hit\|miss\|bypass" e2e/tests/cache.spec.ts | head -25
@@ -3153,7 +3180,7 @@ cd /Users/josemartinez/Repositories/Personal/3-microservices-running-on-aws-infr
 
 Every header value and transition those 21 tests assert must be reproduced. They are not modified by this migration.
 
-- [ ] **Step 5: Run the tests and leave the work in the working tree**
+- [x] **Step 5: Run the tests and leave the work in the working tree**
 
 ---
 
@@ -3172,7 +3199,7 @@ The spec flags this as the one piece not yet proven and insists it lands early r
 - Consumes: the Zod schemas in `#features/users/http/schemas` and `#features/notifications/http/schemas`.
 - Produces: `buildOpenApiDocument(app): OpenAPIObject` — used by both the served `/docs` route and the committed-artifact generator.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `services/users/tests/nest/openapi.test.ts`. **The acceptance criterion is equivalence with the committed document, not "it builds":**
 
@@ -3250,7 +3277,7 @@ describe("generated OpenAPI document", () => {
 });
 ```
 
-- [ ] **Step 2: Read the committed document to get the real component names**
+- [x] **Step 2: Read the committed document to get the real component names**
 
 ```bash
 cd services/users && grep -n "^    [A-Z]" openapi.yaml | head -40
@@ -3258,7 +3285,7 @@ cd services/users && grep -n "^    [A-Z]" openapi.yaml | head -40
 
 **Use these exact names in the third test.** The current generator's `fastify-type-provider-zod` suffix convention produces `RegisterInput` from `Register`; whatever the committed file says is the target.
 
-- [ ] **Step 3: Write the document builder**
+- [x] **Step 3: Write the document builder**
 
 Create `services/users/src/nest/shared/openapi/build-document.ts`:
 
@@ -3340,7 +3367,7 @@ export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
 }
 ```
 
-- [ ] **Step 4: Reference the components from the controllers**
+- [x] **Step 4: Reference the components from the controllers**
 
 Each route declares its response as a `$ref` with `@ApiResponse`:
 
@@ -3350,11 +3377,11 @@ Each route declares its response as a `$ref` with `@ApiResponse`:
 
 Spike-verified: the generated path resolves to exactly `{ $ref: "#/components/schemas/User" }`.
 
-- [ ] **Step 5: Rewrite the artifact generator**
+- [x] **Step 5: Rewrite the artifact generator**
 
 Create `services/users/src/nest/shared/openapi/generate-openapi.ts` mirroring the current one — boot the app, build the document, write `openapi.yaml`. Point `package.json`'s `generate:openapi` script at it.
 
-- [ ] **Step 6: Generate and diff against the committed artifact**
+- [x] **Step 6: Generate and diff against the committed artifact**
 
 ```bash
 cd services/users && nvm use && cp openapi.yaml /tmp/openapi.fastify.yaml
@@ -3363,7 +3390,7 @@ pnpm run generate:openapi && diff /tmp/openapi.fastify.yaml openapi.yaml
 
 **This diff is the acceptance step, not "it ran without errors."** `openapi.yaml` is a committed artifact under a GOLDEN RULE (`services/users/CLAUDE.md` §2a) consumed by API clients. Expected differences: the description's "Fastify" → "NestJS". **Any route, component, or `$ref` that differs is a defect to fix here.** Restore the committed file if the diff is not clean, and report the differences.
 
-- [ ] **Step 7: Run the test and leave the work in the working tree**
+- [x] **Step 7: Run the test and leave the work in the working tree**
 
 ---
 
@@ -3387,7 +3414,7 @@ pnpm run generate:openapi && diff /tmp/openapi.fastify.yaml openapi.yaml
 - Consumes: `GetUserByIdQuery` (Task 7's read pair), `makeApiKeyInterceptor` and `extractParentContext` from `#shared/grpc/api-key-interceptor` (**unchanged — do not rewrite them**), `withGrpcServerSpan` from `#shared/observability/grpc-tracing` (unchanged).
 - Produces: `UsersGrpcController` with `@GrpcMethod("Users", "GetUserById")`, and `grpcMicroserviceOptions(env)` returning the `MicroserviceOptions` object `main.ts` passes to `connectMicroservice`.
 
-- [ ] **Step 1: Write the failing test — BOTH gates**
+- [x] **Step 1: Write the failing test — BOTH gates**
 
 Create `services/users/tests/nest/grpc/users-grpc.test.ts`. Two assertions, because the spike proved each fails independently:
 
@@ -3492,7 +3519,7 @@ describe("Users gRPC surface on @nestjs/microservices", () => {
 });
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 ```bash
 cd services/users && nvm use && pnpm exec vitest run tests/nest/grpc/users-grpc.test.ts
@@ -3500,7 +3527,7 @@ cd services/users && nvm use && pnpm exec vitest run tests/nest/grpc/users-grpc.
 
 Expected: FAIL — `grpc-options` does not exist.
 
-- [ ] **Step 3: Write the transport options, with the interceptors in `channelOptions`**
+- [x] **Step 3: Write the transport options, with the interceptors in `channelOptions`**
 
 Create `services/users/src/nest/users/grpc/grpc-options.ts`:
 
@@ -3541,7 +3568,7 @@ export function grpcMicroserviceOptions(env: Env): MicroserviceOptions {
 }
 ```
 
-- [ ] **Step 4: Write the gRPC controller**
+- [x] **Step 4: Write the gRPC controller**
 
 Create `services/users/src/nest/users/grpc/users-grpc.controller.ts`:
 
@@ -3597,7 +3624,7 @@ export class UsersGrpcController {
 }
 ```
 
-- [ ] **Step 5: Connect the microservice in `main.ts`**
+- [x] **Step 5: Connect the microservice in `main.ts`**
 
 ```typescript
 const app = await createNestApp();
@@ -3607,7 +3634,7 @@ await app.startAllMicroservices();
 await app.listen({ port: env.PORT, host: "0.0.0.0" });
 ```
 
-- [ ] **Step 6: Run the test to verify it passes**
+- [x] **Step 6: Run the test to verify it passes**
 
 ```bash
 cd services/users && nvm use && pnpm exec vitest run tests/nest/grpc/users-grpc.test.ts
@@ -3616,6 +3643,8 @@ cd services/users && nvm use && pnpm exec vitest run tests/nest/grpc/users-grpc.
 Expected: PASS, 3 tests.
 
 - [ ] **Step 7: Mutation-test both gates**
+
+> [!note] No record of the mutation run on the two gates.
 
 | Mutation | Test that must fail |
 |---|---|
@@ -3626,6 +3655,8 @@ Both were confirmed red in the 2026-09-19 spike. **Revert both mutations.** If e
 
 - [ ] **Step 8: Verify the .NET client still works end to end**
 
+> [!note] No record of the .NET client end-to-end check.
+
 Orders calls this surface. Bring the stack up and exercise the real path rather than trusting the in-process test:
 
 ```bash
@@ -3635,7 +3666,7 @@ grpcurl -plaintext -H "x-api-key: $INTERNAL_API_KEY" -d '{"id":"usr_1"}' localho
 
 Expected: the user payload. Then check the trace in OpenObserve (`localhost:5080`) shows **one** trace spanning caller and server, not two.
 
-- [ ] **Step 9: Leave the work in the working tree**
+- [x] **Step 9: Leave the work in the working tree**
 
 ---
 
@@ -3652,11 +3683,11 @@ Expected: the user payload. Then check the trace in OpenObserve (`localhost:5080
 - Consumes: `SQS_CLIENT`, `ENV`, `CommandBus`.
 - Produces: `NotificationConsumerService` with `start()`/`stop()` and a `handleMessage(message)` that dispatches `CreateNotificationCommand` through the bus.
 
-- [ ] **Step 1: Port the consumer as a plain injectable service**
+- [x] **Step 1: Port the consumer as a plain injectable service**
 
 `sqs-consumer` stays; no Nest transport is adopted. The class body carries over **unchanged** except that `createNotificationCommand.execute(parsed)` becomes `this.commandBus.execute(new CreateNotificationCommand(parsed))`. Keep every contract comment: the `messageAttributeNames: ["All"]` requirement, the RETURN-the-message delete semantics, the throw-only-on-transient rule, and both `emit`-not-throw error listeners.
 
-- [ ] **Step 2: Preserve the never-started-in-tests split**
+- [x] **Step 2: Preserve the never-started-in-tests split**
 
 ```typescript
 // CONTRACT: Constructed by the module, STARTED from main.ts — never in a
@@ -3667,7 +3698,7 @@ Expected: the user payload. Then check the trace in OpenObserve (`localhost:5080
 // See [[2026-09-10-in-app-notifications-design]]
 ```
 
-- [ ] **Step 3: Write the test that proves the split holds**
+- [x] **Step 3: Write the test that proves the split holds**
 
 ```typescript
 it("does NOT start polling when the module compiles", async () => {
@@ -3689,11 +3720,13 @@ Check `sqs-consumer`'s real property for a stopped consumer before relying on `i
 cd services/users && grep -n "isRunning\|status\|stopped" node_modules/sqs-consumer/dist/esm/consumer.d.ts | head
 ```
 
-- [ ] **Step 4: Port the trace-continuity and envelope-validation tests**
+- [x] **Step 4: Port the trace-continuity and envelope-validation tests**
 
 The original test file covers `lastTraceId`, the four permanent-failure branches (`empty_body`, `body_not_json`, `invalid_envelope`, each resolving rather than throwing) and the "never log the body" rule. **All carry over** — they are behaviour, not harness.
 
-- [ ] **Step 5: Start both in `main.ts`**
+- [x] **Step 5: Start both in `main.ts`**
+
+> [!note] The consumer was started in `main.ts` from the start; the metrics poller start was MISSING until PR #91 (d9f93604). Done late, in #91. See [[2026-10-02-a-migration-dropped-the-poller-its-plan-specified]]
 
 ```typescript
 // CONTRACT: Start the poller and the consumer HERE, not in a module lifecycle
@@ -3710,7 +3743,7 @@ process.on("SIGTERM", () => {
 });
 ```
 
-- [ ] **Step 6: Run the tests and leave the work in the working tree**
+- [x] **Step 6: Run the tests and leave the work in the working tree**
 
 ---
 
@@ -3722,6 +3755,9 @@ The spec names this explicitly: Awilix's `asFunction, NOT asClass` trap surfaced
 - Test: `services/users/tests/nest/boot-smoke.test.ts`
 
 - [ ] **Step 1: Write the smoke test**
+
+> [!warning] Not implemented — see [[2026-10-02-a-migration-dropped-the-poller-its-plan-specified]]
+> `tests/nest/boot-smoke.test.ts` (now `tests/boot-smoke.test.ts`) does not exist.
 
 ```typescript
 import "reflect-metadata";
@@ -3789,6 +3825,8 @@ describe("application bootstrap", () => {
 
 - [ ] **Step 2: Replace the route assertion with a real one**
 
+> [!warning] Not implemented — see [[2026-10-02-a-migration-dropped-the-poller-its-plan-specified]]
+
 `printRoutes()` returns a formatted tree, which makes the `toContain` above weak. Enumerate the router's real table instead:
 
 ```bash
@@ -3807,6 +3845,8 @@ Use whatever structure that prints to assert the **full set** of 18 paths, so a 
 
 - [ ] **Step 3: Run it and leave the work in the working tree**
 
+> [!warning] Not implemented — see [[2026-10-02-a-migration-dropped-the-poller-its-plan-specified]]
+
 ---
 ## Phase 4 — Cut-over (Tasks 25–27)
 
@@ -3819,7 +3859,7 @@ This is the gate the whole migration is measured against (spec D2/D3). **Nothing
 - Modify: `services/users/Dockerfile` (the `CMD` entrypoint)
 - Test: the 84 existing specs under `e2e/tests/` — **read-only**
 
-- [ ] **Step 1: Confirm the spec count before starting**
+- [x] **Step 1: Confirm the spec count before starting**
 
 ```bash
 cd /Users/josemartinez/Repositories/Personal/3-microservices-running-on-aws-infrastructure/e2e
@@ -3832,6 +3872,8 @@ Expected per the spec: 11 + 21 + 13 + 10 + 9 + 5 + 10 + 5 = **84**. If the real 
 
 - [ ] **Step 2: Capture the Fastify baseline FIRST**
 
+> [!note] No record that the Fastify baseline was captured before the cut-over.
+
 ```bash
 cd /Users/josemartinez/Repositories/Personal/3-microservices-running-on-aws-infrastructure
 make up && sleep 20
@@ -3840,7 +3882,7 @@ cd e2e && nvm use && pnpm exec playwright test 2>&1 | tee /tmp/e2e-fastify-basel
 
 **Record which specs pass on Fastify today.** A spec already failing before the migration is not this migration's regression, and without the baseline there is no way to tell the two apart. See [[e2e-variance-exceeds-effect]] — this suite has real run-to-run variance, so a single failure needs a re-run before it is called a regression.
 
-- [ ] **Step 3: Point the service at the Nest entrypoint**
+- [x] **Step 3: Point the service at the Nest entrypoint**
 
 In `services/users/package.json`:
 
@@ -3857,7 +3899,7 @@ In `services/users/Dockerfile`, the `CMD` (line 118):
 CMD ["node", "--import", "./dist/shared/observability/tracing.js", "dist/nest/main.js"]
 ```
 
-- [ ] **Step 4: Rebuild and run the full suite against Nest**
+- [x] **Step 4: Rebuild and run the full suite against Nest**
 
 ```bash
 cd /Users/josemartinez/Repositories/Personal/3-microservices-running-on-aws-infrastructure
@@ -3866,6 +3908,8 @@ cd e2e && nvm use && pnpm exec playwright test 2>&1 | tee /tmp/e2e-nest.txt | ta
 ```
 
 - [ ] **Step 5: Diff against the baseline**
+
+> [!note] Depends on the baseline (Step 2); the cut-over commit only records 84/84 passing.
 
 ```bash
 diff <(grep -E "✓|✘|passed|failed" /tmp/e2e-fastify-baseline.txt) \
@@ -3881,7 +3925,7 @@ diff <(grep -E "✓|✘|passed|failed" /tmp/e2e-fastify-baseline.txt) \
 | A 400 where a 200 is expected | The `ZodValidationPipe` rejects a body the Fastify schema accepted — compare the schema wiring, not the schema. |
 | `x-cache` header missing or wrong | Task 20's cache interceptor is not in the right pipeline position. |
 
-- [ ] **Step 6: Re-run any single failure before calling it a regression**
+- [x] **Step 6: Re-run any single failure before calling it a regression**
 
 ```bash
 cd e2e && nvm use && pnpm exec playwright test tests/<failing>.spec.ts --repeat-each=3
@@ -3891,13 +3935,15 @@ A spec that passes 2 of 3 times was flaky before this migration too. One that fa
 
 - [ ] **Step 7: Run the load tests to confirm the shape under sustained traffic**
 
+> [!note] No record that the load tests were run for the cut-over.
+
 ```bash
 cd e2e/load-tests && nvm use && pnpm exec gatling run --simulation <the users simulation>
 ```
 
 Compare the drain rate and error rate against the Fastify run, not a single before/after latency number — see [[e2e-variance-exceeds-effect]].
 
-- [ ] **Step 8: STOP and report**
+- [x] **Step 8: STOP and report**
 
 **This is a stop point.** Do not proceed to Task 26 until the user has seen the full E2E result. Deleting the Fastify implementation is irreversible without a revert (spec: "No rollback window after cut-over"), and the evidence for that decision is this task's output.
 
@@ -3919,7 +3965,7 @@ Report: the baseline vs. Nest diff, any spec that needed a re-run, and the load-
 - Delete: the superseded test files under `tests/features/` and `tests/shared/di/`
 - Modify: `services/users/package.json` (drop the Fastify-only dependencies)
 
-- [ ] **Step 1: Confirm nothing still imports what is about to be deleted**
+- [x] **Step 1: Confirm nothing still imports what is about to be deleted**
 
 ```bash
 cd services/users
@@ -3931,7 +3977,7 @@ done
 
 Expected: no hits outside the files being removed. **A hit means something still depends on it — resolve that before deleting.**
 
-- [ ] **Step 2: Delete the Fastify application files**
+- [x] **Step 2: Delete the Fastify application files**
 
 ```bash
 cd services/users
@@ -3943,7 +3989,7 @@ rm src/server.ts \
    src/shared/grpc/server.ts
 ```
 
-- [ ] **Step 3: Delete the superseded tests**
+- [x] **Step 3: Delete the superseded tests**
 
 Every test file under `tests/features/` and `tests/shared/di/` whose Nest counterpart exists under `tests/nest/`. **Keep every test that covers code still in use** — `tests/shared/` covers `src/shared/`, which was not rewritten. Specifically **keep** `tests/shared/grpc/api-key-interceptor.test.ts` and `api-key-interceptor.trace-context.test.ts`: Task 22 still uses that interceptor and those tests guard the JE-77 fix.
 
@@ -3958,7 +4004,7 @@ done
 
 Review that list by hand before deleting. `rm tests/shared/di/*.test.ts` as well — those test the container that no longer exists.
 
-- [ ] **Step 4: Drop the Fastify-only dependencies**
+- [x] **Step 4: Drop the Fastify-only dependencies**
 
 ```bash
 cd /Users/josemartinez/Repositories/Personal/3-microservices-running-on-aws-infrastructure
@@ -3971,7 +4017,7 @@ pnpm --filter @3mrai/users remove @fastify/awilix awilix fastify-type-provider-z
 cd services/users && nvm use && pnpm build && pnpm test
 ```
 
-- [ ] **Step 5: Flatten `src/nest/` up to `src/`**
+- [x] **Step 5: Flatten `src/nest/` up to `src/`**
 
 The parallel-build namespace has served its purpose and `src/nest/main.ts` reads oddly once it is the only implementation.
 
@@ -3991,7 +4037,7 @@ Check the result compiles before trusting the sed:
 cd services/users && nvm use && pnpm build
 ```
 
-- [ ] **Step 6: Re-run everything**
+- [x] **Step 6: Re-run everything**
 
 ```bash
 cd services/users && nvm use && pnpm test && pnpm build && pnpm run generate:openapi
@@ -4000,7 +4046,7 @@ git diff --stat openapi.yaml
 
 Expected: the full unit suite green, a clean build, and **no change** to `openapi.yaml` beyond what Task 21 already landed.
 
-- [ ] **Step 7: Re-run the E2E suite one final time**
+- [x] **Step 7: Re-run the E2E suite one final time**
 
 ```bash
 cd /Users/josemartinez/Repositories/Personal/3-microservices-running-on-aws-infrastructure
@@ -4010,7 +4056,7 @@ cd e2e && nvm use && pnpm exec playwright test
 
 Expected: the same result as Task 25. The deletion must change nothing observable — if it does, something deleted was still load-bearing.
 
-- [ ] **Step 8: Leave the work in the working tree**
+- [x] **Step 8: Leave the work in the working tree**
 
 ---
 
@@ -4028,21 +4074,21 @@ A spec is not done when written — it is done when its decisions reach the note
 - Create: `docs/lessons/2026-09-19-nest-grpc-interceptors-silently-dropped.md`
 - Modify: `services/users/CLAUDE.md`
 
-- [ ] **Step 1: Route the propagation through `obsidian-vault`**
+- [x] **Step 1: Route the propagation through `obsidian-vault`**
 
 The plan's `propagates-to:` frontmatter lists the five target notes. Each gets the migration's decisions folded in, bidirectional `## Related` links, and a bumped `updated:`.
 
-- [ ] **Step 2: Write the two lessons — both cost real debugging time and both are silent failures**
+- [x] **Step 2: Write the two lessons — both cost real debugging time and both are silent failures**
 
 **`2026-09-19-esbuild-drops-decorator-metadata.md`** — tsx and Vitest do not emit `design:paramtypes`, so Nest's type-based DI injects `undefined` while `tsc` builds a working service. Asymmetric and silent. Fix: `unplugin-swc` + `.swcrc` with `decoratorMetadata: true`, guarded by `tests/nest/di-metadata.test.ts`. Severity: it would have broken every handler task.
 
 **`2026-09-19-nest-grpc-interceptors-silently-dropped.md`** — `GrpcOptions` declares no `interceptors` key. `server: { interceptors: [...] }` is dropped without a warning, and a call with a **wrong** `x-api-key` returns the user's data: an open authentication bypass with no error. They must go in `channelOptions`, which is what Nest forwards to `new grpc.Server(...)`. Guarded by the UNAUTHENTICATED test in `tests/nest/grpc/users-grpc.test.ts`. Severity: high — a security failure that a green suite hid.
 
-- [ ] **Step 3: Update `services/users/CLAUDE.md`**
+- [x] **Step 3: Update `services/users/CLAUDE.md`**
 
 The service's own agent memory describes a Fastify + Awilix service. Rewrite the stack section, the DI section (Awilix PROXY → Nest providers and tokens), and §"Logging & tracing in this service" (the `withWorkflowSpan` wrapper → the `@Workflow()` decorator plus the interceptor, with the reason-deferral rule stated).
 
-- [ ] **Step 4: Run the validator**
+- [x] **Step 4: Run the validator**
 
 ```bash
 cd /Users/josemartinez/Repositories/Personal/3-microservices-running-on-aws-infrastructure && nvm use && node scripts/validate-vault.mjs
@@ -4050,7 +4096,7 @@ cd /Users/josemartinez/Repositories/Personal/3-microservices-running-on-aws-infr
 
 Expected: green. The "Propagation debt" count for pre-2026-07-28 notes is the gate working, not failing.
 
-- [ ] **Step 5: Run the comment linter**
+- [x] **Step 5: Run the comment linter**
 
 ```bash
 cd /Users/josemartinez/Repositories/Personal/3-microservices-running-on-aws-infrastructure && make lint-comments
@@ -4058,7 +4104,7 @@ cd /Users/josemartinez/Repositories/Personal/3-microservices-running-on-aws-infr
 
 Expected: no NEW violations. This migration wrote a lot of comments; the tense rule (describe the final state, never what changed) is the one most easily broken while porting.
 
-- [ ] **Step 6: Leave the work in the working tree**
+- [x] **Step 6: Leave the work in the working tree**
 
 ---
 

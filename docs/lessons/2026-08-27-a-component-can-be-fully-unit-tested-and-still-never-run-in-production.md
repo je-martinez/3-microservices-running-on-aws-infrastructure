@@ -4,7 +4,7 @@ type: lesson
 area: tracking
 status: active
 created: 2026-08-27
-updated: 2026-08-28
+updated: 2026-10-02
 tags:
   - type/lesson
   - area/tracking
@@ -240,3 +240,4 @@ things that are *inert unless wired* and *silent* when they aren't.
 - [[ADR-0008-screaming-arch-di]] — the repo's default DI-container convention, and this
   service's deliberate, documented divergence from it (manual constructor injection), which is
   the direct cause of there being no framework to complain about an unwired dependency.
+- [[2026-10-02-a-migration-dropped-the-poller-its-plan-specified]] — the same shape again, in Users: the poller was fully tested and never started.
