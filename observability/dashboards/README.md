@@ -178,12 +178,12 @@ proves the data is there; it does **not** prove the panel will render.
 {
   "queryType": "promql",
   "queries": [{
-    "query": "max by (dimensions_status) (amazonaws_com_3mrai_orders_by_tracking_status_total)",
+    "query": "max by (status) (amazonaws_com_3mrai_orders_by_tracking_status_total)",
     "customQuery": true,
     "fields": { "stream": "amazonaws_com_3mrai_orders_by_tracking_status_total",
                 "stream_type": "metrics", "x": [], "y": [], "z": [],
                 "filter": { "filterType": "group", "logicalOperator": "AND", "conditions": [] } },
-    "config": { "promql_legend": "{dimensions_status}", "layer_type": "scatter", "weight_fixed": 1 }
+    "config": { "promql_legend": "{status}", "layer_type": "scatter", "weight_fixed": 1 }
   }]
 }
 ```
@@ -196,8 +196,8 @@ proves the data is there; it does **not** prove the panel will render.
   than one series. Avoid `legends_position` — the working dashboards do not set
   it, and the legend renders inside the plot area (`legend:{right:0}`).
 - **Stream and dimension names are transformed on ingest**: CloudWatch's
-  `Service` dimension is queried as `dimensions_service` (prefixed, lowercased),
-  and metric `amazonaws.com/3MRAI/orders_total` becomes stream
+  `Service` dimension is queried as `service` (lowercased, no prefix — a
+  `dimensions_service` column does not exist), and metric `amazonaws.com/3MRAI/orders_total` becomes stream
   `amazonaws_com_3mrai_orders_total`. Guessing either name yields an empty panel
   with no error.
 
@@ -305,6 +305,25 @@ FROM logs GROUP BY service_name
 
 `total > 0` with `with_route = 0` is case 1.
 
+## "Search stream not found" means nothing has EVER published the metric
+
+A card reading `Search stream not found: amazonaws_com_3mrai_<metric>` is not a
+query problem and not an empty time range — the stream does not exist at all,
+because no datapoint has ever been ingested for it. Look upstream, in this order:
+
+1. **Is the publisher running?** Gauges and zero-seeds come from each service's
+   metrics loop (Users: `BusinessMetricsPoller`, started in `main.ts`). Its log
+   stream must carry `app_event=metrics_tick_succeeded` once per tick; zero such
+   lines means the loop never started. See
+   [the lesson](../../docs/lessons/2026-10-02-a-migration-dropped-the-poller-its-plan-specified.md).
+2. **Does the collector scrape it?** `otel-collector-config.yaml` must list the
+   metric with the EXACT dimension set it is published with — a metric absent
+   there never reaches OpenObserve, however healthy the publisher is.
+3. **Is the dashboard in the right org?** Streams are per org (`3mrai`).
+
+Contrast with the next section: an EXISTING stream with no points in the selected
+range throws `Cannot read properties of undefined (reading 'values')` instead.
+
 ## A `metric` card over a COUNTER needs a datapoint in every window
 
 A `metric` panel renders the **last point** of its series. That is right for a
@@ -340,12 +359,13 @@ So every card in `business-metrics` is `queryType: sql`:
 
 ```sql
 -- counter: how many in the selected range
-SELECT COALESCE(SUM(CASE WHEN dimensions_emailtype = 'ALL' THEN value END), 0) AS total
+SELECT COALESCE(SUM(CASE WHEN emailtype = 'ALL' THEN value END), 0) AS total
 FROM "amazonaws_com_3mrai_emails_sent_total"
 
--- gauge: the level, NOT a sum. The series republishes the same level every 15s,
+-- gauge: the level, NOT a sum. The series republishes the same level on every
+-- metrics tick (METRICS_INTERVAL_MS: 60s in the generated env files),
 -- so SUM would multiply it by the number of samples in the range.
-SELECT COALESCE(MAX(CASE WHEN dimensions_haspassword = 'ALL' THEN value END), 0) AS total
+SELECT COALESCE(MAX(CASE WHEN haspassword = 'ALL' THEN value END), 0) AS total
 FROM "amazonaws_com_3mrai_users_total"
 ```
 

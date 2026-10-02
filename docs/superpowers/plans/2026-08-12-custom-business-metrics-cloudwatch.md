@@ -4,7 +4,7 @@ type: plan
 area: shared
 status: draft
 created: 2026-08-12
-updated: 2026-08-12
+updated: 2026-10-02
 tags:
   - type/plan
   - area/shared
@@ -116,7 +116,7 @@ but not before its unit tests pass. Task 9 needs everything.
 - Produces: a running metrics pipeline that scrapes namespace `3MRAI` and exports to OpenObserve's
   `metrics` stream. Later tasks' metrics become visible once their names are added to `queries`.
 
-- [ ] **Step 1: Add the metrics block to the existing `aws_cloudwatch` receiver**
+- [x] **Step 1: Add the metrics block to the existing `aws_cloudwatch` receiver**
 
 In `observability/otel-collector-config.yaml`, the receiver currently has only `region` and
 `logs`. Add a sibling `metrics` key (do NOT touch the `logs` block):
@@ -224,7 +224,7 @@ two failure kinds is a long list that would need editing every time a template i
 decides whether to add them explicitly or switch that metric to `discovery`. The `EmailType=ALL`
 series is what the dashboards need first.
 
-- [ ] **Step 2: Add the OpenObserve metrics exporter**
+- [x] **Step 2: Add the OpenObserve metrics exporter**
 
 Add alongside the existing exporters (do not modify the log ones):
 
@@ -241,7 +241,7 @@ Add alongside the existing exporters (do not modify the log ones):
       stream-name: metrics
 ```
 
-- [ ] **Step 3: Add the metrics pipeline**
+- [x] **Step 3: Add the metrics pipeline**
 
 Under `service.pipelines`, alongside `logs`, `logs/sql` and `traces`:
 
@@ -254,7 +254,7 @@ Under `service.pipelines`, alongside `logs`, `logs/sql` and `traces`:
       exporters: [otlp_http/openobserve_metrics]
 ```
 
-- [ ] **Step 4: Verify the collector starts and the config is valid**
+- [x] **Step 4: Verify the collector starts and the config is valid**
 
 ```bash
 docker run --rm -v "$PWD/observability/otel-collector-config.yaml:/etc/otel/config.yaml:ro" \
@@ -267,7 +267,7 @@ Expected: `Everything is ready. Begin running and processing data.` and NO
 connection errors because Floci is not reachable from this bare container — that is expected and
 not a config failure. Ctrl-C to stop.
 
-- [ ] **Step 5: Verify end to end against Floci**
+- [x] **Step 5: Verify end to end against Floci**
 
 ```bash
 make bootstrap                       # if the stack is not already up
@@ -288,7 +288,7 @@ Expected: a JSON body whose `hits` array is **non-empty**, containing `"value": 
 FAILURE even though the HTTP status is 200 — that is the silent-empty mode this whole design
 guards against.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add observability/otel-collector-config.yaml
@@ -317,7 +317,7 @@ git commit -m "feat(infra): scrape CloudWatch metrics into OpenObserve"
   - Cradle key `metricsPublisher: MetricsPublisher` (SINGLETON).
   - Metric `users_registered_total` (`Service=users`), `password_resets_total` (`Service=users`).
 
-- [ ] **Step 1: Add the dependency**
+- [x] **Step 1: Add the dependency**
 
 ```bash
 cd services/users && nvm use && pnpm add @aws-sdk/client-cloudwatch@^3.1075.0
@@ -327,6 +327,8 @@ Pin the same major/minor line as the existing `@aws-sdk/client-sqs` and
 `@aws-sdk/client-cognito-identity-provider` (both `^3.1075.0`).
 
 - [ ] **Step 2: Write the failing test**
+
+> [!note] No `cloudwatch-metrics.test.ts` exists in `services/users/tests/shared/metrics/`; the publisher is exercised only through the command tests (`register.test.ts`, `confirm-password-reset.test.ts`).
 
 Create `services/users/tests/shared/metrics/cloudwatch-metrics.test.ts`. Mirrors the existing
 `tests/shared/messaging/sqs-event-publisher.test.ts` style — a hand-built double passed into the
@@ -374,13 +376,15 @@ describe("MetricsPublisher", () => {
 
 - [ ] **Step 3: Run it and confirm it fails**
 
+> [!note] Depends on the missing publisher test (Step 2).
+
 ```bash
 cd services/users && nvm use && npx vitest run tests/shared/metrics/cloudwatch-metrics.test.ts
 ```
 
 Expected: FAIL — `Cannot find module '#shared/metrics/cloudwatch-metrics'`.
 
-- [ ] **Step 4: Implement the publisher**
+- [x] **Step 4: Implement the publisher**
 
 Create `services/users/src/shared/metrics/cloudwatch-metrics.ts`. Note this file lives under
 `src/shared/`, where the house style is **relative imports with an explicit `.ts`** (see
@@ -444,13 +448,15 @@ export class MetricsPublisher {
 
 - [ ] **Step 5: Run the test and confirm it passes**
 
+> [!note] Depends on the missing publisher test (Step 2).
+
 ```bash
 cd services/users && nvm use && npx vitest run tests/shared/metrics/cloudwatch-metrics.test.ts
 ```
 
 Expected: PASS, 2 tests.
 
-- [ ] **Step 6: Register in the Awilix container**
+- [x] **Step 6: Register in the Awilix container**
 
 In `services/users/src/shared/di/awilix-container.ts`:
 
@@ -482,7 +488,7 @@ Add to `registerSingletons()` (~L74), mirroring the `sqsClient` registration exa
     metricsPublisher: asClass(MetricsPublisher, { lifetime: Lifetime.SINGLETON }),
 ```
 
-- [ ] **Step 7: Emit the counters at the three success points**
+- [x] **Step 7: Emit the counters at the three success points**
 
 `register.ts` — inject `metricsPublisher` into the constructor destructuring (~L34) and add
 after the `register_succeeded` log (~L189), before `return toDomain(...)`:
@@ -507,7 +513,7 @@ same dimensions**. Both are registrations; the password/passwordless split is ca
 > Emit on **confirm**, not on request. `forgot-password.ts` succeeds even for an unknown email
 > (deliberate non-enumeration), so counting requests would count resets that never happened.
 
-- [ ] **Step 8: Add a test asserting register emits the counter**
+- [x] **Step 8: Add a test asserting register emits the counter**
 
 Append to `services/users/tests/features/users/commands/register.test.ts`, following that file's
 existing `deps()` factory pattern:
@@ -533,7 +539,7 @@ You must also add `metricsPublisher: { publish: vi.fn(async () => {}) }` to the 
 defaults in that file, or every other test in it breaks with "cannot read property publish of
 undefined".
 
-- [ ] **Step 9: Run the full Users suite**
+- [x] **Step 9: Run the full Users suite**
 
 ```bash
 cd services/users && nvm use && npm test
@@ -543,7 +549,7 @@ Expected: PASS, including the pre-existing tests. If tests fail with a missing-e
 new var to the `test.env` block in `services/users/vitest.config.ts` — but this task adds none
 (`AWS_REGION` and `AWS_ENDPOINT_URL` already exist there).
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add services/users
@@ -569,7 +575,7 @@ git commit -m "feat(users): publish registration and password-reset metrics to C
     `async collectAndPublish(): Promise<void>` (exposed so tests drive one tick without timers).
   - Metric `users_total` with `Service=users` + `HasPassword=true|false`.
 
-- [ ] **Step 1: Add the interval env var**
+- [x] **Step 1: Add the interval env var**
 
 In `services/users/src/shared/config/env.ts`, add to the Zod schema (the service uses Zod per
 [[ADR-0014-env-validation-zod]]):
@@ -586,7 +592,7 @@ Add the same key to the `test.env` block in `services/users/vitest.config.ts`:
       METRICS_INTERVAL_MS: "15000",
 ```
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Create `services/users/tests/shared/metrics/business-metrics.test.ts`:
 
@@ -646,7 +652,7 @@ describe("BusinessMetricsPoller", () => {
 });
 ```
 
-- [ ] **Step 3: Run it and confirm it fails**
+- [x] **Step 3: Run it and confirm it fails**
 
 ```bash
 cd services/users && nvm use && npx vitest run tests/shared/metrics/business-metrics.test.ts
@@ -654,7 +660,7 @@ cd services/users && nvm use && npx vitest run tests/shared/metrics/business-met
 
 Expected: FAIL — module not found.
 
-- [ ] **Step 4: Implement the poller**
+- [x] **Step 4: Implement the poller**
 
 Create `services/users/src/shared/metrics/business-metrics.ts`:
 
@@ -744,7 +750,7 @@ export class BusinessMetricsPoller {
 }
 ```
 
-- [ ] **Step 5: Run the test and confirm it passes**
+- [x] **Step 5: Run the test and confirm it passes**
 
 ```bash
 cd services/users && nvm use && npx vitest run tests/shared/metrics/business-metrics.test.ts
@@ -752,7 +758,9 @@ cd services/users && nvm use && npx vitest run tests/shared/metrics/business-met
 
 Expected: PASS, 3 tests.
 
-- [ ] **Step 6: Register and start the poller**
+- [x] **Step 6: Register and start the poller**
+
+> [!note] Poller registered in `MetricsModule`; the start call in `main.ts` landed late, in PR #91.
 
 In `awilix-container.ts`, add to the `Cradle` interface and to `registerSingletons()`:
 
@@ -780,7 +788,7 @@ process.on("SIGTERM", () => {
 });
 ```
 
-- [ ] **Step 7: Run the full suite and typecheck**
+- [x] **Step 7: Run the full suite and typecheck**
 
 ```bash
 cd services/users && nvm use && npm test && npx tsc --noEmit
@@ -788,7 +796,7 @@ cd services/users && nvm use && npm test && npx tsc --noEmit
 
 Expected: PASS, no type errors.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add services/users
@@ -815,7 +823,7 @@ git commit -m "feat(users): publish users_total gauge by password type"
     in namespace `Orders.Application.Abstractions`.
   - Metric `orders_total` (`Service=orders`).
 
-- [ ] **Step 1: Add the NuGet package**
+- [x] **Step 1: Add the NuGet package**
 
 In `services/orders/src/Orders.Infrastructure/Orders.Infrastructure.csproj`, beside the existing
 `AWSSDK.SQS`:
@@ -834,7 +842,7 @@ one project causes assembly-binding conflicts.
 > pinning it: `curl -s https://api.nuget.org/v3-flatcontainer/awssdk.cloudwatch/index.json`.
 > The v4-not-v3 constraint is the one that matters; the exact patch is not.
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Create `services/orders/tests/Orders.Tests/Metrics/CloudWatchMetricsPublisherTests.cs`, modelled
 on the existing `tests/Orders.Tests/Messaging/SqsEventPublisherTests.cs`:
@@ -898,7 +906,7 @@ public class CloudWatchMetricsPublisherTests
 }
 ```
 
-- [ ] **Step 3: Run it and confirm it fails**
+- [x] **Step 3: Run it and confirm it fails**
 
 ```bash
 cd services/orders && dotnet test --filter FullyQualifiedName~CloudWatchMetricsPublisherTests
@@ -906,7 +914,7 @@ cd services/orders && dotnet test --filter FullyQualifiedName~CloudWatchMetricsP
 
 Expected: FAIL to compile — `CloudWatchMetricsPublisher` does not exist.
 
-- [ ] **Step 4: Write the port and the implementation**
+- [x] **Step 4: Write the port and the implementation**
 
 `services/orders/src/Orders.Application/Abstractions/IMetricsPublisher.cs`:
 
@@ -1018,7 +1026,7 @@ public class NoopMetricsPublisher : IMetricsPublisher
 }
 ```
 
-- [ ] **Step 5: Run the test and confirm it passes**
+- [x] **Step 5: Run the test and confirm it passes**
 
 ```bash
 cd services/orders && dotnet test --filter FullyQualifiedName~CloudWatchMetricsPublisherTests
@@ -1026,7 +1034,7 @@ cd services/orders && dotnet test --filter FullyQualifiedName~CloudWatchMetricsP
 
 Expected: PASS, 2 tests.
 
-- [ ] **Step 6: Write the BackgroundService gauge**
+- [x] **Step 6: Write the BackgroundService gauge**
 
 Create `services/orders/src/Orders.Api/BackgroundServices/OrdersMetricsPublisher.cs`. This is the
 service's **first** `BackgroundService` — there are none today:
@@ -1106,7 +1114,7 @@ public class OrdersMetricsPublisher : BackgroundService
 }
 ```
 
-- [ ] **Step 7: Register everything in Program.cs**
+- [x] **Step 7: Register everything in Program.cs**
 
 In the DI block (lines 69–217), beside the existing `IAmazonSQS` registration, copying its
 endpoint-override pattern exactly:
@@ -1144,7 +1152,7 @@ if (!isDocumentGeneration)
 it. Add `using Amazon.CloudWatch;`, `using Orders.Api.BackgroundServices;`,
 `using Orders.Infrastructure.Metrics;` at the top.
 
-- [ ] **Step 8: Stop the hosted service reaching CloudWatch in tests**
+- [x] **Step 8: Stop the hosted service reaching CloudWatch in tests**
 
 In `services/orders/tests/Orders.Tests/Api/OrdersApiFactory.cs`, inside the existing
 `builder.ConfigureTestServices(...)` block, swap the publisher for the no-op using the same
@@ -1160,7 +1168,7 @@ Single/Remove/re-add idiom already used for `IEventPublisher`:
             services.AddSingleton<IMetricsPublisher>(new NoopMetricsPublisher());
 ```
 
-- [ ] **Step 9: Build and run the full suite**
+- [x] **Step 9: Build and run the full suite**
 
 ```bash
 cd services/orders && dotnet build && dotnet test
@@ -1169,7 +1177,7 @@ cd services/orders && dotnet build && dotnet test
 Expected: build succeeds (which also regenerates `openapi.yaml` — no routes changed, so it should
 be unchanged; if it did change, commit it) and all tests pass.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add services/orders
@@ -1179,6 +1187,9 @@ git commit -m "feat(orders): publish orders_total gauge to CloudWatch"
 ---
 
 ### Task 5: Tracking — metrics publisher and orders-by-status gauge
+
+> [!warning] Superseded: the Tracking service was rewritten in Go (PR #74)
+> `services/tracking/` and its Python files no longer exist, so no step below is ticked. The Go equivalents are `services/tracking-go/internal/adapter/cloudwatch/` (publisher, async, ticker) and `services/tracking-go/cmd/server/metrics_wiring.go`.
 
 **Files:**
 - Create: `services/tracking/src/shared/metrics/__init__.py`
@@ -1631,7 +1642,7 @@ git commit -m "feat(tracking): publish orders-by-tracking-status gauge to CloudW
   - Metrics `emails_sent_total` and `emails_failed_total`, each published twice per event: once
     with the real `EmailType`, once with `EmailType=ALL`.
 
-- [ ] **Step 1: Add the dependency**
+- [x] **Step 1: Add the dependency**
 
 ```bash
 cd functions/events-pipeline && nvm use && pnpm add @aws-sdk/client-cloudwatch@^3.1104.0
@@ -1640,7 +1651,7 @@ cd functions/events-pipeline && nvm use && pnpm add @aws-sdk/client-cloudwatch@^
 Match the newest sibling (`@aws-sdk/client-apigatewaymanagementapi` is `^3.1104.0`). esbuild
 bundles it automatically — no `external` change needed in `scripts/build.mjs`.
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Create `functions/events-pipeline/tests/shared/metrics/cloudwatch-metrics.test.ts`, using the
 class-stub mock pattern from `tests/websocket-publisher.test.ts`:
@@ -1696,7 +1707,7 @@ describe("publishMetric", () => {
 });
 ```
 
-- [ ] **Step 3: Run it and confirm it fails**
+- [x] **Step 3: Run it and confirm it fails**
 
 ```bash
 cd functions/events-pipeline && nvm use && npx vitest run tests/shared/metrics/cloudwatch-metrics.test.ts
@@ -1704,7 +1715,7 @@ cd functions/events-pipeline && nvm use && npx vitest run tests/shared/metrics/c
 
 Expected: FAIL — module not found.
 
-- [ ] **Step 4: Implement the publisher**
+- [x] **Step 4: Implement the publisher**
 
 Create `functions/events-pipeline/src/shared/metrics/cloudwatch-metrics.ts`, following
 `src/email/sender.ts`'s lazy module-singleton pattern:
@@ -1810,7 +1821,7 @@ Add to `src/shared/config/env.ts`'s Zod schema:
   METRICS_ENABLED: z.coerce.boolean().default(true),
 ```
 
-- [ ] **Step 5: Run the test and confirm it passes**
+- [x] **Step 5: Run the test and confirm it passes**
 
 ```bash
 cd functions/events-pipeline && nvm use && npx vitest run tests/shared/metrics/cloudwatch-metrics.test.ts
@@ -1818,7 +1829,7 @@ cd functions/events-pipeline && nvm use && npx vitest run tests/shared/metrics/c
 
 Expected: PASS, 2 tests.
 
-- [ ] **Step 6: Widen SendEmailParams and emit the counters**
+- [x] **Step 6: Widen SendEmailParams and emit the counters**
 
 `sendEmail` currently has no idea which template it is sending. Add `templateKey` to
 `SendEmailParams` (L7-11):
@@ -1858,7 +1869,7 @@ already know their key — `user-created.ts` and `order-created.ts` use a litera
 `tracking-status-changed.ts` selects one from `TEMPLATE_BY_STATUS` (L81-87). Update all five call
 sites; `tsc` will point at each one.
 
-- [ ] **Step 7: Emit the permanent-failure counter in the renderer**
+- [x] **Step 7: Emit the permanent-failure counter in the renderer**
 
 In `src/email/renderer.ts`, before the `throw new PermanentError(...)` (~L20-23):
 
@@ -1876,7 +1887,7 @@ In `src/email/renderer.ts`, before the `throw new PermanentError(...)` (~L20-23)
 
 `renderTemplate` is already `async`, so no signature change is needed.
 
-- [ ] **Step 8: Add a test asserting the sender emits both series**
+- [x] **Step 8: Add a test asserting the sender emits both series**
 
 Append to `functions/events-pipeline/tests/email/sender.test.ts` — that file already points the
 SES client at a dead endpoint (`http://127.0.0.1:1`) to force a `TransientError`, which makes it
@@ -1912,7 +1923,7 @@ it("publishes a transient failure metric when SES fails", async () => {
 });
 ```
 
-- [ ] **Step 9: Typecheck, build and run the suite**
+- [x] **Step 9: Typecheck, build and run the suite**
 
 ```bash
 cd functions/events-pipeline && nvm use && pnpm run typecheck && pnpm run build && pnpm test
@@ -1921,7 +1932,7 @@ cd functions/events-pipeline && nvm use && pnpm run typecheck && pnpm run build 
 Expected: all PASS. `typecheck` is what surfaces any `sendEmail` call site still missing
 `templateKey`.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add functions/events-pipeline
@@ -1943,7 +1954,7 @@ git commit -m "feat(events-pipeline): publish email sent/failed metrics to Cloud
 - Consumes: each service's metrics publisher (Tasks 2, 4, 5).
 - Produces: metric `http_errors_total` with `Service=<name>` + `StatusClass=4xx|5xx` in all three.
 
-- [ ] **Step 1: Users — emit from the existing onResponse hook**
+- [x] **Step 1: Users — emit from the existing onResponse hook**
 
 `routes.ts` L112-128 already logs `reply.statusCode` for every response. Add, inside that hook:
 
@@ -1965,6 +1976,8 @@ git commit -m "feat(events-pipeline): publish email sent/failed metrics to Cloud
 
 - [ ] **Step 2: Users — test it**
 
+> [!note] No test asserts `http_errors_total` in `services/users/tests/`; the emit lives in `src/shared/http/response-log.interceptor.ts`.
+
 Add to `services/users/tests/features/users/http/routes.test.ts`:
 
 ```ts
@@ -1985,7 +1998,7 @@ If no `buildAppWithMetrics` helper exists in that file, build the app with a con
 `metricsPublisher` is registered `asValue({ publish })` — `buildApp` accepts a container argument
 (`routes.ts:90-93`).
 
-- [ ] **Step 3: Orders — add the middleware**
+- [x] **Step 3: Orders — add the middleware**
 
 Create `services/orders/src/Orders.Api/Middleware/HttpErrorMetricsMiddleware.cs`:
 
@@ -2039,7 +2052,7 @@ Register it in `Program.cs` right after `app.UseSerilogRequestLogging(...)` (~L2
 app.UseMiddleware<HttpErrorMetricsMiddleware>();
 ```
 
-- [ ] **Step 4: Orders — test it**
+- [x] **Step 4: Orders — test it**
 
 Add `services/orders/tests/Orders.Tests/Api/HttpErrorMetricsTests.cs` using the existing
 `OrdersApiFactory` collection fixture, with a recording `IMetricsPublisher` swapped in via
@@ -2047,6 +2060,8 @@ Add `services/orders/tests/Orders.Tests/Api/HttpErrorMetricsTests.cs` using the 
 request with no `x-user-id` produces a 401 and one `http_errors_total` / `4xx` publication.
 
 - [ ] **Step 5: Tracking — wrap `send` in the existing ASGI middleware**
+
+> [!note] Tracking was rewritten in Go (PR #74); the Python middleware this step names no longer exists. The Go equivalent is `services/tracking-go/internal/adapter/http/logcontext_middleware.go`.
 
 `LogContextMiddleware` (`src/shared/http/log_context_middleware.py:40-58`) is pure ASGI and passes
 `send` straight through, so it never sees the status. Wrap it:
@@ -2088,11 +2103,15 @@ reaching for the lru_cached boto3 client.
 
 - [ ] **Step 6: Tracking — test it**
 
+> [!note] Superseded by the Go rewrite; Go tests live in `logcontext_middleware_test.go`.
+
 Create `services/tracking/tests/test_http_error_metrics.py` asserting that a request to a
 nonexistent route (404) publishes `http_errors_total` with `StatusClass=4xx`, and that a 200
 publishes nothing.
 
 - [ ] **Step 7: Run all three suites**
+
+> [!note] Not verifiable as written: the Tracking suite is now Go.
 
 ```bash
 cd services/users && nvm use && npm test
@@ -2103,6 +2122,8 @@ cd ../tracking && python -m pytest && ruff check .
 Expected: all PASS.
 
 - [ ] **Step 8: Commit**
+
+> [!note] Not ticked: the Tracking half of this task no longer exists as specified.
 
 ```bash
 git add services/users services/orders services/tracking
@@ -2123,7 +2144,7 @@ git commit -m "feat(users,orders,tracking): publish http_errors_total by status 
 - Produces: `cloudwatch:PutMetricData` permission for the Lambda; `METRICS_*` vars in every
   generated env file.
 
-- [ ] **Step 1: Grant PutMetricData to the Lambda**
+- [x] **Step 1: Grant PutMetricData to the Lambda**
 
 In `infra/modules/lambda/main.tf`, add a statement to the inline policy beside the existing
 `ses:SendEmail` one (~L55):
@@ -2141,7 +2162,7 @@ In `infra/modules/lambda/main.tf`, add a statement to the inline policy beside t
 The three container services reach Floci with static local credentials and need no IAM change
 locally; in real AWS their task roles would need the same statement.
 
-- [ ] **Step 2: Add the env vars to the generator**
+- [x] **Step 2: Add the env vars to the generator**
 
 In `infra/environments/local/scripts/generate_env_files.py`, add to each service's dict beside its
 existing `OTEL_*` entries:
@@ -2154,13 +2175,15 @@ existing `OTEL_*` entries:
 Also add `METRICS_ENABLED = "true"` to the Lambda's `environment_variables` block in
 `infra/environments/local/main.tf` (~L442-484).
 
-- [ ] **Step 3: Document them in the contract**
+- [x] **Step 3: Document them in the contract**
 
 Add the same keys to the matching sections of `.env.example`, with a one-line comment each.
 `.env.example` is documentation, not config — nothing loads it — but it is the committed contract
 and a var absent from it is invisible to the next reader.
 
 - [ ] **Step 4: Regenerate and verify**
+
+> [!note] Needs a live `make env-file` run; no generated `.env.local.*` files are present in this worktree.
 
 ```bash
 make env-file
@@ -2170,7 +2193,7 @@ grep -n "METRICS" .env.local.users .env.local.orders .env.local.tracking .env.lo
 Expected: each var appears in its file, inside the AUTO-GENERATED box. Confirm your CUSTOM boxes
 survived.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add infra .env.example
@@ -2191,17 +2214,23 @@ git commit -m "feat(infra): grant PutMetricData and wire metrics env vars"
 
 - [ ] **Step 1: Bring the whole stack up**
 
+> [!note] Runtime verification step; no recorded evidence in the repo.
+
 ```bash
 make bootstrap && make observability-up
 ```
 
 - [ ] **Step 2: Generate real traffic**
 
+> [!note] Runtime verification step; no recorded evidence in the repo.
+
 Register a user (both with and without a password), create an order, drive a tracking to
 `DELIVERED` via TestMode, and trigger a password reset. Use the E2E suite for this if it is
 quicker: `pnpm --filter @3mrai/e2e test`.
 
 - [ ] **Step 3: Verify every metric arrives**
+
+> [!note] Runtime verification step; no recorded evidence in the repo.
 
 Wait at least **40 seconds** (≥2 collection intervals at 15s), then query each stream:
 
@@ -2225,6 +2254,8 @@ collector.
 
 - [ ] **Step 4: Verify the Orders↔Tracking health indicator**
 
+> [!note] Runtime verification step; no recorded evidence in the repo.
+
 ```
 orders_total  vs  (DELIVERED + IN_PROGRESS)
 ```
@@ -2234,7 +2265,7 @@ means some order's `init-tracking` failed — check the Orders logs for `init_tr
 Record the observed values in the dashboard's description so a future reader knows what normal
 looks like.
 
-- [ ] **Step 5: Build the dashboard**
+- [x] **Step 5: Build the dashboard**
 
 Create `observability/dashboards/business-metrics.dashboard.json` following the existing
 dashboards' structure. Panels:
@@ -2255,6 +2286,8 @@ dashboards' structure. Panels:
 
 - [ ] **Step 6: Import and verify the dashboard renders**
 
+> [!note] Runtime verification step; the committed e2e `dashboards.spec.ts` checks metric-panel fields against stream schemas but not rendering.
+
 ```bash
 make observability-dashboards
 ```
@@ -2262,14 +2295,14 @@ make observability-dashboards
 Open <http://localhost:5080>, confirm every panel shows data. **A panel rendering an empty chart
 without an error is the failure mode to look for** — check its query's dimension names first.
 
-- [ ] **Step 7: Decide the per-type email series**
+- [x] **Step 7: Decide the per-type email series**
 
 With real data in hand, decide whether to add the nine per-`EmailType` queries explicitly to the
 collector config or to switch that one metric to `discovery` (which would pick up new template
 keys automatically). Note the trade-off in the dashboard description either way — an undocumented
 `ALL`-only view reads as "all emails are one type".
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add observability

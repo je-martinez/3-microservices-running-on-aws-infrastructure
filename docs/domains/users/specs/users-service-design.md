@@ -4,7 +4,7 @@ type: spec
 area: users
 status: active
 created: 2026-06-26
-updated: 2026-09-30
+updated: 2026-10-02
 tags: [type/spec, area/users, status/active]
 related:
   - "[[2026-09-19-users-nestjs-migration-design]]"
@@ -700,15 +700,37 @@ reusing the pattern already proven in
 > the shared query gotchas are in [[logging-context#Metrics — the third pillar, and why it does
 > NOT go over OTLP]].
 
-Users publishes **four** metrics to CloudWatch, namespace `3MRAI` (three at first shipment, plus
-`users_deleted_total` added in the account-deletion milestone, 2026-08-26):
+Users publishes **seven** metrics to CloudWatch, namespace `3MRAI`: three at first shipment, plus
+`users_deleted_total` (account-deletion milestone, 2026-08-26) and the three HTTP-error and cache
+metrics (`http_errors_total`, `cache_requests_total`, `cache_operation_duration_ms`):
 
 | Metric | Type | Dimensions |
 |---|---|---|
 | `users_registered_total` | counter | `Service=users` |
-| `users_total` | gauge | `Service=users`, `HasPassword=true\|false` |
+| `users_total` | gauge | `Service=users`, `HasPassword=true\|false\|ALL` |
 | `password_resets_total` | counter | `Service=users` |
 | `users_deleted_total` | counter | `Service=users` |
+| `http_errors_total` | counter | `Service=users`, `StatusClass=4xx\|5xx` |
+| `cache_requests_total` | counter | `Service=users`, `KeyPrefix`, `Result=hit\|miss\|bypass` |
+| `cache_operation_duration_ms` | timing (Milliseconds) | `Service=users`, `Operation=get\|set\|del` |
+
+`http_errors_total` is published (unawaited) by the response-log interceptor for every 4xx/5xx
+response; the cache metrics come from the cache gateway on every cache operation. The cache
+metrics' dimensions, the `KeyPrefix` rule and the per-service differences are defined once in
+[[x-cache-response-header]] and [[2026-08-25-response-caching-layer-design]].
+
+> [!note] Open follow-up — three metrics are not scraped into OpenObserve
+> `users_deleted_total`, `cache_requests_total` and `cache_operation_duration_ms` are published to
+> CloudWatch but are not currently scraped by the collector
+> (`observability/otel-collector-config.yaml` has no `metric_name` entry for any of them), so they
+> are NOT queryable in OpenObserve today. Whether that is intended has not been established.
+
+> [!warning] CONTRACT — `users_total` publishes `HasPassword=ALL` as its own series
+> The poller publishes the sum of the two breakdowns as a third series. Do NOT expect a dashboard
+> to sum `true` and `false`: CloudWatch under Floci does not aggregate across dimensions, and
+> PromQL `sum()` silently returned one breakdown (a "total users" card read 9 while its own "with
+> password" breakdown read 450). The dashboard's "Users" card reads the `ALL` series, so removing
+> it breaks that card.
 
 `users_deleted_total` increments once per successful `DELETE /v1/users/me`, published by
 `DeleteAccountCommand` after the Postgres commit — awaited but non-fatal, like every other
@@ -735,7 +757,19 @@ never actually happened, for emails that don't even belong to an account.
 
 **The `BusinessMetricsPoller` is started in `main.ts`, never on module init.** Compiling a
 testing module must not start a live periodic timer against the database. `main.ts` runs only
-for the real process, so the poller only ever ticks there.
+for the real process, so the poller only ever ticks there. This start call was dropped once in
+the NestJS cut-over and went unnoticed for about two weeks:
+[[2026-10-02-a-migration-dropped-the-poller-its-plan-specified]].
+
+### Zero-seeding
+
+Every tick the poller publishes a `0` for each series that is otherwise emitted only on events:
+`users_registered_total`, `password_resets_total`, `users_deleted_total`, `http_errors_total`
+(`4xx`, `5xx`) and `cache_requests_total` (`hit`, `miss`, `bypass`). Without it a quiet window has
+no datapoints, and the OpenObserve card errors instead of reading 0. Summing a 0 changes no count.
+`cache_operation_duration_ms` is deliberately **not** seeded: a synthetic 0 ms every tick would
+drag every average and percentile toward zero and report a fast cache exactly when nothing is
+being cached.
 
 ## OpenAPI autogen
 
@@ -1000,6 +1034,9 @@ convention/pattern notes in `shared/`) live in `docs/domains/users/decisions/`:
   this flow depends on.
 - [[2026-08-12-custom-business-metrics-cloudwatch-design]] — the design for the CloudWatch
   metrics Users publishes and the `BusinessMetricsPoller`'s start-in-`main.ts` constraint.
+- [[2026-10-02-a-migration-dropped-the-poller-its-plan-specified]] — the poller's `start()` was
+  dropped in the NestJS cut-over; the `users_total` gauge and the per-tick zero-seeds stopped for
+  about two weeks.
 - [[2026-08-25-response-caching-layer-design]] — the cross-service response-caching design:
   Users' one cached route (`GET /v1/users/me`), why it has no identity-mapping cache, and the
   50ms fail-open budget every service shares.
