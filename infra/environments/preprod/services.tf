@@ -100,6 +100,11 @@ locals {
       PROGRESSION_INTERVAL_SECONDS = "5"
       DEPLOYMENT_ENVIRONMENT       = "preprod"
     })
+    web = {
+      API_GATEWAY_PROXY_HOST = "floci:4566"
+      API_GATEWAY_API_ID     = module.api_gateway.api_id
+      OTLP_RUM_UPSTREAM      = "floci:4319"
+    }
   }
 
   secrets = {
@@ -120,6 +125,9 @@ locals {
       INTERNAL_API_KEY         = random_password.internal_api_key.result
       TRACKING_CARRIER_API_KEY = random_password.carrier_api_key.result
     }
+    web = {
+      GEOAPIFY_API_KEY = var.geoapify_api_key
+    }
   }
 
   services = {
@@ -137,6 +145,10 @@ locals {
     tracking = {
       port      = 8000, cpu = 256, memory = 512, extra_ports = []
       listeners = { http = { port = 9103, container_port = 8000, health_path = "/v1/health" } }
+    }
+    web = {
+      port      = 80, cpu = 256, memory = 512, extra_ports = []
+      listeners = { http = { port = 9090, container_port = 80, health_path = "/" } }
     }
   }
 }

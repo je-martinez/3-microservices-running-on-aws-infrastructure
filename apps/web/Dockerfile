@@ -105,7 +105,8 @@ COPY apps/web/nginx.conf /etc/nginx/templates/default.conf.template
 # render empty and the SPA fallback silently serves nothing. Widen it only by
 # adding an ANCHORED prefix to the alternation — the entrypoint matches this as
 # an unanchored awk regex, so a bare name would match far more than intended.
-ENV NGINX_ENVSUBST_FILTER='^(API_GATEWAY_|GEOAPIFY_)'
+ENV NGINX_ENVSUBST_FILTER='^(API_GATEWAY_|GEOAPIFY_|OTLP_RUM_)'
+ENV OTLP_RUM_UPSTREAM=otel-collector:4319
 # The BROWSER subdirectory, not dist/web: the parent also holds
 # 3rdpartylicenses.txt and prerendered-routes.json, which are build metadata and
 # have no business being reachable over HTTP.

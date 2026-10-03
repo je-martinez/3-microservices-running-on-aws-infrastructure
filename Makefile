@@ -930,7 +930,7 @@ PP_TF_DIR  := infra/environments/preprod
 PP_TF      := terraform -chdir=$(PP_TF_DIR)
 PP_NETWORK := 3mrai-preprod_preprod-network
 PP_TF_VARS := -var python_bin=$(PY)
-PP_IMAGES  := users,orders,tracking
+PP_IMAGES  := users,orders,tracking,web
 PP_ALIASES := users-grpc
 
 .PHONY: preprod-floci-up preprod-down preprod-up preprod-migrate preprod-smoke preprod-aliases preprod-deploy
@@ -989,7 +989,7 @@ preprod-migrate: scripts-setup ## Pre-prod: Prisma (users) + golang-migrate (tra
 preprod-aliases: scripts-setup ## Pre-prod: attach stable Docker aliases to ECS tasks
 	$(PY) $(PP_TF_DIR)/scripts/preprod_aliases.py --cluster "$$($(PP_TF) output -raw ecs_cluster_name)" --network $(PP_NETWORK) --aliases $(PP_ALIASES)
 
-preprod-deploy: scripts-setup ## Pre-prod: redeploy one service (S=users|orders|tracking; ENV_ONLY=1 = config only)
+preprod-deploy: scripts-setup ## Pre-prod: redeploy one service (S=users|orders|tracking|web; ENV_ONLY=1 = config only)
 	@test -n "$(S)" || { echo "usage: make preprod-deploy S=<service> [ENV_ONLY=1]"; exit 2; }
 ifeq ($(ENV_ONLY),1)
 	@# WHY: ECS reads secrets and SSM only at task start, so a config change needs new tasks.

@@ -55,3 +55,12 @@ variable "users_grpc_via_alb" {
   default     = false
   description = "false = USERS_GRPC_URL via the Docker alias users-grpc:50051 (preprod_aliases.py attaches it); true = through ALB :9151."
 }
+
+# WHY: nginx refuses to start with GEOAPIFY_API_KEY undefined, and SSM/Secrets Manager
+# reject empty values, so "disabled" is the off state.
+variable "geoapify_api_key" {
+  type        = string
+  default     = "disabled"
+  sensitive   = true
+  description = "Geoapify key for the web /geocode/ proxy. Geocoding is off in pre-prod builds; the placeholder only lets nginx start."
+}
