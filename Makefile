@@ -930,8 +930,9 @@ PP_TF_DIR  := infra/environments/preprod
 PP_TF      := terraform -chdir=$(PP_TF_DIR)
 PP_NETWORK := 3mrai-preprod_preprod-network
 PP_TF_VARS := -var python_bin=$(PY)
+PP_IMAGES  := users,orders,tracking
 
-.PHONY: preprod-floci-up preprod-down
+.PHONY: preprod-floci-up preprod-down preprod-up preprod-migrate preprod-smoke
 preprod-floci-up: scripts-setup ## Pre-prod: exclusivity guard, then Floci alone
 	@$(PY) infra/scripts/env_guard.py preprod
 	$(PP_COMPOSE) up -d --wait floci
@@ -946,3 +947,42 @@ preprod-down: ## Pre-prod: full wipe (Floci, its children, ECR registry, Floci v
 	@docker volume rm -f floci-ecr-registry-data 2>/dev/null || true
 	@docker network rm $(PP_NETWORK) 2>/dev/null || true
 	@rm -rf $(PP_TF_DIR)/.terraform $(PP_TF_DIR)/terraform.tfstate* $(PP_TF_DIR)/image-tags.auto.tfvars.json $(PP_TF_DIR)/.state
+
+preprod-up: preprod-floci-up lambda-bundles ## Pre-prod: everything, from scratch
+	$(PP_TF) init -input=false
+	$(PP_TF) apply -auto-approve -input=false $(PP_TF_VARS) -var deploy_services=false
+	$(PY) $(PP_TF_DIR)/scripts/build_push.py --tf-dir $(PP_TF_DIR) --services $(PP_IMAGES)
+	$(MAKE) --no-print-directory preprod-migrate
+	$(PP_TF) apply -auto-approve -input=false $(PP_TF_VARS) -var deploy_services=true
+	$(PY) $(PP_TF_DIR)/scripts/wait_services.py --cluster "$$($(PP_TF) output -raw ecs_cluster_name)"
+	$(MAKE) --no-print-directory preprod-smoke
+
+preprod-migrate: scripts-setup ## Pre-prod: Prisma (users) + golang-migrate (tracking) against Floci's RDS
+	@# CONTRACT: Run as the cluster superuser and keep the tracking baseline guard —
+	@# both for the reasons on the dev `migrate` / `migrate-tracking` targets: stamping
+	@# anything but an Alembic-built schema leaves schema_migrations DIRTY.
+	@# See [[2026-09-09-migration-version-tables-lie-about-schema]]
+	docker build --target deps -t 3mrai-users:deps -f services/users/Dockerfile .
+	@pg="$$($(PP_TF) output -raw pg_port)"; \
+	docker run --rm --network $(PP_NETWORK) \
+	    -e DATABASE_WRITER_URL="postgres://test:test@floci:$$pg/users" \
+	    -w /app/services/users 3mrai-users:deps \
+	    node node_modules/prisma/build/index.js migrate deploy --schema=./prisma/schema.prisma
+	@my="$$($(PP_TF) output -raw mysql_port)"; \
+	migrate_dsn="mysql://test:test@tcp(floci:$$my)/tracking"; \
+	probe="$$(docker run --rm --network $(PP_NETWORK) mysql:8.0 \
+	     mysql --ssl-mode=DISABLED -h floci -P "$$my" -u test -ptest -N -B \
+	           -e "SELECT (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='tracking' AND table_name='tracking'), \
+	                      (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='tracking' AND table_name='schema_migrations')" \
+	     2>/dev/null)" \
+	  || { echo "ERROR: could not reach pre-prod MySQL at floci:$$my to check the tracking schema."; exit 1; }; \
+	if [ "$$(printf '%s' "$$probe" | cut -f1)" = "1" ] && [ "$$(printf '%s' "$$probe" | cut -f2)" != "1" ]; then \
+	  echo "Alembic-built database (tables, no schema_migrations) — stamping the baseline."; \
+	  docker run --rm --network $(PP_NETWORK) -v "$(REPO_ROOT)/services/tracking-go/migrations:/migrations" \
+	    migrate/migrate:v4.17.1 -path=/migrations -database "$$migrate_dsn" force 1; \
+	fi; \
+	docker run --rm --network $(PP_NETWORK) -v "$(REPO_ROOT)/services/tracking-go/migrations:/migrations" \
+	  migrate/migrate:v4.17.1 -path=/migrations -database "$$migrate_dsn" up
+
+preprod-smoke: ## Pre-prod: health of every service through its ALB listener
+	@for p in 9101 9102 9103; do curl -fsS -o /dev/null -w "$$p %{http_code}\n" http://localhost:$$p/v1/health || exit 1; done
