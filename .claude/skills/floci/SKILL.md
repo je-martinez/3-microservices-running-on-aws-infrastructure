@@ -326,9 +326,9 @@ Source of truth with full evidence: [[floci-vs-ministack-spike-findings]]
       `Healthcheck` is null — and the ALB never health-gates a target: it receives traffic as
       soon as the task starts. A rolling replacement shows **~1-2 s of `503`** (1.8 s measured);
       that window is the emulator, not a regression.
-    - **`list_tasks` returns STOPPED tasks; a task is dead only when `lastStatus == STOPPED`.** Anything
-      counting live tasks must `describe_tasks` (batches of ≤100) and keep `lastStatus == "RUNNING"`;
-      `PENDING` replacements are also live — `wait_services.py` and `floci_heal.py` do.
+    - **`list_tasks` returns STOPPED tasks; filtering for liveness depends on the use case.** `wait_services.py`
+      requires `lastStatus == "RUNNING"` to confirm readiness. `floci_heal.py` and `preprod_targets.py` treat
+      a task as dead only when `lastStatus == "STOPPED"` — PENDING/PROVISIONING and describe_tasks failures stay live.
     - **A stopped task's ALB target is never deregistered**: the ALB sends traffic to a dead IP
       (`503`s for 1-2 min) and the target stays unhealthy forever. `preprod_targets.py`
       deregisters targets with no live task after every up, deploy and heal.

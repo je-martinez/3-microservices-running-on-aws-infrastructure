@@ -1846,7 +1846,7 @@ Expected: three `200`, then `401`.
 
 - [x] **Step 6: The spoof check (Review Focus 2)** (amended — see Execution notes / Spec amendments)
 
-Write a gateway spec through `e2e-impl` (it owns `e2e/`): `e2e/tests/gateway/x-user-id-spoof.gateway.spec.ts` — register+login a user via `getGatewayToken()`; call `GET /v1/users/me` with the token AND header `x-user-id: forged-<uuid>`; assert the response's user is the token's user (not 404/the forged id). Call a public route (`POST /v1/users/login` with bad credentials) with `x-user-id: forged` and assert it is rejected as a normal bad login (401/400), not authenticated. Run against pre-prod via Task 15's runner: `make preprod-e2e ARGS="--project=gateway x-user-id-spoof"` → green. Also run it against dev (`pnpm --filter @3mrai/e2e exec playwright test --project=gateway x-user-id-spoof`) → green there too.
+Write a gateway spec through `e2e-impl` (it owns `e2e/`): `e2e/tests/gateway/x-user-id-spoof.gateway.spec.ts` (shipped as `x-user-id-spoof.spec.ts`, following the folder's naming) — register+login a user via `getGatewayToken()`; call `GET /v1/users/me` with the token AND header `x-user-id: forged-<uuid>`; assert the response's user is the token's user (not 404/the forged id). Call a public route (`POST /v1/users/login` with bad credentials) with `x-user-id: forged` and assert it is rejected as a normal bad login (401/400), not authenticated. Run against pre-prod via Task 15's runner: `make preprod-e2e ARGS="--project=gateway x-user-id-spoof"` → green. Also run it against dev (`pnpm --filter @3mrai/e2e exec playwright test --project=gateway x-user-id-spoof`) → green there too.
 
 - [x] **Step 7: Hand over for commit** — `feat(infra): route the pre-prod gateway to per-service ALB listeners without nginx`
 
@@ -2342,7 +2342,7 @@ Expected: gateway suites green; Gatling completes with its assertions passing. A
 - Link the plan from `docs/plans/index.md`; add the new notes to the spec's `propagates-to`.
 
 - [x] **Step 1: Dispatch `obsidian-vault`** with the list above and the facts from Tasks 1-16; run `nvm use && node scripts/validate-vault.mjs` → green.
-- [ ] **Step 2: Run the `spec-implementation-audit` skill** (spec → code, code → docs, plan → repo). Close each gap; a real code defect gets its own change and review.
+- [x] **Step 2: Run the `spec-implementation-audit` skill** (spec → code, code → docs, plan → repo). Close each gap; a real code defect gets its own change and review. (audit and its re-run complete)
 - [x] **Step 3: Hand over for commit** — `docs(infra): propagate the pre-prod environment into the vault`
 
 ## Related
