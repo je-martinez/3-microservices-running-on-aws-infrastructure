@@ -67,7 +67,7 @@ _tf_plugin_cache := $(shell mkdir -p $(TF_PLUGIN_CACHE_DIR))
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down logs build ps test-unit test-e2e test-all load-test load-test-smoke cache-toggle load-test-cache-ab-on load-test-cache-ab-off backend-up infra-init infra-plan lambda-bundles infra-up post-infra infra-down infra-output env-file stripe-webhook-secret migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor clean clean-state warm-images warm-nuget observability-up observability-down observability-dashboards observability-traces-schema redeploy-lambdas scripts-setup watch watch-stop watch-status watch-logs lint-comments lint-secrets lint-comments-diff install-comment-hook ai-sync ai-sync-check
+.PHONY: help up down logs build ps test-unit test-e2e test-all load-test load-test-smoke cache-toggle load-test-cache-ab-on load-test-cache-ab-off backend-up infra-init infra-plan lambda-bundles infra-up post-infra infra-down infra-output env-file stripe-webhook-secret migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor heal clean clean-state warm-images warm-nuget observability-up observability-down observability-dashboards observability-traces-schema redeploy-lambdas scripts-setup watch watch-stop watch-status watch-logs lint-comments lint-secrets lint-comments-diff install-comment-hook ai-sync ai-sync-check
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -481,6 +481,10 @@ doctor: scripts-setup ## Diagnose the local stack: what ran, what did not, and h
 	@# while its tables do not, which is what a bootstrap that died before
 	@# `migrate-tracking` leaves behind (JE-112).
 	$(PY) infra/scripts/doctor.py
+
+heal: scripts-setup ## Recover after a Floci/Docker restart: start exited DocDB/Valkey, wake ECS, drop orphan tasks, re-attach the gateway alias
+	$(PY) infra/scripts/floci_heal.py
+	$(PY) $(TF_LOCAL_DIR)/bootstrap.py
 
 ## --- Orchestration ---
 
