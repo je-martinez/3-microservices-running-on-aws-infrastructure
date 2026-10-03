@@ -4,7 +4,7 @@ description: 'Use when working with Floci, the local AWS emulator (single port :
 metadata:
   area: infra
   source: docs/lessons/floci-vs-ministack-spike-findings.md
-  verified: 2026-06-29
+  verified: 2026-10-03
 ---
 
 # Floci — local AWS emulator (knowledge layer)
@@ -49,9 +49,9 @@ export AWS_SECRET_ACCESS_KEY=test
   coreutils but **no `curl`** — a healthcheck must use bash `/dev/tcp` (see quirk 19).
   `latest-compat` pre-wires AWS CLI/boto3 creds + endpoint for init-hook scripts.
 - In 3MRAI it runs as the `floci` service in the root `docker-compose.yml`. Bring the
-  whole local chain up with `make bootstrap` (floci → terraform apply → regenerate
-  `.env` → start `users` → `bootstrap.sh`); `docker compose up -d floci` starts the
-  emulator alone.
+  whole local chain up with `make bootstrap` (floci → terraform apply → regenerate the
+  `.env.local.*` files → migrations and service builds → `bootstrap.py` attaches the
+  nginx alias); `docker compose up -d floci` starts the emulator alone.
 
 ### Config env vars worth knowing
 
@@ -113,7 +113,7 @@ Source of truth with full evidence: [[floci-vs-ministack-spike-findings]]
 8. **ECS task is recreated on every `terraform apply`** (new container name + IP). Don't
    pin the integration to a discovered IP. Use a **stable Docker-DNS alias** (e.g.
    `nginx-stable`) attached after apply; the API GW integration stays fixed at
-   `http://nginx-stable/` — no `docker inspect`, no patch. See `bootstrap.sh`
+   `http://nginx-stable/` — no `docker inspect`, no patch. See `bootstrap.py`
    (`infra/environments/local/`).
 9. **A second `terraform apply` SUCCEEDS on 2.1.0, but never prints `No changes.`** The
    `UpdateTags` failures (`NotFoundException: Invalid API id` on API GW v2 stages,

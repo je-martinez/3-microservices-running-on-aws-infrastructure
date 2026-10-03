@@ -148,8 +148,8 @@ INTERNAL_API_KEY = "local-dev-internal-key"
 TRACKING_CARRIER_API_KEY = "local-dev-carrier-key"
 
 # WORKAROUND(local): Do NOT read this token through a Terraform output. Targeted
-# applies omit it, while a full Floci reapply fails UpdateTags and makes env-file
-# unusable. Keep this static literal synchronized with e2e_query_token.
+# applies omit it, and a full Floci reapply never converges, so env-file would
+# depend on an apply it must never trigger. Keep this static literal synchronized with e2e_query_token.
 # See [[floci-rds-apigw-limits]]
 E2E_QUERY_TOKEN = "local-e2e-query-token"
 

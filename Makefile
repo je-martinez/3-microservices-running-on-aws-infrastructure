@@ -504,9 +504,9 @@ bootstrap: scripts-setup ## Bring the whole local chain up from scratch, in depe
 	@# cold bootstrap produced Tracking's database with none of its tables (JE-112).
 	@# See [[2026-09-09-makefile-orchestration-invariants]]
 
-	@# WHY: Split into `bootstrap-provision` (un-re-runnable: a second phase-1 apply
-	@# fails on Floci's UpdateTags, JE-113) and `bootstrap-converge`, so a run that dies
-	@# partway resumes without re-entering the apply that cannot succeed.
+	@# WHY: Split into `bootstrap-provision` (not re-runnable: a second phase-1 apply
+	@# never converges — 8 perpetual in-place changes on Floci 2.1.0) and
+	@# `bootstrap-converge`, so a run that dies partway resumes without re-entering it.
 	@# See [[2026-09-09-makefile-orchestration-invariants]]
 	$(COMPOSE) up -d floci
 	@echo "Waiting for Floci at $(FLOCI_URL) ..."
@@ -554,8 +554,8 @@ bootstrap: scripts-setup ## Bring the whole local chain up from scratch, in depe
 
 bootstrap-provision: scripts-setup ## Phase 1 of bootstrap: Floci + terraform + env files (NOT re-runnable — see below)
 	@$(PY) infra/scripts/env_guard.py dev
-	@# The half of `bootstrap` that CANNOT be safely re-run: a second phase-1
-	@# apply fails against Floci on UpdateTags (JE-113). Split out so that
+	@# The half of `bootstrap` that is NOT a retry path: a second phase-1 apply
+	@# never converges (8 perpetual in-place changes on Floci 2.1.0). Split out so that
 	@# `bootstrap-converge` exists as a resume path that never re-enters it.
 	$(COMPOSE) up -d floci
 	@echo "Waiting for Floci at $(FLOCI_URL) ..."
@@ -579,7 +579,7 @@ bootstrap-converge: scripts-setup ## Phase 2 of bootstrap: migrations + services
 	@# and the services read theirs via compose `env_file:`; on a full bootstrap the
 	@# second call is a sub-second no-op, and removing it would make this target work
 	@# only when entered through bootstrap. Regenerating reads outputs, never applies,
-	@# so it is safe against JE-113. See [[2026-09-09-makefile-orchestration-invariants]]
+	@# so it never re-enters phase 1. See [[2026-09-09-makefile-orchestration-invariants]]
 	$(MAKE) env-file
 	$(MAKE) migrate
 	@# Idempotent, and here so this target works as a STANDALONE resume path: a
@@ -803,7 +803,7 @@ redeploy-lambdas: scripts-setup ## Rebuild and redeploy every local Lambda from 
 	@# Symptom: a log field the source sets arrives with its old value, for days.
 	@#
 	@# WHY: `terraform apply` would also redeploy these, but a second phase-1 apply
-	@# fails on Floci's UpdateTags. See [[floci-rds-apigw-limits]]
+	@# never converges on Floci. See [[floci-rds-apigw-limits]]
 	@# CONTRACT: Build BEFORE deploying, and keep these duplicated from `lambda-bundles`
 	@# rather than shared — that target carries a `pnpm install` that only earns its cost
 	@# on a fresh clone. Uploading dist/ unrebuilt deploys the previous bundle and reports

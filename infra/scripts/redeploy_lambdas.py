@@ -5,7 +5,7 @@ CONTRACT: A Lambda does NOT rebuild with `docker compose`, unlike every service
 here. Skip this and the deployed function keeps running old code while the
 source and its tests say otherwise — only the deployed zip reveals it.
 WORKAROUND(local): `terraform apply` would also redeploy these, but a second
-phase-1 apply fails on UpdateTags. See [[floci-rds-apigw-limits]]
+phase-1 apply never converges on Floci. See [[floci-rds-apigw-limits]]
 CONTRACT: This does NOT build — build the bundled functions first.
 """
 

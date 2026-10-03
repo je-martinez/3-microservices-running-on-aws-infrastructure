@@ -92,9 +92,9 @@ to `.env` as `USERS_DB_PORT`/`ORDERS_DB_PORT` for docker-compose to interpolate.
 Writer and reader endpoints are the same locally: Floci does not emulate an Aurora
 read replica.
 
-Known limitation: a **second** `terraform apply` fails (Floci's `UpdateTags` for
-API GW v2 / RDS). Re-apply by tearing down and rebuilding, not by re-running
-apply. See [../docs/lessons/floci-rds-apigw-limits.md](../docs/lessons/floci-rds-apigw-limits.md).
+Known limitation: a **second** phase-1 `terraform apply` never converges — on Floci
+2.1.0 it succeeds but always reports 8 in-place changes, never `No changes.`. Re-apply
+by tearing down and rebuilding, not by re-running apply. See [../docs/lessons/floci-rds-apigw-limits.md](../docs/lessons/floci-rds-apigw-limits.md).
 
 #### SQS / Lambda / DocumentDB (events-pipeline substrate)
 Probed empirically on 2026-08-03 against Floci v1.5.28 — full evidence and the
@@ -147,7 +147,7 @@ privileges the `mysql` provider needs (`CREATE USER ON *.*`, `SELECT ON mysql.*`
 moved here from phase 1's `create_mysql_database.py` because they are phase-2
 prerequisites. Phase 2 lives in `environments/local/post/` with
 its **own** (gitignored) state, so it never re-touches phase 1's resources
-(which would trip the second-apply `UpdateTags` limit above).
+(which would hit the non-converging second apply above).
 
 Phase 2 creates the least-privilege **DB app-users in Terraform** via the
 engine-parameterized `modules/db-app-user` — replacing the old bash

@@ -2,8 +2,8 @@
 
 Second Terraform apply that creates the least-privilege **DB app-users** against
 the now-live phase-1 endpoints. It replaces the old bash `bootstrap_app_db_user`
-step and has its **own** state, so it never re-touches phase 1 (which would trip
-Floci's second-apply `UpdateTags` limit — see
+step and has its **own** state, so it never re-touches phase 1 (whose second apply
+never converges on Floci — see
 [`floci-rds-apigw-limits`](../../../../docs/lessons/floci-rds-apigw-limits.md)).
 
 ## What it reads

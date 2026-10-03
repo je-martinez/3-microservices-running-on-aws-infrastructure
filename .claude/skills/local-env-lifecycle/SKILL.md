@@ -4,12 +4,12 @@ description: 'Use whenever the local 3MRAI stack needs to come up, go down, be r
 metadata:
   area: infra
   source: Makefile + docs/lessons/2026-09-09-makefile-orchestration-invariants.md
-  verified: 2026-09-22
+  verified: 2026-10-03
 ---
 
 # Local environment lifecycle
 
-The Makefile has ~47 targets. This skill covers the ones that create, destroy or
+The Makefile has ~66 targets. This skill covers the ones that create, destroy or
 repair local environment state, and exists because **the obvious choice is often
 the wrong one**: `bootstrap-provision` cannot be re-run, `clean` is not the
 cheapest reset, and a stack that looks broken is usually one missing step rather
