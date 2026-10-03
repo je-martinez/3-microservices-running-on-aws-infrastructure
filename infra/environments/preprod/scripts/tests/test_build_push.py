@@ -42,6 +42,13 @@ def test_web_gets_build_args():
     assert "--build-arg" in cmds[0] and "NG_APP_WS_URL=ws://x" in cmds[0]
 
 
+def test_web_build_enables_rum(monkeypatch):
+    monkeypatch.setattr(bp, "terraform_output", lambda tf_dir, name: "ws://gw")
+    args = bp._build_args("web", Path("/tf"))
+    assert args["NG_APP_RUM_ENABLED"] == "true"
+    assert args["NG_APP_WS_URL"] == "ws://gw"
+
+
 def test_retagged_service_pulls_then_tags():
     cmds = bp.commands_for("mailpit", URL, "t1", {})
     assert cmds[0] == ["docker", "pull", "axllent/mailpit:v1.20"]

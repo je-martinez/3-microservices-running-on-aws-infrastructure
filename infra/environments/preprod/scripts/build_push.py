@@ -79,7 +79,7 @@ def _build_args(service: str, tf_dir: Path) -> dict[str, str]:
             "NG_APP_WS_URL": terraform_output(tf_dir, "ws_url"),
             "NG_APP_STRIPE_ENABLED": "false",
             "NG_APP_GEOCODE_ENABLED": "false",
-            "NG_APP_RUM_ENABLED": "false",
+            "NG_APP_RUM_ENABLED": "true",
         }
     if service == "orders":
         has_cache = subprocess.run(["docker", "image", "inspect", "3mrai-nuget-cache:latest"],
