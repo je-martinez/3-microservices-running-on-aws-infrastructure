@@ -35,7 +35,7 @@ Start from the situation, not the target:
 | Changed something under `assets/` | `make assets-sync` | Re-uploads only; touches no infrastructure |
 | Changed an `NG_APP_*` flag | `docker compose build web` | Inlined at build time; `restart` re-serves the old bundle |
 | Coming back after `make down` | `make up` | State survived; containers just restart |
-| "Nothing works" and you don't know why | `make doctor` | Read-only; tells you which step is missing |
+| "Nothing works" and you don't know why | `make doctor` | Read-only apart from one ECS list call that wakes Floci's lazy ECS reconciler; tells you which step is missing |
 | Just stopping for the day | `make down` | Containers only, state intact |
 
 **What each phase contains**, since the resume path depends on knowing where it
@@ -94,8 +94,10 @@ See [[2026-09-22-a-pruned-cache-that-came-over-the-network-is-not-free]].
 
 This is the case where the instinct — start over — is the expensive wrong answer.
 
-**Run `make doctor` first.** It is entirely read-only (every check is a SELECT, a
-SHOW, an HTTP GET or a `docker inspect`) and it reports the one thing nothing else
+**Run `make doctor` first.** It is read-only (every check is a SELECT, a
+SHOW, an HTTP GET or a `docker inspect`) with one exception: a single ECS list
+call that wakes Floci's lazy ECS reconciler, without which ECS reports
+`runningCount` 1 and no task container. It repairs nothing, and it reports the one thing nothing else
 surfaces: a database that exists while its tables do not, which is what a
 bootstrap that died before `migrate-tracking` leaves behind.
 
@@ -104,8 +106,9 @@ env files, migrations, service builds, the nginx alias. Every step in it is
 idempotent by design.
 
 **Do not run `make bootstrap-provision` to retry.** Phase 1 is *not re-runnable* —
-a second phase-1 apply fails against Floci on `UpdateTags` (JE-113). That split is
-the entire reason `bootstrap-converge` exists as a separate target.
+on 2.1.0 a second phase-1 apply succeeds but ends with 8 perpetual in-place
+changes (it never prints `No changes.`), so it is noise rather than a retry. That
+split is the reason `bootstrap-converge` exists as a separate target.
 
 After a resume, run **`make post-infra`** yourself. `bootstrap-converge`
 deliberately does not call it: post-infra reads phase-1 state through
@@ -160,7 +163,7 @@ recognising rather than re-investigating:
 
 | Symptom | Cause | Action |
 |---|---|---|
-| `getaddrinfo ENOTFOUND floci-docdb-…` | A teardown kept Floci's state volume, so it reports phantom clusters as `available` and Terraform creates nothing | `make clean-state` is enough — it runs `down -v` and sweeps the `floci=true` volumes. `make doctor` detects the drift |
+| `getaddrinfo ENOTFOUND floci-docdb-…` | A teardown kept Floci's state volume, so it reports phantom clusters as `available` and Terraform creates nothing | `make heal` when the container is Exited (data intact); `make clean && make bootstrap` when it is missing (phantom cluster). `make doctor` says which |
 | Service 500s with `Table 'tracking.tracking' doesn't exist` | The version table says migrated, the tables are gone, so `migrate-tracking` no-ops | `DROP TABLE tracking.schema_migrations`, re-run `make migrate-tracking` |
 | `infra-up` takes ~93s and feels stuck | Six SQS operations at exactly 25s each — a **client-side** waiter in the AWS provider, not Floci | Expected, not a fault. See [[2026-09-21-a-round-invariant-delay-on-one-resource-type-is-the-client-not-the-server]] |
 | Bootstrap slower every time you run it | Repeated `clean` re-fetches base images and NuGet packages; registries throttle a repeat client | Prefer `clean-state` |

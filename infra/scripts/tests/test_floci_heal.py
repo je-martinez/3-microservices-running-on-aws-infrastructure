@@ -46,11 +46,55 @@ def test_starts_exited_backing_containers_without_recreating():
 
     def fake_docker(*args):
         calls.append(args)
+        if "status=exited" not in args:
+            return ""
         return next((out for label, out in by_label.items() if label in args), "")
 
     assert heal.exited_backing_containers(fake_docker) == [
         "floci-docdb-db-x",
         "floci-valkey-cache-y",
     ]
-    assert all("status=exited" in call for call in calls)
+    assert {a for call in calls for a in call if a.startswith("status=")} == {
+        "status=exited",
+        "status=created",
+    }
     assert not any(a in ("rm", "create", "run") for call in calls for a in call)
+
+
+def test_exited_backing_covers_created_status():
+    seen = []
+
+    def fake_docker(*args):
+        seen.append(args)
+        return "floci-valkey-c\n" if "status=created" in args and "label=io.floci.service=elasticache" in args else ""
+
+    assert heal.exited_backing_containers(fake_docker) == ["floci-valkey-c"]
+
+
+def test_main_returns_1_without_calling_ecs_when_floci_is_down(monkeypatch):
+    client = MagicMock()
+    monkeypatch.setattr(heal, "floci_answers", lambda *a, **k: False)
+    monkeypatch.setattr(heal, "client", client)
+    assert heal.main([]) == 1
+    client.assert_not_called()
+
+
+def test_main_returns_1_when_ecs_raises(monkeypatch):
+    ecs = MagicMock()
+    ecs.list_clusters.side_effect = RuntimeError("EndpointConnectionError")
+    monkeypatch.setattr(heal, "floci_answers", lambda *a, **k: True)
+    monkeypatch.setattr(heal, "client", lambda name: ecs)
+    assert heal.main([]) == 1
+
+
+def test_orphan_listing_is_scoped_to_the_stack_network(monkeypatch):
+    ecs = MagicMock()
+    ecs.list_clusters.return_value = {"clusterArns": []}
+    calls = []
+    monkeypatch.setattr(heal, "floci_answers", lambda *a, **k: True)
+    monkeypatch.setattr(heal, "client", lambda name: ecs)
+    monkeypatch.setattr(heal, "docker", lambda *a: calls.append(a) or "")
+    monkeypatch.setattr(heal, "exited_backing_containers", lambda *a: [])
+    monkeypatch.delenv("FLOCI_NETWORK", raising=False)
+    assert heal.main([]) == 0
+    assert ("ps", "--filter", "network=3mrai_3mrai-network", "--format", "{{.Names}}") in calls

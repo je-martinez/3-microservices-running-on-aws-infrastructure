@@ -4,7 +4,7 @@ type: adr
 area: infra
 status: accepted
 created: 2026-07-28
-updated: 2026-08-10
+updated: 2026-10-02
 tags:
   - type/adr
   - area/infra
@@ -59,9 +59,9 @@ Before this decision, `users_app` was created post-apply by bash in `bootstrap.s
 Terraform's management entirely.
 
 Splitting into two state roots — rather than `-target`-ing a single apply in stages — means
-neither apply ever re-touches the other's resources, sidestepping Floci's second-apply
-`UpdateTags` failure (see [[floci-rds-apigw-limits]], referenced from
-[[rds-aurora-engine-switchable-floci]]) for the phase-1 resources.
+neither apply ever re-touches the other's resources, keeping the phase-1 resources out of
+Floci's perpetual second-apply drift (8 in-place changes on every apply, never "No changes";
+see [[floci-rds-apigw-limits]], referenced from [[rds-aurora-engine-switchable-floci]]).
 
 **MySQL could not be validated locally, as of 2026-07-15.** Verified empirically at the time:
 Floci's MySQL appeared not to support user management at all — `CREATE USER` failed with CLI

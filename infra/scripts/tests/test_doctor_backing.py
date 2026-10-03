@@ -50,3 +50,12 @@ def test_wake_ecs_failure_does_not_raise():
     ecs.list_clusters.side_effect = RuntimeError("endpoint down")
     with patch.object(doctor, "client", return_value=ecs):
         assert doctor.wake_ecs_reconciler() is False
+
+
+def test_backing_state_created_counts_as_exited():
+    assert doctor.backing_state("x", run=lambda *a: "Created\n") == "exited"
+
+
+def test_backing_state_other_non_up_states_are_missing():
+    for status in ("Restarting (1) 2 seconds ago", "Dead", "Removal In Progress"):
+        assert doctor.backing_state("x", run=lambda *a, s=status: s) == "missing"

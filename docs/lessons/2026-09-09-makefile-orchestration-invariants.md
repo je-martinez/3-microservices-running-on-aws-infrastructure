@@ -4,7 +4,7 @@ type: lesson
 area: infra
 status: active
 created: 2026-09-09
-updated: 2026-09-22
+updated: 2026-10-02
 tags:
   - type/lesson
   - area/infra
@@ -44,6 +44,9 @@ Terraform wires both Lambdas through `archive_file`, which is a **data source** 
 `apply`) fails immediately with `could not archive missing directory`. This is a *good* failure
 mode compared to the alternative: it happens up front, before any resource is touched, rather
 than as a late deploy failure that leaves a half-built stack.
+
+> [!note] Current state (Floci 2.1.0)
+> The `UpdateTags` failure recorded here is dated 2026-09-09. On Floci 2.1.0 a second phase-1 `terraform apply` succeeds, reporting the same 8 in-place changes every time (perpetual drift, never "No changes"). See [[2026-10-02-floci-2-1-restart-and-gateway-findings]].
 
 `redeploy-lambdas` also builds these bundles, but it cannot substitute for `lambda-bundles` as a
 plan/apply prerequisite: it runs against a stack that **already exists** (it deploys straight to
@@ -136,6 +139,9 @@ golang-migrate both no-op at head, `docker compose up -d` reconciles running con
 than recreating them, and `bootstrap.py` returns early once the alias already resolves — so it
 exists as a safe **resume path** for a `bootstrap` that died partway through phase 2, without ever
 re-entering the phase-1 apply that cannot succeed twice.
+
+> [!note] Current state (Floci 2.1.0)
+> The `UpdateTags` failure recorded here is dated 2026-09-09. On Floci 2.1.0 a second phase-1 `terraform apply` succeeds, reporting the same 8 in-place changes every time (perpetual drift, never "No changes"). See [[2026-10-02-floci-2-1-restart-and-gateway-findings]].
 
 This is also why `bootstrap-converge` calls `env-file` again even though `infra-up` already called
 it once: on a full `bootstrap` run that second call is a sub-second no-op (it only rereads

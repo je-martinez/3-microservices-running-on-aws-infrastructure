@@ -475,15 +475,18 @@ assets-sync: scripts-setup ## Re-optimise and re-upload assets/ to the assets bu
 	$(PY) infra/modules/assets-bucket/scripts/sync_assets.py --bucket "$$bucket" --base-url "$$base_url"
 
 doctor: scripts-setup ## Diagnose the local stack: what ran, what did not, and how to finish it
-	@# READ-ONLY. Every check is a SELECT, a SHOW, an HTTP GET or a docker
-	@# inspect; it repairs nothing and prints the command that would. The check
-	@# it exists for is the one nothing else surfaces: a database that EXISTS
-	@# while its tables do not, which is what a bootstrap that died before
-	@# `migrate-tracking` leaves behind (JE-112).
+	@# CONTRACT: READ-ONLY except one ECS list call that wakes Floci's lazy ECS
+	@# reconciler; without it ECS reports runningCount 1 with no task container.
+	@# Every other check is a SELECT, SHOW, HTTP GET or docker inspect; it repairs
+	@# nothing and prints the command that would. The check it exists for is a
+	@# database that EXISTS while its tables do not, which is what a bootstrap
+	@# that died before `migrate-tracking` leaves behind (JE-112).
 	$(PY) infra/scripts/doctor.py
 
-heal: scripts-setup ## Recover after a Floci/Docker restart: start exited DocDB/Valkey, wake ECS, drop orphan tasks, re-attach the gateway alias
+heal: scripts-setup ## Recover after a Floci/Docker restart: start Floci, restart exited DocDB/Valkey, wake ECS, drop orphan tasks, restart Exited services, re-attach the gateway alias
+	$(COMPOSE) up -d --wait floci
 	$(PY) infra/scripts/floci_heal.py
+	$(COMPOSE) up -d
 	$(PY) $(TF_LOCAL_DIR)/bootstrap.py
 
 ## --- Orchestration ---

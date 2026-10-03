@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Report which state the local stack is actually in.
 
-The blind spot this exists for: a database can exist while its tables do not.
-Phase 1 creates the `tracking` database, migrations create its tables, and
-everything between reports healthy until the first query fails.
+Blind spot: a database can exist while its tables do not; everything between
+phase 1 and the migrations reports healthy until the first query fails.
 
-CONTRACT: Keep every check READ-ONLY. A doctor that repairs cannot be trusted to
-diagnose: its report stops saying whether it found the system healthy or made it
-so. Exit 0 everything passed, 1 at least one check failed.
+CONTRACT: Every check is READ-ONLY except `wake_ecs_reconciler`, one ECS list
+call. Do NOT add other repairs: a doctor that fixes cannot say whether it found
+the system healthy or made it so. Without the wake, ECS reports runningCount 1
+with no task container. Exit 0 all passed, 1 at least one failed.
 See [[2026-08-27-accumulated-local-state-degrades-the-stack-silently]]
 """
 
@@ -104,11 +104,16 @@ def _docker_stdout(*args: str) -> str:
 
 
 def backing_state(name: str, run=_docker_stdout) -> str:
-    """`running`, `exited` (data intact, `make heal` restarts it) or `missing`."""
+    """`running`, `exited` (data intact, `make heal` restarts it) or `missing`.
+
+    Restarting, Dead and Removing count as `missing`: heal does not start them.
+    """
     status = run("ps", "-a", "--filter", f"name=^{name}$", "--format", "{{.Status}}").strip()
     if not status:
         return "missing"
-    return "running" if status.startswith("Up") else "exited"
+    if status.startswith("Up"):
+        return "running"
+    return "exited" if status.startswith(("Exited", "Created")) else "missing"
 
 
 def remedy_for(state: str) -> str:
@@ -121,7 +126,8 @@ def redis_remedy(host: str, state_of=backing_state) -> str:
 
 
 def wake_ecs_reconciler() -> bool:
-    """WORKAROUND(local): Floci's ECS reconciler idles until the first ECS call.
+    """WORKAROUND(local): Do NOT drop this call. Without it ECS reports
+    runningCount 1 while no task container exists (lazy reconciler).
 
     CONTRACT: Never raise. `check_floci` proves only that HTTP answers, so a
     half-up Floci can fail here, and the doctor must report, not traceback.
@@ -322,7 +328,7 @@ def check_nginx_alias(report: Report) -> None:
     if not container:
         report.failed(
             "no nginx container (Floci ECS task not running)",
-            "make bootstrap-converge",
+            "make heal",
         )
         return
 

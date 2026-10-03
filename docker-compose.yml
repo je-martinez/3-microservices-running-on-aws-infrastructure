@@ -31,8 +31,7 @@ services:
   # joins them to the compose network via FLOCI_SERVICES_ECS_DOCKER_NETWORK, so the
   # Nginx ECS task resolves `users` by service name through Docker DNS.
   floci:
-    # CONTRACT: Pinned. `latest` moved 1.7.0 -> 2.x under this repo once already,
-    # changing restart semantics and dropping curl from the image.
+    # CONTRACT: Pinned, never `latest` — a major bump changes restart semantics and the image's tooling (2.x ships no curl).
     image: floci/floci:2.1.0
     # CONTRACT: SIGKILL, never the default SIGTERM. Floci's graceful shutdown
     # DELETES its DocumentDB and ElastiCache containers and never relaunches them,

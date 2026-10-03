@@ -4,7 +4,7 @@ type: pattern
 area: infra
 status: active
 created: 2026-07-12
-updated: 2026-09-22
+updated: 2026-10-02
 tags:
   - type/pattern
   - area/infra
@@ -104,7 +104,7 @@ local bootstrap time, so it remains a documented option rather than a third veri
 - **Must be re-runnable.** Because Terraform will re-run the `local-exec` provisioner whenever
   `terraform_data.input` changes (or, in the Floci workflow, whenever the stack is torn down and
   rebuilt via `make bootstrap` — see [[ADR-0017-floci-local]]'s known limitation that a second
-  `apply` fails on Floci), every fallback script must produce the same end state whether it is
+  `apply` on Floci is never a no-op), every fallback script must produce the same end state whether it is
   running for the first time or the tenth.
 - **Local-only, not a prod pattern.** Both instances in this repo are gated to the local
   environment (`var.manage_client_via_provider = false`, or unconditionally under

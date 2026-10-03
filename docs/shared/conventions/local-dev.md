@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-03
-updated: 2026-09-30
+updated: 2026-10-02
 tags:
   - type/convention
   - area/shared
@@ -47,9 +47,9 @@ list. Key targets:
   already built (`migrate force 1`), never a plain `up`, on the shared local database.
 - **Orchestration:** `make bootstrap` (compose up floci → wait for Floci → apply infra →
   regenerate `.env` → migrate → build/start `users`/`orders`/`tracking` → nginx alias), split
-  into a not-safely-repeatable `make bootstrap-provision` and a resumable, idempotent
-  `make bootstrap-converge`; `make doctor` for a read-only diagnosis of the stack's actual
-  state; `make post-infra` for the phase-2 DB app-user apply; `make clean-state` for a fast
+  into a `make bootstrap-provision` that is not the resume path (its apply is never a no-op) and a resumable, idempotent
+  `make bootstrap-converge`; `make doctor` for a diagnosis of the stack's actual
+  state (it repairs nothing; it only wakes Floci's lazy ECS reconciler); `make heal` to recover after a Floci or Docker restart; `make post-infra` for the phase-2 DB app-user apply; `make clean-state` for a fast
   warm-cache teardown that skips `clean`'s Docker build-cache/image prunes; and `make clean` for
   full teardown. Full detail: [[local-dev-floci]]. `infra-up`'s ~75s SQS-resource critical path
   is a provider waiter, not Floci — see
