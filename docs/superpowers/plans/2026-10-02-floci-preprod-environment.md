@@ -2359,3 +2359,4 @@ Expected: gateway suites green; Gatling completes with its assertions passing. A
 - [[environment-exclusivity]]
 - [[preprod]]
 - [[2026-10-03-floci-preprod-alb-and-ecs-behaviours]]
+- [[2026-10-03-floci-preprod-follow-ups]]
