@@ -26,14 +26,27 @@ Resume point for the Floci pre-prod milestone. Design: [[2026-10-02-floci-prepro
 
 ## State at handoff (2026-10-03)
 
-- Branch: `feat/floci-preprod` carries both plan A (dev stack on Floci 2.1.0) and plan B (pre-prod, 30+ commits). Pushed.
-- Single PR: [#117](https://github.com/je-martinez/3-microservices-running-on-aws-infrastructure/pull/117) `feat/floci-preprod` → `feature/floci-preprod-env`, carrying both plan A and plan B. PR #116 (plan A alone) was closed as superseded.
-- Local runtime: pre-prod is UP, dev is DOWN. Return to dev with `make preprod-down && make bootstrap`.
-- Plans A and B are fully executed and reviewed: per-task reviews, final whole-branch reviews, spec-implementation audit and re-audit clean.
+- [PR #117](https://github.com/je-martinez/3-microservices-running-on-aws-infrastructure/pull/117) is MERGED (squash, commit `d7fb466a`) into `feature/floci-preprod-env`. It carried plan A (dev stack on Floci 2.1.0) and plan B (pre-prod). `feat/floci-preprod` was auto-deleted. PR #116 (plan A alone) was closed as superseded.
+- Leftover remote branch `build/floci-2-1-dev` (plan A, already contained in `d7fb466a`) can be deleted. Ask the user first.
+- Work branch from now on: `feature/floci-preprod-env` (the local checkout is on it).
+- Local runtime: pre-prod is UP, dev is DOWN.
+- Plans A and B are fully executed, reviewed and audited: per-task reviews, final whole-branch reviews, spec-implementation audit and re-audit clean.
+
+## How to resume (do these in order)
+
+1. `git checkout feature/floci-preprod-env && git pull`.
+2. `make preprod-down`. Pre-prod must be down first: the exclusivity guard makes `make bootstrap` abort without a TTY while pre-prod runs ([[environment-exclusivity]]).
+3. Dev regression on the merged result: `make bootstrap`, `make doctor`, `make test-all`. Classify failures against the known list in "Follow-ups found during validation" below (web-* need `pnpm web:dev` on :4200; `paymentMethodId`; tracking outbox flake). Anything new is a regression to fix on its own branch.
+4. Live guard check (dev → pre-prod): with dev up, `make preprod-floci-up < /dev/null` must abort and leave dev untouched.
+5. `make ai-sync` to propagate `.claude/skills/{floci,local-env-lifecycle}` to `.ai/` (see [[skill-propagation]]).
+6. Propose the milestone PR `feature/floci-preprod-env` → `main` (Phase D). Run the `spec-implementation-audit` skill first; the user reviews and merges.
+7. Then the out-of-scope follow-ups below, each on its own branch `<type>/<slug>` off the right base per [[git-workflow]].
+
+Git rules for the next session: the earlier standing authorization ("commit and push without the menu") covered only finishing plans A/B. Every new commit, push or PR goes back to the A/B/C/D/E confirmation menu ([[git-workflow]]); never merge without the user.
 
 ## To finish the milestone
 
-- [ ] Review + merge PR #117 (user merges; no auto-merge).
+- [x] PR #117 merged as `d7fb466a`.
 - [ ] Propose the milestone PR `feature/floci-preprod-env` → `main` (Phase D).
 - [ ] Run `make ai-sync`: `.claude/skills/floci` and `.claude/skills/local-env-lifecycle` changed and `.ai/skills/` is not yet synced (see [[skill-propagation]]).
 - [ ] Verify live the dev → pre-prod direction of the exclusivity guard ([[environment-exclusivity]]; plan B Task 16 Step 4, only unit-tested so far): with dev up, `make preprod-floci-up < /dev/null` must abort.
@@ -66,3 +79,4 @@ Resume point for the Floci pre-prod milestone. Design: [[2026-10-02-floci-prepro
 - [[ADR-0022-preprod-ecs-on-floci]]
 - [[2026-10-03-floci-preprod-alb-and-ecs-behaviours]]
 - [[skill-propagation]]
+- [[git-workflow]]
