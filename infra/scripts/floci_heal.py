@@ -46,16 +46,22 @@ def wake_ecs(ecs) -> list[str]:
 
 
 def live_task_ids(ecs, cluster_arns: list[str]) -> set[str]:
-    # WORKAROUND(local): Floci's list_tasks also returns STOPPED tasks; counting
-    # them as live keeps a stopped task's container from being removed as an orphan.
+    # WORKAROUND(local): Floci's list_tasks also returns STOPPED tasks, so liveness
+    # comes from describe_tasks. CONTRACT: Only lastStatus STOPPED is dead — a
+    # PENDING/PROVISIONING replacement, a task with no status and a task describe_tasks
+    # reports under `failures` all stay live, or heal removes a starting container.
     ids: set[str] = set()
     for arn in cluster_arns:
         task_arns = ecs.list_tasks(cluster=arn).get("taskArns", [])
         for start in range(0, len(task_arns), DESCRIBE_BATCH):
             batch = task_arns[start:start + DESCRIBE_BATCH]
-            for task in ecs.describe_tasks(cluster=arn, tasks=batch).get("tasks", []):
-                if task.get("lastStatus") == "RUNNING":
+            reply = ecs.describe_tasks(cluster=arn, tasks=batch)
+            for task in reply.get("tasks", []):
+                if task.get("lastStatus") != "STOPPED":
                     ids.add(task["taskArn"].rsplit("/", 1)[-1])
+            for failure in reply.get("failures", []):
+                if failure.get("arn"):
+                    ids.add(failure["arn"].rsplit("/", 1)[-1])
     return ids
 
 

@@ -40,8 +40,16 @@ TG = "arn:aws:elasticloadbalancing:us-east-1:0:targetgroup/x-orders-http/1"
 
 
 class FakeEcs:
+    def __init__(self, statuses=None, failures=()):
+        self.statuses = statuses or {A: "RUNNING", B: "RUNNING"}
+        self.failures = list(failures)
+
     def list_tasks(self, **_):
-        return {"taskArns": [f"arn:task/{A}", f"arn:task/{B}"]}
+        return {"taskArns": [f"arn:task/{t}" for t in self.statuses]}
+
+    def describe_tasks(self, tasks, **_):
+        found = [{"taskArn": a, "lastStatus": self.statuses[a.rsplit("/", 1)[-1]]} for a in tasks]
+        return {"tasks": found, "failures": [{"arn": f"arn:task/{f}"} for f in self.failures]}
 
     def list_services(self, **_):
         return {"serviceArns": ["arn:svc/orders"]}
@@ -91,3 +99,28 @@ def test_partial_resolution_fails_the_check(monkeypatch):
     rc, elb = _run_main(monkeypatch, "--check")
     assert elb.deregistered == []
     assert rc == 1
+
+
+def _both_resolve(*args):
+    ip = "10.0.0.1" if args[1].endswith(f"{A}-orders") else "10.0.0.2"
+    return subprocess.CompletedProcess(args, 0, stdout=f'{{"pp": {{"IPAddress": "{ip}"}}}}', stderr="")
+
+
+def test_live_ips_skips_stopped_tasks():
+    ecs = FakeEcs({A: "RUNNING", B: "STOPPED"})
+    assert pt.live_ips(ecs, "c", "orders", "orders", "pp", _only_a_resolves) == {"10.0.0.1"}
+
+
+def test_live_ips_counts_pending_tasks():
+    ecs = FakeEcs({A: "RUNNING", B: "PENDING"})
+    assert pt.live_ips(ecs, "c", "orders", "orders", "pp", _both_resolve) == {"10.0.0.1", "10.0.0.2"}
+
+
+def test_pending_task_without_ip_refuses_to_judge():
+    ecs = FakeEcs({A: "RUNNING", B: "PENDING"})
+    assert pt.live_ips(ecs, "c", "orders", "orders", "pp", _only_a_resolves) is None
+
+
+def test_describe_failure_refuses_to_judge():
+    ecs = FakeEcs({A: "RUNNING"}, failures=[B])
+    assert pt.live_ips(ecs, "c", "orders", "orders", "pp", _both_resolve) is None

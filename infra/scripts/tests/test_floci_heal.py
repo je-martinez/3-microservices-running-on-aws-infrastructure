@@ -41,6 +41,35 @@ def test_live_task_ids_excludes_stopped_tasks():
     assert heal.orphan_task_containers(names, live) == ["floci-ecs-dead99-nginx"]
 
 
+def test_pending_task_container_is_kept():
+    ecs = MagicMock()
+    tasks = [_task("new777", "PENDING"), _task("prov55", "PROVISIONING"), _task("dead99", "STOPPED")]
+    ecs.list_tasks.return_value = {"taskArns": [t["taskArn"] for t in tasks]}
+    ecs.describe_tasks.return_value = {"tasks": tasks}
+    live = heal.live_task_ids(ecs, ["arn:c1"])
+    assert live == {"new777", "prov55"}
+    names = ["floci-ecs-new777-users", "floci-ecs-prov55-users", "floci-ecs-dead99-users"]
+    assert heal.orphan_task_containers(names, live) == ["floci-ecs-dead99-users"]
+
+
+def test_task_without_last_status_is_live():
+    ecs = MagicMock()
+    arn = _task("nost44", "RUNNING")["taskArn"]
+    ecs.list_tasks.return_value = {"taskArns": [arn]}
+    ecs.describe_tasks.return_value = {"tasks": [{"taskArn": arn}]}
+    assert heal.live_task_ids(ecs, ["arn:c1"]) == {"nost44"}
+
+
+def test_task_reported_as_describe_failure_is_live():
+    ecs = MagicMock()
+    arn = _task("miss33", "RUNNING")["taskArn"]
+    ecs.list_tasks.return_value = {"taskArns": [arn]}
+    ecs.describe_tasks.return_value = {"tasks": [], "failures": [{"arn": arn, "reason": "MISSING"}]}
+    live = heal.live_task_ids(ecs, ["arn:c1"])
+    assert live == {"miss33"}
+    assert heal.orphan_task_containers(["floci-ecs-miss33-users"], live) == []
+
+
 def test_live_task_ids_describes_in_batches_of_100():
     ecs = MagicMock()
     arns = [_task(f"{i:06x}", "RUNNING")["taskArn"] for i in range(150)]
