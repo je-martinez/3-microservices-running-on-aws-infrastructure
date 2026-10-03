@@ -69,6 +69,11 @@ record: [[ADR-0022-preprod-ecs-on-floci]].
 | 8 | Success criterion 2: Gatling `fullJourney` runs | `make preprod-load-test-smoke` passes (551 requests, 0 failures). **Full load saturates Floci's single process** (86% / 59% OK, p95 17-50 s): a known local capacity limit, not a pre-prod defect |
 | 9 | Healthcheck `GET /` | **`GET /_floci/health HTTP/1.1` with `Host: localhost`**; 2.1.0 answers `GET /` over HTTP/1.0 without `Host` with `500` |
 | 10 | Config parameters under `/3mrai/preprod/...` | `/3mrai-preprod/<svc>/<VAR>` and Secrets Manager `3mrai-preprod/<svc>/<VAR>` |
+| 11 | Lifecycle rows `preprod-up` and `preprod-heal` below | **Superseded.** `preprod-up` = guard → Floci → apply A → build/push (`PP_IMAGES`) → migrate → apply B → wait → stale-target cleanup → aliases → smoke → `preprod-observability`. `preprod-heal` = `compose up --wait floci` → `floci_heal` (`FLOCI_NETWORK`) → wait → stale-target cleanup → aliases |
+| 12 | Doctor reports a stray ECR registry | **Dropped.** `preprod-down` removes the registry and doctor runs against a live environment. Doctor also checks stale ALB targets and aliases |
+| 13 | Every `preprod-*` target names the next command on failure | **make stops at the failing step**; `preprod-doctor` prints the remedy per failure (heal vs down + up). The next command is not printed for every target |
+| 14 | RUM unspecified for pre-prod | **RUM is enabled** in pre-prod web builds (`NG_APP_RUM_ENABLED=true`); `rum_logs` appears once a browser loads the app |
+| 15 | Web build args include Cognito ids and the WS URL from Terraform | **Only the WS URL** comes from Terraform; there are no Cognito ids in the build args |
 
 Further as-built facts: the ECS services are `users`, `orders`, `tracking`, `web`,
 `otel-collector`, `openobserve`, `mailpit`; aliases are re-applied by `preprod-up`,
@@ -257,10 +262,10 @@ blocks during implementation — the list above is illustrative, the route map i
 
 | Target | Does |
 |---|---|
-| `preprod-up` | Exclusivity guard → Floci up (host-side health, no `curl` in the image) → apply A → build + push all images → apply B → migrations (Prisma, golang-migrate) against discovered RDS ports → aliases → wait `runningCount == desired` → smoke |
+| `preprod-up` (superseded, see amendment 11) | Exclusivity guard → Floci up (host-side health, no `curl` in the image) → apply A → build + push all images → apply B → migrations (Prisma, golang-migrate) against discovered RDS ports → aliases → wait `runningCount == desired` → smoke |
 | `preprod-deploy S=<svc>` | Build that image → push with a new immutable tag → apply B for that service → rolling update → wait → health smoke for that service. `ENV_ONLY=1` skips the build and runs `force-new-deployment` (ECS reads secrets only at task start) |
-| `preprod-heal` | One ECS API call (wakes the lazy reconciler) → `docker start` any `Exited` Floci DocumentDB/Valkey container → remove orphan ECS task containers not in `list-tasks` → re-apply aliases |
-| `preprod-doctor` | Reports: ECS services vs `docker ps`, ALB target health, aliases, phantom DocumentDB/Valkey (API `available` but no running container), stray ECR registry |
+| `preprod-heal` (superseded, see amendment 11) | One ECS API call (wakes the lazy reconciler) → `docker start` any `Exited` Floci DocumentDB/Valkey container → remove orphan ECS task containers not in `list-tasks` → re-apply aliases |
+| `preprod-doctor` | Reports: ECS services vs `docker ps`, ALB target health, aliases, phantom DocumentDB/Valkey (API `available` but no running container), stray ECR registry (dropped, see amendment 12) |
 | `preprod-down` | `down -v` → remove Floci-created children on the project network → remove `floci-ecr-registry` + its volume → remove Floci-created RDS volumes of this environment |
 | `preprod-e2e`, `preprod-load-test` | The existing gateway E2E suite and Gatling `fullJourney`, pointed at pre-prod |
 
@@ -272,7 +277,7 @@ The exclusivity guard is shared: `make bootstrap`/`make up` (dev) get the mirror
 ### Web build-time configuration
 
 `NG_APP_*` values are compiled into the bundle, so `preprod-deploy S=web` and `preprod-up` pass
-them as build args read from Terraform outputs (Cognito ids, WS URL) at build time.
+them as build args; as built only the WS URL is read from Terraform (amendment 15).
 
 ## Observability
 
@@ -286,8 +291,8 @@ part of `preprod-up`.
 
 ## Error handling
 
-- Every `preprod-*` target fails loudly at the first failing step, naming the step and the next
-  command to run.
+- Every `preprod-*` target fails loudly at the first failing step; as built, make stops there and
+  doctor prints the remedy per failure (amendment 13).
 - Never trust `available` or `runningCount` alone: doctor and the readiness waits check the
   backing container.
 - Recreating the Floci container is safe with `stop_signal: SIGKILL`; heal recovers the rest.

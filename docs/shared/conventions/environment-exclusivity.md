@@ -49,7 +49,8 @@ the registry to whichever instance owns `:4566`, so an ECS task pulls from the w
    command to run and exits non-zero. A prompt that resolves to a silent success is the failure
    mode recorded in [[2026-09-30-a-tty-less-prompt-resolves-to-a-silent-success]].
 4. **Detection is by compose project label** (`com.docker.compose.project=3mrai` or
-   `3mrai-preprod`), not by port, so a half-started stack still counts as running.
+   `3mrai-preprod`), not by port. The guard lists only RUNNING containers (`docker ps -q`), so a stack whose
+   containers are created or exited is treated as down.
 
 ## What each teardown costs
 

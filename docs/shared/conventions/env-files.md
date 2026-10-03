@@ -216,7 +216,7 @@ its configuration from SSM `/3mrai-preprod/<svc>/<VAR>` and Secrets Manager
 config work in both environments, with dev's values as defaults:
 
 - `O2_ENDPOINT` — the OpenObserve base URL the collector exports to. Dev sets
-  `http://openobserve:5080` in `docker-compose.yml`; pre-prod sets it as a task variable.
+  `http://openobserve:5080` in `docker-compose.yml`; pre-prod sets it as an SSM parameter injected through the task's `secrets`, not a plain task variable.
 - `OTLP_RUM_UPSTREAM` — the collector host:port the web nginx proxies `/otlp/` to. Dev's
   generated `.env.local.web` carries `otel-collector:4319`; pre-prod sets `floci:4319`, the ALB's RUM listener.
 

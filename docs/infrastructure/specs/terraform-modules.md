@@ -70,8 +70,8 @@ The real module inventory under `infra/modules/`:
 | `infra/modules/redis` | ElastiCache `aws_elasticache_replication_group` (never `aws_elasticache_cluster`) backing Users' password-reset codes; awscli fallback for Floci (provider panics on `NodeGroups[0]`), no subnet-group support on Floci at all, and two Floci-only ports that must not be conflated — see [[redis-elasticache-replication-group-floci]] |
 | `infra/modules/ecr` | one ECR repository per image (pre-prod) |
 | `infra/modules/app-config` | SSM parameters (`/3mrai-preprod/<svc>/<VAR>`) and Secrets Manager secrets (`3mrai-preprod/<svc>/<VAR>`) per service; outputs ARN references for task `secrets` |
-| `infra/modules/alb` | ALB with one listener and target group per service (pre-prod) |
-| `infra/modules/ecs-service` | generic ECS service: task definition (image, cpu/memory, `secrets`, `environment`, port mappings, `awslogs`), service, ALB target registration |
+| `infra/modules/alb` | The load balancer only (pre-prod); listeners and target groups live in `ecs-service` |
+| `infra/modules/ecs-service` | generic ECS service: task definition (image, cpu/memory, `secrets`, port mappings, `awslogs`), service, plus one target group and listener per `listeners` entry. There is no `environment` input: all config arrives through `secrets` (SSM / Secrets Manager ARNs) |
 
 The four modules `ecr`, `app-config`, `alb` and `ecs-service` are composed only by
 `infra/environments/preprod` ([[ADR-0022-preprod-ecs-on-floci]], [[preprod]]); the `local`

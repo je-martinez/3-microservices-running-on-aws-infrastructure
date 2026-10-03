@@ -111,7 +111,7 @@ Operational detail: [[preprod]]; decision: [[ADR-0022-preprod-ecs-on-floci]]; Fl
 **Interfaces:**
 - Produces: `ENVIRONMENTS = {"dev": ("3mrai", "clean"), "preprod": ("3mrai-preprod", "preprod-down")}`; `running(project, run=docker) -> bool`; `guard(target: str, *, run=docker, ask=input, isatty=sys.stdin.isatty, make=run_make) -> int` (0 = proceed, 1 = abort); CLI `env_guard.py <dev|preprod>`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 """Tests for env_guard.py — dev and pre-prod never run at the same time."""
@@ -168,12 +168,12 @@ def test_project_match_is_exact():
     assert guard_mod.running("3mrai", run=docker_with("3mrai-preprod")) is False
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `.venv/bin/python -m pytest infra/scripts/tests/test_env_guard.py -v`
 Expected: FAIL (`env_guard.py` missing).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 """Refuse to start one local environment while the other one runs.
@@ -233,11 +233,11 @@ if __name__ == "__main__":
     sys.exit(guard(sys.argv[1]))
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `.venv/bin/python -m pytest infra/scripts/tests/test_env_guard.py -v` → 5 passed.
 
-- [ ] **Step 5: Wire the dev side**
+- [x] **Step 5: Wire the dev side**
 
 Add as the FIRST recipe line of `up`, `bootstrap` and `bootstrap-provision` (after their `scripts-setup` prerequisite; add `scripts-setup` to `up`'s prerequisites):
 
@@ -245,7 +245,7 @@ Add as the FIRST recipe line of `up`, `bootstrap` and `bootstrap-provision` (aft
 	@$(PY) infra/scripts/env_guard.py dev
 ```
 
-- [ ] **Step 6: Hand over for commit** — `feat(infra): refuse to run dev and pre-prod at the same time`
+- [x] **Step 6: Hand over for commit** — `feat(infra): refuse to run dev and pre-prod at the same time`
 
 ---
 
@@ -262,7 +262,7 @@ Add as the FIRST recipe line of `up`, `bootstrap` and `bootstrap-provision` (aft
 **Interfaces:**
 - Produces: Make variables `PP_COMPOSE`, `PP_TF`, `PP_NETWORK`; targets `preprod-floci-up`, `preprod-down`; `lib3mrai.db.compose_network() -> str` (reads `FLOCI_NETWORK`, default `3mrai_3mrai-network`); root outputs `vpc_id`, `subnet_ids`, `security_group_ids`.
 
-- [ ] **Step 1: Failing test for the network parameter**
+- [x] **Step 1: Failing test for the network parameter**
 
 ```python
 from lib3mrai import db
@@ -281,7 +281,7 @@ def test_network_from_env(monkeypatch):
 
 Run: `.venv/bin/python -m pytest infra/scripts/tests/test_db_network.py -v` → FAIL.
 
-- [ ] **Step 2: Implement in `lib3mrai/db.py`**
+- [x] **Step 2: Implement in `lib3mrai/db.py`**
 
 Replace the `COMPOSE_NETWORK = "3mrai_3mrai-network"` constant and its uses:
 
@@ -300,7 +300,7 @@ def compose_network() -> str:
 
 In `_probe_command`, replace both `COMPOSE_NETWORK` with `compose_network()`. Re-run → 2 passed.
 
-- [ ] **Step 3: `docker-compose.preprod.yml`**
+- [x] **Step 3: `docker-compose.preprod.yml`**
 
 ```yaml
 # Pre-production: Floci is the ONLY image. Every workload runs inside it as an
@@ -345,7 +345,7 @@ services:
       retries: 5
 ```
 
-- [ ] **Step 4: Terraform root skeleton**
+- [x] **Step 4: Terraform root skeleton**
 
 `infra/environments/preprod/terraform.tf`:
 
@@ -463,7 +463,7 @@ image-tags.auto.tfvars.json
 .state/
 ```
 
-- [ ] **Step 5: Makefile section**
+- [x] **Step 5: Makefile section**
 
 Append:
 
@@ -491,7 +491,7 @@ preprod-down: ## Pre-prod: full wipe (Floci, its children, ECR registry, Floci v
 	@rm -rf $(PP_TF_DIR)/.terraform $(PP_TF_DIR)/terraform.tfstate* $(PP_TF_DIR)/image-tags.auto.tfvars.json $(PP_TF_DIR)/.state
 ```
 
-- [ ] **Step 6: Verify the skeleton end to end**
+- [x] **Step 6: Verify the skeleton end to end**
 
 ```bash
 make preprod-floci-up
@@ -502,7 +502,7 @@ docker ps -a --format '{{.Names}}' | grep -cE '^(floci-|3mrai-preprod)'; docker 
 ```
 Expected: apply `3 added` (or the networking module's count); after down both counts are `0`.
 
-- [ ] **Step 7: Hand over for commit** — `feat(infra): add the pre-prod compose file and Terraform root skeleton`
+- [x] **Step 7: Hand over for commit** — `feat(infra): add the pre-prod compose file and Terraform root skeleton`
 
 ---
 
@@ -517,7 +517,7 @@ Expected: apply `3 added` (or the networking module's count); after down both co
 - Consumes: Task 2 skeleton.
 - Produces (outputs used by Tasks 6, 8, 11, 13, 15): `cognito_user_pool_id`, `cognito_client_id`, `cognito_issuer`, `pg_port`, `mysql_port`, `redis_host`, `redis_port`, `events_topic_arn`, `notifications_queue_url`, `events_query_url`, `ws_url`, `ws_management_endpoint`, `ws_connections_table`, `ws_connections_gsi`, `assets_base_url`, `docdb_host`.
 
-- [ ] **Step 1: Copy the data-plane blocks from the local root**
+- [x] **Step 1: Copy the data-plane blocks from the local root**
 
 Copy these blocks from `infra/environments/local/main.tf` into `infra/environments/preprod/main.tf`, verbatim, in this order: label modules L15-56 and L95-100 (`label_db` … `label_cache`, `label_orders_db`; skip `label_compute`), `rds_aurora` L73-92, `rds_mysql` L108-123, `terraform_data.tracking_database` L135-152, `cognito` L160-189, `messaging` L208-211, `docdb` L223-240, `redis` L254-271, `ws_connections` L276-279, `api_gateway_ws` L284-325, `aws_ses_email_identity` L336-338, `lambda_events_pipeline` L343-443, the EventBridge rule/target/permission L453-480.
 
@@ -534,7 +534,7 @@ Then apply exactly these substitutions inside the copied text:
 
 Skip `module "compute"` (L194-203) and `module "api_gateway"` (L488-502) — Tasks 6 and 11 replace them.
 
-- [ ] **Step 2: Add the assets bucket, secrets and RDS port lookups**
+- [x] **Step 2: Add the assets bucket, secrets and RDS port lookups**
 
 ```hcl
 module "label_post" {
@@ -603,7 +603,7 @@ data "aws_rds_cluster" "mysql" {
 }
 ```
 
-- [ ] **Step 3: Outputs**
+- [x] **Step 3: Outputs**
 
 ```hcl
 output "cognito_user_pool_id" { value = module.cognito.user_pool_id }
@@ -640,7 +640,7 @@ output "openobserve_root_password" {
 }
 ```
 
-- [ ] **Step 4: Build bundles, apply, verify the RDS ports are the proxy ports**
+- [x] **Step 4: Build bundles, apply, verify the RDS ports are the proxy ports**
 
 ```bash
 make lambda-bundles
@@ -652,7 +652,7 @@ AWS_ENDPOINT_URL=http://localhost:4566 .venv/bin/python infra/environments/local
 ```
 Expected: apply succeeds; `pg_port` equals the discover script's value (both in 7000-7099). If `pg_port` prints `5432`, stop and report — Amendment 4 is then wrong and the root must call `discover_db_port.py` through an `external` data source instead.
 
-- [ ] **Step 5: Hand over for commit** — `feat(infra): provision the pre-prod data plane`
+- [x] **Step 5: Hand over for commit** — `feat(infra): provision the pre-prod data plane`
 
 ---
 
@@ -666,7 +666,7 @@ Expected: apply succeeds; `pg_port` equals the discover script's value (both in 
 **Interfaces:**
 - Produces: `module.ecr.repository_urls` (`map(string)`, service → URL); `module.app_config.refs` (`map(list(object({name=string, valueFrom=string})))`, service → ECS `secrets` entries); root output `ecr_repository_urls`.
 
-- [ ] **Step 1: `modules/ecr`**
+- [x] **Step 1: `modules/ecr`**
 
 `variables.tf`:
 
@@ -701,7 +701,7 @@ output "repository_urls" {
 }
 ```
 
-- [ ] **Step 2: `modules/app-config`**
+- [x] **Step 2: `modules/app-config`**
 
 `variables.tf`:
 
@@ -773,7 +773,7 @@ output "refs" {
 }
 ```
 
-- [ ] **Step 3: Wire both into the root**
+- [x] **Step 3: Wire both into the root**
 
 ```hcl
 module "label_app" {
@@ -797,7 +797,7 @@ output "ecr_repository_urls" { value = module.ecr.repository_urls }
 
 (`module.app_config` is added in Task 6, where the per-service maps are defined.)
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 terraform -chdir=infra/environments/preprod apply -auto-approve -var python_bin=$PWD/.venv/bin/python
@@ -805,7 +805,7 @@ terraform -chdir=infra/environments/preprod output -json ecr_repository_urls
 ```
 Expected: 7 URLs of the form `000000000000.dkr.ecr.us-east-1.localhost:4566/3mrai-preprod-app/<svc>`.
 
-- [ ] **Step 5: Hand over for commit** — `feat(infra): add ecr and app-config modules`
+- [x] **Step 5: Hand over for commit** — `feat(infra): add ecr and app-config modules`
 
 ---
 
@@ -818,7 +818,7 @@ Expected: 7 URLs of the form `000000000000.dkr.ecr.us-east-1.localhost:4566/3mra
 **Interfaces:**
 - Produces: `module.alb.arn`, `module.alb.vpc_id`; `ecs-service` inputs `context, name, cluster_arn, execution_role_arn, image, cpu, memory, container_port, extra_ports, secrets, listeners, alb_arn, vpc_id, subnet_ids, security_group_ids, desired_count, region`; outputs `service_name`, `task_family`, `target_group_arns` (`map(string)` listener key → ARN).
 
-- [ ] **Step 1: `modules/alb`**
+- [x] **Step 1: `modules/alb`**
 
 ```hcl
 # variables.tf
@@ -848,7 +848,7 @@ output "arn" { value = aws_lb.this.arn }
 output "vpc_id" { value = var.vpc_id }
 ```
 
-- [ ] **Step 2: `modules/ecs-service/variables.tf`**
+- [x] **Step 2: `modules/ecs-service/variables.tf`**
 
 ```hcl
 variable "context" {
@@ -895,7 +895,7 @@ variable "desired_count" {
 variable "region" { type = string }
 ```
 
-- [ ] **Step 3: `modules/ecs-service/main.tf`**
+- [x] **Step 3: `modules/ecs-service/main.tf`**
 
 ```hcl
 locals {
@@ -989,7 +989,7 @@ resource "aws_ecs_service" "this" {
 }
 ```
 
-- [ ] **Step 4: `modules/ecs-service/outputs.tf`**
+- [x] **Step 4: `modules/ecs-service/outputs.tf`**
 
 ```hcl
 output "service_name" { value = aws_ecs_service.this.name }
@@ -999,13 +999,13 @@ output "target_group_arns" {
 }
 ```
 
-- [ ] **Step 5: Validate**
+- [x] **Step 5: Validate**
 
 Run, for each of `alb` and `ecs-service`:
 `terraform -chdir=infra/modules/<m> init -backend=false && terraform -chdir=infra/modules/<m> validate`, then `terraform fmt -check -recursive infra`.
 Expected: `Success! The configuration is valid.` twice, no fmt diff.
 
-- [ ] **Step 6: Hand over for commit** — `feat(infra): add alb and ecs-service modules`
+- [x] **Step 6: Hand over for commit** — `feat(infra): add alb and ecs-service modules`
 
 ---
 
@@ -1019,7 +1019,7 @@ Expected: `Success! The configuration is valid.` twice, no fmt diff.
 - Consumes: Task 3 outputs, `module.ecr.repository_urls`, `module.alb`, `module "ecs-service"`, `module "app-config"`.
 - Produces: `module.service["<svc>"]` for `users, orders, tracking` (web/otel-collector/openobserve/mailpit are added to the same maps in Tasks 12-14); root outputs `ecs_cluster_name`, `service_ports`.
 
-- [ ] **Step 1: Write `services.tf`**
+- [x] **Step 1: Write `services.tf`**
 
 ```hcl
 module "label_ecs" {
@@ -1195,7 +1195,7 @@ module "service" {
 }
 ```
 
-- [ ] **Step 2: Outputs**
+- [x] **Step 2: Outputs**
 
 ```hcl
 output "ecs_cluster_name" { value = aws_ecs_cluster.this.name }
@@ -1204,7 +1204,7 @@ output "service_ports" {
 }
 ```
 
-- [ ] **Step 3: Apply A and verify config landed**
+- [x] **Step 3: Apply A and verify config landed**
 
 ```bash
 terraform -chdir=infra/environments/preprod apply -auto-approve -var python_bin=$PWD/.venv/bin/python
@@ -1213,7 +1213,7 @@ aws --endpoint-url http://localhost:4566 secretsmanager list-secrets --query 'le
 ```
 Expected: users parameter count = 26; secret count = 11 (4 users + 3 orders + 4 tracking).
 
-- [ ] **Step 4: Hand over for commit** — `feat(infra): configure the pre-prod services through SSM and Secrets Manager`
+- [x] **Step 4: Hand over for commit** — `feat(infra): configure the pre-prod services through SSM and Secrets Manager`
 
 ---
 
@@ -1228,7 +1228,7 @@ Expected: users parameter count = 26; secret count = 11 (4 users + 3 orders + 4 
 - Consumes: root output `ecr_repository_urls`, `cognito_*`, `ws_url`.
 - Produces: `image_tag(sha: str, dirty: bool, now: float, content_hash: str = "") -> str`; `commands_for(service: str, url: str, tag: str, build_args: dict[str, str]) -> list[list[str]]`; `update_tags(path: Path, new: dict[str, str]) -> dict[str, str]`; CLI `build_push.py --tf-dir DIR --services users,orders|all`; writes `<tf-dir>/image-tags.auto.tfvars.json` as `{"image_tags": {...}}`.
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
 
 ```python
 """Tests for build_push.py — pre-prod image tags and docker command plans."""
@@ -1290,7 +1290,7 @@ def test_update_tags_merges(tmp_path):
 
 Run: `.venv/bin/python -m pytest infra/environments/preprod/scripts/tests -v` → FAIL.
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 ```python
 """Build (or retag) pre-prod images and push them to Floci's ECR.
@@ -1412,9 +1412,9 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 3: Run tests** — `.venv/bin/python -m pytest infra/environments/preprod/scripts/tests -v` → 7 passed.
+- [x] **Step 3: Run tests** — `.venv/bin/python -m pytest infra/environments/preprod/scripts/tests -v` → 7 passed.
 
-- [ ] **Step 4: Hand over for commit** — `feat(infra): build and push pre-prod images with immutable tags`
+- [x] **Step 4: Hand over for commit** — `feat(infra): build and push pre-prod images with immutable tags`
 
 ---
 
@@ -1429,7 +1429,7 @@ if __name__ == "__main__":
 - Consumes: Tasks 2-7; `floci_heal.wake_ecs`.
 - Produces: `converged(services: list[dict]) -> list[str]` (names not yet at `runningCount == desiredCount`); targets `preprod-up`, `preprod-migrate`; CLI `wait_services.py --cluster NAME [--timeout 600]`.
 
-- [ ] **Step 1: Failing test**
+- [x] **Step 1: Failing test**
 
 ```python
 import importlib.util
@@ -1451,7 +1451,7 @@ def test_converged_lists_lagging_services():
     assert ws.converged(services) == ["orders"]
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 ```python
 """Block until every ECS service in a cluster runs its desired count.
@@ -1507,7 +1507,7 @@ if __name__ == "__main__":
 
 Run the test → 1 passed.
 
-- [ ] **Step 3: Makefile targets**
+- [x] **Step 3: Makefile targets**
 
 ```make
 preprod-migrate: scripts-setup ## Pre-prod: Prisma (users) + golang-migrate (tracking) against Floci's RDS
@@ -1537,12 +1537,12 @@ preprod-smoke: ## Pre-prod: health of every service through its ALB listener
 
 Before writing `preprod-migrate`, open `Makefile` L387-444 (`migrate-tracking`) and copy its exact `-database` DSN shape and the `force 1` guard if the `schema_migrations` table is absent; the line above follows the dev target's `migrate/migrate:v4.17.1` image and must match its DSN parameters.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run: `make preprod-down && make preprod-up`
 Expected: ends with `9101 200`, `9102 200`, `9103 200`.
 
-- [ ] **Step 5: Hand over for commit** — `feat(infra): orchestrate pre-prod from scratch with make preprod-up`
+- [x] **Step 5: Hand over for commit** — `feat(infra): orchestrate pre-prod from scratch with make preprod-up`
 
 ---
 
@@ -1556,7 +1556,7 @@ Expected: ends with `9101 200`, `9102 200`, `9103 200`.
 **Interfaces:**
 - Produces: `ALIASES: dict[str, tuple[str, str]]` (alias → (service, container)); `container_for(task_ids: set[str], names: list[str], container: str) -> str | None`; `main(argv) -> int` with `--cluster`, `--network`, `--check` (report only, exit 1 if an alias is missing).
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
 
 ```python
 import importlib.util
@@ -1586,7 +1586,7 @@ def test_alias_missing_is_reported():
     assert al.missing_aliases({"mailpit": ["mailpit"]}, ["mailpit"]) == []
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 ```python
 """Attach stable Docker-network aliases to pre-prod ECS task containers.
@@ -1664,7 +1664,7 @@ if __name__ == "__main__":
 
 Run tests → 3 passed.
 
-- [ ] **Step 3: Verify gRPC through the ALB with the real Users image**
+- [x] **Step 3: Verify gRPC through the ALB with the real Users image**
 
 With the stack from Task 8 up (`users_grpc_via_alb = true`):
 
@@ -1678,7 +1678,7 @@ Decision rule — record the result in the task handover:
 - `grpcurl` returns a service list, or an `Unimplemented`/`Unauthenticated` gRPC status (the transport works) → keep `default = true`.
 - `grpcurl` reports `malformed header`, `503`, `connection reset` or an HTTP status → set `default = false` in `variables.tf`, add `users-grpc` to the `--aliases` list in the Makefile (Task 14), re-apply, and confirm `docker run --rm --network 3mrai-preprod_preprod-network busybox:1.36 nc -z users-grpc 50051` exits 0.
 
-- [ ] **Step 4: Hand over for commit** — `feat(infra): give pre-prod ECS tasks stable aliases and settle Users gRPC routing`
+- [x] **Step 4: Hand over for commit** — `feat(infra): give pre-prod ECS tasks stable aliases and settle Users gRPC routing`
 
 ---
 
@@ -1691,7 +1691,7 @@ Decision rule — record the result in the task handover:
 - Consumes: `build_push.py`, `wait_services.py`, `module.service["<svc>"]`.
 - Produces: `make preprod-deploy S=<svc> [ENV_ONLY=1]`.
 
-- [ ] **Step 1: Target**
+- [x] **Step 1: Target**
 
 ```make
 preprod-deploy: scripts-setup ## Pre-prod: redeploy one service (S=users|orders|tracking|web|…; ENV_ONLY=1 = config only)
@@ -1708,7 +1708,7 @@ endif
 	$(MAKE) --no-print-directory preprod-smoke
 ```
 
-- [ ] **Step 2: Verify zero failed requests during a rollout**
+- [x] **Step 2: Verify zero failed requests during a rollout** (amended — see Execution notes / Spec amendments)
 
 ```bash
 ( for i in $(seq 1 240); do curl -s -o /dev/null -w '%{http_code}\n' http://localhost:9102/v1/health; sleep 0.5; done ) > /tmp/rollout.txt &
@@ -1717,12 +1717,12 @@ wait; sort /tmp/rollout.txt | uniq -c
 ```
 Expected: only `200` lines.
 
-- [ ] **Step 3: Verify the blast radius**
+- [x] **Step 3: Verify the blast radius**
 
 Run: `make preprod-deploy S=tracking 2>&1 | grep -E 'Plan:|Apply complete'`
 Expected: the plan touches only `module.service["tracking"]` resources (task definition replaced, service updated); no `module.api_gateway`, `module.service["users"]` or `module.service["orders"]` addresses appear.
 
-- [ ] **Step 4: Verify ENV_ONLY**
+- [x] **Step 4: Verify ENV_ONLY**
 
 ```bash
 aws --endpoint-url http://localhost:4566 ssm put-parameter --name /3mrai-preprod/tracking/PROGRESSION_INTERVAL_SECONDS --value 6 --overwrite --type String
@@ -1731,7 +1731,7 @@ C=$(docker ps --format '{{.Names}}' | grep -E 'floci-ecs-.*-tracking$'); docker 
 ```
 Expected: `PROGRESSION_INTERVAL_SECONDS=6`. Restore it with `terraform apply` afterwards.
 
-- [ ] **Step 5: Hand over for commit** — `feat(infra): redeploy a single pre-prod service with make preprod-deploy`
+- [x] **Step 5: Hand over for commit** — `feat(infra): redeploy a single pre-prod service with make preprod-deploy`
 
 ---
 
@@ -1747,7 +1747,7 @@ Expected: `PROGRESSION_INTERVAL_SECONDS=6`. Restore it with `terraform apply` af
 - Consumes: `local.routes` (unchanged), `module.cognito.issuer/client_id`.
 - Produces: module input `alb_backends` (`map(string)`, default `{}`; keys `users`, `orders`, `tracking`); root output `api_gateway_url` = `http://localhost:4566/restapis/<id>/$default/_user_request_`.
 
-- [ ] **Step 1: Variable**
+- [x] **Step 1: Variable**
 
 ```hcl
 variable "alb_backends" {
@@ -1757,7 +1757,7 @@ variable "alb_backends" {
 }
 ```
 
-- [ ] **Step 2: Integrations**
+- [x] **Step 2: Integrations**
 
 Replace the `per_route` resource with:
 
@@ -1794,7 +1794,7 @@ resource "aws_apigatewayv2_integration" "per_route" {
 }
 ```
 
-- [ ] **Step 3: Instantiate in pre-prod** (not gated by `deploy_services`: the integrations target fixed listener ports, so they can exist before the services do)
+- [x] **Step 3: Instantiate in pre-prod** (not gated by `deploy_services`: the integrations target fixed listener ports, so they can exist before the services do)
 
 ```hcl
 module "label_api" {
@@ -1824,12 +1824,12 @@ output "api_gateway_url" {
 }
 ```
 
-- [ ] **Step 4: Dev is unchanged**
+- [x] **Step 4: Dev is unchanged** (amended — see Execution notes / Spec amendments)
 
 Run: `terraform -chdir=infra/environments/local plan` (dev stack up)
 Expected: `No changes.` — `alb_backends` defaults to `{}`, so dev keeps its nginx integrations and `request_parameters = null`.
 
-- [ ] **Step 5: Apply pre-prod and check routing**
+- [x] **Step 5: Apply pre-prod and check routing**
 
 ```bash
 terraform -chdir=infra/environments/preprod apply -auto-approve -var python_bin=$PWD/.venv/bin/python -var deploy_services=true
@@ -1839,11 +1839,11 @@ curl -s -o /dev/null -w "me-no-token %{http_code}\n" "$GW/v1/users/me"
 ```
 Expected: three `200`, then `401`.
 
-- [ ] **Step 6: The spoof check (Review Focus 2)**
+- [x] **Step 6: The spoof check (Review Focus 2)** (amended — see Execution notes / Spec amendments)
 
 Write a gateway spec through `e2e-impl` (it owns `e2e/`): `e2e/tests/gateway/x-user-id-spoof.gateway.spec.ts` — register+login a user via `getGatewayToken()`; call `GET /v1/users/me` with the token AND header `x-user-id: forged-<uuid>`; assert the response's user is the token's user (not 404/the forged id). Call a public route (`POST /v1/users/login` with bad credentials) with `x-user-id: forged` and assert it is rejected as a normal bad login (401/400), not authenticated. Run against pre-prod via Task 15's runner: `make preprod-e2e ARGS="--project=gateway x-user-id-spoof"` → green. Also run it against dev (`pnpm --filter @3mrai/e2e exec playwright test --project=gateway x-user-id-spoof`) → green there too.
 
-- [ ] **Step 7: Hand over for commit** — `feat(infra): route the pre-prod gateway to per-service ALB listeners without nginx`
+- [x] **Step 7: Hand over for commit** — `feat(infra): route the pre-prod gateway to per-service ALB listeners without nginx`
 
 ---
 
@@ -1858,7 +1858,7 @@ Write a gateway spec through `e2e-impl` (it owns `e2e/`): `e2e/tests/gateway/x-u
 **Interfaces:**
 - Produces: env var `OTLP_RUM_UPSTREAM` rendered by nginx envsubst; `module.service["web"]` on listener `9090`.
 
-- [ ] **Step 1: Make the RUM upstream configurable**
+- [x] **Step 1: Make the RUM upstream configurable**
 
 In `apps/web/nginx.conf` change `set $otlp_collector "otel-collector:4319";` to:
 
@@ -1875,7 +1875,7 @@ ENV OTLP_RUM_UPSTREAM=otel-collector:4319
 
 In `generate_env_files.py`, add `"OTLP_RUM_UPSTREAM": "otel-collector:4319"` to the `.env.local.web` generated mapping, and add the key to `.env.example`'s web section.
 
-- [ ] **Step 2: Verify dev is unchanged**
+- [x] **Step 2: Verify dev is unchanged** (amended — see Execution notes / Spec amendments)
 
 ```bash
 make env-file && docker compose --env-file .env.local.web up -d --build web
@@ -1883,7 +1883,7 @@ docker compose --env-file .env.local.web exec web grep -n otlp_collector /etc/ng
 ```
 Expected: `set $otlp_collector "otel-collector:4319";`.
 
-- [ ] **Step 3: Web in pre-prod**
+- [x] **Step 3: Web in pre-prod**
 
 Add to `local.parameters` in `services.tf`:
 
@@ -1906,7 +1906,7 @@ and to `local.services`:
 
 `module.api_gateway` must not depend on `module.service` (it targets fixed ports), so no cycle arises; `module.app_config` now depends on `module.api_gateway`.
 
-- [ ] **Step 4: Verify in the browser path**
+- [x] **Step 4: Verify in the browser path**
 
 ```bash
 make preprod-deploy S=web
@@ -1916,7 +1916,7 @@ curl -s -o /dev/null -w '%{http_code}\n' http://localhost:9090/v1/users/health
 ```
 Expected: `200`, `200` (SPA fallback), `200` (proxied to the gateway). Then manually: open `http://localhost:9090`, register, log in, place an order (success criterion 4).
 
-- [ ] **Step 5: Hand over for commit** — `feat(web): make the RUM upstream configurable and serve the web app from pre-prod ECS`
+- [x] **Step 5: Hand over for commit** — `feat(web): make the RUM upstream configurable and serve the web app from pre-prod ECS`
 
 ---
 
@@ -1934,7 +1934,7 @@ Expected: `200`, `200` (SPA fallback), `200` (proxied to the gateway). Then manu
 **Interfaces:**
 - Produces: collector env `O2_ENDPOINT`; services `otel-collector` (listeners `4318`, `4319`) and `openobserve` (listener `5080`).
 
-- [ ] **Step 1: Collector image**
+- [x] **Step 1: Collector image**
 
 ```dockerfile
 # Pre-prod only: ECS cannot bind-mount the repo, so the config ships in the image.
@@ -1943,11 +1943,11 @@ COPY observability/otel-collector-config.yaml /etc/otelcol-contrib/config.yaml
 CMD ["--config=/etc/otelcol-contrib/config.yaml"]
 ```
 
-- [ ] **Step 2: Parameterise the exporter endpoint**
+- [x] **Step 2: Parameterise the exporter endpoint**
 
 In `observability/otel-collector-config.yaml`, replace every `http://openobserve:5080` (11 occurrences, L819-944) with `${env:O2_ENDPOINT}`. Add `- O2_ENDPOINT=http://openobserve:5080` to the `otel-collector` service's `environment:` in `docker-compose.yml`.
 
-- [ ] **Step 3: Classify the web log group**
+- [x] **Step 3: Classify the web log group**
 
 In `transform/parse_body`, right after the existing `fluent.tag == "web"` statement (L518-520), add:
 
@@ -1959,12 +1959,12 @@ In `transform/parse_body`, right after the existing `fluent.tag == "web"` statem
               and IsMatch(resource.attributes["cloudwatch.log.group.name"], "^/ecs/.*-web$")
 ```
 
-- [ ] **Step 4: Dev regression check**
+- [x] **Step 4: Dev regression check** (amended — see Execution notes / Spec amendments)
 
 Run: `make observability-up && make doctor`
 Expected: the Tracing section passes; a fresh request to `http://localhost:3000/v1/health` appears in OpenObserve's `logs` stream within 2 minutes.
 
-- [ ] **Step 5: Services in pre-prod**
+- [x] **Step 5: Services in pre-prod**
 
 Add to `local.parameters`:
 
@@ -2009,7 +2009,7 @@ Add to `local.services`:
     }
 ```
 
-- [ ] **Step 6: Schema, dashboards, verification**
+- [x] **Step 6: Schema, dashboards, verification**
 
 ```make
 preprod-observability: ## Pre-prod: seed the traces schema and import dashboards into pre-prod's OpenObserve
@@ -2022,7 +2022,7 @@ Before writing it, read `scripts/seed_traces_schema.py` and `scripts/import-dash
 
 Verify: `make preprod-deploy S=otel-collector && make preprod-deploy S=openobserve && make preprod-observability`, hit `http://localhost:9101/v1/health` a few times, then in OpenObserve (`http://localhost:5080`, password from `terraform output -raw openobserve_root_password`) find `service_name = users` in the `logs` stream and a `users` trace in the traces stream (success criterion 3).
 
-- [ ] **Step 7: Hand over for commit** — `feat(observability): run the collector and OpenObserve as pre-prod ECS services`
+- [x] **Step 7: Hand over for commit** — `feat(observability): run the collector and OpenObserve as pre-prod ECS services`
 
 ---
 
@@ -2038,7 +2038,7 @@ Verify: `make preprod-deploy S=otel-collector && make preprod-deploy S=openobser
 - Consumes: `floci_heal.py` (`main`), `preprod_aliases.py` (`--check`), `doctor.backing_state`.
 - Produces: targets `preprod-aliases`, `preprod-heal`, `preprod-doctor`; `unhealthy_targets(descriptions: list[dict]) -> list[str]`.
 
-- [ ] **Step 1: Mailpit service**
+- [x] **Step 1: Mailpit service**
 
 `local.parameters`: `mailpit = { MP_MAX_MESSAGES = "5000" }`. `local.services`:
 
@@ -2049,7 +2049,7 @@ Verify: `make preprod-deploy S=otel-collector && make preprod-deploy S=openobser
     }
 ```
 
-- [ ] **Step 2: Failing doctor test**
+- [x] **Step 2: Failing doctor test**
 
 ```python
 import importlib.util
@@ -2072,7 +2072,7 @@ def test_unhealthy_targets():
     assert pd.unhealthy_targets(descs) == ["10.0.0.2"]
 ```
 
-- [ ] **Step 3: Implement `preprod_doctor.py`**
+- [x] **Step 3: Implement `preprod_doctor.py`**
 
 ```python
 """Diagnose pre-prod: ECS vs containers, ALB targets, aliases, phantom stores.
@@ -2147,7 +2147,7 @@ if __name__ == "__main__":
 
 Run the test → passes.
 
-- [ ] **Step 4: Makefile targets**
+- [x] **Step 4: Makefile targets**
 
 ```make
 PP_ALIASES := mailpit
@@ -2168,7 +2168,7 @@ preprod-doctor: scripts-setup ## Pre-prod: ECS vs containers, ALB targets, alias
 
 If Task 9 chose the alias path, set `PP_ALIASES := mailpit,users-grpc`. Insert `$(MAKE) --no-print-directory preprod-aliases` in `preprod-up` right after `wait_services.py`.
 
-- [ ] **Step 5: Verify mail and the heal loop**
+- [x] **Step 5: Verify mail and the heal loop**
 
 ```bash
 make preprod-up
@@ -2181,7 +2181,7 @@ docker compose -f docker-compose.preprod.yml restart floci && make preprod-heal 
 ```
 Expected: message total ≥ 1; doctor fails then passes as annotated.
 
-- [ ] **Step 6: Hand over for commit** — `feat(infra): add Mailpit, preprod-heal and preprod-doctor`
+- [x] **Step 6: Hand over for commit** — `feat(infra): add Mailpit, preprod-heal and preprod-doctor`
 
 ---
 
@@ -2197,7 +2197,7 @@ Expected: message total ≥ 1; doctor fails then passes as annotated.
 **Interfaces:**
 - Produces: `env_from_outputs(outputs: dict[str, str]) -> dict[str, str]`; CLI `e2e_env.py --tf-dir DIR -- <command…>` (execs the command with the env).
 
-- [ ] **Step 1: Failing test**
+- [x] **Step 1: Failing test**
 
 ```python
 import importlib.util
@@ -2228,7 +2228,7 @@ def test_env_from_outputs_keeps_literal_default():
     assert env["TRACKING_CARRIER_API_KEY"] == "c"
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 ```python
 """Run a command with the pre-prod endpoints and keys in its environment.
@@ -2292,7 +2292,7 @@ if __name__ == "__main__":
 
 Run the test → passes.
 
-- [ ] **Step 3: Targets**
+- [x] **Step 3: Targets**
 
 ```make
 preprod-e2e: scripts-setup ## Pre-prod: Playwright (ARGS="--project=gateway …" to narrow)
@@ -2302,7 +2302,7 @@ preprod-load-test: scripts-setup ## Pre-prod: Gatling fullJourney
 	cd e2e/load-tests && $(PY) ../../$(PP_TF_DIR)/scripts/e2e_env.py --tf-dir ../../$(PP_TF_DIR) -- pnpm run load
 ```
 
-- [ ] **Step 4: Success criteria 1 and 2**
+- [x] **Step 4: Success criteria 1 and 2** (amended — see Execution notes / Spec amendments)
 
 ```bash
 nvm use
@@ -2311,7 +2311,7 @@ make preprod-load-test
 ```
 Expected: gateway suites green; Gatling completes with its assertions passing. A failure that also fails on dev at the same commit is recorded, not fixed here; a pre-prod-only failure is a defect of this plan and gets its own fix + review (no silent fix).
 
-- [ ] **Step 5: Hand over for commit** — `test(e2e): run the gateway suite and Gatling against pre-prod`
+- [x] **Step 5: Hand over for commit** — `test(e2e): run the gateway suite and Gatling against pre-prod`
 
 ---
 
@@ -2319,10 +2319,10 @@ Expected: gateway suites green; Gatling completes with its assertions passing. A
 
 **Files:** none (verification only; record results in the handover)
 
-- [ ] **Step 1: Redeploy without failed requests** — repeat Task 10 Step 2 for `users` and `web` (`http://localhost:9090/`). Expected: only `200`.
-- [ ] **Step 2: Restart keeps data** — create an order; `docker compose -f docker-compose.preprod.yml restart floci && make preprod-heal`; `GET /v1/orders/my-orders` through the gateway returns the order; an events-pipeline read (`EVENTS_QUERY_URL`) still returns the order's events (DocumentDB kept).
-- [ ] **Step 3: Teardown leaves nothing** — `make preprod-down`; `docker ps -a --format '{{.Names}}' | grep -cE '^(floci-|3mrai-preprod)'` → `0`; `docker volume ls -q | grep -cE 'floci-|3mrai-preprod'` → `0`.
-- [ ] **Step 4: Exclusivity both ways** — with pre-prod up, `make up` prompts; answer `n` → exits 1, pre-prod untouched. With dev up, `make preprod-up < /dev/null` → aborts (no TTY), dev untouched.
+- [x] **Step 1: Redeploy without failed requests** — repeat Task 10 Step 2 for `users` and `web` (`http://localhost:9090/`). Expected: only `200`. (amended — see Execution notes / Spec amendments)
+- [x] **Step 2: Restart keeps data** — create an order; `docker compose -f docker-compose.preprod.yml restart floci && make preprod-heal`; `GET /v1/orders/my-orders` through the gateway returns the order; an events-pipeline read (`EVENTS_QUERY_URL`) still returns the order's events (DocumentDB kept).
+- [x] **Step 3: Teardown leaves nothing** — `make preprod-down`; `docker ps -a --format '{{.Names}}' | grep -cE '^(floci-|3mrai-preprod)'` → `0`; `docker volume ls -q | grep -cE 'floci-|3mrai-preprod'` → `0`.
+- [ ] **Step 4: Exclusivity both ways** — with pre-prod up, `make up` prompts; answer `n` → exits 1, pre-prod untouched. With dev up, `make preprod-up < /dev/null` → aborts (no TTY), dev untouched. (no-TTY abort verified with pre-prod up; dev-up direction not run)
 
 ---
 
@@ -2336,9 +2336,9 @@ Expected: gateway suites green; Gatling completes with its assertions passing. A
 - Update `[[ADR-0016-local-apigw-nginx-ecs]]` (nginx remains for dev only; the claim-to-header limitation it documents no longer holds on Floci 2.1.0), `[[local-dev-floci]]`, `[[local-dev]]`, `[[aws-resources]]`, `[[terraform-modules]]` (new modules `ecr`, `app-config`, `alb`, `ecs-service`; `api-gateway.alb_backends`), `[[env-files]]` (pre-prod has none; `OTLP_RUM_UPSTREAM`).
 - Link the plan from `docs/plans/index.md`; add the new notes to the spec's `propagates-to`.
 
-- [ ] **Step 1: Dispatch `obsidian-vault`** with the list above and the facts from Tasks 1-16; run `nvm use && node scripts/validate-vault.mjs` → green.
+- [x] **Step 1: Dispatch `obsidian-vault`** with the list above and the facts from Tasks 1-16; run `nvm use && node scripts/validate-vault.mjs` → green.
 - [ ] **Step 2: Run the `spec-implementation-audit` skill** (spec → code, code → docs, plan → repo). Close each gap; a real code defect gets its own change and review.
-- [ ] **Step 3: Hand over for commit** — `docs(infra): propagate the pre-prod environment into the vault`
+- [x] **Step 3: Hand over for commit** — `docs(infra): propagate the pre-prod environment into the vault`
 
 ## Related
 

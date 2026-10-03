@@ -41,7 +41,8 @@ Order: exclusivity guard, Floci up (compose project `3mrai-preprod`, healthcheck
 `GET /_floci/health HTTP/1.1`), Terraform apply with `deploy_services=false` (data stores,
 Cognito, messaging, ECR, config), build and push every image, `preprod-migrate`, apply with
 `deploy_services=true` (ECS services, ALB, gateway), wait for RUNNING tasks, deregister stale ALB
-targets, aliases, smoke, observability seed. It is **not resumable**: on failure run
+targets, aliases, smoke, then `preprod-observability` (seed + dashboards). It does not run
+`preprod-doctor`. It is **not resumable**: on failure run
 `make preprod-down && make preprod-up`.
 
 ## Make targets
@@ -51,7 +52,7 @@ targets, aliases, smoke, observability seed. It is **not resumable**: on failure
 | `preprod-up` | Everything, from scratch |
 | `preprod-deploy S=<svc>` | Build, push with a new immutable tag, `-target` apply for that service, wait, clean stale targets, aliases, smoke. `ENV_ONLY=1` skips the build and forces a new deployment (ECS reads SSM and secrets only at task start) |
 | `preprod-heal` | After a Floci or Docker restart: Floci up, start Exited DocumentDB/Valkey containers, remove orphan task containers, wait, clean stale targets, re-apply aliases |
-| `preprod-doctor` | ECS services vs containers, ALB target health, aliases, phantom DocumentDB/Valkey |
+| `preprod-doctor` | ECS services vs containers, ALB target health, stale ALB targets (`preprod_targets.py --check`), aliases (`preprod_aliases.py --check`), phantom DocumentDB/Valkey; prints the remedy per failure (heal vs down + up) |
 | `preprod-smoke` | `/v1/health` on 9101-9103, `:9090/`, `:5080/healthz` |
 | `preprod-aliases` | Attach `users-grpc` and `mailpit` Docker aliases to the newest RUNNING task |
 | `preprod-migrate` | Prisma (users) and golang-migrate (tracking) against Floci's RDS |
@@ -70,7 +71,8 @@ targets, aliases, smoke, observability seed. It is **not resumable**: on failure
 | `5080` | ALB → OpenObserve UI and ingest |
 | `8025` | ALB → Mailpit UI and API |
 
-Internal only: OTLP `4318` (collector, traces and logs) and `4319` (browser RUM). The API Gateway
+Internal only: OTLP `4318` (collector, traces; logs travel `awslogs` → CloudWatch → collector, and
+services set `OTEL_LOGS_EXPORTER=none`) and `4319` (browser RUM). The API Gateway
 URL comes from `terraform output` in `infra/environments/preprod`.
 
 ## Configuration layout
@@ -86,7 +88,8 @@ URL comes from `terraform output` in `infra/environments/preprod`.
 ## Heal and doctor
 
 After `docker compose restart`, a Docker daemon restart or a Floci recreate, run
-`make preprod-heal`, then `make preprod-doctor` (all green expected). Floci stops with SIGKILL
+`make preprod-heal`, then `make preprod-doctor` (all green expected). Heal counts only tasks whose
+`lastStatus` is RUNNING as live. Floci stops with SIGKILL
 so DocumentDB and ElastiCache keep their data; OpenObserve and Mailpit have no volume, so their
 data resets. Re-run `make preprod-observability` after OpenObserve is recreated.
 
@@ -108,13 +111,22 @@ container. Anything less leaves `RepositoryAlreadyExists` on the next apply or p
 
 ## Verification
 
-- `make preprod-up` ends with smoke and doctor green.
+- `make preprod-up` ends with smoke and `preprod-observability`; run `make preprod-doctor` afterwards (green expected).
 - `make preprod-e2e ARGS="--project=gateway --project=gateway-tracking --project=email"`:
   95 passed, 11 skipped (Stripe disabled, cache-off spec), 0 failed.
-- The observability project passes except the `rum_logs` stream, which appears only after a
-  browser session.
+- The observability project passes 6/6. The web build has RUM on (`NG_APP_RUM_ENABLED=true`), so
+  the `rum_logs` stream appears once a browser loads the web app on `:9090`.
 - `make preprod-load-test-smoke`: 551 requests, 0 failures. Full `preprod-load-test` saturates
   Floci's single process (86% / 59% OK, p95 17-50 s); a local capacity limit.
+
+### Verification results
+
+- **SC1** gateway, gateway-tracking and email E2E: 95 passed, 11 skipped, 0 failed.
+- **SC2** Gatling smoke: 551 requests, 0 failures. Full load saturates Floci (known limit).
+- **SC3** logs and traces of users, orders and tracking are queryable in OpenObserve.
+- **SC4** a real browser at `:9090` completes register, login, cart, address and pay;
+  `POST /v1/orders` returns `201`. The `web-tokyo` Playwright project: 115 passed, 13 failed,
+  6 skipped; the failures are pre-existing selector drift and dev-fill dependencies, not pre-prod.
 
 ## Troubleshooting
 
@@ -122,7 +134,7 @@ container. Anything less leaves `RepositoryAlreadyExists` on the next apply or p
 |---|---|
 | Gateway `{"message":"Not Found"}` | Route missing in `infra/modules/api-gateway`; the request never reached a service |
 | Intermittent `503`, lasting 1-2 minutes after a deploy | Stale ALB target; `make preprod-heal` or deploy again (cleanup runs automatically) |
-| `502` on Orders to Users gRPC | `users-grpc` alias missing; `make preprod-aliases` |
+| Orders' gRPC dial to `users-grpc` fails to resolve (DNS) | `users-grpc` alias missing; `make preprod-aliases`. The ALB is not a gRPC path: it answers gRPC with `502` |
 | Welcome email not delivered | `mailpit` alias missing; `make preprod-aliases` |
 | `RepositoryAlreadyExists` on apply | ECR registry survived a teardown; `make preprod-down` |
 | `NoSuchBucket` pulling an image | Dev Floci owns `:4566`; see [[environment-exclusivity]] |

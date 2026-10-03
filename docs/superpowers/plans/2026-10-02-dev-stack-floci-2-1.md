@@ -66,7 +66,7 @@ related:
 - Consumes: nothing.
 - Produces: a `floci` service that survives restart/recreate with its DocumentDB/Valkey containers intact (Tasks 2, 5 rely on it).
 
-- [ ] **Step 1: Change the image, add `stop_signal`, replace the healthcheck**
+- [x] **Step 1: Change the image, add `stop_signal`, replace the healthcheck**
 
 In `docker-compose.yml`, replace `image: floci/floci:latest` with:
 
@@ -94,13 +94,13 @@ Replace the existing `healthcheck:` block (comment included) with:
       retries: 5
 ```
 
-- [ ] **Step 2: Rebuild from scratch and check health**
+- [x] **Step 2: Rebuild from scratch and check health**
 
 Run: `make clean && make bootstrap`
 Then: `docker inspect 3mrai-floci-1 -f '{{.Config.Image}} {{.Config.StopSignal}} {{.State.Health.Status}}'`
 Expected: `floci/floci:2.1.0 SIGKILL healthy`
 
-- [ ] **Step 3: Prove persistence across a restart**
+- [x] **Step 3: Prove persistence across a restart**
 
 ```bash
 docker exec floci-valkey-cache-3mrai-local-cache-redis valkey-cli SET heal-probe kept
@@ -110,7 +110,7 @@ docker exec floci-valkey-cache-3mrai-local-cache-redis valkey-cli GET heal-probe
 ```
 Expected: `kept`. Also `docker ps --format '{{.Names}}' | grep -c floci-docdb-` prints `1`.
 
-- [ ] **Step 4: Hand over for commit**
+- [x] **Step 4: Hand over for commit**
 
 Proposed message: `build(infra): pin Floci 2.1.0 with a SIGKILL stop and curl-free healthcheck`
 
@@ -133,7 +133,7 @@ Proposed message: `build(infra): pin Floci 2.1.0 with a SIGKILL stop and curl-fr
   - `main(argv: list[str] | None = None) -> int`.
   - `docker(*args) -> str` — thin `subprocess.run(["docker", *args])` returning stdout; tests inject a fake.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 """Tests for floci_heal.py — recovery after a Floci or Docker restart."""
@@ -194,12 +194,12 @@ def test_starts_exited_backing_containers_without_recreating():
     assert not any(a in ("rm", "create", "run") for call in calls for a in call)
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `.venv/bin/python -m pytest infra/scripts/tests/test_floci_heal.py -v`
 Expected: FAIL — `FileNotFoundError` / module has no attribute `wake_ecs`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```python
 """Recover a Floci stack after a Floci or Docker daemon restart.
@@ -289,12 +289,12 @@ if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `.venv/bin/python -m pytest infra/scripts/tests/test_floci_heal.py -v`
 Expected: 4 passed.
 
-- [ ] **Step 5: Add the Makefile target**
+- [x] **Step 5: Add the Makefile target**
 
 After the `doctor` recipe (line ~483):
 
@@ -305,7 +305,7 @@ heal: scripts-setup ## Recover after a Floci/Docker restart: start exited DocDB/
 
 Add `heal` to the `.PHONY` list if the Makefile declares one.
 
-- [ ] **Step 6: Verify against a real daemon-style restart**
+- [x] **Step 6: Verify against a real daemon-style restart**
 
 ```bash
 docker exec floci-valkey-cache-3mrai-local-cache-redis valkey-cli SET heal-probe kept
@@ -317,7 +317,7 @@ docker exec floci-valkey-cache-3mrai-local-cache-redis valkey-cli GET heal-probe
 ```
 Expected: heal prints `restarted floci-docdb-…`, `restarted floci-valkey-…`; the GET prints `kept`.
 
-- [ ] **Step 7: Hand over for commit**
+- [x] **Step 7: Hand over for commit**
 
 Proposed message: `feat(infra): add make heal for Floci and Docker restarts`
 
@@ -333,7 +333,7 @@ Proposed message: `feat(infra): add make heal for Floci and Docker restarts`
 - Consumes: `lib3mrai.aws.client`, the existing `_docker` helper in `doctor.py`.
 - Produces: `backing_state(name: str, run=_docker_stdout) -> str` returning `"running" | "exited" | "missing"`; `remedy_for(state: str) -> str`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 """Tests for doctor's backing-container classification."""
@@ -378,12 +378,12 @@ def test_doctor_wakes_ecs_before_checking():
     ecs.list_clusters.assert_called_once()
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `.venv/bin/python -m pytest infra/scripts/tests/test_doctor_backing.py -v`
 Expected: FAIL — `AttributeError: module 'doctor' has no attribute 'backing_state'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add near the other helpers in `doctor.py` (imports: `from lib3mrai.aws import client`):
 
@@ -438,16 +438,16 @@ In `check_phantom_resources`, replace the inner `found = …` / `if found.stdout
 
 In `main`, call `wake_ecs_reconciler()` right after `check_floci` succeeds, before `check_containers`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `.venv/bin/python -m pytest infra/scripts/tests/ -v`
 Expected: all pass (existing `test_envfile.py`, `test_execution_log.py` included).
 
-- [ ] **Step 5: Verify against the stack**
+- [x] **Step 5: Verify against the stack**
 
 `docker stop floci-valkey-cache-3mrai-local-cache-redis && make doctor` → the ElastiCache line fails with `fix: make heal`. Then `make heal && make doctor` → all checks pass.
 
-- [ ] **Step 6: Hand over for commit**
+- [x] **Step 6: Hand over for commit**
 
 Proposed message: `feat(infra): make doctor tell healable containers from gone ones`
 
@@ -463,7 +463,7 @@ Proposed message: `feat(infra): make doctor tell healable containers from gone o
 **Interfaces:**
 - Consumes: nothing. Produces: a provider that never silently targets real AWS for `ssm`, `ecr`, `s3`, `elasticache`.
 
-- [ ] **Step 1: Add the endpoints**
+- [x] **Step 1: Add the endpoints**
 
 Inside `endpoints {}` in `infra/environments/local/providers.tf`, add (alphabetical with the rest):
 
@@ -474,7 +474,7 @@ Inside `endpoints {}` in `infra/environments/local/providers.tf`, add (alphabeti
     ssm         = "http://localhost:4566"
 ```
 
-- [ ] **Step 2: Rewrite the docdb contract to the present truth**
+- [x] **Step 2: Rewrite the docdb contract to the present truth**
 
 Replace lines 127-132 of `infra/modules/docdb/main.tf` with:
 
@@ -486,7 +486,7 @@ Replace lines 127-132 of `infra/modules/docdb/main.tf` with:
 # `UnrecognizedClientException`, which reads like a Floci limitation and is not.
 ```
 
-- [ ] **Step 3: Sweep the ECR registry volume in `clean` and `clean-state`**
+- [x] **Step 3: Sweep the ECR registry volume in `clean` and `clean-state`**
 
 After the `docker volume ls -q --filter label=floci=true …` line in BOTH recipes, add:
 
@@ -500,12 +500,12 @@ After the `docker volume ls -q --filter label=floci=true …` line in BOTH recip
 
 (The `name=^floci-` container sweep already removes `floci-ecr-registry`.)
 
-- [ ] **Step 4: Validate**
+- [x] **Step 4: Validate**
 
 Run: `terraform -chdir=infra/environments/local validate && terraform fmt -check -recursive infra && make lint-comments`
 Expected: `Success! The configuration is valid.`, no fmt diff, lint clean.
 
-- [ ] **Step 5: Hand over for commit**
+- [x] **Step 5: Hand over for commit**
 
 Proposed message: `fix(infra): declare every provider endpoint and sweep the ECR volume on clean`
 
@@ -521,17 +521,17 @@ Proposed message: `fix(infra): declare every provider endpoint and sweep the ECR
 - Consumes: Tasks 1-4 on a running stack.
 - Produces: the verified 2.1.0 behaviour record the pre-prod plan cites.
 
-- [ ] **Step 1: Full suite on the new stack**
+- [x] **Step 1: Full suite on the new stack**
 
 Run: `make clean && make bootstrap && make doctor && make test-all`
 Expected: doctor green; test-all failures, if any, compared against a 1.7.0 baseline run of the same commit — a failure that also fails on 1.7.0 is not a regression of this plan (see [[e2e-variance-exceeds-effect]]).
 
-- [ ] **Step 2: Re-verify quirk 9 (second apply)**
+- [x] **Step 2: Re-verify quirk 9 (second apply)**
 
 Run: `terraform -chdir=infra/environments/local apply -auto-approve` twice in a row.
 Record verbatim: does the second apply print `No changes.` or fail with `UpdateTags`/`Invalid API id`? This decides whether `infra-up`'s reconcile path still matters.
 
-- [ ] **Step 3: Update the skill**
+- [x] **Step 3: Update the skill**
 
 Edit `.claude/skills/floci/SKILL.md`:
 - Base setup: image pinned `floci/floci:2.1.0`; standard image has bash+coreutils, no curl.
@@ -542,11 +542,11 @@ Edit `.claude/skills/floci/SKILL.md`:
 - Quirk 16/17: on 2.1.0 a plain stop/start deletes DocumentDB/Valkey; fix = `stop_signal: SIGKILL` + `make heal`; ECS reconciler is lazy; delete+recreate no longer wedges.
 - New quirk 18: API GW v2 `request_parameters` `overwrite:header.<h> = $context.authorizer.claims.sub` and `overwrite:path` work (2.1.0); `awslogs-group` is ignored (`/ecs/<family>`); ECR URIs always use `:4566`.
 
-- [ ] **Step 4: Route the vault updates**
+- [x] **Step 4: Route the vault updates**
 
 Dispatch `obsidian-vault` (English output) with the facts of this plan's Tasks 1-5 and the spec's "Feasibility evidence" section: update the three lesson notes above and create the dated lesson note; run `nvm use && node scripts/validate-vault.mjs`.
 
-- [ ] **Step 5: Hand over for commit**
+- [x] **Step 5: Hand over for commit**
 
 Proposed message: `docs(infra): record Floci 2.1.0 restart and gateway behaviour`
 
