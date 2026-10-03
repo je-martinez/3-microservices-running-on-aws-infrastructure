@@ -23,6 +23,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from lib3mrai.aws import client
 from lib3mrai.console import inf, no, ok
 from lib3mrai.db import COMPOSE_NETWORK, discover_port
 
@@ -96,6 +97,41 @@ class Report:
 
 def _docker(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(["docker", *args], capture_output=True, text=True)
+
+
+def _docker_stdout(*args: str) -> str:
+    return _docker(*args).stdout
+
+
+def backing_state(name: str, run=_docker_stdout) -> str:
+    """`running`, `exited` (data intact, `make heal` restarts it) or `missing`."""
+    status = run("ps", "-a", "--filter", f"name=^{name}$", "--format", "{{.Status}}").strip()
+    if not status:
+        return "missing"
+    return "running" if status.startswith("Up") else "exited"
+
+
+def remedy_for(state: str) -> str:
+    return "make heal" if state == "exited" else "make clean && make bootstrap"
+
+
+def redis_remedy(host: str, state_of=backing_state) -> str:
+    """REDIS_HOST is the valkey container's name, so its state picks the remedy."""
+    return remedy_for(state_of(host))
+
+
+def wake_ecs_reconciler() -> bool:
+    """WORKAROUND(local): Floci's ECS reconciler idles until the first ECS call.
+
+    CONTRACT: Never raise. `check_floci` proves only that HTTP answers, so a
+    half-up Floci can fail here, and the doctor must report, not traceback.
+    """
+    try:
+        client("ecs").list_clusters()
+    except Exception as exc:
+        inf(f"    ECS wake-up failed ({exc}); continuing")
+        return False
+    return True
 
 
 def _mysql(port: int, sql: str) -> subprocess.CompletedProcess:
@@ -216,13 +252,13 @@ def check_docdb_host(report: Report) -> None:
         inf(f"    DocumentDB: no DOCDB_HOST in {env_file.name} (skipped)")
         return
 
-    if _docker("ps", "--filter", f"name={host}", "-q").stdout.strip():
+    state = backing_state(host)
+    if state == "running":
         report.passed(f"DocumentDB container '{host}' running")
     else:
         report.failed(
-            f"DOCDB_HOST '{host}' has NO container — the events pipeline cannot "
-            "resolve it, so no email will ever be sent",
-            "make clean && make bootstrap",
+            f"DOCDB_HOST '{host}' is {state} — the events pipeline cannot reach it",
+            remedy_for(state),
         )
 
 
@@ -268,14 +304,14 @@ def check_phantom_resources(report: Report) -> None:
 
         for identifier in identifiers:
             container = f"{prefix}{identifier}"
-            found = _docker("ps", "--filter", f"name={container}", "-q")
-            if found.stdout.strip():
+            state = backing_state(container)
+            if state == "running":
                 report.passed(f"{label} '{identifier}' has a running container")
             else:
                 report.failed(
-                    f"{label} '{identifier}' reports available but has NO container "
-                    f"({container}) — stale emulator state",
-                    "make clean && make bootstrap",
+                    f"{label} '{identifier}' reports available but its container "
+                    f"({container}) is {state}",
+                    remedy_for(state),
                 )
 
 
@@ -583,7 +619,7 @@ def check_service_dependencies(report: Report) -> None:
             f"Redis does NOT answer PING at {host}:{port} "
             f"({pinged.stderr.strip()[:120] or pinged.stdout.strip()[:120]}) — the "
             "services will fail on their first cache read, not at startup",
-            "make clean && make bootstrap",
+            redis_remedy(host),
         )
 
 
@@ -674,6 +710,8 @@ def main() -> int:
         # screenful of failures that all say the same thing.
         no("Floci is down — skipping the remaining checks, they would all fail.")
         return 1
+
+    wake_ecs_reconciler()
 
     print("\n== Containers ==")
     check_containers(report)
