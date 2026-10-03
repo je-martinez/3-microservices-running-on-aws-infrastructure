@@ -4,9 +4,11 @@ type: spec
 area: infra
 status: active
 created: 2026-06-26
-updated: 2026-09-15
+updated: 2026-10-03
 tags: [type/spec, area/infra, status/active]
 related:
+  - "[[ADR-0022-preprod-ecs-on-floci]]"
+  - "[[preprod]]"
   - "[[2026-09-10-in-app-notifications-design]]"
   - "[[floci-sns-fanout-support]]"
   - ADR-0001-terraform-cloudposse-naming
@@ -55,7 +57,7 @@ The real module inventory under `infra/modules/`:
 | `infra/modules/label` | `cloudposse/label` wrapper providing the naming context |
 | `infra/modules/networking` | VPC, subnets, security group |
 | `infra/modules/compute` | nginx on ECS — the local reverse proxy that injects `x-user-id` via njs (see [[ADR-0016-local-apigw-nginx-ecs]]) |
-| `infra/modules/api-gateway` | API Gateway v2, per-route `HTTP_PROXY` integrations, JWT authorizer |
+| `infra/modules/api-gateway` | API Gateway v2, per-route `HTTP_PROXY` integrations, JWT authorizer. `alb_backends` (map service → base URI, default `{}`): non-empty switches the gateway from the nginx task to per-service ALB listeners with `request_parameters` (`overwrite:header.x-user-id` from `claims.sub` on authorized routes, `remove:header.x-user-id` on public routes, `overwrite:path` on health routes); empty keeps dev's behaviour unchanged |
 | `infra/modules/cognito` | Cognito User Pool (+ `custom:app_user_id` attribute), App Client, and the repo's first Lambda (Pre-Token-Generation V2 — see [[cognito-pre-token-lambda]]) |
 | `infra/modules/rds-aurora` | Aurora cluster (writer + reader endpoints), engine-agnostic — serves both Aurora Postgres (users) and Aurora MySQL (orders, tracking); see [[rds-aurora-engine-switchable-floci]] |
 | `infra/modules/docdb` | DocumentDB cluster + instance + subnet group, plus the awscli fallback for Floci (`manage_cluster_via_provider = false`); backs the events-pipeline's event store — see [[events-pipeline-design]] |
@@ -66,9 +68,14 @@ The real module inventory under `infra/modules/`:
 | `infra/modules/dynamodb` | the `websocket_connections` table backing the realtime fan-out: PK `connection_id`, GSI `by-cognito-sub`, TTL on `ttl` as a safety net (not the cleanup mechanism); see [[events-pipeline-design#Realtime WebSocket fan-out (second output of TRACKING_STATUS_CHANGED)]] |
 | `infra/modules/api-gateway-ws` | a **separate** WebSocket API (`aws_apigatewayv2_api`, `protocol_type = "WEBSOCKET"`), its stage, a REQUEST authorizer on `$connect` only, and the four `realtime-events` Lambda functions declared directly inside this module — see [Why `api-gateway-ws` is a new module, and why `lambda/` was not reused](#why-api-gateway-ws-is-a-new-module-and-why-lambda-was-not-reused) below |
 | `infra/modules/redis` | ElastiCache `aws_elasticache_replication_group` (never `aws_elasticache_cluster`) backing Users' password-reset codes; awscli fallback for Floci (provider panics on `NodeGroups[0]`), no subnet-group support on Floci at all, and two Floci-only ports that must not be conflated — see [[redis-elasticache-replication-group-floci]] |
+| `infra/modules/ecr` | one ECR repository per image (pre-prod) |
+| `infra/modules/app-config` | SSM parameters (`/3mrai-preprod/<svc>/<VAR>`) and Secrets Manager secrets (`3mrai-preprod/<svc>/<VAR>`) per service; outputs ARN references for task `secrets` |
+| `infra/modules/alb` | ALB with one listener and target group per service (pre-prod) |
+| `infra/modules/ecs-service` | generic ECS service: task definition (image, cpu/memory, `secrets`, `environment`, port mappings, `awslogs`), service, ALB target registration |
 
-There is no `ecs-service`, `secrets`, or `ecr` module — those are not part of the current
-inventory.
+The four modules `ecr`, `app-config`, `alb` and `ecs-service` are composed only by
+`infra/environments/preprod` ([[ADR-0022-preprod-ecs-on-floci]], [[preprod]]); the `local`
+environment does not use them.
 
 ### Why `api-gateway-ws` is a new module, and why `lambda/` was not reused
 
@@ -239,3 +246,5 @@ Resource names are derived via `module.label.id` (e.g. `3mrai-prod-users`). Tags
 - [[redis-elasticache-replication-group-floci]] — the `redis` module: why a replication group,
   the awscli fallback for Floci, and the two-ports trap.
 - [[self-owned-password-reset-codes-in-redis]] — the Users-side consumer of this module's output.
+- [[ADR-0022-preprod-ecs-on-floci]]
+- [[preprod]]

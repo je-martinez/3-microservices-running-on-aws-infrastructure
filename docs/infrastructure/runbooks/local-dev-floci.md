@@ -4,12 +4,15 @@ type: runbook
 area: infra
 status: active
 created: 2026-07-12
-updated: 2026-10-02
+updated: 2026-10-03
 integration-status: verified
 verified-on: 2026-07-15
 verified-by: Jose E. Martinez
 tags: [type/runbook, area/infra, status/active]
 related:
+  - "[[preprod]]"
+  - "[[environment-exclusivity]]"
+  - "[[ADR-0022-preprod-ecs-on-floci]]"
   - "[[ADR-0017-floci-local]]"
   - "[[ADR-0016-local-apigw-nginx-ecs]]"
   - "[[local-dev]]"
@@ -296,6 +299,14 @@ Several infra decisions extend this runbook's flow without changing the entry po
   per route.
 - [[nginx-njs-x-user-id-injection]] — how local identity (`x-user-id`) is injected.
 
+## Pre-production is a separate environment
+
+`make preprod-up` starts a second environment (compose project `3mrai-preprod`) whose only image
+is Floci; the services run as ECS tasks inside it. It needs the same `:4566` and
+`floci-ecr-registry` as this bootstrap, so **the two never run together**: whichever starts
+second gets a prompt to drop the other or do nothing, and aborts without a TTY
+([[environment-exclusivity]]). Runbook: [[preprod]]; decision: [[ADR-0022-preprod-ecs-on-floci]].
+
 ## Known limitation — second `apply` is never a no-op
 
 On Floci 2.1.0 a **second** `terraform apply` against the same state succeeds but is never a
@@ -401,3 +412,6 @@ re-reports the same 8 in-place changes) — see the sibling section above ([[flo
 - [[terraform-remote-state-backend]]
 - [[local-gateway-per-route-integrations]]
 - [[nginx-njs-x-user-id-injection]]
+- [[preprod]]
+- [[environment-exclusivity]]
+- [[ADR-0022-preprod-ecs-on-floci]]

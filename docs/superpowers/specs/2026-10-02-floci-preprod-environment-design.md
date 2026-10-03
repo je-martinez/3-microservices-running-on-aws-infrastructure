@@ -2,13 +2,13 @@
 title: "Floci Pre-Production Environment Design"
 type: spec
 area: infra
-status: draft
+status: accepted
 created: 2026-10-02
-updated: 2026-10-02
+updated: 2026-10-03
 tags:
   - type/spec
   - area/infra
-  - status/draft
+  - status/accepted
 propagates-to:
   - "[[local-dev-floci]]"
   - "[[local-dev]]"
@@ -19,6 +19,10 @@ propagates-to:
   - "[[floci-recreate-destroys-backing-containers]]"
   - "[[floci-storage-modes-and-tmp-corruption]]"
   - "[[floci-vs-ministack-spike-findings]]"
+  - "[[ADR-0022-preprod-ecs-on-floci]]"
+  - "[[environment-exclusivity]]"
+  - "[[preprod]]"
+  - "[[2026-10-03-floci-preprod-alb-and-ecs-behaviours]]"
 related:
   - "[[2026-10-02-dev-stack-floci-2-1]]"
   - "[[2026-10-02-floci-preprod-environment]]"
@@ -38,9 +42,42 @@ related:
   - "[[ADR-0019-distributed-tracing-opentelemetry]]"
   - "[[testing]]"
   - "[[git-workflow]]"
+  - "[[ADR-0022-preprod-ecs-on-floci]]"
+  - "[[environment-exclusivity]]"
+  - "[[preprod]]"
+  - "[[2026-10-03-floci-preprod-alb-and-ecs-behaviours]]"
 ---
 
 # Floci Pre-Production Environment — Design
+
+## Spec amendments (as built)
+
+Implementation (2026-10-03) departs from the decisions below in the ways listed here. **Where
+this section and a later section disagree, this section wins**; the superseded text is marked
+inline so the original reasoning stays readable. Operational detail: [[preprod]]; decision
+record: [[ADR-0022-preprod-ecs-on-floci]].
+
+| # | Original | As built |
+|---|---|---|
+| 1 | Path rules on one internal ALB listener `:9091` | **One ALB listener per service**: users `9101`, orders `9102`, tracking `9103`, web `9090`, OpenObserve `5080`, Mailpit UI `8025`, OTLP `4318`, browser RUM `4319`. Services call each other over HTTP on paths outside the gateway route map, so a port per service needs no rule upkeep. `9101-9103` are published to the host for the E2E internal layer |
+| 2 | API GW overwrites `x-user-id` on every route | **Auth routes overwrite `x-user-id` from `claims.sub`; public routes `remove:header.x-user-id`.** Verified on 2.1.0: `overwrite` on a route without the authorizer leaves a client-sent value intact |
+| 3 | Terraform state unspecified | **Local state** in `infra/environments/preprod` (a backend bucket inside a disposable emulator only adds a bootstrap step) |
+| 4 | RDS ports from a discovery script | **RDS proxy ports from `data "aws_rds_cluster"`** |
+| 5 | Collector and web endpoints fixed | **`O2_ENDPOINT`** (collector to OpenObserve) and **`OTLP_RUM_UPSTREAM`** (web `/otlp/` to collector) are env-configured; dev keeps today's values as defaults |
+| 6 | gRPC to Users through the ALB if the F2 check passes | **Docker alias `users-grpc:50051`.** Floci's ALB answers gRPC with `502` (malformed header). `users_grpc_via_alb` defaults to `false` |
+| 7 | Redeploy of one service with no failed requests | **About 1-2 s of `503` per rolling replacement** (measured 1.8 s for Users). Floci never applies container health checks and the ALB routes before the app listens |
+| 8 | Success criterion 2: Gatling `fullJourney` runs | `make preprod-load-test-smoke` passes (551 requests, 0 failures). **Full load saturates Floci's single process** (86% / 59% OK, p95 17-50 s): a known local capacity limit, not a pre-prod defect |
+| 9 | Healthcheck `GET /` | **`GET /_floci/health HTTP/1.1` with `Host: localhost`**; 2.1.0 answers `GET /` over HTTP/1.0 without `Host` with `500` |
+| 10 | Config parameters under `/3mrai/preprod/...` | `/3mrai-preprod/<svc>/<VAR>` and Secrets Manager `3mrai-preprod/<svc>/<VAR>` |
+
+Further as-built facts: the ECS services are `users`, `orders`, `tracking`, `web`,
+`otel-collector`, `openobserve`, `mailpit`; aliases are re-applied by `preprod-up`,
+`preprod-deploy` and `preprod-heal`; the collector drops the platform's own log groups; a
+stopped task's ALB target is deregistered by `preprod_targets.py`; Users accepts an empty
+body without a `Content-Type` (the ALB re-sends body-less requests that way). Evidence:
+[[2026-10-03-floci-preprod-alb-and-ecs-behaviours]]. Results: `preprod-up` from scratch green
+in about 3m40s; E2E gateway, gateway-tracking and email 95 passed, 11 skipped (Stripe
+disabled, cache-off spec), 0 failed.
 
 ## Context
 
@@ -110,7 +147,7 @@ Floci **2.1.0** (2026-09-15) was the version probed; dev currently runs **1.7.0*
 | ECR URIs are always `…localhost:4566`; `FLOCI_BASE_URL` does not change them | Two Floci instances cannot both serve ECR — pre-prod must own `:4566` |
 | ECR registry container (`floci-ecr-registry`) and its volume survive `down -v`; a fresh apply then fails with `RepositoryAlreadyExists` | `preprod-down` removes them explicitly |
 | Floci-created RDS volumes survive `down -v` | `preprod-down` removes them explicitly |
-| gRPC through the ALB | **Unverified** (probe image failed to start) — first task of F2 |
+| gRPC through the ALB | Verified in F2 with the real Users image: **does not work** (`502`, malformed header); alias used |
 
 ### Floci restart behaviour and the persistence fix (verified on 2.1.0)
 
@@ -141,24 +178,24 @@ yields an empty store.
    state volume. It publishes `4566` (AWS APIs + ECR) and the ALB listeners meant for the host:
    `9090` (web), `5080` (OpenObserve UI) and `8025` (Mailpit UI). Nothing else.
 2. **Floci pinned to 2.1.0 in both environments.** Dev migrates as phase F0 (see Phases).
-3. **Dev and pre-prod are mutually exclusive — a convention.** Starting either one while the
+3. **Dev and pre-prod are mutually exclusive — a convention** ([[environment-exclusivity]]). Starting either one while the
    other is up prompts the user: *drop the other environment, or do nothing*. Required, not
    cosmetic: both need `:4566` and the fixed-name `floci-ecr-registry` container.
 4. **Orchestration from the host Makefile**, not Floci init hooks (the image carries none of the
    tools). Hooks are used only for lightweight readiness, if at all.
 5. **No nginx.** API Gateway does what the nginx task did: the JWT authorizer, `x-user-id`
-   from `claims.sub` via `overwrite:header`, and the `/health` rewrites via `overwrite:path`. The
+   from `claims.sub` via `overwrite:header` (public routes remove it instead; see amendment 2), and the `/health` rewrites via `overwrite:path`. The
    ALB does the per-service routing.
 6. **Web app on ECS** behind the ALB, using the existing `apps/web` image (static bundle +
    nginx that proxies `/v1` to the gateway, keeping `/v1` relative so no CORS is needed).
    Amplify and CloudFront are unavailable and S3 website returns 404 on deep links.
 7. **Stable names for non-HTTP traffic — hybrid.** OTLP moves to HTTP through a dedicated ALB
-   listener `:4318` (its `/v1/traces` path would collide with the API's `/v1` on a shared one). gRPC to Users goes through the ALB if F2's verification passes, otherwise through an
-   alias. SMTP to Mailpit (Floci's SES relay) always uses an alias: a Python script runs
+   listener `:4318` (its `/v1/traces` path would collide with the API's `/v1` on a shared one). ~~gRPC to Users goes through the ALB if F2's verification passes, otherwise through an
+   alias.~~ *(Superseded by amendment 6: gRPC uses the `users-grpc` alias.)* SMTP to Mailpit (Floci's SES relay) always uses an alias: a Python script runs
    `docker network connect --alias <name>` on the task container after deploy and from
    `make preprod-heal`. A self-healed task loses its alias until heal runs; doctor reports it.
 8. **Configuration only through SSM and Secrets Manager.** Terraform writes
-   `/3mrai/preprod/<svc>/<VAR>` parameters and the credential/API-key secrets; every task
+   `/3mrai-preprod/<svc>/<VAR>` parameters and the credential/API-key secrets; every task
    definition references them by ARN in `secrets`. Pre-prod has no `.env.local.*` files. The
    provider gains the missing `ssm` and `ecr` endpoints (their absence, not Floci, is what made
    `aws_ssm_parameter` fail — the CONTRACT note in `infra/modules/docdb/main.tf` is corrected).
@@ -171,6 +208,10 @@ yields an empty store.
     wipe.
 
 ## Architecture
+
+> [!warning] Superseded diagram
+> The diagram shows the original shared `:9091` listener with path rules. As built, each service
+> owns its listener (amendment 1) and Users gRPC uses an alias (amendment 6).
 
 ```
 host:9090 ─► ALB public listener ──default──► web (ECS; nginx serves bundle, /v1 → API GW)
@@ -204,7 +245,7 @@ blocks during implementation — the list above is illustrative, the route map i
   - `ecr` — one repository per image.
   - `ecs-service` — generic: task definition (image, cpu/memory, `secrets`, `environment`,
     `portMappings`, `awslogs`), service, optional target group + listener rule.
-  - `alb` — load balancer; listeners `9090` (web, host), `9091` (API, internal), `4318`
+  - `alb` — load balancer; *(superseded by amendment 1: one listener per service)* listeners `9090` (web, host), `9091` (API, internal), `4318`
     (OTLP, internal), `5080` (OpenObserve, host), `8025` (Mailpit UI, host); path rules on `9091`.
   - `app-config` — SSM parameters and Secrets Manager secrets per service.
 - `api-gateway` gains a mode where integrations target the ALB with `request_parameters`
@@ -263,7 +304,7 @@ Pre-prod is done when all four hold:
    OpenObserve, verified in the viewer.
 4. **Web navigable:** login → order completed at `http://localhost:9090`.
 
-Plus the environment's own checks: redeploy one service with no failed requests; restart
+Plus the environment's own checks: redeploy one service with only the ~1-2 s rollout `503` window (amendment 7); restart
 Floci and keep DocumentDB/Valkey data; `preprod-down` leaves no Floci containers or volumes.
 
 ## Phases
@@ -324,3 +365,7 @@ Floci 2.1.0 findings (claims→header works, SIGKILL persistence fix, lazy ECS r
 - [[git-workflow]]
 - [[2026-10-02-dev-stack-floci-2-1]]
 - [[2026-10-02-floci-preprod-environment]]
+- [[ADR-0022-preprod-ecs-on-floci]]
+- [[environment-exclusivity]]
+- [[preprod]]
+- [[2026-10-03-floci-preprod-alb-and-ecs-behaviours]]

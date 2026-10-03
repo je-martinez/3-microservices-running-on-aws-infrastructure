@@ -4,12 +4,14 @@ type: convention
 area: shared
 status: active
 created: 2026-07-03
-updated: 2026-10-02
+updated: 2026-10-03
 tags:
   - type/convention
   - area/shared
   - status/active
 related:
+  - "[[preprod]]"
+  - "[[environment-exclusivity]]"
   - "[[ADR-0017-floci-local]]"
   - "[[local-dev-floci]]"
   - "[[git-workflow]]"
@@ -36,6 +38,9 @@ list. Key targets:
 
 - **Compose:** `make up` / `make down` / `make logs` (`make logs S=users` to scope) /
   `make build` / `make ps`.
+- **Pre-prod (Floci-only, services on ECS):** `make preprod-up` / `preprod-deploy S=<svc>` /
+  `preprod-heal` / `preprod-doctor` / `preprod-e2e` / `preprod-down`. Mutually exclusive with the
+  dev stack ([[environment-exclusivity]]); full target list in [[preprod]].
 - **Infra (Terraform against Floci):** `make infra-init` / `make infra-plan` /
   `make infra-up` / `make infra-down` / `make infra-output`. These target
   **`infra/environments/local`** (the `Makefile`'s `TF_LOCAL_DIR`) — the consolidated local
@@ -195,3 +200,5 @@ a new service needs local testing.
 - [[2026-09-22-a-pruned-cache-that-came-over-the-network-is-not-free]] — why `clean`'s prunes are
   not the bounded "one slower rebuild" they used to be documented as, and what `warm-images`/
   `warm-nuget` do about it.
+- [[preprod]] — the pre-production environment and its Make targets.
+- [[environment-exclusivity]] — why dev and pre-prod never run together.

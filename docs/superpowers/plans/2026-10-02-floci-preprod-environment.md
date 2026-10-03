@@ -2,13 +2,13 @@
 title: "Floci Pre-Production Environment Implementation Plan"
 type: plan
 area: infra
-status: draft
+status: accepted
 created: 2026-10-02
-updated: 2026-10-02
+updated: 2026-10-03
 tags:
   - type/plan
   - area/infra
-  - status/draft
+  - status/accepted
 propagates-to:
   - "[[local-dev-floci]]"
   - "[[local-dev]]"
@@ -17,6 +17,10 @@ propagates-to:
   - "[[env-files]]"
   - "[[ADR-0016-local-apigw-nginx-ecs]]"
   - "[[2026-10-02-floci-preprod-environment-design]]"
+  - "[[ADR-0022-preprod-ecs-on-floci]]"
+  - "[[environment-exclusivity]]"
+  - "[[preprod]]"
+  - "[[2026-10-03-floci-preprod-alb-and-ecs-behaviours]]"
 related:
   - "[[2026-10-02-floci-preprod-environment-design]]"
   - "[[2026-10-02-dev-stack-floci-2-1]]"
@@ -49,6 +53,28 @@ related:
 3. **Local Terraform state** for the pre-prod root (no S3 backend bucket inside a disposable emulator).
 4. **RDS proxy ports from `data "aws_rds_cluster"`** (same API `discover_port` reads), not from a discovery script.
 5. `O2_ENDPOINT` (collector → OpenObserve) and `OTLP_RUM_UPSTREAM` (web `/otlp/` → collector) become env-configured; dev keeps today's values as defaults.
+
+## Execution notes (as built)
+
+Rulings made during execution that changed tasks as written; the spec carries the amended
+decisions in [[2026-10-02-floci-preprod-environment-design]] (section "Spec amendments (as built)"):
+
+- **Healthcheck:** Task 2's compose healthcheck is `GET /_floci/health HTTP/1.1` with `Host`
+  (the text above is already amended).
+- **Task 8:** `preprod-up` builds only the images that exist so far (`PP_IMAGES`), extended by
+  Tasks 12-14.
+- **Task 9:** gRPC goes through the `users-grpc` alias, not the ALB; the `preprod-aliases` target
+  moved into Task 10.
+- **Task 10 and 14:** rollout criterion relaxed to the measured ~1-2 s of `503`; wait logic counts
+  only RUNNING tasks; stale ALB targets are deregistered (`preprod_targets.py`).
+- **Task 15:** Users accepts an empty body without `Content-Type`; the collector drops the
+  platform's own log groups; the full Gatling load is a known local capacity limit and the smoke
+  run is the load criterion.
+- **Tasks 11-13:** the dev-regression checks ran as static validation (`terraform validate`,
+  `otelcol-contrib validate`, rendered nginx and compose config) because dev was down.
+
+Operational detail: [[preprod]]; decision: [[ADR-0022-preprod-ecs-on-floci]]; Floci behaviours:
+[[2026-10-03-floci-preprod-alb-and-ecs-behaviours]]; exclusivity: [[environment-exclusivity]].
 
 ## Global Constraints
 
@@ -313,7 +339,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     networks: [preprod-network]
     healthcheck:
-      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/4566 && printf 'GET / HTTP/1.0\\r\\n\\r\\n' >&3 && read -r status <&3 && [[ $$status == *' 200 '* ]]"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/4566 && printf 'GET /_floci/health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && read -r status <&3 && [[ $$status == *' 200 '* ]]"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -2324,3 +2350,7 @@ Expected: gateway suites green; Gatling completes with its assertions passing. A
 - [[terraform-modules]]
 - [[env-files]]
 - [[ADR-0016-local-apigw-nginx-ecs]]
+- [[ADR-0022-preprod-ecs-on-floci]]
+- [[environment-exclusivity]]
+- [[preprod]]
+- [[2026-10-03-floci-preprod-alb-and-ecs-behaviours]]
