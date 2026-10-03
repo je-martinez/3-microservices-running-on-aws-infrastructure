@@ -52,11 +52,26 @@ the registry to whichever instance owns `:4566`, so an ECS task pulls from the w
    `3mrai-preprod`), not by port. The guard lists only RUNNING containers (`docker ps -q`), so a stack whose
    containers are created or exited is treated as down.
 
+5. **The teardown is guarded too (mirror of the start guard).** `make preprod-down` first runs
+   `infra/scripts/env_guard.py --check-other preprod` and refuses while dev runs, with no prompt
+   and no TTY dependency. Its `name=^floci-` and `label=floci=true` sweeps match dev's Floci
+   containers and volumes as well, so running it beside dev would delete dev data and leave
+   phantom databases reported `available`. The refusal prints `make clean`; drop dev first if
+   that is intended.
+
 ## What each teardown costs
 
 Dropping dev wipes its Floci state (`make clean`; regenerable with `make bootstrap`). Dropping
 pre-prod wipes everything in it (`make preprod-down`; regenerable with `make preprod-up`, about
 3m40s from scratch). Pre-prod is disposable by design — see [[preprod]].
+
+## Mechanism
+
+`infra/scripts/env_guard.py` has two modes:
+
+- `env_guard.py <dev|preprod>` is the start guard (rule 1-3): prompt, drop or do nothing.
+- `env_guard.py --check-other <dev|preprod>` gates a teardown of the named environment: exit 1
+  when the other environment's compose project has running containers, 0 otherwise.
 
 ## Adding another environment
 

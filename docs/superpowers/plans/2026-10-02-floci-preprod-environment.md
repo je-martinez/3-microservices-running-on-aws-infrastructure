@@ -70,6 +70,11 @@ decisions in [[2026-10-02-floci-preprod-environment-design]] (section "Spec amen
 - **Task 15:** Users accepts an empty body without `Content-Type`; the collector drops the
   platform's own log groups; the full Gatling load is a known local capacity limit and the smoke
   run is the load criterion.
+- **Final review fixes:** `preprod-down` refuses while dev runs (`env_guard.py --check-other`) and
+  removes the `.terraform-*` directories; heal and targets treat a task as dead only when
+  STOPPED; `ENV_ONLY=1` applies `module.app_config` before forcing the deployment; `preprod-up`
+  refuses on a live environment (`preprod_live.py`); `build_push.py` skips a tag already in ECR;
+  the E2E runner exports `WEBHOOK_SECRET` and `EVENTS_QUEUE_URL`.
 - **Tasks 11-13:** the dev-regression checks ran as static validation (`terraform validate`,
   `otelcol-contrib validate`, rendered nginx and compose config) because dev was down.
 

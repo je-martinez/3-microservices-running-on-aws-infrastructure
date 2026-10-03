@@ -220,7 +220,9 @@ config work in both environments, with dev's values as defaults:
 - `OTLP_RUM_UPSTREAM` — the collector host:port the web nginx proxies `/otlp/` to. Dev's
   generated `.env.local.web` carries `otel-collector:4319`; pre-prod sets `floci:4319`, the ALB's RUM listener.
 
-A pre-prod config change is applied with `make preprod-deploy S=<svc> ENV_ONLY=1`.
+A pre-prod config change is applied with `make preprod-deploy S=<svc> ENV_ONLY=1`: it applies
+`module.app_config` (writing the edited SSM and Secrets Manager values) and then forces a new
+deployment, because ECS reads both only at task start.
 
 ## Adding a service
 
