@@ -930,10 +930,10 @@ PP_TF_DIR  := infra/environments/preprod
 PP_TF      := terraform -chdir=$(PP_TF_DIR)
 PP_NETWORK := 3mrai-preprod_preprod-network
 PP_TF_VARS := -var python_bin=$(PY)
-PP_IMAGES  := users,orders,tracking,web,otel-collector,openobserve
-PP_ALIASES := users-grpc
+PP_IMAGES  := users,orders,tracking,web,otel-collector,openobserve,mailpit
+PP_ALIASES := users-grpc,mailpit
 
-.PHONY: preprod-floci-up preprod-down preprod-up preprod-migrate preprod-smoke preprod-aliases preprod-deploy preprod-observability
+.PHONY: preprod-floci-up preprod-down preprod-up preprod-migrate preprod-smoke preprod-aliases preprod-deploy preprod-observability preprod-heal preprod-doctor
 preprod-floci-up: scripts-setup ## Pre-prod: exclusivity guard, then Floci alone
 	@$(PY) infra/scripts/env_guard.py preprod
 	$(PP_COMPOSE) up -d --wait floci
@@ -956,6 +956,7 @@ preprod-up: preprod-floci-up lambda-bundles ## Pre-prod: everything, from scratc
 	$(MAKE) --no-print-directory preprod-migrate
 	$(PP_TF) apply -auto-approve -input=false $(PP_TF_VARS) -var deploy_services=true
 	$(PY) $(PP_TF_DIR)/scripts/wait_services.py --cluster "$$($(PP_TF) output -raw ecs_cluster_name)"
+	$(PY) $(PP_TF_DIR)/scripts/preprod_targets.py --cluster "$$($(PP_TF) output -raw ecs_cluster_name)" --network $(PP_NETWORK)
 	$(MAKE) --no-print-directory preprod-aliases
 	$(MAKE) --no-print-directory preprod-smoke
 	$(MAKE) --no-print-directory preprod-observability
@@ -1002,8 +1003,21 @@ else
 	    -target='module.service["$(S)"]'
 endif
 	$(PY) $(PP_TF_DIR)/scripts/wait_services.py --cluster "$$($(PP_TF) output -raw ecs_cluster_name)"
+	$(PY) $(PP_TF_DIR)/scripts/preprod_targets.py --cluster "$$($(PP_TF) output -raw ecs_cluster_name)" --network $(PP_NETWORK)
 	$(MAKE) --no-print-directory preprod-aliases
 	$(MAKE) --no-print-directory preprod-smoke
+
+preprod-heal: scripts-setup ## Pre-prod: recover after a Floci/Docker restart, then re-attach aliases
+	$(PP_COMPOSE) up -d --wait floci
+	FLOCI_NETWORK=$(PP_NETWORK) $(PY) infra/scripts/floci_heal.py
+	$(PY) $(PP_TF_DIR)/scripts/wait_services.py --cluster "$$($(PP_TF) output -raw ecs_cluster_name)"
+	$(PY) $(PP_TF_DIR)/scripts/preprod_targets.py --cluster "$$($(PP_TF) output -raw ecs_cluster_name)" --network $(PP_NETWORK)
+	$(MAKE) --no-print-directory preprod-aliases
+
+preprod-doctor: scripts-setup ## Pre-prod: ECS vs containers, ALB targets, aliases, phantom stores
+	$(PY) $(PP_TF_DIR)/scripts/preprod_doctor.py --cluster "$$($(PP_TF) output -raw ecs_cluster_name)" \
+	    --network $(PP_NETWORK) --aliases $(PP_ALIASES) \
+	    --redis-host "$$($(PP_TF) output -raw redis_host)" --docdb-host "$$($(PP_TF) output -raw docdb_host)"
 
 preprod-smoke: ## Pre-prod: health of every service through its ALB listener
 	@for p in 9101 9102 9103; do curl -fsS -o /dev/null -w "$$p %{http_code}\n" http://localhost:$$p/v1/health || exit 1; done

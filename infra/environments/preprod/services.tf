@@ -112,6 +112,9 @@ locals {
     openobserve = {
       ZO_ROOT_USER_EMAIL = "admin@3mrai.local"
     }
+    mailpit = {
+      MP_MAX_MESSAGES = "5000"
+    }
   }
 
   secrets = {
@@ -173,6 +176,10 @@ locals {
     openobserve = {
       port      = 5080, cpu = 512, memory = 1024, extra_ports = []
       listeners = { http = { port = 5080, container_port = 5080, health_path = "/healthz" } }
+    }
+    mailpit = {
+      port      = 8025, cpu = 256, memory = 512, extra_ports = [1025]
+      listeners = { http = { port = 8025, container_port = 8025, health_path = "/api/v1/info" } }
     }
   }
 }
