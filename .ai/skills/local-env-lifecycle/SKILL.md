@@ -179,7 +179,10 @@ from the wrong Floci. `make up`, `make bootstrap` and `make bootstrap-provision`
 running pre-prod (and `make preprod-up` for a running dev): with a TTY they offer to drop the
 other environment; **without a TTY — an agent, CI, a pipe — they ABORT** with exit 1. The fix
 is to tear the other one down first: `make preprod-down` before a dev target, `make clean`
-before `make preprod-up`. See [[environment-exclusivity]].
+before `make preprod-up`. The teardowns are guarded too, with no prompt at all: `make clean`
+and `make clean-state` refuse while pre-prod runs, and `make preprod-down` while dev runs —
+their `floci-` sweeps would delete the other environment's containers and volumes.
+See [[environment-exclusivity]].
 
 ## Symptom → cause
 

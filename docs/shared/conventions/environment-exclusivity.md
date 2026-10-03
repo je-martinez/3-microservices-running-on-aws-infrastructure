@@ -52,19 +52,16 @@ the registry to whichever instance owns `:4566`, so an ECS task pulls from the w
    `3mrai-preprod`), not by port. The guard lists only RUNNING containers (`docker ps -q`), so a stack whose
    containers are created or exited is treated as down.
 
-5. **The teardown is guarded too (mirror of the start guard).** `make preprod-down` first runs
-   `infra/scripts/env_guard.py --check-other preprod` and refuses while dev runs, with no prompt
-   and no TTY dependency. Its `name=^floci-` and `label=floci=true` sweeps match dev's Floci
-   containers and volumes as well, so running it beside dev would delete dev data and leave
-   phantom databases reported `available`. The refusal prints `make clean`; drop dev first if
-   that is intended.
-
-> [!warning] Known gap
-> `make clean` and `make clean-state` (dev) are **not yet guarded**: they run the same
-> `name=^floci-` / `label=floci=true` sweeps and registry-volume removal as `preprod-down`, so
-> running either while pre-prod is up deletes pre-prod's containers and registry volume. Tracked
-> in [[2026-10-03-floci-preprod-follow-ups]]; the intended fix is `env_guard.py --check-other dev`
-> at the top of both targets.
+5. **Teardowns are guarded in both directions (mirror of the start guard).** `make preprod-down`
+   first runs `infra/scripts/env_guard.py --check-other preprod` and refuses while dev runs;
+   `make clean` and `make clean-state` (dev) first run `env_guard.py --check-other dev` and refuse
+   while pre-prod runs. Neither refusal prompts or depends on a TTY. Both teardowns run the same
+   `name=^floci-` and `label=floci=true` sweeps, and `make clean` / `make clean-state` also remove
+   `docker volume rm floci-ecr-registry-data`, so running one beside the other environment would
+   delete its containers, data and registry volume and leave phantom databases reported
+   `available`. The refusal prints the other environment's teardown command (`make clean` or
+   `make preprod-down`); drop it first if that is intended. Verified live on 2026-10-03; see
+   [[2026-10-03-floci-preprod-follow-ups]].
 
 ## What each teardown costs
 

@@ -691,7 +691,10 @@ warm-nuget: ## Build the pre-restored NuGet cache image for the Orders build (id
 	fi
 	@echo "NuGet cache image ready (3mrai-nuget-cache:latest)."
 
-clean: ## Tear down infra + compose, including the emulator state volume
+clean: scripts-setup ## Tear down infra + compose, including the emulator state volume
+	@# CONTRACT: Keep the pre-prod check first — the floci- sweeps below match pre-prod's
+	@# Floci too. See [[environment-exclusivity]]
+	@$(PY) infra/scripts/env_guard.py --check-other dev
 	@# CONTRACT: Four things make this a true teardown, and each was found by a
 	@# "from-scratch" run silently inheriting the previous one. Do NOT drop any of them.
 	@#   - `-v`: removes the `floci-state` volume recording what Floci BELIEVES exists.
@@ -758,7 +761,10 @@ clean: ## Tear down infra + compose, including the emulator state volume
 	@docker image prune -f 2>/dev/null || true
 	@docker builder prune -af 2>/dev/null || true
 
-clean-state: ## Tear down state like `clean`, but KEEP the Docker build cache (faster rebuild)
+clean-state: scripts-setup ## Tear down state like `clean`, but KEEP the Docker build cache (faster rebuild)
+	@# CONTRACT: Keep the pre-prod check first — the floci- sweeps below match pre-prod's
+	@# Floci too. See [[environment-exclusivity]]
+	@$(PY) infra/scripts/env_guard.py --check-other dev
 	@# CONTRACT: Same state teardown as `clean`, pruning neither the build cache nor
 	@# dangling images. Keep the steps below in step with `clean` — a step added there
 	@# and not here makes this a silent half-teardown.
