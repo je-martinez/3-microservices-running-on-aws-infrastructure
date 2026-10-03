@@ -933,7 +933,7 @@ PP_TF_VARS := -var python_bin=$(PY)
 PP_IMAGES  := users,orders,tracking,web,otel-collector,openobserve,mailpit
 PP_ALIASES := users-grpc,mailpit
 
-.PHONY: preprod-floci-up preprod-down preprod-up preprod-migrate preprod-smoke preprod-aliases preprod-deploy preprod-observability preprod-heal preprod-doctor
+.PHONY: preprod-floci-up preprod-down preprod-up preprod-migrate preprod-smoke preprod-aliases preprod-deploy preprod-observability preprod-heal preprod-doctor preprod-e2e preprod-load-test preprod-load-test-smoke
 preprod-floci-up: scripts-setup ## Pre-prod: exclusivity guard, then Floci alone
 	@$(PY) infra/scripts/env_guard.py preprod
 	$(PP_COMPOSE) up -d --wait floci
@@ -1029,6 +1029,15 @@ preprod-smoke: ## Pre-prod: health of every service through its ALB listener
 	  done; \
 	  echo "$$u $$c"; case "$$c" in 2??) ;; *) exit 1 ;; esac; \
 	done
+
+preprod-e2e: scripts-setup ## Pre-prod: Playwright (ARGS="--project=gateway ..." to narrow)
+	$(PY) $(PP_TF_DIR)/scripts/e2e_env.py --tf-dir $(PP_TF_DIR) -- pnpm --filter @3mrai/e2e exec playwright test $(ARGS)
+
+preprod-load-test: scripts-setup ## Pre-prod: Gatling fullJourney
+	cd e2e/load-tests && $(PY) ../../$(PP_TF_DIR)/scripts/e2e_env.py --tf-dir ../../$(PP_TF_DIR) -- pnpm run load
+
+preprod-load-test-smoke: scripts-setup ## Pre-prod: short Gatling run (~20s)
+	cd e2e/load-tests && $(PY) ../../$(PP_TF_DIR)/scripts/e2e_env.py --tf-dir ../../$(PP_TF_DIR) -- pnpm run smoke
 
 preprod-observability: ## Pre-prod: seed the traces schema and import dashboards into pre-prod's OpenObserve
 	@auth="$$(printf 'admin@3mrai.local:%s' "$$($(PP_TF) output -raw openobserve_root_password)" | base64 | tr -d '\n')"; \
