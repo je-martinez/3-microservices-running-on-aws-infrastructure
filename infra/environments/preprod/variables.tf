@@ -47,8 +47,11 @@ variable "image_tags" {
   description = "service -> immutable tag, written by build_push.py to image-tags.auto.tfvars.json."
 }
 
+# WORKAROUND(local): Do NOT default this to true. Floci's ALB does not carry gRPC:
+# grpcurl against :9151 fails with 502 "malformed header: missing HTTP content-type"
+# while the task container answers directly. See [[2026-10-02-floci-preprod-environment-design]]
 variable "users_grpc_via_alb" {
   type        = bool
-  default     = true
-  description = "Task 9 decides: true = USERS_GRPC_URL through ALB :9151, false = Docker alias users-grpc:50051."
+  default     = false
+  description = "false = USERS_GRPC_URL via the Docker alias users-grpc:50051 (preprod_aliases.py attaches it); true = through ALB :9151."
 }
