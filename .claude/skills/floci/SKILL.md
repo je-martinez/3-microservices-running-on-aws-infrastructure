@@ -320,6 +320,27 @@ Source of truth with full evidence: [[floci-vs-ministack-spike-findings]]
     ECS task containers, and re-attaches the `nginx-stable` alias (quirk 8). Run it before
     reaching for `make clean && make bootstrap`; `make doctor` says which case you are in.
 
+23. **ALB + ECS services behave differently from AWS** (verified on 2.1.0 by the pre-prod
+    environment, `infra/environments/preprod/`). Evidence: [[2026-10-03-floci-preprod-alb-and-ecs-behaviours]].
+    - **Container `healthCheck` is stored but never applied** — the Docker container's
+      `Healthcheck` is null — and the ALB never health-gates a target: it receives traffic as
+      soon as the task starts. A rolling replacement shows **~1-2 s of `503`** (1.8 s measured);
+      that window is the emulator, not a regression.
+    - **`list_tasks` returns STOPPED tasks.** Anything counting live tasks must
+      `describe_tasks` (batches of ≤100) and keep `lastStatus == "RUNNING"` — `wait_services.py`
+      and `floci_heal.py` do.
+    - **A stopped task's ALB target is never deregistered**: the ALB sends traffic to a dead IP
+      (`503`s for 1-2 min) and the target stays unhealthy forever. `preprod_targets.py`
+      deregisters targets with no live task after every up, deploy and heal.
+    - **The ALB re-sends a body-less request as `transfer-encoding: chunked` with an empty body
+      and no `Content-Type`.** Fastify answers `415` unless it accepts an empty body without a
+      type (Users does: `services/users/src/shared/http/empty-body-parser.ts`).
+    - **The ALB does not carry gRPC** — an HTTP/2 listener answers `502` with a malformed
+      header. Reach gRPC through a Docker alias on the task (`users-grpc:50051`).
+    - **Fargate rejects 256 CPU / 256 MiB** ("no Fargate configuration"); use 512 MiB.
+    - **A `-target` apply still evaluates every service's image tag**, so every image must
+      already be pushed before deploying any single service.
+
 ## Per-service knowledge
 
 See [references/services.md](references/services.md) — every Floci service with its

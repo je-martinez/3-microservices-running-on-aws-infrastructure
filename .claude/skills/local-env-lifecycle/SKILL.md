@@ -156,6 +156,31 @@ compose rebuilds the services and does *not* redeploy the seven Lambda functions
 and the failure is silent: source correct, tests green, deployed function still
 running the old zip. That shipped a real bug once.
 
+## Pre-prod — the second local environment
+
+Pre-prod (`infra/environments/preprod/`) runs every service as an ECS task on its own Floci,
+behind an ALB, with images pushed to Floci's ECR. Its compose project is `3mrai-preprod`.
+Runbook: [[preprod]].
+
+| Need | Command |
+|---|---|
+| Bring it up from scratch (~3m40s) | `make preprod-up` |
+| Redeploy one service after a code change | `make preprod-deploy S=<users\|orders\|tracking\|web>` |
+| Restart tasks to re-read secrets/SSM only | `make preprod-deploy S=<svc> ENV_ONLY=1` |
+| Health of every service through the ALB | `make preprod-smoke` |
+| "Something is off" (ECS vs containers, ALB targets, aliases, phantom stores) | `make preprod-doctor` |
+| After a Floci or Docker restart | `make preprod-heal` |
+| Playwright / Gatling against it | `make preprod-e2e ARGS="--project=…"`, `make preprod-load-test-smoke` |
+| Tear it all down (Floci, children, ECR registry, volumes, TF state) | `make preprod-down` |
+
+**Dev and pre-prod are mutually exclusive.** Both need host port 4566 and the fixed-name
+`floci-ecr-registry`, and ECR URIs always carry `:4566`, so with both up Docker pulls images
+from the wrong Floci. `make up`, `make bootstrap` and `make bootstrap-provision` check for a
+running pre-prod (and `make preprod-up` for a running dev): with a TTY they offer to drop the
+other environment; **without a TTY — an agent, CI, a pipe — they ABORT** with exit 1. The fix
+is to tear the other one down first: `make preprod-down` before a dev target, `make clean`
+before `make preprod-up`. See [[environment-exclusivity]].
+
 ## Symptom → cause
 
 Environment-state failures that are already diagnosed, so they are worth
