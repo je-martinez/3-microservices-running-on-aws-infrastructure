@@ -4,7 +4,7 @@ type: runbook
 area: infra
 status: active
 created: 2026-07-12
-updated: 2026-09-30
+updated: 2026-10-02
 integration-status: verified
 verified-on: 2026-07-15
 verified-by: Jose E. Martinez
@@ -26,6 +26,9 @@ related:
   - "[[2026-09-21-a-round-invariant-delay-on-one-resource-type-is-the-client-not-the-server]]"
   - "[[2026-09-22-a-pruned-cache-that-came-over-the-network-is-not-free]]"
   - "[[2026-09-22-terraform-side-files-are-per-checkout]]"
+  - "[[floci-recreate-destroys-backing-containers]]"
+  - "[[2026-10-02-floci-2-1-restart-and-gateway-findings]]"
+  - "[[2026-10-02-dev-stack-floci-2-1]]"
 ---
 
 # Local Dev — Floci
@@ -139,8 +142,9 @@ on its own).
 | `make bootstrap-provision` | Phase 1 of `bootstrap`: Floci + Terraform apply + env files. **Not** safely re-runnable — see below |
 | `make bootstrap-converge` | Phase 2 of `bootstrap`: migrations + services + nginx alias. **Safe to re-run** — resumes a partial `bootstrap`. Does **not** include `post-infra` — see below |
 | `make doctor` | Read-only diagnosis of the local stack — see below |
+| `make heal` | Recover the stack after a Floci or Docker daemon restart — see below |
 | `make post-infra` | Phase 2 Terraform apply: least-privilege DB app-users and the assets bucket (see [[two-phase-terraform-apply]]). Called automatically by `bootstrap`; still standalone and re-runnable on its own |
-| `make clean` | Tear down infra + compose; **prompts** before removing `./data` (Floci's persisted state) |
+| `make clean` | Tear down infra + compose with `docker compose down -v`, **no prompt**; removes Floci's state volume and the `floci-ecr-registry-data` volume |
 
 #### `bootstrap-provision` / `bootstrap-converge` — the two halves of `bootstrap`
 
@@ -194,8 +198,27 @@ case the assets bucket `post-infra` provisions (see
 It fetches **one object** rather than listing the bucket, because a bucket that exists but is
 empty renders exactly the same broken-image placeholders as a missing bucket.
 
+Backing containers (DocumentDB, ElastiCache/Valkey, RDS) are classified into three states:
+**running**, **exited** (fix: `make heal`) and **missing** (fix: `make clean && make bootstrap`).
+
 Run it any time the stack's state is unclear — after a partial `bootstrap`, before filing a
 bug against a service, or as a sanity check before `make post-infra`.
+
+#### `make heal` — recover after a Floci or Docker restart
+
+The `floci` compose service stops with `stop_signal: SIGKILL` so Floci's graceful shutdown never
+deletes its DocumentDB and ElastiCache containers (see
+[[floci-recreate-destroys-backing-containers]]). After a Docker daemon restart those containers
+are `Exited` but intact; `make doctor` reports them as **exited**. `make heal`
+(`infra/scripts/floci_heal.py` plus `infra/environments/local/bootstrap.py`) then:
+
+1. restarts the exited DocumentDB/Valkey containers with their data;
+2. wakes Floci's lazy ECS reconciler, which does nothing until the first ECS API call;
+3. removes orphan ECS task containers;
+4. re-attaches the `nginx-stable` alias.
+
+Containers reported as **missing** cannot be healed; rebuild with
+`make clean && make bootstrap`.
 
 ### Observability (opt-in)
 
@@ -268,13 +291,12 @@ Several infra decisions extend this runbook's flow without changing the entry po
 
 ## Known limitation — second `apply` fails
 
-A **second** `terraform apply` against the same Floci state fails (Floci's `UpdateTags`
-implementation for API Gateway v2 / RDS resources is broken — see
-[[floci-rds-apigw-limits]]). Do **not** attempt to re-apply on top of an existing stack. To
-pick up infra changes:
+On Floci 2.1.0 a **second** `terraform apply` against the same state succeeds but is never a
+no-op: 8 in-place changes recur on every apply (see [[floci-rds-apigw-limits]]). Do not rely
+on re-applying on top of an existing stack. To pick up infra changes, rebuild from scratch:
 
 ```bash
-make clean       # tear down (prompts before removing ./data)
+make clean       # tear down (no prompt; removes Floci's state volume)
 make bootstrap    # rebuild from scratch
 ```
 
@@ -349,6 +371,9 @@ re-applied — see the sibling section above ([[floci-rds-apigw-limits]]).
 
 ## Related
 
+- [[floci-recreate-destroys-backing-containers]] — why `make heal` exists and how `make doctor` classifies backing containers.
+- [[2026-10-02-floci-2-1-restart-and-gateway-findings]] — the Floci 2.1.0 probes behind `make heal`.
+- [[2026-10-02-dev-stack-floci-2-1]] — the plan that pinned Floci 2.1.0.
 - [[ADR-0017-floci-local]] — the decision to adopt Floci over Ministack, and its known quirks.
 - [[ADR-0016-local-apigw-nginx-ecs]] — the local API Gateway → nginx → service reverse-proxy topology this bootstrap chain stands up.
 - [[local-dev]] — the broader local-dev convention (`.http` files, Makefile overview).

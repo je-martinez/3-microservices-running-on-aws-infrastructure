@@ -14,6 +14,7 @@ propagates-to:
   - "[[floci-storage-modes-and-tmp-corruption]]"
   - "[[floci-vs-ministack-spike-findings]]"
   - "[[local-dev-floci]]"
+  - "[[2026-10-02-floci-2-1-restart-and-gateway-findings]]"
 related:
   - "[[2026-10-02-floci-preprod-environment-design]]"
   - "[[2026-10-02-floci-preprod-environment]]"
@@ -21,6 +22,7 @@ related:
   - "[[floci-storage-modes-and-tmp-corruption]]"
   - "[[floci-vs-ministack-spike-findings]]"
   - "[[local-dev-floci]]"
+  - "[[2026-10-02-floci-2-1-restart-and-gateway-findings]]"
 ---
 
 # Dev Stack on Floci 2.1.0 Implementation Plan
@@ -556,3 +558,4 @@ Proposed message: `docs(infra): record Floci 2.1.0 restart and gateway behaviour
 - [[floci-storage-modes-and-tmp-corruption]]
 - [[floci-vs-ministack-spike-findings]]
 - [[local-dev-floci]]
+- [[2026-10-02-floci-2-1-restart-and-gateway-findings]]
