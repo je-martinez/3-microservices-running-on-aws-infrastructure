@@ -2,13 +2,13 @@
 title: "Dev Stack on Floci 2.1.0 Implementation Plan"
 type: plan
 area: infra
-status: draft
+status: accepted
 created: 2026-10-02
-updated: 2026-10-02
+updated: 2026-10-03
 tags:
   - type/plan
   - area/infra
-  - status/draft
+  - status/accepted
 propagates-to:
   - "[[floci-recreate-destroys-backing-containers]]"
   - "[[floci-storage-modes-and-tmp-corruption]]"

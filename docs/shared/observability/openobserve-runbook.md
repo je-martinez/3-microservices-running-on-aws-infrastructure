@@ -4,7 +4,7 @@ type: runbook
 area: shared
 status: active
 created: 2026-07-10
-updated: 2026-08-21
+updated: 2026-10-03
 integration-status: verified
 verified-on: 2026-08-21
 verified-by: Jose E. Martinez
@@ -114,6 +114,15 @@ filter is silently lost; a record matching both is stored twice. Each pair is wr
 same expression for exactly this reason — see the comments beside `filter/only_sql`/
 `filter/drop_sql` and their siblings in `observability/otel-collector-config.yaml`.
 
+**The one exception is `filter/drop_platform_logs`.** It is a deliberate **global** drop with
+**no `only_*` complement**: it discards the platform's own CloudWatch log groups
+(`/ecs/<family>-openobserve`, `-otel-collector`, `-mailpit`, and `/aws/ecr/registry`), which the
+receiver's autodiscovery reads in pre-prod and which would otherwise be ingested back into the
+stack that wrote them. No stream is meant to receive them, so nothing complements the filter.
+It must be listed in **every** CloudWatch logs pipeline, right after `transform/parse_body`; a
+new pipeline that omits it routes those records into its own stream (for the catch-all, into
+`unclassified`). See [[openobserve-cloudwatch]].
+
 ### The `unclassified` stream — the 7th stream, and it should be empty
 
 **What it is.** A catch-all that receives any log record reaching the end of the collector's
@@ -171,7 +180,7 @@ treats the symptom, and the next new producer reintroduces the same gap.
 
 > [!info] Implementation note — the drop chain is required, not redundant
 > `logs/unclassified`'s processor chain repeats every `filter/drop_*` from the main `logs`
-> pipeline (`drop_nginx`, `drop_redis`, `drop_docdb`, `drop_rds`, `drop_sql`) before applying
+> pipeline (`drop_platform_logs`, then `drop_nginx`, `drop_redis`, `drop_docdb`, `drop_rds`, `drop_sql`) before applying
 > `filter/only_unclassified`. Every other split is defined by a log group or attribute it
 > **owns**; "unclassified" is defined by **absence** — no `service_name` — so without those same
 > drops it would swallow legitimately-unparsed records that belong to the other streams instead

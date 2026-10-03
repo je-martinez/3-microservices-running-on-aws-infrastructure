@@ -37,8 +37,9 @@ nginx). Decision: [[ADR-0022-preprod-ecs-on-floci]]. It cannot run beside dev
 make preprod-up        # about 3m40s from scratch
 ```
 
-Order: exclusivity guard, live-environment check, Floci up (compose project `3mrai-preprod`, healthcheck
-`GET /_floci/health HTTP/1.1`), Terraform apply with `deploy_services=false` (data stores,
+Order: exclusivity guard (`env_guard.py preprod`), Floci up (compose project `3mrai-preprod`, healthcheck
+`GET /_floci/health HTTP/1.1`; the guard and Floci are the `preprod-floci-up` prerequisite),
+live-environment check (`preprod_live.py`), `lambda-bundles`, `terraform init`, Terraform apply with `deploy_services=false` (data stores,
 Cognito, messaging, ECR, config), build and push every image, `preprod-migrate`, apply with
 `deploy_services=true` (ECS services, ALB, gateway), wait for RUNNING tasks, deregister stale ALB
 targets, aliases, smoke, then `preprod-observability` (seed + dashboards). It does not run
@@ -46,7 +47,8 @@ targets, aliases, smoke, then `preprod-observability` (seed + dashboards). It do
 `make preprod-down && make preprod-up`.
 
 `make preprod-up` refuses when pre-prod is already up: its first apply (`deploy_services=false`)
-would destroy and rebuild every service. `preprod_live.py` runs before that apply and fails when the
+would destroy and rebuild every service. `preprod_live.py` runs after the guard and Floci start and before
+that apply, and fails when the
 ECS cluster in local state has any service. Use `make preprod-deploy S=<svc>` or `make preprod-down` first.
 
 ## Make targets
@@ -76,7 +78,8 @@ ECS cluster in local state has any service. Use `make preprod-deploy S=<svc>` or
 | `8025` | ALB → Mailpit UI and API |
 
 Internal only: OTLP `4318` (collector, traces; logs travel `awslogs` → CloudWatch → collector, and
-services set `OTEL_LOGS_EXPORTER=none`) and `4319` (browser RUM). The API Gateway
+Users and Tracking set `OTEL_LOGS_EXPORTER=none`; Orders sets it in neither pre-prod nor dev, so pre-prod
+matches dev) and `4319` (browser RUM). The API Gateway
 URL comes from `terraform output` in `infra/environments/preprod`.
 
 ## Configuration layout

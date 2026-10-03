@@ -59,6 +59,13 @@ the registry to whichever instance owns `:4566`, so an ECS task pulls from the w
    phantom databases reported `available`. The refusal prints `make clean`; drop dev first if
    that is intended.
 
+> [!warning] Known gap
+> `make clean` and `make clean-state` (dev) are **not yet guarded**: they run the same
+> `name=^floci-` / `label=floci=true` sweeps and registry-volume removal as `preprod-down`, so
+> running either while pre-prod is up deletes pre-prod's containers and registry volume. Tracked
+> in [[2026-10-03-floci-preprod-follow-ups]]; the intended fix is `env_guard.py --check-other dev`
+> at the top of both targets.
+
 ## What each teardown costs
 
 Dropping dev wipes its Floci state (`make clean`; regenerable with `make bootstrap`). Dropping
@@ -88,3 +95,4 @@ from its entry targets.
 - [[local-dev-floci]]
 - [[local-dev]]
 - [[2026-09-30-a-tty-less-prompt-resolves-to-a-silent-success]]
+- [[2026-10-03-floci-preprod-follow-ups]]

@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-10
-updated: 2026-09-06
+updated: 2026-10-03
 tags: [type/convention, area/shared, status/active]
 related: ["[[ADR-0018-observability-openobserve]]", "[[cqrs]]", "[[2026-07-10-signoz-logs-observability-design]]", "[[2026-07-10-openobserve-migration-design]]", "[[2026-09-06-address-geocoding-proxy-design]]"]
 ---
@@ -23,6 +23,24 @@ CloudWatch is the natural collection point on AWS and the authoritative store; t
 covers local compose containers that don't reach CloudWatch; OpenObserve gives a single,
 lightweight (single-binary) pane of glass. The same OTLP interface makes the backend swappable, as
 demonstrated by the SigNoz → OpenObserve migration in [[ADR-0018-observability-openobserve]].
+
+## Platform logs are dropped globally
+
+In pre-prod the collector's CloudWatch receiver autodiscovers the log groups of the platform
+itself: `/ecs/<family>-openobserve`, `/ecs/<family>-otel-collector`, `/ecs/<family>-mailpit` and
+Floci's ECR registry (`/aws/ecr/registry`). Their access and startup lines would be ingested back
+into the stack that wrote them, and none carries a `service_name`.
+`filter/drop_platform_logs` in `observability/otel-collector-config.yaml` discards them.
+
+- It is a **global drop with no `only_*` complement** — intentionally: no stream should receive
+  these records. The "every `only_*`/`drop_*` pair is an exact complement" rule applies to the
+  routed streams, not to this filter.
+- It must be included in **every** CloudWatch logs pipeline (right after `transform/parse_body`).
+  A pipeline that omits it stores those records in its own stream (the catch-all stores them as
+  `unclassified`).
+- Match on the **resource** attribute `cloudwatch.log.group.name` (dot-separated), nil guard first.
+
+See [[openobserve-runbook]] for the pipeline layout and [[preprod]] for the environment.
 
 ## Selective access logging as a metering pattern
 
@@ -45,6 +63,8 @@ format carries no `service_name` and would otherwise land in the `unclassified` 
 
 ## Related
 
+- [[openobserve-runbook]] — pipeline layout and the exact-complement rule.
+- [[preprod]] — the environment whose receiver reads the platform log groups.
 - [[ADR-0018-observability-openobserve]]
 - [[cqrs]] — handler-level boundaries that logs follow across services.
 - [[2026-07-10-signoz-logs-observability-design]] — the design spec that first specified the collector/receivers this convention documents.

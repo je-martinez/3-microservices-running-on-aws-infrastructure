@@ -87,7 +87,7 @@ Operational detail: [[preprod]]; decision: [[ADR-0022-preprod-ecs-on-floci]]; Fl
 - Compose project `3mrai-preprod`, network `3mrai-preprod_preprod-network`; Floci must own host port `4566` (ECR URIs are always `…localhost:4566`).
 - Dev and pre-prod are mutually exclusive; starting one while the other runs prompts *drop the other / do nothing*; without a TTY it aborts.
 - AWS provider `= 5.31.0`; every service the root touches has an `endpoints {}` entry.
-- Image tags are immutable: `<git-sha>` or `<git-sha>-dirty-<epoch-seconds>`; never `latest`.
+- Image tags are immutable: `<sha12>` or `<sha12>-dirty-<epoch>-<hash8>` (12-char SHA; epoch seconds; first 8 hex of the SHA-256 of `git diff HEAD`); never `latest`.
 - Service configuration only via SSM (`/3mrai-preprod/<svc>/<VAR>`) and Secrets Manager (`3mrai-preprod/<svc>/<VAR>`); no `.env.local.*` file is read by any pre-prod workload.
 - Stripe stays disabled in pre-prod (`STRIPE_ENABLED=false`, `NG_APP_STRIPE_ENABLED=false`); geocoding disabled (`NG_APP_GEOCODE_ENABLED=false`).
 - Python scripts run as `$(PY)` (`.venv/bin/python`), use `lib3mrai.aws.client` and `lib3mrai.console`; tests under `infra/scripts/tests/` or `infra/environments/preprod/scripts/tests/` (add the latter to `testpaths` in `infra/scripts/pyproject.toml`).
@@ -2327,7 +2327,7 @@ Expected: gateway suites green; Gatling completes with its assertions passing. A
 - [x] **Step 1: Redeploy without failed requests** — repeat Task 10 Step 2 for `users` and `web` (`http://localhost:9090/`). Expected: only `200`. (amended — see Execution notes / Spec amendments)
 - [x] **Step 2: Restart keeps data** — create an order; `docker compose -f docker-compose.preprod.yml restart floci && make preprod-heal`; `GET /v1/orders/my-orders` through the gateway returns the order; an events-pipeline read (`EVENTS_QUERY_URL`) still returns the order's events (DocumentDB kept).
 - [x] **Step 3: Teardown leaves nothing** — `make preprod-down`; `docker ps -a --format '{{.Names}}' | grep -cE '^(floci-|3mrai-preprod)'` → `0`; `docker volume ls -q | grep -cE 'floci-|3mrai-preprod'` → `0`.
-- [ ] **Step 4: Exclusivity both ways** — with pre-prod up, `make up` prompts; answer `n` → exits 1, pre-prod untouched. With dev up, `make preprod-up < /dev/null` → aborts (no TTY), dev untouched. (no-TTY abort verified with pre-prod up; dev-up direction not run)
+- [x] **Step 4: Exclusivity both ways** — with pre-prod up, `make up` prompts; answer `n` → exits 1, pre-prod untouched. With dev up, `make preprod-up < /dev/null` → aborts (no TTY), dev untouched. (no-TTY abort verified with pre-prod up. Dev-up direction verified live on 2026-10-03: with dev up, `make preprod-floci-up < /dev/null` aborted with "dev is running; refusing to start preprod without a TTY to confirm" (Error 1), dev untouched, no pre-prod container created. The interactive "answer `n` → exit 1" half was not run with a TTY; it is covered by the unit tests `test_nothing_aborts` and `test_no_tty_aborts_without_dropping` in `infra/scripts/tests/test_env_guard.py`.)
 
 ---
 

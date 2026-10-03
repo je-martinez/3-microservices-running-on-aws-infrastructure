@@ -85,6 +85,19 @@ body without a `Content-Type` (the ALB re-sends body-less requests that way). Ev
 in about 3m40s; E2E gateway, gateway-tracking and email 95 passed, 11 skipped (Stripe
 disabled, cache-off spec), 0 failed.
 
+**Corrections recorded 2026-10-03 (audit; the table above is left as written).**
+
+- *Amendment 11, step order.* The Makefile runs `preprod-up` as: exclusivity guard
+  (`env_guard.py preprod`, via the `preprod-floci-up` prerequisite) → Floci up → live-environment
+  refusal (`preprod_live.py`) → `lambda-bundles` → `terraform init` → apply A → build/push →
+  migrate → apply B → wait → stale-target cleanup → aliases → smoke → `preprod-observability`.
+  The live check therefore runs **after** the guard and Floci, not before them; it needs Floci's
+  state to read the cluster from, and the guard is the prerequisite of that step.
+- *Decision 9, image tag format.* The tag is `<sha12>` on a clean tree and
+  `<sha12>-dirty-<epoch>-<hash8>` on a dirty one: the epoch-seconds timestamp plus the first 8 hex
+  characters of the SHA-256 of `git diff HEAD`. The content hash keeps two dirty builds in the
+  same second distinct. See [[ADR-0022-preprod-ecs-on-floci]].
+
 ## Context
 
 Today the local stack is split in two: Floci emulates the AWS resources (RDS, DocumentDB,
