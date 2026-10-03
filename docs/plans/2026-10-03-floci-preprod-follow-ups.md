@@ -26,14 +26,14 @@ Resume point for the Floci pre-prod milestone. Design: [[2026-10-02-floci-prepro
 
 ## State at handoff (2026-10-03)
 
-- Branches: `build/floci-2-1-dev` (plan A: dev stack on Floci 2.1.0, 6 commits, base `feature/floci-preprod-env`) and `feat/floci-preprod` (plan B: pre-prod, 30+ commits, built on top of `build/floci-2-1-dev`). Both pushed.
-- Stacked PRs: PR A `build/floci-2-1-dev` → `feature/floci-preprod-env`; PR B `feat/floci-preprod` → `build/floci-2-1-dev` (GitHub retargets it to the feature branch when A merges). PR numbers: see GitHub (being opened at handoff).
+- Branch: `feat/floci-preprod` carries both plan A (dev stack on Floci 2.1.0) and plan B (pre-prod, 30+ commits). Pushed.
+- Single PR: [#117](https://github.com/je-martinez/3-microservices-running-on-aws-infrastructure/pull/117) `feat/floci-preprod` → `feature/floci-preprod-env`, carrying both plan A and plan B. PR #116 (plan A alone) was closed as superseded.
 - Local runtime: pre-prod is UP, dev is DOWN. Return to dev with `make preprod-down && make bootstrap`.
 - Plans A and B are fully executed and reviewed: per-task reviews, final whole-branch reviews, spec-implementation audit and re-audit clean.
 
 ## To finish the milestone
 
-- [ ] Review and merge PR A, then PR B (the user merges; no auto-merge).
+- [ ] Review + merge PR #117 (user merges; no auto-merge).
 - [ ] Propose the milestone PR `feature/floci-preprod-env` → `main` (Phase D).
 - [ ] Run `make ai-sync`: `.claude/skills/floci` and `.claude/skills/local-env-lifecycle` changed and `.ai/skills/` is not yet synced (see [[skill-propagation]]).
 - [ ] Verify live the dev → pre-prod direction of the exclusivity guard ([[environment-exclusivity]]; plan B Task 16 Step 4, only unit-tested so far): with dev up, `make preprod-floci-up < /dev/null` must abort.
