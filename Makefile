@@ -931,8 +931,9 @@ PP_TF      := terraform -chdir=$(PP_TF_DIR)
 PP_NETWORK := 3mrai-preprod_preprod-network
 PP_TF_VARS := -var python_bin=$(PY)
 PP_IMAGES  := users,orders,tracking
+PP_ALIASES := users-grpc
 
-.PHONY: preprod-floci-up preprod-down preprod-up preprod-migrate preprod-smoke
+.PHONY: preprod-floci-up preprod-down preprod-up preprod-migrate preprod-smoke preprod-aliases preprod-deploy
 preprod-floci-up: scripts-setup ## Pre-prod: exclusivity guard, then Floci alone
 	@$(PY) infra/scripts/env_guard.py preprod
 	$(PP_COMPOSE) up -d --wait floci
@@ -955,6 +956,7 @@ preprod-up: preprod-floci-up lambda-bundles ## Pre-prod: everything, from scratc
 	$(MAKE) --no-print-directory preprod-migrate
 	$(PP_TF) apply -auto-approve -input=false $(PP_TF_VARS) -var deploy_services=true
 	$(PY) $(PP_TF_DIR)/scripts/wait_services.py --cluster "$$($(PP_TF) output -raw ecs_cluster_name)"
+	$(MAKE) --no-print-directory preprod-aliases
 	$(MAKE) --no-print-directory preprod-smoke
 
 preprod-migrate: scripts-setup ## Pre-prod: Prisma (users) + golang-migrate (tracking) against Floci's RDS
@@ -983,6 +985,24 @@ preprod-migrate: scripts-setup ## Pre-prod: Prisma (users) + golang-migrate (tra
 	fi; \
 	docker run --rm --network $(PP_NETWORK) -v "$(REPO_ROOT)/services/tracking-go/migrations:/migrations" \
 	  migrate/migrate:v4.17.1 -path=/migrations -database "$$migrate_dsn" up
+
+preprod-aliases: scripts-setup ## Pre-prod: attach stable Docker aliases to ECS tasks
+	$(PY) $(PP_TF_DIR)/scripts/preprod_aliases.py --cluster "$$($(PP_TF) output -raw ecs_cluster_name)" --network $(PP_NETWORK) --aliases $(PP_ALIASES)
+
+preprod-deploy: scripts-setup ## Pre-prod: redeploy one service (S=users|orders|tracking; ENV_ONLY=1 = config only)
+	@test -n "$(S)" || { echo "usage: make preprod-deploy S=<service> [ENV_ONLY=1]"; exit 2; }
+ifeq ($(ENV_ONLY),1)
+	@# WHY: ECS reads secrets and SSM only at task start, so a config change needs new tasks.
+	$(PY) -c "import boto3,sys; boto3.client('ecs',endpoint_url='http://localhost:4566',region_name='us-east-1',aws_access_key_id='test',aws_secret_access_key='test').update_service(cluster=sys.argv[1],service=sys.argv[2],forceNewDeployment=True)" "$$($(PP_TF) output -raw ecs_cluster_name)" $(S)
+else
+	$(PY) $(PP_TF_DIR)/scripts/build_push.py --tf-dir $(PP_TF_DIR) --services $(S)
+	@# CONTRACT: Keep -target; a full apply re-touches the perpetual-drift resources.
+	$(PP_TF) apply -auto-approve -input=false $(PP_TF_VARS) -var deploy_services=true \
+	    -target='module.service["$(S)"]'
+endif
+	$(PY) $(PP_TF_DIR)/scripts/wait_services.py --cluster "$$($(PP_TF) output -raw ecs_cluster_name)"
+	$(MAKE) --no-print-directory preprod-aliases
+	$(MAKE) --no-print-directory preprod-smoke
 
 preprod-smoke: ## Pre-prod: health of every service through its ALB listener
 	@for p in 9101 9102 9103; do curl -fsS -o /dev/null -w "$$p %{http_code}\n" http://localhost:$$p/v1/health || exit 1; done
