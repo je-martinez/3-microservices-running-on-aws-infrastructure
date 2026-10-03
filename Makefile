@@ -134,7 +134,8 @@ install-comment-hook: ## Install the staged code-comment pre-commit hook
 
 ## --- Docker Compose ---
 
-up: ## Start the stack (Floci + services) in the background
+up: scripts-setup ## Start the stack (Floci + services) in the background
+	@$(PY) infra/scripts/env_guard.py dev
 	$(COMPOSE) up -d
 
 down: ## Stop the stack
@@ -492,6 +493,7 @@ heal: scripts-setup ## Recover after a Floci/Docker restart: start Floci, restar
 ## --- Orchestration ---
 
 bootstrap: scripts-setup ## Bring the whole local chain up from scratch, in dependency order (includes phase 2)
+	@$(PY) infra/scripts/env_guard.py dev
 	@# CONTRACT: Order is load-bearing — Floci, then terraform, then .env, then
 	@# migrations, then the services. `users` validates COGNITO_* with Zod at boot and
 	@# those IDs exist only after the apply.
@@ -551,6 +553,7 @@ bootstrap: scripts-setup ## Bring the whole local chain up from scratch, in depe
 	$(MAKE) post-infra
 
 bootstrap-provision: scripts-setup ## Phase 1 of bootstrap: Floci + terraform + env files (NOT re-runnable — see below)
+	@$(PY) infra/scripts/env_guard.py dev
 	@# The half of `bootstrap` that CANNOT be safely re-run: a second phase-1
 	@# apply fails against Floci on UpdateTags (JE-113). Split out so that
 	@# `bootstrap-converge` exists as a resume path that never re-enters it.
