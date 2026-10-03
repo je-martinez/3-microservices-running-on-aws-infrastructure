@@ -189,6 +189,16 @@ locals {
 
 # ─── Integrations ─────────────────────────────────────────────────────────────
 
+locals {
+  alb_mode = length(var.alb_backends) > 0
+  route_service = {
+    for k, r in local.routes : k => (
+      can(regex("^/v1/(orders|products|cart)", r.path)) ? "orders" :
+      can(regex("^/v1/(trackings|tracking/)", r.path)) ? "tracking" : "users"
+    )
+  }
+}
+
 # LOCAL: one HTTP_PROXY integration per route, path baked into the URI.
 resource "aws_apigatewayv2_integration" "per_route" {
   for_each = var.local_gateway ? local.routes : {}
@@ -196,8 +206,18 @@ resource "aws_apigatewayv2_integration" "per_route" {
   api_id                 = aws_apigatewayv2_api.this.id
   integration_type       = "HTTP_PROXY"
   integration_method     = "ANY"
-  integration_uri        = "${var.nginx_base_uri}${each.value.path}"
+  integration_uri        = local.alb_mode ? "${var.alb_backends[local.route_service[each.key]]}${each.value.path}" : "${var.nginx_base_uri}${each.value.path}"
   payload_format_version = "1.0"
+
+  # CONTRACT: In ALB mode the gateway does what the nginx task did. Auth routes
+  # OVERWRITE x-user-id from the verified token; public routes REMOVE it —
+  # overwrite with claims.sub on a route without the authorizer leaves a
+  # client-sent value intact (verified on Floci 2.1.0). Health routes map to the
+  # services' unprefixed /v1/health. See [[2026-10-02-floci-preprod-environment-design]]
+  request_parameters = !local.alb_mode ? null : merge(
+    each.value.auth ? { "overwrite:header.x-user-id" = "$context.authorizer.claims.sub" } : { "remove:header.x-user-id" = "''" },
+    endswith(each.key, "_health") ? { "overwrite:path" = "/v1/health" } : {},
+  )
 }
 
 # PROD: single shared HTTP_PROXY integration (real AWS preserves the path).

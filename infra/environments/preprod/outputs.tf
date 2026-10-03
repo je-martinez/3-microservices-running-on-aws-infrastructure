@@ -39,3 +39,8 @@ output "ecs_cluster_name" { value = aws_ecs_cluster.this.name }
 output "service_ports" {
   value = { for k, s in local.services : k => { for lk, l in s.listeners : lk => l.port } }
 }
+
+output "api_id" { value = module.api_gateway.api_id }
+output "api_gateway_url" {
+  value = "http://localhost:4566/restapis/${module.api_gateway.api_id}/$default/_user_request_"
+}

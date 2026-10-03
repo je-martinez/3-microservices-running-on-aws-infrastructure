@@ -169,3 +169,18 @@ module "service" {
   security_group_ids = module.networking.security_group_ids
   region             = local.region
 }
+
+module "api_gateway" {
+  source                   = "../../modules/api-gateway"
+  context                  = { id = module.label_api.id, tags = module.label_api.tags }
+  cognito_issuer           = module.cognito.issuer
+  cognito_audience         = module.cognito.client_id
+  local_gateway            = true
+  enable_e2e_cleanup_route = true
+  enable_tracking_routes   = true
+  alb_backends = {
+    users    = "http://localhost:9101"
+    orders   = "http://localhost:9102"
+    tracking = "http://localhost:9103"
+  }
+}
