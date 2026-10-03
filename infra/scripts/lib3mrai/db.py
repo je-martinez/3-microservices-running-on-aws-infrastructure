@@ -1,5 +1,6 @@
 """Database discovery and readiness helpers for the local Floci stack."""
 
+import os
 import subprocess
 import time
 
@@ -8,7 +9,14 @@ from . import aws
 # Floci's compose network. The readiness probes run INSIDE a throwaway container
 # joined to it, so they resolve the `floci` service by name — the same network
 # the app containers use.
-COMPOSE_NETWORK = "3mrai_3mrai-network"
+DEFAULT_NETWORK = "3mrai_3mrai-network"
+# Importers that read the dev network name directly (doctor.py and others).
+COMPOSE_NETWORK = DEFAULT_NETWORK
+
+
+def compose_network() -> str:
+    """The Floci compose network; pre-prod exports FLOCI_NETWORK."""
+    return os.environ.get("FLOCI_NETWORK", DEFAULT_NETWORK)
 
 
 def discover_port(engine: str) -> int:
@@ -34,7 +42,7 @@ def _probe_command(engine: str, host: str, port: int) -> list[str]:
     """The readiness-probe argv for `engine`, run in a throwaway container."""
     if engine == "postgres":
         return [
-            "docker", "run", "--rm", "--network", COMPOSE_NETWORK,
+            "docker", "run", "--rm", "--network", compose_network(),
             "postgres:14.6-alpine",
             "pg_isready", "-h", host, "-p", str(port),
         ]
@@ -43,7 +51,7 @@ def _probe_command(engine: str, host: str, port: int) -> list[str]:
         # TLS, so the client's default SSL handshake fails with
         # "unexpected eof while reading".
         return [
-            "docker", "run", "--rm", "--network", COMPOSE_NETWORK,
+            "docker", "run", "--rm", "--network", compose_network(),
             "mysql:8",
             "mysqladmin", "ping", "--ssl-mode=DISABLED",
             "-h", host, "-P", str(port), "--silent",

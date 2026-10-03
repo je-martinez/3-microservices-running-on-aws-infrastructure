@@ -923,3 +923,26 @@ ai-sync-check: ## Verify provider configs are valid and the guard is in place (C
 	  || { echo "ERROR: provider config is stale — run 'make ai-sync' and commit the result"; \
 	       git status --porcelain .ai/ .cursor/ .windsurf/ .gemini/ .codex/ .agents/ .github/ .opencode/ .vscode/ AGENTS.md GEMINI.md opencode.json; exit 1; }
 	@echo "OK: providers valid, guard in place, committed output up to date"
+
+## ── Pre-production (Floci-only, see docs/infrastructure/runbooks/preprod.md) ──
+PP_COMPOSE := docker compose -f docker-compose.preprod.yml
+PP_TF_DIR  := infra/environments/preprod
+PP_TF      := terraform -chdir=$(PP_TF_DIR)
+PP_NETWORK := 3mrai-preprod_preprod-network
+PP_TF_VARS := -var python_bin=$(PY)
+
+.PHONY: preprod-floci-up preprod-down
+preprod-floci-up: scripts-setup ## Pre-prod: exclusivity guard, then Floci alone
+	@$(PY) infra/scripts/env_guard.py preprod
+	$(PP_COMPOSE) up -d --wait floci
+
+preprod-down: ## Pre-prod: full wipe (Floci, its children, ECR registry, Floci volumes, TF state)
+	$(PP_COMPOSE) down -v --remove-orphans
+	@# CONTRACT: Floci-launched containers and volumes carry no compose label, and the
+	@# ECR registry survives Floci's own shutdown; kept, the next apply fails with
+	@# RepositoryAlreadyExists and DocumentDB/ElastiCache come back as phantoms.
+	@docker ps -aq --filter "name=^floci-" | xargs -r docker rm -f 2>/dev/null || true
+	@docker volume ls -q --filter label=floci=true | xargs -r docker volume rm -f 2>/dev/null || true
+	@docker volume rm -f floci-ecr-registry-data 2>/dev/null || true
+	@docker network rm $(PP_NETWORK) 2>/dev/null || true
+	@rm -rf $(PP_TF_DIR)/.terraform $(PP_TF_DIR)/terraform.tfstate* $(PP_TF_DIR)/image-tags.auto.tfvars.json $(PP_TF_DIR)/.state

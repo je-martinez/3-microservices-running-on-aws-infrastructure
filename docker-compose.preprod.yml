@@ -1,0 +1,41 @@
+# Pre-production: Floci is the ONLY image. Every workload runs inside it as an
+# ECS service pulled from Floci's ECR. See [[2026-10-02-floci-preprod-environment-design]]
+name: 3mrai-preprod
+
+networks:
+  preprod-network:
+    driver: bridge
+
+volumes:
+  floci-state:
+
+services:
+  floci:
+    image: floci/floci:2.1.0
+    # CONTRACT: Do NOT remove stop_signal SIGKILL — Floci's graceful shutdown deletes
+    # its DocumentDB and ElastiCache containers, leaving phantoms reported available.
+    # See [[floci-recreate-destroys-backing-containers]]
+    stop_signal: SIGKILL
+    ports:
+      - "4566:4566"            # AWS APIs + ECR (ECR URIs are always :4566)
+      - "9090:9090"            # ALB → web
+      - "9101-9103:9101-9103"  # ALB → users / orders / tracking (E2E internal layer)
+      - "5080:5080"            # ALB → OpenObserve UI
+      - "8025:8025"            # ALB → Mailpit UI + API
+    environment:
+      - FLOCI_SERVICES_DOCKER_NETWORK=3mrai-preprod_preprod-network
+      - FLOCI_SERVICES_ECS_DOCKER_NETWORK=3mrai-preprod_preprod-network
+      - FLOCI_STORAGE_MODE=persistent
+      - FLOCI_STORAGE_PERSISTENT_PATH=/app/data
+      # WHY: `mailpit` is a Docker alias on the Mailpit ECS task (preprod_aliases.py).
+      - FLOCI_SERVICES_SES_SMTP_HOST=mailpit
+      - FLOCI_SERVICES_SES_SMTP_PORT=1025
+    volumes:
+      - floci-state:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [preprod-network]
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/4566 && printf 'GET /_floci/health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && read -r status <&3 && [[ $$status == *' 200 '* ]]"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
