@@ -4,11 +4,12 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-10-02
+updated: 2026-10-03
 tags: [type/spec, area/shared, status/active]
 related:
   - "[[2026-10-02-dev-stack-floci-2-1]]"
   - "[[2026-10-02-floci-preprod-environment]]"
+  - "[[2026-10-03-floci-preprod-follow-ups]]"
   - "[[2026-09-10-in-app-notifications-design]]"
   - "[[2026-09-10-in-app-notifications]]"
   - "[[2026-08-27-tracking-go-migration-design]]"
@@ -236,3 +237,4 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-09-30-cart-add-quantity-morph]]
 - [[2026-10-02-dev-stack-floci-2-1]]
 - [[2026-10-02-floci-preprod-environment]]
+- [[2026-10-03-floci-preprod-follow-ups]]

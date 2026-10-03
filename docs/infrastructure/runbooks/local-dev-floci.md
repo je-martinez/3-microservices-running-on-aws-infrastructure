@@ -4,12 +4,15 @@ type: runbook
 area: infra
 status: active
 created: 2026-07-12
-updated: 2026-09-30
+updated: 2026-10-03
 integration-status: verified
 verified-on: 2026-07-15
 verified-by: Jose E. Martinez
 tags: [type/runbook, area/infra, status/active]
 related:
+  - "[[preprod]]"
+  - "[[environment-exclusivity]]"
+  - "[[ADR-0022-preprod-ecs-on-floci]]"
   - "[[ADR-0017-floci-local]]"
   - "[[ADR-0016-local-apigw-nginx-ecs]]"
   - "[[local-dev]]"
@@ -26,6 +29,9 @@ related:
   - "[[2026-09-21-a-round-invariant-delay-on-one-resource-type-is-the-client-not-the-server]]"
   - "[[2026-09-22-a-pruned-cache-that-came-over-the-network-is-not-free]]"
   - "[[2026-09-22-terraform-side-files-are-per-checkout]]"
+  - "[[floci-recreate-destroys-backing-containers]]"
+  - "[[2026-10-02-floci-2-1-restart-and-gateway-findings]]"
+  - "[[2026-10-02-dev-stack-floci-2-1]]"
 ---
 
 # Local Dev — Floci
@@ -136,21 +142,23 @@ on its own).
 | Target | Purpose |
 |---|---|
 | `make bootstrap` | Bring the whole local chain up from scratch, in dependency order, **and** run `post-infra` as its last step (see above) — one command produces a complete, hardened environment |
-| `make bootstrap-provision` | Phase 1 of `bootstrap`: Floci + Terraform apply + env files. **Not** safely re-runnable — see below |
+| `make bootstrap-provision` | Phase 1 of `bootstrap`: Floci + Terraform apply + env files. Not the resume path (its apply is never a no-op) — see below |
 | `make bootstrap-converge` | Phase 2 of `bootstrap`: migrations + services + nginx alias. **Safe to re-run** — resumes a partial `bootstrap`. Does **not** include `post-infra` — see below |
-| `make doctor` | Read-only diagnosis of the local stack — see below |
+| `make doctor` | Diagnosis of the local stack (read-only apart from waking Floci's ECS reconciler) — see below |
+| `make heal` | Recover the stack after a Floci or Docker daemon restart; alone it is the whole recovery — see below |
 | `make post-infra` | Phase 2 Terraform apply: least-privilege DB app-users and the assets bucket (see [[two-phase-terraform-apply]]). Called automatically by `bootstrap`; still standalone and re-runnable on its own |
-| `make clean` | Tear down infra + compose; **prompts** before removing `./data` (Floci's persisted state) |
+| `make clean` | Tear down infra + compose with `docker compose down -v`, **no prompt**; removes Floci's state volume and the `floci-ecr-registry-data` volume |
 
 #### `bootstrap-provision` / `bootstrap-converge` — the two halves of `bootstrap`
 
 `make bootstrap` is `bootstrap-provision` followed by `bootstrap-converge`, followed by
 `post-infra` (see [[two-phase-terraform-apply#Update 2026-08-10 — `bootstrap` calls `post-infra` again; the split narrows, not reverses]]).
 `bootstrap-provision`/`bootstrap-converge` exist as separate targets because only the first
-half is irrepeatable: a **second** phase-1 `terraform apply` against the same Floci state fails
-on `UpdateTags` (JE-113, see [[floci-rds-apigw-limits]] below). So a run that dies partway
-through `bootstrap` is resumed with `bootstrap-converge` alone, never by re-running
-`bootstrap-provision`'s apply.
+half is not a clean re-run: a **second** phase-1 `terraform apply` against the same Floci state
+succeeds but reports the same 8 in-place changes every time, never "No changes" (see
+[[floci-rds-apigw-limits]] and the section "Known limitation — second `apply` is never a
+no-op" below). So a run that dies partway through `bootstrap` is resumed with
+`bootstrap-converge` alone, not by re-running `bootstrap-provision`'s apply.
 
 - **`bootstrap-provision`** — `docker compose up -d floci` → wait for Floci → `backend-up` →
   `infra-init` → `infra-up` (Terraform apply, then `env-file`).
@@ -168,12 +176,14 @@ written — folding it in would make a resume fail for a reason unrelated to wha
 **After resuming with `bootstrap-converge`, run `make post-infra` yourself** to get the
 app-users and assets bucket.
 
-#### `make doctor` — read-only diagnosis
+#### `make doctor` — diagnosis
 
 `make doctor` (`infra/scripts/doctor.py`) reports which state the local stack is actually in
-— what ran, what did not, and the command to finish it — without changing anything. Every
+— what ran, what did not, and the command to finish it — without repairing anything. Every
 check is a `SELECT`, a `SHOW`, an HTTP `GET`, or a `docker inspect`; it repairs nothing, it
-only prints the fix. This is deliberate: a doctor that repairs is a doctor you can no longer
+only prints the fix. Its one side effect is waking Floci's lazy ECS reconciler, which does
+nothing until the first ECS API call (without the wake, ECS reports `runningCount` 1 while no
+task container exists). This is deliberate: a doctor that repairs is a doctor you can no longer
 trust to diagnose, because you can't tell whether it found the system healthy or made it so.
 
 Its standout check is the one nothing else in this repo surfaces: **a database that exists
@@ -194,8 +204,31 @@ case the assets bucket `post-infra` provisions (see
 It fetches **one object** rather than listing the bucket, because a bucket that exists but is
 empty renders exactly the same broken-image placeholders as a missing bucket.
 
+Backing containers (DocumentDB and ElastiCache/Valkey) are classified into three states:
+**running**, **exited** (fix: `make heal`) and **missing** (fix: `make clean && make bootstrap`).
+RDS containers are not part of this classification: Floci relaunches them itself.
+
 Run it any time the stack's state is unclear — after a partial `bootstrap`, before filing a
 bug against a service, or as a sanity check before `make post-infra`.
+
+#### `make heal` — recover after a Floci or Docker restart
+
+The `floci` compose service stops with `stop_signal: SIGKILL` so Floci's graceful shutdown never
+deletes its DocumentDB and ElastiCache containers (see
+[[floci-recreate-destroys-backing-containers]]). After a Docker daemon restart those containers
+are `Exited` but intact; `make doctor` reports them as **exited**. `make heal`
+(`infra/scripts/floci_heal.py` plus `infra/environments/local/bootstrap.py`) starts Floci
+itself first, so after a Docker Desktop restart `make heal` alone is the recovery:
+
+1. starts Floci (`docker compose up -d --wait floci`);
+2. `floci_heal.py` restarts the exited or created DocumentDB/Valkey containers with their data,
+   wakes Floci's lazy ECS reconciler (which does nothing until the first ECS API call), and
+   removes orphan ECS task containers;
+3. runs `docker compose up -d` for any compose services that are still exited;
+4. `bootstrap.py` re-attaches the `nginx-stable` alias.
+
+Containers reported as **missing** cannot be healed; rebuild with
+`make clean && make bootstrap`.
 
 ### Observability (opt-in)
 
@@ -266,15 +299,22 @@ Several infra decisions extend this runbook's flow without changing the entry po
   per route.
 - [[nginx-njs-x-user-id-injection]] — how local identity (`x-user-id`) is injected.
 
-## Known limitation — second `apply` fails
+## Pre-production is a separate environment
 
-A **second** `terraform apply` against the same Floci state fails (Floci's `UpdateTags`
-implementation for API Gateway v2 / RDS resources is broken — see
-[[floci-rds-apigw-limits]]). Do **not** attempt to re-apply on top of an existing stack. To
-pick up infra changes:
+`make preprod-up` starts a second environment (compose project `3mrai-preprod`) whose only image
+is Floci; the services run as ECS tasks inside it. It needs the same `:4566` and
+`floci-ecr-registry` as this bootstrap, so **the two never run together**: whichever starts
+second gets a prompt to drop the other or do nothing, and aborts without a TTY
+([[environment-exclusivity]]). Runbook: [[preprod]]; decision: [[ADR-0022-preprod-ecs-on-floci]].
+
+## Known limitation — second `apply` is never a no-op
+
+On Floci 2.1.0 a **second** `terraform apply` against the same state succeeds but is never a
+no-op: 8 in-place changes recur on every apply (see [[floci-rds-apigw-limits]]). Do not rely
+on re-applying on top of an existing stack. To pick up infra changes, rebuild from scratch:
 
 ```bash
-make clean       # tear down (prompts before removing ./data)
+make clean       # tear down (no prompt; removes Floci's state volume)
 make bootstrap    # rebuild from scratch
 ```
 
@@ -334,8 +374,8 @@ the full user → order → tracking → DELIVERED flow.
 
 Re-running `make bootstrap` from a cold or partial state now works. If a run does die
 partway for an unrelated reason, resume with `make bootstrap-converge` (see below) rather
-than re-entering `bootstrap-provision`'s Terraform apply, which still cannot be safely
-re-applied — see the sibling section above ([[floci-rds-apigw-limits]]).
+than re-entering `bootstrap-provision`'s Terraform apply, which is not a resume path (it
+re-reports the same 8 in-place changes) — see the sibling section above ([[floci-rds-apigw-limits]]).
 
 ## Verification
 
@@ -349,6 +389,9 @@ re-applied — see the sibling section above ([[floci-rds-apigw-limits]]).
 
 ## Related
 
+- [[floci-recreate-destroys-backing-containers]] — why `make heal` exists and how `make doctor` classifies backing containers.
+- [[2026-10-02-floci-2-1-restart-and-gateway-findings]] — the Floci 2.1.0 probes behind `make heal`.
+- [[2026-10-02-dev-stack-floci-2-1]] — the plan that pinned Floci 2.1.0.
 - [[ADR-0017-floci-local]] — the decision to adopt Floci over Ministack, and its known quirks.
 - [[ADR-0016-local-apigw-nginx-ecs]] — the local API Gateway → nginx → service reverse-proxy topology this bootstrap chain stands up.
 - [[local-dev]] — the broader local-dev convention (`.http` files, Makefile overview).
@@ -369,3 +412,6 @@ re-applied — see the sibling section above ([[floci-rds-apigw-limits]]).
 - [[terraform-remote-state-backend]]
 - [[local-gateway-per-route-integrations]]
 - [[nginx-njs-x-user-id-injection]]
+- [[preprod]]
+- [[environment-exclusivity]]
+- [[ADR-0022-preprod-ecs-on-floci]]

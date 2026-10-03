@@ -4,12 +4,14 @@ type: convention
 area: shared
 status: active
 created: 2026-07-03
-updated: 2026-09-30
+updated: 2026-10-03
 tags:
   - type/convention
   - area/shared
   - status/active
 related:
+  - "[[preprod]]"
+  - "[[environment-exclusivity]]"
   - "[[ADR-0017-floci-local]]"
   - "[[local-dev-floci]]"
   - "[[git-workflow]]"
@@ -36,6 +38,9 @@ list. Key targets:
 
 - **Compose:** `make up` / `make down` / `make logs` (`make logs S=users` to scope) /
   `make build` / `make ps`.
+- **Pre-prod (Floci-only, services on ECS):** `make preprod-up` / `preprod-deploy S=<svc>` /
+  `preprod-heal` / `preprod-doctor` / `preprod-e2e` / `preprod-down`. Mutually exclusive with the
+  dev stack ([[environment-exclusivity]]); full target list in [[preprod]].
 - **Infra (Terraform against Floci):** `make infra-init` / `make infra-plan` /
   `make infra-up` / `make infra-down` / `make infra-output`. These target
   **`infra/environments/local`** (the `Makefile`'s `TF_LOCAL_DIR`) — the consolidated local
@@ -47,9 +52,9 @@ list. Key targets:
   already built (`migrate force 1`), never a plain `up`, on the shared local database.
 - **Orchestration:** `make bootstrap` (compose up floci → wait for Floci → apply infra →
   regenerate `.env` → migrate → build/start `users`/`orders`/`tracking` → nginx alias), split
-  into a not-safely-repeatable `make bootstrap-provision` and a resumable, idempotent
-  `make bootstrap-converge`; `make doctor` for a read-only diagnosis of the stack's actual
-  state; `make post-infra` for the phase-2 DB app-user apply; `make clean-state` for a fast
+  into a `make bootstrap-provision` that is not the resume path (its apply is never a no-op) and a resumable, idempotent
+  `make bootstrap-converge`; `make doctor` for a diagnosis of the stack's actual
+  state (it repairs nothing; it only wakes Floci's lazy ECS reconciler); `make heal` to recover after a Floci or Docker restart; `make post-infra` for the phase-2 DB app-user apply; `make clean-state` for a fast
   warm-cache teardown that skips `clean`'s Docker build-cache/image prunes; and `make clean` for
   full teardown. Full detail: [[local-dev-floci]]. `infra-up`'s ~75s SQS-resource critical path
   is a provider waiter, not Floci — see
@@ -195,3 +200,5 @@ a new service needs local testing.
 - [[2026-09-22-a-pruned-cache-that-came-over-the-network-is-not-free]] — why `clean`'s prunes are
   not the bounded "one slower rebuild" they used to be documented as, and what `warm-images`/
   `warm-nuget` do about it.
+- [[preprod]] — the pre-production environment and its Make targets.
+- [[environment-exclusivity]] — why dev and pre-prod never run together.

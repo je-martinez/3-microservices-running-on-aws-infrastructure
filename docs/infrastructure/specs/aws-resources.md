@@ -4,9 +4,11 @@ type: spec
 area: infra
 status: active
 created: 2026-06-26
-updated: 2026-07-30
+updated: 2026-10-03
 tags: [type/spec, area/infra, status/active]
 related:
+  - "[[ADR-0022-preprod-ecs-on-floci]]"
+  - "[[preprod]]"
   - ADR-0006-read-write-replicas
   - ADR-0007-secrets-parameter-store
   - ADR-0010-cognito-auth
@@ -101,6 +103,16 @@ are wired around Floci/provider gaps via the awscli-fallback pattern — see
 See [[ADR-0007-secrets-parameter-store]] for the split rationale and [[secret-rotation]] for
 the rotation runbook.
 
+## Pre-production resources (Floci)
+
+The pre-prod root (`infra/environments/preprod`, local state) adds, on top of the data stores
+above: one **ECR** repository per image (7), one **ECS cluster** with seven services (`users`,
+`orders`, `tracking`, `web`, `otel-collector`, `openobserve`, `mailpit`), an **ALB** with a
+listener per service (users 9101, orders 9102, tracking 9103, web 9090, OpenObserve 5080,
+Mailpit 8025, OTLP 4318/4319), **SSM parameters** under `/3mrai-preprod/<svc>/<VAR>` and
+**Secrets Manager** secrets under `3mrai-preprod/<svc>/<VAR>`. API Gateway integrates with the
+ALB listeners instead of an nginx task. See [[ADR-0022-preprod-ecs-on-floci]] and [[preprod]].
+
 ## Cross-cutting rules
 
 - All resources are named with `cloudposse/label/null`; see [[terraform-modules]].
@@ -128,3 +140,5 @@ the rotation runbook.
 - [[secret-rotation]]
 - [[rds-aurora-engine-switchable-floci]]
 - [[two-phase-terraform-apply]]
+- [[ADR-0022-preprod-ecs-on-floci]]
+- [[preprod]]

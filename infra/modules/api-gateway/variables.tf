@@ -90,3 +90,9 @@ variable "nginx_base_uri" {
   default     = "http://nginx-stable"
   description = "Local per-route mode base URI: scheme + host, NO trailing slash and NO path. The module appends each route's path (Floci won't forward it). Ignored when local_gateway = false."
 }
+
+variable "alb_backends" {
+  type        = map(string)
+  default     = {}
+  description = "Service → base URI (e.g. users = \"http://localhost:9101\"). Non-empty switches the local gateway from the nginx task to per-service ALB listeners."
+}

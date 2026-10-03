@@ -188,6 +188,7 @@ Root Map of Content for the **3 Microservices Running on AWS Infrastructure (3MR
 ### Runbooks
 
 - [[local-dev-floci]] — Running the full stack locally with Floci (Docker Compose + Terraform), from `make bootstrap` through verification.
+- [[preprod]] — Runbook for the Floci pre-production environment: Make targets, ports, config layout, heal/doctor, redeploy, teardown, troubleshooting.
 - [[local-dev-ministack]] — Superseded by [[local-dev-floci]]; kept for historical reference.
 - [[secret-rotation]] — Rotating secrets in AWS Parameter Store without downtime.
 
@@ -239,6 +240,10 @@ All ADRs use continuous global numbering and live in `docs/shared/decisions/`.
 
 - [[ADR-0015-drawio-diagrams]] — draw.io (`.drawio.svg`) as the vault diagram format, replacing Mermaid.
 
+### Environments
+
+- [[ADR-0022-preprod-ecs-on-floci]] — Pre-production runs the services as ECS tasks inside Floci, behind API Gateway and per-service ALB listeners, configured from SSM and Secrets Manager, with no nginx; extracted from [[2026-10-02-floci-preprod-environment-design]].
+
 ### Runtimes & Languages
 
 - [[ADR-0021-tracking-go-gin-sqlc-stack]] — Tracking's Go port uses Gin (HTTP), sqlc +
@@ -263,6 +268,7 @@ Coding and data conventions defined once in `shared/` and referenced project-wid
 - [[local-dev]] — Running the stack locally (Makefile) and testing endpoints with `.http` files.
 - [[testing]] — Three-layer testing convention: unit/integration, internal E2E, and gateway E2E (real Cognito JWT) — an endpoint missing gateway E2E is an incomplete change.
 - [[scripting-language]] — Scripting-language decision tree for the repo: Python first, JavaScript second, Bash last with a documented reason.
+- [[environment-exclusivity]] — Dev and pre-prod never run together: both need `:4566` and the ECR registry; the guard prompts, and aborts without a TTY.
 - [[package-manager]] — pnpm as the default and only Node package manager for every package in the repo, including new sub-projects joining `pnpm-workspace.yaml`.
 - [[skills-catalog]] — Claude Code skills evaluated and approved for the 3MRAI agents (deliverable of [JE-23](https://linear.app/je-martinez/issue/JE-23)).
 - [[logging-context]] — Shared cross-service log context (trace/span id, hashed/masked email, domain ids), PII masking rules, flow-log pattern, and the OTel environment-variable configuration rules that fixed three silent exporter failures.
@@ -588,3 +594,7 @@ Origin materials the project grew from — kept for reference only, not the sour
 - [[mocks-hide-schema-bugs]]
 - [[signoz-selfhost-migrator-blocker]]
 - [[tightened-schemas-need-producer-first-deploys]]
+- [[ADR-0022-preprod-ecs-on-floci]]
+- [[environment-exclusivity]]
+- [[preprod]]
+- [[2026-10-03-floci-preprod-alb-and-ecs-behaviours]]

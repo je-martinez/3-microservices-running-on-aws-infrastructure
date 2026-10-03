@@ -642,6 +642,9 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # Just the id: nginx builds the rest of the path itself, because
                 # it cannot express the `$default` stage segment as a literal.
                 "API_GATEWAY_API_ID": api_id,
+                # Container-side address of the collector's browser-RUM OTLP port,
+                # substituted into nginx's /otlp/ location.
+                "OTLP_RUM_UPSTREAM": "otel-collector:4319",
                 # CONTRACT: The HOST-facing url, read by a BROWSER — not
                 # WS_MANAGEMENT_ENDPOINT, whose in-network shape answers a
                 # handshake with an S3 XML body.

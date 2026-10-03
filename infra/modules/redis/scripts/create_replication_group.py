@@ -86,8 +86,11 @@ def ensure_group(elasticache, group_id: str) -> tuple[dict, bool]:
         "NumCacheClusters": int(
             os.environ.get("NUM_CACHE_CLUSTERS") or DEFAULT_NUM_CACHE_CLUSTERS
         ),
-        "Port": int(os.environ.get("PORT") or DEFAULT_PORT),
     }
+    # WORKAROUND(local): Do NOT send Port. Floci 2.x rejects any Port outside its
+    # proxy range ("Port 6379 is outside the port range this emulator serves");
+    # omitted, it allocates one from the range and the container still listens
+    # on 6379. The env PORT stays the fallback for the reported endpoint.
     if os.environ.get("ENGINE_VERSION"):
         params["EngineVersion"] = os.environ["ENGINE_VERSION"]
     # Omitted entirely when empty — Floci implements no subnet-group API, so

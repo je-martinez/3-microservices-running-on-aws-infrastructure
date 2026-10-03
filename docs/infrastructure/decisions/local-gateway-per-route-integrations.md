@@ -4,7 +4,7 @@ type: adr
 area: infra
 status: accepted
 created: 2026-07-28
-updated: 2026-07-28
+updated: 2026-10-02
 tags:
   - type/adr
   - area/infra
@@ -64,8 +64,8 @@ baking the path into the URI (`http://nginx-stable/v1/health`) makes the gateway
   route was replaced by per-service `/v1/users/health` / `/v1/orders/health` (nginx rewrites
   each to the service's unprefixed internal `/v1/health`), resolving a health-path collision
   between the two services.
-- A **second** `terraform apply` against a live Floci stack is unreliable regardless (see
-  [[floci-rds-apigw-limits]]) — this change is always validated via `make bootstrap` from a
+- A **second** `terraform apply` against a live Floci stack succeeds but is never a no-op
+  (the same 8 in-place changes recur; see [[floci-rds-apigw-limits]]) — this change is validated via `make bootstrap` from a
   clean slate, never an in-place re-apply.
 
 ## Related

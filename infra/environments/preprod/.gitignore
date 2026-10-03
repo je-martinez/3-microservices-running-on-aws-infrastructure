@@ -1,0 +1,4 @@
+.terraform/
+terraform.tfstate
+terraform.tfstate.backup
+image-tags.auto.tfvars.json

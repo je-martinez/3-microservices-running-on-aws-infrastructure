@@ -4,7 +4,7 @@ type: lesson
 area: infra
 status: active
 created: 2026-06-29
-updated: 2026-08-06
+updated: 2026-10-02
 tags:
   - type/lesson
   - area/infra
@@ -17,6 +17,7 @@ related:
   - "[[floci-storage-modes-and-tmp-corruption]]"
   - "[[2026-08-05-passwordless-otp-auth-design]]"
   - "[[2026-08-05-email-payload-enrichment-design]]"
+  - "[[2026-10-02-floci-2-1-restart-and-gateway-findings]]"
 ---
 
 # Floci vs Ministack spike findings
@@ -361,8 +362,49 @@ domain. Anyone standing up CDN-backed infra (e.g. hosting a static asset behind 
 must know it can only be functionally validated against real AWS — local apply proves
 config validity, not reachability.
 
+## Floci 2.1.0 re-verification (2026-10-02)
+
+Probed on Floci 2.1.0 (the dev stack's pinned version). Where this section and an earlier
+section disagree on 2.1.0, this section is current. The dated evidence is in
+[[2026-10-02-floci-2-1-restart-and-gateway-findings]].
+
+- **Claim to header injection works at the gateway.** API Gateway v2 `request_parameters`
+  `overwrite:header.x-user-id = $context.authorizer.claims.sub` carries the Cognito `sub` on
+  JWT-authorized routes, and `overwrite:path` rewrites the path. On a route **without** an
+  authorizer, `overwrite:` leaves a client-sent `x-user-id` intact; `remove:header.x-user-id`
+  strips it, so public routes need the `remove:` form. The local stack still injects identity
+  through nginx ([[nginx-njs-x-user-id-injection]]); this finding is the gateway-side option the
+  pre-production design can use.
+- **CloudFront delivery is still absent.** The CloudFront section above holds on 2.1.0: the
+  management plane applies and content delivery is not emulated. Floci's docs describe delivery
+  as a nightly-build feature only.
+- **Cloud Map does not register or resolve ECS tasks**, NLB TCP listeners answer HTTP 400, and
+  the ECS `hostname` field is ignored. Service discovery by name still has no emulated path.
+- **The image ships bash and coreutils, no curl.** It answers `GET / HTTP/1.0` without a `Host`
+  header with HTTP 500, so the compose healthcheck uses bash `/dev/tcp` with
+  `GET /_floci/health HTTP/1.1` plus a `Host` header.
+- **ECS rejects task-definition host volumes by default** (`volumes[].host.sourcePath is
+  rejected by default`). `FLOCI_SERVICES_ECS_HOST_VOLUME_ROOTS` allowlists the nginx config
+  directory.
+- **ElastiCache `CreateReplicationGroup` `Port` is the proxy port** and must fall inside the
+  proxy range; the Valkey container still listens on 6379 in-network. The repo's script omits
+  `Port`. See [[floci-elasticache-two-ports-and-provider-panic]].
+- **`aws_ssm_parameter` needs a declared `ssm` provider endpoint.** An
+  `UnrecognizedClientException` there means the endpoint is missing from the provider block, not
+  that Floci lacks SSM. The `ssm`, `ecr`, `s3` and `elasticache` endpoints are declared.
+- **ECR URIs always use `:4566`** (`FLOCI_BASE_URL` does not change them), `awslogs-group` is
+  ignored (logs land in `/ecs/<family>`), and the ECR registry container with its
+  `floci-ecr-registry-data` volume survives `down -v`; `make clean` removes the volume
+  explicitly.
+- **A second `terraform apply` succeeds** (never a no-op). See [[floci-rds-apigw-limits]].
+
 ## Related
 
+- [[2026-10-02-floci-2-1-restart-and-gateway-findings]] — dated record of the 2.1.0
+  re-verification.
+- [[nginx-njs-x-user-id-injection]]
+- [[floci-elasticache-two-ports-and-provider-panic]]
+- [[floci-rds-apigw-limits]]
 - [[ministack-auth-chain-spike-findings]]
 - [[ADR-0012-ministack-local]]
 - [[2026-06-29-floci-local-emulator-spike-design]]

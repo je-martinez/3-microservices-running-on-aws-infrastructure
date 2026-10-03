@@ -4,12 +4,14 @@ type: convention
 area: infra
 status: active
 created: 2026-07-20
-updated: 2026-09-30
+updated: 2026-10-03
 tags:
   - type/convention
   - area/infra
   - status/active
 related:
+  - "[[preprod]]"
+  - "[[ADR-0022-preprod-ecs-on-floci]]"
   - "[[2026-07-20-env-file-generation-design]]"
   - "[[scripting-language]]"
   - "[[local-dev]]"
@@ -206,6 +208,22 @@ declared).
 The same family as [[2026-09-29-repo-wide-gates-must-exclude-generated-and-duplicated-trees]]: a
 file whose counterpart is git-ignored has no natural reviewer, so it needs a mechanical check.
 
+## Pre-prod has no env files
+
+The pre-production environment ([[preprod]]) reads **no** `.env.local.*` file: every task gets
+its configuration from SSM `/3mrai-preprod/<svc>/<VAR>` and Secrets Manager
+`3mrai-preprod/<svc>/<VAR>`, written by Terraform. Two keys exist so the same image and
+config work in both environments, with dev's values as defaults:
+
+- `O2_ENDPOINT` — the OpenObserve base URL the collector exports to. Dev sets
+  `http://openobserve:5080` in `docker-compose.yml`; pre-prod sets it as an SSM parameter injected through the task's `secrets`, not a plain task variable.
+- `OTLP_RUM_UPSTREAM` — the collector host:port the web nginx proxies `/otlp/` to. Dev's
+  generated `.env.local.web` carries `otel-collector:4319`; pre-prod sets `floci:4319`, the ALB's RUM listener.
+
+A pre-prod config change is applied with `make preprod-deploy S=<svc> ENV_ONLY=1`: it applies
+`module.app_config` (writing the edited SSM and Secrets Manager values) and then forces a new
+deployment, because ECS reads both only at task start.
+
 ## Adding a service
 
 1. Add a `.env.local.<service>` entry to
@@ -304,3 +322,5 @@ When changing env plumbing, verify against a real bring-up, not by inspection:
   both the image build and `pnpm dev`.
 - [[2026-09-29-repo-wide-gates-must-exclude-generated-and-duplicated-trees]] — the same
   "no natural reviewer, so add a mechanical check" shape, applied to the comment linter.
+- [[preprod]] — the environment with no env files (SSM and Secrets Manager instead).
+- [[ADR-0022-preprod-ecs-on-floci]]

@@ -4,7 +4,7 @@ type: lesson
 area: infra
 status: active
 created: 2026-07-04
-updated: 2026-07-09
+updated: 2026-10-02
 tags:
   - type/lesson
   - area/infra
@@ -15,6 +15,7 @@ related:
   - "[[floci-vs-ministack-spike-findings]]"
   - "[[ADR-0017-floci-local]]"
   - "[[floci-storage-modes-and-tmp-corruption]]"
+  - "[[2026-10-02-floci-2-1-restart-and-gateway-findings]]"
 ---
 
 # Floci RDS + API Gateway limits (JE-36)
@@ -59,8 +60,11 @@ Recorded here so future infra work (Orders, Tracking) doesn't re-discover them.
    - **Workaround used:** don't let Terraform manage the DB subnet group under Floci — point the
      cluster at Floci's pre-existing `default` subnet group (a `create_subnet_group=false` +
      `subnet_group_name="default"` path in the rds-aurora module).
-   - **Concrete consequence (verified 2026-07-09): a SECOND `terraform apply` against a live Floci
-     environment fails.** From a blank slate (`data/floci` wiped, tfstate deleted), `terraform
+   - **Concrete consequence on Floci 1.7.0 (verified 2026-07-09): a SECOND `terraform apply`
+     against a live Floci environment fails. On Floci 2.1.0 (verified 2026-10-02) it does not:
+     two consecutive applies both succeed, each reporting `0 added, 8 changed, 0 destroyed` —
+     perpetual in-place drift, never "No changes" — and the failure below no longer
+     reproduces.** From a blank slate (`data/floci` wiped, tfstate deleted), `terraform
      apply` creates 25 resources and exits 0. Running `terraform apply` again against that same
      live environment fails with:
      ```
@@ -70,8 +74,9 @@ Recorded here so future infra work (Orders, Tracking) doesn't re-discover them.
      Error: updating tags for RDS (Relational Database) Cluster (arn:aws:rds:us-east-1:000000000000:cluster:aurora-3mrai-local-aurora-aurora):
        tagging resource ...: DBInstanceNotFound: DB instance <arn> not found.
      ```
-     So the practical rule is: **on Floci, only a from-scratch apply is reliable — re-applying
-     against a live environment is not.**
+     So the practical rule on 1.7.0 was: **only a from-scratch apply is reliable.** On 2.1.0 a
+     re-apply runs without error, but it is not idempotent-looking (8 perpetual in-place
+     changes), so `make bootstrap` from a clean slate remains the supported path.
 2. **API Gateway v2 HTTP_PROXY does not forward the request path.** With `integration_uri =
    "http://nginx-stable/"` and an explicit route `GET /v1/health`, Floci delivers `GET /` (root)
    to the backend — the `/v1/health` suffix is dropped (confirmed in the users/nginx logs). Floci
@@ -148,6 +153,7 @@ invoke URL. Revisit if Floci adds path forwarding.
 
 ## Related
 
+- [[2026-10-02-floci-2-1-restart-and-gateway-findings]] — the 2.1.0 second-apply probe.
 - [[floci-vs-ministack-spike-findings]]
 - [[ADR-0017-floci-local]]
 - [[floci-storage-modes-and-tmp-corruption]]

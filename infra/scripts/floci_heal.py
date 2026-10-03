@@ -1,0 +1,129 @@
+"""Recover a Floci stack after a Floci or Docker daemon restart.
+
+Starts Exited DocumentDB/Valkey containers, wakes the ECS reconciler with one
+API call, and removes task containers a SIGKILLed Floci left running beside
+their replacement. See [[floci-recreate-destroys-backing-containers]]
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import subprocess
+import sys
+import urllib.request
+
+from lib3mrai.aws import client
+from lib3mrai.console import inf, no, ok
+
+FLOCI_HEALTH_URL = "http://localhost:4566/_floci/health"
+BACKING_SERVICES = ("docdb", "elasticache")
+NON_RUNNING_STATUSES = ("exited", "created")
+DESCRIBE_BATCH = 100
+TASK_CONTAINER = re.compile(r"^floci-ecs-([0-9a-f]+)-")
+
+
+def docker(*args: str) -> str:
+    return subprocess.run(
+        ["docker", *args], capture_output=True, text=True, check=False
+    ).stdout
+
+
+def floci_answers(url: str = FLOCI_HEALTH_URL, timeout: float = 3.0) -> bool:
+    try:
+        with urllib.request.urlopen(url, timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+
+def stack_network() -> str:
+    return os.environ.get("FLOCI_NETWORK", "3mrai_3mrai-network")
+
+
+def wake_ecs(ecs) -> list[str]:
+    return ecs.list_clusters().get("clusterArns", [])
+
+
+def live_task_ids(ecs, cluster_arns: list[str]) -> set[str]:
+    # WORKAROUND(local): Floci's list_tasks also returns STOPPED tasks, so liveness
+    # comes from describe_tasks. CONTRACT: Only lastStatus STOPPED is dead — a
+    # PENDING/PROVISIONING replacement, a task with no status and a task describe_tasks
+    # reports under `failures` all stay live, or heal removes a starting container.
+    ids: set[str] = set()
+    for arn in cluster_arns:
+        task_arns = ecs.list_tasks(cluster=arn).get("taskArns", [])
+        for start in range(0, len(task_arns), DESCRIBE_BATCH):
+            batch = task_arns[start:start + DESCRIBE_BATCH]
+            reply = ecs.describe_tasks(cluster=arn, tasks=batch)
+            for task in reply.get("tasks", []):
+                if task.get("lastStatus") != "STOPPED":
+                    ids.add(task["taskArn"].rsplit("/", 1)[-1])
+            for failure in reply.get("failures", []):
+                if failure.get("arn"):
+                    ids.add(failure["arn"].rsplit("/", 1)[-1])
+    return ids
+
+
+def orphan_task_containers(container_names: list[str], live: set[str]) -> list[str]:
+    orphans = []
+    for name in container_names:
+        match = TASK_CONTAINER.match(name)
+        if match and match.group(1) not in live:
+            orphans.append(name)
+    return orphans
+
+
+def exited_backing_containers(run=docker) -> list[str]:
+    names: list[str] = []
+    for service in BACKING_SERVICES:
+        for status in NON_RUNNING_STATUSES:
+            out = run(
+                "ps", "-a",
+                "--filter", f"status={status}",
+                "--filter", f"label=io.floci.service={service}",
+                "--format", "{{.Names}}",
+            )
+            names.extend(n for n in out.split() if n)
+    return names
+
+
+def main(argv: list[str] | None = None) -> int:
+    if not floci_answers():
+        no("Floci is down — run `make heal` from the repo root (it starts Floci first)")
+        return 1
+
+    try:
+        ecs = client("ecs")
+        clusters = wake_ecs(ecs)
+        ok(f"ECS reconciler woken ({len(clusters)} cluster(s))")
+        live = live_task_ids(ecs, clusters)
+    except Exception as exc:
+        no(f"ECS call failed: {exc}")
+        return 1
+
+    exited = exited_backing_containers()
+    for name in exited:
+        docker("start", name)
+        ok(f"restarted {name}")
+    if not exited:
+        inf("    no exited DocumentDB/Valkey containers")
+
+    running = docker(
+        "ps", "--filter", f"network={stack_network()}", "--format", "{{.Names}}"
+    ).split()
+    orphans = orphan_task_containers(running, live)
+    for name in orphans:
+        docker("rm", "-f", name)
+        ok(f"removed orphan task container {name}")
+    if not orphans:
+        inf("    no orphan ECS task containers")
+
+    remaining = [n for n in running if n not in orphans and re.match(r"^floci-ecs-.*-nginx$", n)]
+    if len(remaining) > 1:
+        no(f"{len(remaining)} nginx task containers still running: {', '.join(remaining)}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

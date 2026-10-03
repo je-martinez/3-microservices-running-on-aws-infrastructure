@@ -67,7 +67,7 @@ _tf_plugin_cache := $(shell mkdir -p $(TF_PLUGIN_CACHE_DIR))
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down logs build ps test-unit test-e2e test-all load-test load-test-smoke cache-toggle load-test-cache-ab-on load-test-cache-ab-off backend-up infra-init infra-plan lambda-bundles infra-up post-infra infra-down infra-output env-file stripe-webhook-secret migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor clean clean-state warm-images warm-nuget observability-up observability-down observability-dashboards observability-traces-schema redeploy-lambdas scripts-setup watch watch-stop watch-status watch-logs lint-comments lint-secrets lint-comments-diff install-comment-hook ai-sync ai-sync-check
+.PHONY: help up down logs build ps test-unit test-e2e test-all load-test load-test-smoke cache-toggle load-test-cache-ab-on load-test-cache-ab-off backend-up infra-init infra-plan lambda-bundles infra-up post-infra infra-down infra-output env-file stripe-webhook-secret migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor heal clean clean-state warm-images warm-nuget observability-up observability-down observability-dashboards observability-traces-schema redeploy-lambdas scripts-setup watch watch-stop watch-status watch-logs lint-comments lint-secrets lint-comments-diff install-comment-hook ai-sync ai-sync-check
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -134,7 +134,8 @@ install-comment-hook: ## Install the staged code-comment pre-commit hook
 
 ## --- Docker Compose ---
 
-up: ## Start the stack (Floci + services) in the background
+up: scripts-setup ## Start the stack (Floci + services) in the background
+	@$(PY) infra/scripts/env_guard.py dev
 	$(COMPOSE) up -d
 
 down: ## Stop the stack
@@ -475,16 +476,24 @@ assets-sync: scripts-setup ## Re-optimise and re-upload assets/ to the assets bu
 	$(PY) infra/modules/assets-bucket/scripts/sync_assets.py --bucket "$$bucket" --base-url "$$base_url"
 
 doctor: scripts-setup ## Diagnose the local stack: what ran, what did not, and how to finish it
-	@# READ-ONLY. Every check is a SELECT, a SHOW, an HTTP GET or a docker
-	@# inspect; it repairs nothing and prints the command that would. The check
-	@# it exists for is the one nothing else surfaces: a database that EXISTS
-	@# while its tables do not, which is what a bootstrap that died before
-	@# `migrate-tracking` leaves behind (JE-112).
+	@# CONTRACT: READ-ONLY except one ECS list call that wakes Floci's lazy ECS
+	@# reconciler; without it ECS reports runningCount 1 with no task container.
+	@# Every other check is a SELECT, SHOW, HTTP GET or docker inspect; it repairs
+	@# nothing and prints the command that would. The check it exists for is a
+	@# database that EXISTS while its tables do not, which is what a bootstrap
+	@# that died before `migrate-tracking` leaves behind (JE-112).
 	$(PY) infra/scripts/doctor.py
+
+heal: scripts-setup ## Recover after a Floci/Docker restart: start Floci, restart exited DocDB/Valkey, wake ECS, drop orphan tasks, restart Exited services, re-attach the gateway alias
+	$(COMPOSE) up -d --wait floci
+	$(PY) infra/scripts/floci_heal.py
+	$(COMPOSE) up -d
+	$(PY) $(TF_LOCAL_DIR)/bootstrap.py
 
 ## --- Orchestration ---
 
 bootstrap: scripts-setup ## Bring the whole local chain up from scratch, in dependency order (includes phase 2)
+	@$(PY) infra/scripts/env_guard.py dev
 	@# CONTRACT: Order is load-bearing — Floci, then terraform, then .env, then
 	@# migrations, then the services. `users` validates COGNITO_* with Zod at boot and
 	@# those IDs exist only after the apply.
@@ -544,6 +553,7 @@ bootstrap: scripts-setup ## Bring the whole local chain up from scratch, in depe
 	$(MAKE) post-infra
 
 bootstrap-provision: scripts-setup ## Phase 1 of bootstrap: Floci + terraform + env files (NOT re-runnable — see below)
+	@$(PY) infra/scripts/env_guard.py dev
 	@# The half of `bootstrap` that CANNOT be safely re-run: a second phase-1
 	@# apply fails against Floci on UpdateTags (JE-113). Split out so that
 	@# `bootstrap-converge` exists as a resume path that never re-enters it.
@@ -726,6 +736,11 @@ clean: ## Tear down infra + compose, including the emulator state volume
 	@echo "Removing Floci-created volumes (labelled floci=true, not compose)…"
 	@docker volume ls -q --filter label=floci=true \
 		| xargs -r docker volume rm -f 2>/dev/null || true
+	@# CONTRACT: Remove the ECR registry volume by name. Floci keeps the registry
+	@# container running across its own shutdown and the volume carries no compose
+	@# or floci label, so the sweeps above miss it; kept, Floci reports every old
+	@# repository as existing and the next apply fails with RepositoryAlreadyExists.
+	@docker volume rm -f floci-ecr-registry-data 2>/dev/null || true
 	@docker network rm 3mrai_3mrai-network 2>/dev/null || true
 	@# WARNING: Both prunes are machine-wide, not project-scoped — `image prune` removes
 	@# every DANGLING image (untagged, unreferenced, so no project loses a tagged image)
@@ -770,6 +785,11 @@ clean-state: ## Tear down state like `clean`, but KEEP the Docker build cache (f
 	@echo "Removing Floci-created volumes (labelled floci=true, not compose)…"
 	@docker volume ls -q --filter label=floci=true \
 		| xargs -r docker volume rm -f 2>/dev/null || true
+	@# CONTRACT: Remove the ECR registry volume by name. Floci keeps the registry
+	@# container running across its own shutdown and the volume carries no compose
+	@# or floci label, so the sweeps above miss it; kept, Floci reports every old
+	@# repository as existing and the next apply fails with RepositoryAlreadyExists.
+	@docker volume rm -f floci-ecr-registry-data 2>/dev/null || true
 	@docker network rm 3mrai_3mrai-network 2>/dev/null || true
 	@echo ""
 	@echo "  Build cache KEPT. Reclaimable right now:"
@@ -903,3 +923,131 @@ ai-sync-check: ## Verify provider configs are valid and the guard is in place (C
 	  || { echo "ERROR: provider config is stale — run 'make ai-sync' and commit the result"; \
 	       git status --porcelain .ai/ .cursor/ .windsurf/ .gemini/ .codex/ .agents/ .github/ .opencode/ .vscode/ AGENTS.md GEMINI.md opencode.json; exit 1; }
 	@echo "OK: providers valid, guard in place, committed output up to date"
+
+## ── Pre-production (Floci-only, see docs/infrastructure/runbooks/preprod.md) ──
+PP_COMPOSE := docker compose -f docker-compose.preprod.yml
+PP_TF_DIR  := infra/environments/preprod
+PP_TF      := terraform -chdir=$(PP_TF_DIR)
+PP_NETWORK := 3mrai-preprod_preprod-network
+PP_TF_VARS := -var python_bin=$(PY)
+PP_IMAGES  := users,orders,tracking,web,otel-collector,openobserve,mailpit
+PP_ALIASES := users-grpc,mailpit
+
+.PHONY: preprod-floci-up preprod-down preprod-up preprod-migrate preprod-smoke preprod-aliases preprod-deploy preprod-observability preprod-heal preprod-doctor preprod-e2e preprod-load-test preprod-load-test-smoke
+preprod-floci-up: scripts-setup ## Pre-prod: exclusivity guard, then Floci alone
+	@$(PY) infra/scripts/env_guard.py preprod
+	$(PP_COMPOSE) up -d --wait floci
+
+preprod-down: scripts-setup ## Pre-prod: full wipe (Floci, its children, ECR registry, Floci volumes, TF state)
+	@# CONTRACT: Keep the dev check first — the floci- sweeps below match dev's Floci too.
+	@$(PY) infra/scripts/env_guard.py --check-other preprod
+	$(PP_COMPOSE) down -v --remove-orphans
+	@# CONTRACT: Floci-launched containers and volumes carry no compose label, and the
+	@# ECR registry survives Floci's own shutdown; kept, the next apply fails with
+	@# RepositoryAlreadyExists and DocumentDB/ElastiCache come back as phantoms.
+	@docker ps -aq --filter "name=^floci-" | xargs -r docker rm -f 2>/dev/null || true
+	@docker volume ls -q --filter label=floci=true | xargs -r docker volume rm -f 2>/dev/null || true
+	@docker volume rm -f floci-ecr-registry-data 2>/dev/null || true
+	@docker network rm $(PP_NETWORK) 2>/dev/null || true
+	@rm -rf $(PP_TF_DIR)/.terraform $(PP_TF_DIR)/.terraform-cognito $(PP_TF_DIR)/.terraform-docdb $(PP_TF_DIR)/.terraform-redis \
+	    $(PP_TF_DIR)/terraform.tfstate* $(PP_TF_DIR)/image-tags.auto.tfvars.json
+
+preprod-up: preprod-floci-up ## Pre-prod: everything, from scratch (refuses on a live environment)
+	@$(PY) $(PP_TF_DIR)/scripts/preprod_live.py --tf-dir $(PP_TF_DIR)
+	$(MAKE) --no-print-directory lambda-bundles
+	$(PP_TF) init -input=false
+	$(PP_TF) apply -auto-approve -input=false $(PP_TF_VARS) -var deploy_services=false
+	$(PY) $(PP_TF_DIR)/scripts/build_push.py --tf-dir $(PP_TF_DIR) --services $(PP_IMAGES)
+	$(MAKE) --no-print-directory preprod-migrate
+	$(PP_TF) apply -auto-approve -input=false $(PP_TF_VARS) -var deploy_services=true
+	$(PY) $(PP_TF_DIR)/scripts/wait_services.py --cluster "$$($(PP_TF) output -raw ecs_cluster_name)"
+	$(PY) $(PP_TF_DIR)/scripts/preprod_targets.py --cluster "$$($(PP_TF) output -raw ecs_cluster_name)" --network $(PP_NETWORK)
+	$(MAKE) --no-print-directory preprod-aliases
+	$(MAKE) --no-print-directory preprod-smoke
+	$(MAKE) --no-print-directory preprod-observability
+
+preprod-migrate: scripts-setup ## Pre-prod: Prisma (users) + golang-migrate (tracking) against Floci's RDS
+	@# CONTRACT: Run as the cluster superuser and keep the tracking baseline guard —
+	@# both for the reasons on the dev `migrate` / `migrate-tracking` targets: stamping
+	@# anything but an Alembic-built schema leaves schema_migrations DIRTY.
+	@# See [[2026-09-09-migration-version-tables-lie-about-schema]]
+	docker build --target deps -t 3mrai-users:deps -f services/users/Dockerfile .
+	@pg="$$($(PP_TF) output -raw pg_port)"; \
+	docker run --rm --network $(PP_NETWORK) \
+	    -e DATABASE_WRITER_URL="postgres://test:test@floci:$$pg/users" \
+	    -w /app/services/users 3mrai-users:deps \
+	    node node_modules/prisma/build/index.js migrate deploy --schema=./prisma/schema.prisma
+	@my="$$($(PP_TF) output -raw mysql_port)"; \
+	migrate_dsn="mysql://test:test@tcp(floci:$$my)/tracking"; \
+	probe="$$(docker run --rm --network $(PP_NETWORK) mysql:8.0 \
+	     mysql --ssl-mode=DISABLED -h floci -P "$$my" -u test -ptest -N -B \
+	           -e "SELECT (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='tracking' AND table_name='tracking'), \
+	                      (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='tracking' AND table_name='schema_migrations')" \
+	     2>/dev/null)" \
+	  || { echo "ERROR: could not reach pre-prod MySQL at floci:$$my to check the tracking schema."; exit 1; }; \
+	if [ "$$(printf '%s' "$$probe" | cut -f1)" = "1" ] && [ "$$(printf '%s' "$$probe" | cut -f2)" != "1" ]; then \
+	  echo "Alembic-built database (tables, no schema_migrations) — stamping the baseline."; \
+	  docker run --rm --network $(PP_NETWORK) -v "$(REPO_ROOT)/services/tracking-go/migrations:/migrations" \
+	    migrate/migrate:v4.17.1 -path=/migrations -database "$$migrate_dsn" force 1; \
+	fi; \
+	docker run --rm --network $(PP_NETWORK) -v "$(REPO_ROOT)/services/tracking-go/migrations:/migrations" \
+	  migrate/migrate:v4.17.1 -path=/migrations -database "$$migrate_dsn" up
+
+preprod-aliases: scripts-setup ## Pre-prod: attach stable Docker aliases to ECS tasks
+	$(PY) $(PP_TF_DIR)/scripts/preprod_aliases.py --cluster "$$($(PP_TF) output -raw ecs_cluster_name)" --network $(PP_NETWORK) --aliases $(PP_ALIASES)
+
+preprod-deploy: scripts-setup ## Pre-prod: redeploy one service (S=users|orders|tracking|web; ENV_ONLY=1 = config only)
+	@test -n "$(S)" || { echo "usage: make preprod-deploy S=<service> [ENV_ONLY=1]"; exit 2; }
+ifeq ($(ENV_ONLY),1)
+	@# WHY: ECS reads secrets and SSM only at task start: write the edited values, then
+	@# start new tasks. -target keeps the perpetual-drift resources out of the apply.
+	$(PP_TF) apply -auto-approve -input=false $(PP_TF_VARS) -var deploy_services=true \
+	    -target=module.app_config
+	$(PY) -c "import sys; from lib3mrai.aws import client; client('ecs').update_service(cluster=sys.argv[1], service=sys.argv[2], forceNewDeployment=True)" "$$($(PP_TF) output -raw ecs_cluster_name)" $(S)
+else
+	$(PY) $(PP_TF_DIR)/scripts/build_push.py --tf-dir $(PP_TF_DIR) --services $(S)
+	@# CONTRACT: Keep -target; a full apply re-touches the perpetual-drift resources.
+	$(PP_TF) apply -auto-approve -input=false $(PP_TF_VARS) -var deploy_services=true \
+	    -target='module.service["$(S)"]'
+endif
+	$(PY) $(PP_TF_DIR)/scripts/wait_services.py --cluster "$$($(PP_TF) output -raw ecs_cluster_name)"
+	$(PY) $(PP_TF_DIR)/scripts/preprod_targets.py --cluster "$$($(PP_TF) output -raw ecs_cluster_name)" --network $(PP_NETWORK)
+	$(MAKE) --no-print-directory preprod-aliases
+	$(MAKE) --no-print-directory preprod-smoke
+
+preprod-heal: scripts-setup ## Pre-prod: recover after a Floci/Docker restart, then re-attach aliases
+	$(PP_COMPOSE) up -d --wait floci
+	FLOCI_NETWORK=$(PP_NETWORK) $(PY) infra/scripts/floci_heal.py
+	$(PY) $(PP_TF_DIR)/scripts/wait_services.py --cluster "$$($(PP_TF) output -raw ecs_cluster_name)"
+	$(PY) $(PP_TF_DIR)/scripts/preprod_targets.py --cluster "$$($(PP_TF) output -raw ecs_cluster_name)" --network $(PP_NETWORK)
+	$(MAKE) --no-print-directory preprod-aliases
+
+preprod-doctor: scripts-setup ## Pre-prod: ECS vs containers, ALB targets, aliases, phantom stores
+	$(PY) $(PP_TF_DIR)/scripts/preprod_doctor.py --cluster "$$($(PP_TF) output -raw ecs_cluster_name)" \
+	    --network $(PP_NETWORK) --aliases $(PP_ALIASES) \
+	    --redis-host "$$($(PP_TF) output -raw redis_host)" --docdb-host "$$($(PP_TF) output -raw docdb_host)"
+
+preprod-smoke: ## Pre-prod: health of every service through its ALB listener
+	@for p in 9101 9102 9103; do curl -fsS -o /dev/null -w "$$p %{http_code}\n" http://localhost:$$p/v1/health || exit 1; done
+	@# WHY: wait_services sees a running container, not a ready app; OpenObserve answers
+	@# 503 on /healthz for ~15s after start, so each probe gets 60s to turn 2xx.
+	@for u in http://localhost:9090/ http://localhost:5080/healthz; do \
+	  for i in $$(seq 30); do \
+	    c="$$(curl -s -o /dev/null -w '%{http_code}' $$u)"; case "$$c" in 2??) break ;; esac; sleep 2; \
+	  done; \
+	  echo "$$u $$c"; case "$$c" in 2??) ;; *) exit 1 ;; esac; \
+	done
+
+preprod-e2e: scripts-setup ## Pre-prod: Playwright (ARGS="--project=gateway ..." to narrow)
+	$(PY) $(PP_TF_DIR)/scripts/e2e_env.py --tf-dir $(PP_TF_DIR) -- pnpm --filter @3mrai/e2e exec playwright test $(ARGS)
+
+preprod-load-test: scripts-setup ## Pre-prod: Gatling fullJourney
+	cd e2e/load-tests && $(PY) ../../$(PP_TF_DIR)/scripts/e2e_env.py --tf-dir ../../$(PP_TF_DIR) -- pnpm run load
+
+preprod-load-test-smoke: scripts-setup ## Pre-prod: short Gatling run (~20s)
+	cd e2e/load-tests && $(PY) ../../$(PP_TF_DIR)/scripts/e2e_env.py --tf-dir ../../$(PP_TF_DIR) -- pnpm run smoke
+
+preprod-observability: ## Pre-prod: seed the traces schema and import dashboards into pre-prod's OpenObserve
+	@auth="$$(printf 'admin@3mrai.local:%s' "$$($(PP_TF) output -raw openobserve_root_password)" | base64 | tr -d '\n')"; \
+	O2_ORG=3mrai O2_URL=http://localhost:5080 O2_BASIC_AUTH="$$auth" python3 scripts/seed_traces_schema.py && \
+	O2_ORG=3mrai O2_URL=http://localhost:5080 O2_BASIC_AUTH="$$auth" node scripts/import-dashboards.mjs

@@ -148,8 +148,8 @@ def main() -> int:
         # halts the chain on any non-zero exit, skipping `orders`,
         # `migrate-tracking` and `tracking` — which is how Tracking's tables end
         # up uncreated ("Table 'tracking.tracking' doesn't exist"). Re-running is
-        # no remedy either: it re-enters phase-1 apply, which Floci fails on
-        # UpdateTags. See [[floci-rds-apigw-limits]]
+        # no remedy either: it re-enters phase-1 apply, which on 2.1.0 succeeds
+        # but reports 8 perpetual in-place changes. See [[floci-rds-apigw-limits]]
         no(f"alias attached, but {HEALTH_PATH} never returned {HEALTHY_BODY} (last: '{detail}')")
         inf("the alias itself is attached — this is users not answering yet, not a broken alias.")
         inf(f"  check: docker exec {nginx} wget -qO- http://{ALIAS}{HEALTH_PATH}")

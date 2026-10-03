@@ -5,12 +5,14 @@ area: infra
 status: accepted
 id: ADR-0016
 created: 2026-06-28
-updated: 2026-07-11
+updated: 2026-10-03
 deciders: [Jose E. Martinez]
 supersedes: null
 superseded-by: null
 tags: [type/adr, area/infra, status/accepted]
 related:
+  - "[[ADR-0022-preprod-ecs-on-floci]]"
+  - "[[2026-10-03-floci-preprod-alb-and-ecs-behaviours]]"
   - "[[ADR-0009-apigw-alb-fargate]]"
   - "[[ADR-0012-ministack-local]]"
   - "[[ministack-auth-chain-spike-findings]]"
@@ -119,6 +121,21 @@ Since this ADR was accepted, the project migrated the local emulator from Minist
 
 **Net effect on this ADR's rationale:** it is no longer accurate to say "Floci/the local emulator can't do ALB/host volumes" (items 1–2 disprove that on Floci). The accurate framing is: the local topology **hasn't been migrated** to use the ALB yet, and the one Floci limitation that specifically motivates keeping nginx+njs is the claim→header mapping gap in item 4. This ADR's status remains **accepted**; a future ADR could supersede it if the ALB topology is adopted locally.
 
+### Update (2026-10-03): pre-prod drops nginx; claim-to-header works on Floci 2.1.0
+
+> [!info] Status: informational update, decision unchanged for dev
+> Nginx remains the **dev-only** mechanism. The pre-prod environment ([[ADR-0022-preprod-ecs-on-floci]])
+> runs without it.
+
+Item 4 of the 2026-07-11 update ("Floci never applies a claim-to-header mapping") **no longer
+holds on Floci 2.1.0**. Verified 2026-10-02: `overwrite:header.x-user-id =
+$context.authorizer.claims.sub` and `overwrite:path` are applied on authorized routes; on a route
+without the authorizer, `overwrite` leaves a client-sent value intact, so public routes use
+`remove:header.x-user-id`. Pre-prod therefore reaches services as API Gateway, then a
+per-service ALB listener, then ECS, with no nginx or njs. Dev keeps nginx+njs until a separate
+decision retires it. Evidence: [[2026-10-02-floci-2-1-restart-and-gateway-findings]],
+[[2026-10-03-floci-preprod-alb-and-ecs-behaviours]].
+
 ### Production is NOT affected
 
 **[[ADR-0009-apigw-alb-fargate]] is NOT superseded.** The production topology (API GW → ALB → Fargate) remains the target architecture and is deferred pending the current Users milestone's deployment phase. This ADR only describes how the local environment bridges the gap until then.
@@ -130,3 +147,5 @@ Since this ADR was accepted, the project migrated the local emulator from Minist
 - [[ministack-auth-chain-spike-findings]]
 - [[2026-06-28-users-service-design]]
 - [[ADR-0017-floci-local]]
+- [[ADR-0022-preprod-ecs-on-floci]]
+- [[2026-10-03-floci-preprod-alb-and-ecs-behaviours]]
