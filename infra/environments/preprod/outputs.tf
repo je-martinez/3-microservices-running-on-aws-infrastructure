@@ -34,3 +34,8 @@ output "openobserve_root_password" {
   sensitive = true
 }
 output "ecr_repository_urls" { value = module.ecr.repository_urls }
+
+output "ecs_cluster_name" { value = aws_ecs_cluster.this.name }
+output "service_ports" {
+  value = { for k, s in local.services : k => { for lk, l in s.listeners : lk => l.port } }
+}
