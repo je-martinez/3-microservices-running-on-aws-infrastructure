@@ -938,7 +938,9 @@ preprod-floci-up: scripts-setup ## Pre-prod: exclusivity guard, then Floci alone
 	@$(PY) infra/scripts/env_guard.py preprod
 	$(PP_COMPOSE) up -d --wait floci
 
-preprod-down: ## Pre-prod: full wipe (Floci, its children, ECR registry, Floci volumes, TF state)
+preprod-down: scripts-setup ## Pre-prod: full wipe (Floci, its children, ECR registry, Floci volumes, TF state)
+	@# CONTRACT: Keep the dev check first — the floci- sweeps below match dev's Floci too.
+	@$(PY) infra/scripts/env_guard.py --check-other preprod
 	$(PP_COMPOSE) down -v --remove-orphans
 	@# CONTRACT: Floci-launched containers and volumes carry no compose label, and the
 	@# ECR registry survives Floci's own shutdown; kept, the next apply fails with
@@ -947,9 +949,12 @@ preprod-down: ## Pre-prod: full wipe (Floci, its children, ECR registry, Floci v
 	@docker volume ls -q --filter label=floci=true | xargs -r docker volume rm -f 2>/dev/null || true
 	@docker volume rm -f floci-ecr-registry-data 2>/dev/null || true
 	@docker network rm $(PP_NETWORK) 2>/dev/null || true
-	@rm -rf $(PP_TF_DIR)/.terraform $(PP_TF_DIR)/terraform.tfstate* $(PP_TF_DIR)/image-tags.auto.tfvars.json $(PP_TF_DIR)/.state
+	@rm -rf $(PP_TF_DIR)/.terraform $(PP_TF_DIR)/.terraform-cognito $(PP_TF_DIR)/.terraform-docdb $(PP_TF_DIR)/.terraform-redis \
+	    $(PP_TF_DIR)/terraform.tfstate* $(PP_TF_DIR)/image-tags.auto.tfvars.json
 
-preprod-up: preprod-floci-up lambda-bundles ## Pre-prod: everything, from scratch
+preprod-up: preprod-floci-up ## Pre-prod: everything, from scratch (refuses on a live environment)
+	@$(PY) $(PP_TF_DIR)/scripts/preprod_live.py --tf-dir $(PP_TF_DIR)
+	$(MAKE) --no-print-directory lambda-bundles
 	$(PP_TF) init -input=false
 	$(PP_TF) apply -auto-approve -input=false $(PP_TF_VARS) -var deploy_services=false
 	$(PY) $(PP_TF_DIR)/scripts/build_push.py --tf-dir $(PP_TF_DIR) --services $(PP_IMAGES)
@@ -994,7 +999,10 @@ preprod-aliases: scripts-setup ## Pre-prod: attach stable Docker aliases to ECS 
 preprod-deploy: scripts-setup ## Pre-prod: redeploy one service (S=users|orders|tracking|web; ENV_ONLY=1 = config only)
 	@test -n "$(S)" || { echo "usage: make preprod-deploy S=<service> [ENV_ONLY=1]"; exit 2; }
 ifeq ($(ENV_ONLY),1)
-	@# WHY: ECS reads secrets and SSM only at task start, so a config change needs new tasks.
+	@# WHY: ECS reads secrets and SSM only at task start: write the edited values, then
+	@# start new tasks. -target keeps the perpetual-drift resources out of the apply.
+	$(PP_TF) apply -auto-approve -input=false $(PP_TF_VARS) -var deploy_services=true \
+	    -target=module.app_config
 	$(PY) -c "import sys; from lib3mrai.aws import client; client('ecs').update_service(cluster=sys.argv[1], service=sys.argv[2], forceNewDeployment=True)" "$$($(PP_TF) output -raw ecs_cluster_name)" $(S)
 else
 	$(PY) $(PP_TF_DIR)/scripts/build_push.py --tf-dir $(PP_TF_DIR) --services $(S)

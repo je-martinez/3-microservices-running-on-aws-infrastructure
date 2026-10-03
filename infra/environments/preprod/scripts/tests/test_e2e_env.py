@@ -15,6 +15,7 @@ OUTPUTS = {
     "events_query_url": "http://q", "ws_url": "ws://w",
     "notifications_queue_url": "http://n", "events_topic_arn": "arn:t",
     "openobserve_root_password": "p",
+    "webhook_secret": "w", "events_queue_url": "http://e",
 }
 
 
@@ -41,3 +42,13 @@ def test_stripe_vars_are_blanked_so_dev_env_files_cannot_leak_in():
     for name in ["STRIPE_WEBHOOK_SECRET", "STRIPE_WEBHOOK_URL_TOKEN", "STRIPE_SECRET_KEY",
                  "ORDERS_STRIPE_WEBHOOK_URL_TOKEN", "ORDERS_STRIPE_SECRET_KEY"]:
         assert env[name] == ""
+
+
+def test_webhook_secret_and_events_queue_come_from_pre_prod_outputs():
+    env = ee.env_from_outputs(OUTPUTS)
+    assert env["WEBHOOK_SECRET"] == "w"
+    assert env["EVENTS_QUEUE_URL"] == "http://e"
+
+
+def test_every_key_is_read_from_the_outputs():
+    assert set(ee.KEYS) == set(OUTPUTS)

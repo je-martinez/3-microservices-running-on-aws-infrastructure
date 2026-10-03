@@ -60,3 +60,39 @@ def test_update_tags_merges(tmp_path):
     path.write_text(json.dumps({"image_tags": {"users": "old", "orders": "o1"}}))
     assert bp.update_tags(path, {"users": "new"}) == {"users": "new", "orders": "o1"}
     assert json.loads(path.read_text())["image_tags"]["users"] == "new"
+
+
+def test_repository_name_drops_the_registry_host():
+    assert bp.repository_name(URL) == "3mrai-preprod-app/users"
+
+
+def test_services_with_a_tag_in_ecr_are_skipped():
+    present = {"users"}
+    assert bp.services_to_push(["users", "orders"], lambda s: s in present) == ["orders"]
+
+
+class _Ecr:
+    def __init__(self, error=None, details=None):
+        self.error, self.details, self.calls = error, details or [], []
+
+    def describe_images(self, **kwargs):
+        self.calls.append(kwargs)
+        if self.error:
+            raise bp.ClientError({"Error": {"Code": self.error, "Message": ""}}, "DescribeImages")
+        return {"imageDetails": self.details}
+
+
+def test_tag_in_ecr_true_when_described():
+    ecr = _Ecr(details=[{"imageTags": ["t1"]}])
+    assert bp.tag_in_ecr(ecr, "r/users", "t1") is True
+    assert ecr.calls == [{"repositoryName": "r/users", "imageIds": [{"imageTag": "t1"}]}]
+
+
+def test_tag_in_ecr_false_on_image_not_found():
+    assert bp.tag_in_ecr(_Ecr(error="ImageNotFoundException"), "r/users", "t1") is False
+
+
+def test_tag_in_ecr_raises_other_errors():
+    import pytest
+    with pytest.raises(bp.ClientError):
+        bp.tag_in_ecr(_Ecr(error="RepositoryNotFoundException"), "r/users", "t1")

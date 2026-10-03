@@ -1,7 +1,8 @@
 """Build (or retag) pre-prod images and push them to Floci's ECR.
 
 CONTRACT: Tags are immutable and unique per content — a reused tag leaves ECS on
-the old task definition while the deploy reports success.
+the old task definition while the deploy reports success. A tag already in ECR
+(a clean tree on a pushed commit) is recorded, never rebuilt or re-pushed.
 """
 
 from __future__ import annotations
@@ -14,6 +15,8 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+
+from botocore.exceptions import ClientError
 
 from lib3mrai.aws import client
 from lib3mrai.console import inf, ok
@@ -52,6 +55,24 @@ def commands_for(service: str, url: str, tag: str, build_args: dict[str, str]) -
     for key, value in build_args.items():
         build += ["--build-arg", f"{key}={value}"]
     return [build + [context], ["docker", "push", ref]]
+
+
+def repository_name(url: str) -> str:
+    return url.split("/", 1)[1]
+
+
+def tag_in_ecr(ecr, repository: str, tag: str) -> bool:
+    try:
+        return bool(ecr.describe_images(repositoryName=repository,
+                                        imageIds=[{"imageTag": tag}])["imageDetails"])
+    except ClientError as exc:
+        if exc.response["Error"]["Code"] == "ImageNotFoundException":
+            return False
+        raise
+
+
+def services_to_push(services: list[str], exists) -> list[str]:
+    return [s for s in services if not exists(s)]
 
 
 def update_tags(path: Path, new: dict[str, str]) -> dict[str, str]:
@@ -103,7 +124,12 @@ def main(argv: list[str] | None = None) -> int:
     tag = image_tag(_git("rev-parse", "HEAD"), dirty, time.time(), content)
     _ecr_login(next(iter(urls.values())).split("/", 1)[0])
 
+    ecr = client("ecr")
+    to_push = services_to_push(services, lambda s: tag_in_ecr(ecr, repository_name(urls[s]), tag))
     for service in services:
+        if service not in to_push:
+            inf(f"    {service}:{tag} already in ECR - recording the tag, nothing built")
+            continue
         inf(f"    {service} → {urls[service]}:{tag}")
         for cmd in commands_for(service, urls[service], tag, _build_args(service, args.tf_dir)):
             subprocess.run(cmd, cwd=ROOT, check=True)

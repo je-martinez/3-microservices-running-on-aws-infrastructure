@@ -17,7 +17,7 @@ from pathlib import Path
 
 KEYS = ["api_gateway_url", "internal_api_key", "carrier_api_key", "e2e_query_token",
         "events_query_url", "ws_url", "notifications_queue_url", "events_topic_arn",
-        "openobserve_root_password"]
+        "openobserve_root_password", "webhook_secret", "events_queue_url"]
 
 OPENOBSERVE_USER = "admin@3mrai.local"
 
@@ -47,6 +47,8 @@ def env_from_outputs(o: dict[str, str]) -> dict[str, str]:
         "WS_URL": o["ws_url"],
         "NOTIFICATIONS_QUEUE_URL": o["notifications_queue_url"],
         "EVENTS_TOPIC_ARN": o["events_topic_arn"],
+        "EVENTS_QUEUE_URL": o["events_queue_url"],
+        "WEBHOOK_SECRET": o["webhook_secret"],
         # CONTRACT: Pre-prod has Stripe disabled. Blank, never omit: playwright.config.ts loads
         # `.env.local.*` with dotenv, which only fills UNSET names, so an omitted name takes the
         # dev sandbox value and the webhook specs fail against a stack that has no Stripe.
