@@ -34,3 +34,10 @@ def test_openobserve_auth_header_uses_pre_prod_password():
     assert env["OPENOBSERVE_ORG"] == "3mrai"
     token = env["OPENOBSERVE_AUTH"].removeprefix("Basic ")
     assert base64.b64decode(token).decode() == "admin@3mrai.local:p"
+
+
+def test_stripe_vars_are_blanked_so_dev_env_files_cannot_leak_in():
+    env = ee.env_from_outputs(OUTPUTS)
+    for name in ["STRIPE_WEBHOOK_SECRET", "STRIPE_WEBHOOK_URL_TOKEN", "STRIPE_SECRET_KEY",
+                 "ORDERS_STRIPE_WEBHOOK_URL_TOKEN", "ORDERS_STRIPE_SECRET_KEY"]:
+        assert env[name] == ""

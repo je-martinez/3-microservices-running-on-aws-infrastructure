@@ -21,6 +21,10 @@ KEYS = ["api_gateway_url", "internal_api_key", "carrier_api_key", "e2e_query_tok
 
 OPENOBSERVE_USER = "admin@3mrai.local"
 
+# The names e2e/support/stripe-webhook.ts, payment-element.ts and playwright.config.ts read.
+STRIPE_VARS = ["STRIPE_WEBHOOK_SECRET", "STRIPE_WEBHOOK_URL_TOKEN", "STRIPE_SECRET_KEY",
+               "ORDERS_STRIPE_WEBHOOK_URL_TOKEN", "ORDERS_STRIPE_SECRET_KEY"]
+
 
 def env_from_outputs(o: dict[str, str]) -> dict[str, str]:
     basic = base64.b64encode(f"{OPENOBSERVE_USER}:{o['openobserve_root_password']}".encode()).decode()
@@ -43,6 +47,10 @@ def env_from_outputs(o: dict[str, str]) -> dict[str, str]:
         "WS_URL": o["ws_url"],
         "NOTIFICATIONS_QUEUE_URL": o["notifications_queue_url"],
         "EVENTS_TOPIC_ARN": o["events_topic_arn"],
+        # CONTRACT: Pre-prod has Stripe disabled. Blank, never omit: playwright.config.ts loads
+        # `.env.local.*` with dotenv, which only fills UNSET names, so an omitted name takes the
+        # dev sandbox value and the webhook specs fail against a stack that has no Stripe.
+        **{name: "" for name in STRIPE_VARS},
     }
 
 
