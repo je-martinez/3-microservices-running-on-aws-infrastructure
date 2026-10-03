@@ -48,8 +48,29 @@ def guard(target: str, *, run=docker, ask=input, isatty=sys.stdin.isatty, make=r
     return 1
 
 
+def refuse_if_other_runs(target: str, *, run=docker) -> int:
+    """Gate a teardown of `target` whose sweeps would also hit the other environment.
+
+    CONTRACT: Do NOT tear down while the other environment runs — the
+    `name=^floci-` / `label=floci=true` sweeps match its Floci containers and
+    volumes too, and its databases come back as phantoms reported `available`.
+    """
+    other = next(name for name in ENVIRONMENTS if name != target)
+    project, teardown = ENVIRONMENTS[other]
+    if not running(project, run):
+        return 0
+    no(f"{other} is running; refusing to tear down {target}: the sweep would delete {other}'s Floci containers and volumes.")
+    inf(f"    run `make {teardown}` first if you meant to drop {other} too, then retry")
+    return 1
+
+
+USAGE = "usage: env_guard.py <dev|preprod>  |  env_guard.py --check-other <dev|preprod>"
+
 if __name__ == "__main__":
-    if len(sys.argv) != 2 or sys.argv[1] not in ENVIRONMENTS:
-        no("usage: env_guard.py <dev|preprod>")
+    argv = sys.argv[1:]
+    if len(argv) == 2 and argv[0] == "--check-other" and argv[1] in ENVIRONMENTS:
+        sys.exit(refuse_if_other_runs(argv[1]))
+    if len(argv) != 1 or argv[0] not in ENVIRONMENTS:
+        no(USAGE)
         sys.exit(2)
-    sys.exit(guard(sys.argv[1]))
+    sys.exit(guard(argv[0]))

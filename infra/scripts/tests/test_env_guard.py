@@ -50,3 +50,15 @@ def test_no_tty_aborts_without_dropping():
 def test_project_match_is_exact():
     # "3mrai" must not match the "3mrai-preprod" project label.
     assert guard_mod.running("3mrai", run=docker_with("3mrai-preprod")) is False
+
+
+def test_teardown_check_refuses_while_the_other_runs():
+    assert guard_mod.refuse_if_other_runs("preprod", run=docker_with("3mrai")) == 1
+
+
+def test_teardown_check_passes_when_only_the_target_runs():
+    assert guard_mod.refuse_if_other_runs("preprod", run=docker_with("3mrai-preprod")) == 0
+
+
+def test_teardown_check_passes_when_nothing_runs():
+    assert guard_mod.refuse_if_other_runs("preprod", run=docker_with(None)) == 0
