@@ -147,7 +147,7 @@ on its own).
 | `make doctor` | Diagnosis of the local stack (read-only apart from waking Floci's ECS reconciler) — see below |
 | `make heal` | Recover the stack after a Floci or Docker daemon restart; alone it is the whole recovery — see below |
 | `make post-infra` | Phase 2 Terraform apply: least-privilege DB app-users and the assets bucket (see [[two-phase-terraform-apply]]). Called automatically by `bootstrap`; still standalone and re-runnable on its own |
-| `make clean` | Tear down infra + compose with `docker compose down -v`, **no prompt**; removes Floci's state volume and the `floci-ecr-registry-data` volume |
+| `make clean` | Tear down infra + compose with `docker compose down -v`, **no prompt**; removes Floci's state volume and the `floci-ecr-registry-data` volume; refuses while pre-prod runs ([[environment-exclusivity]]) |
 
 #### `bootstrap-provision` / `bootstrap-converge` — the two halves of `bootstrap`
 

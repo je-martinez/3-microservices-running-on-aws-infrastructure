@@ -124,7 +124,8 @@ container. Anything less leaves `RepositoryAlreadyExists` on the next apply or p
 
 It refuses while the dev stack (compose project `3mrai`) runs: its `floci-` container and
 `floci=true` volume sweeps would delete dev's Floci children and data. Drop dev first with
-`make clean` if that is intended ([[environment-exclusivity]]).
+`make clean` if that is intended. The mirror guard applies too: `make clean` and `make clean-state`
+refuse while pre-prod runs ([[environment-exclusivity]]).
 
 ## Verification
 
