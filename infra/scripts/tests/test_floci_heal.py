@@ -19,12 +19,45 @@ def test_wake_ecs_lists_clusters():
     ecs.list_clusters.assert_called_once()
 
 
+def _task(task_id, status):
+    return {"taskArn": f"arn:aws:ecs:us-east-1:000000000000:task/c1/{task_id}", "lastStatus": status}
+
+
 def test_live_task_ids_strips_arn_prefix():
     ecs = MagicMock()
-    ecs.list_tasks.return_value = {
-        "taskArns": ["arn:aws:ecs:us-east-1:000000000000:task/c1/abc123"]
-    }
+    ecs.list_tasks.return_value = {"taskArns": [_task("abc123", "RUNNING")["taskArn"]]}
+    ecs.describe_tasks.return_value = {"tasks": [_task("abc123", "RUNNING")]}
     assert heal.live_task_ids(ecs, ["arn:c1"]) == {"abc123"}
+
+
+def test_live_task_ids_excludes_stopped_tasks():
+    ecs = MagicMock()
+    tasks = [_task("abc123", "RUNNING"), _task("dead99", "STOPPED")]
+    ecs.list_tasks.return_value = {"taskArns": [t["taskArn"] for t in tasks]}
+    ecs.describe_tasks.return_value = {"tasks": tasks}
+    live = heal.live_task_ids(ecs, ["arn:c1"])
+    assert live == {"abc123"}
+    names = ["floci-ecs-abc123-nginx", "floci-ecs-dead99-nginx"]
+    assert heal.orphan_task_containers(names, live) == ["floci-ecs-dead99-nginx"]
+
+
+def test_live_task_ids_describes_in_batches_of_100():
+    ecs = MagicMock()
+    arns = [_task(f"{i:06x}", "RUNNING")["taskArn"] for i in range(150)]
+    ecs.list_tasks.return_value = {"taskArns": arns}
+    ecs.describe_tasks.side_effect = lambda cluster, tasks: {
+        "tasks": [{"taskArn": a, "lastStatus": "RUNNING"} for a in tasks]
+    }
+    assert len(heal.live_task_ids(ecs, ["arn:c1"])) == 150
+    sizes = [len(c.kwargs["tasks"]) for c in ecs.describe_tasks.call_args_list]
+    assert sizes == [100, 50]
+
+
+def test_live_task_ids_skips_describe_for_empty_cluster():
+    ecs = MagicMock()
+    ecs.list_tasks.return_value = {"taskArns": []}
+    assert heal.live_task_ids(ecs, ["arn:c1"]) == set()
+    ecs.describe_tasks.assert_not_called()
 
 
 def test_removes_only_orphan_task_containers():

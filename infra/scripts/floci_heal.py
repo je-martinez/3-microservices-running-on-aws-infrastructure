@@ -19,6 +19,7 @@ from lib3mrai.console import inf, no, ok
 FLOCI_HEALTH_URL = "http://localhost:4566/_floci/health"
 BACKING_SERVICES = ("docdb", "elasticache")
 NON_RUNNING_STATUSES = ("exited", "created")
+DESCRIBE_BATCH = 100
 TASK_CONTAINER = re.compile(r"^floci-ecs-([0-9a-f]+)-")
 
 
@@ -45,10 +46,16 @@ def wake_ecs(ecs) -> list[str]:
 
 
 def live_task_ids(ecs, cluster_arns: list[str]) -> set[str]:
+    # WORKAROUND(local): Floci's list_tasks also returns STOPPED tasks; counting
+    # them as live keeps a stopped task's container from being removed as an orphan.
     ids: set[str] = set()
     for arn in cluster_arns:
-        for task in ecs.list_tasks(cluster=arn).get("taskArns", []):
-            ids.add(task.rsplit("/", 1)[-1])
+        task_arns = ecs.list_tasks(cluster=arn).get("taskArns", [])
+        for start in range(0, len(task_arns), DESCRIBE_BATCH):
+            batch = task_arns[start:start + DESCRIBE_BATCH]
+            for task in ecs.describe_tasks(cluster=arn, tasks=batch).get("tasks", []):
+                if task.get("lastStatus") == "RUNNING":
+                    ids.add(task["taskArn"].rsplit("/", 1)[-1])
     return ids
 
 
