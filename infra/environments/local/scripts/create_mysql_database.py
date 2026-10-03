@@ -11,7 +11,7 @@ import subprocess
 import sys
 
 from lib3mrai.console import inf, no, ok
-from lib3mrai.db import COMPOSE_NETWORK, discover_port
+from lib3mrai.db import compose_network, discover_port
 from lib3mrai.execution_log import record_execution
 
 # Floci's only reachable MySQL superuser. Not a secret: Floci fixes it at
@@ -47,7 +47,7 @@ def create_database(database: str, port: int) -> bool:
     """Run the DDL. Returns True on success."""
     result = subprocess.run(
         [
-            "docker", "run", "--rm", "--network", COMPOSE_NETWORK,
+            "docker", "run", "--rm", "--network", compose_network(),
             "mysql:8",
             "mysql",
             # Floci's MySQL proxy does not terminate TLS, so the client's
