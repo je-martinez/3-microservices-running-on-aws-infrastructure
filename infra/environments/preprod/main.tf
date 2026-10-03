@@ -520,3 +520,19 @@ data "aws_rds_cluster" "mysql" {
   cluster_identifier = module.rds_mysql.cluster_identifier
   depends_on         = [module.rds_mysql]
 }
+
+module "label_app" {
+  source      = "../../modules/label"
+  environment = var.environment
+  name        = "app"
+}
+
+locals {
+  images = toset(["users", "orders", "tracking", "web", "otel-collector", "openobserve", "mailpit"])
+}
+
+module "ecr" {
+  source       = "../../modules/ecr"
+  context      = { id = module.label_app.id, tags = module.label_app.tags }
+  repositories = local.images
+}

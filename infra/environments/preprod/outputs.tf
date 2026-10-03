@@ -33,3 +33,4 @@ output "openobserve_root_password" {
   value     = random_password.openobserve_root.result
   sensitive = true
 }
+output "ecr_repository_urls" { value = module.ecr.repository_urls }
