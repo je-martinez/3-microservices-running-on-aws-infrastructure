@@ -125,8 +125,7 @@ data "local_file" "cluster_via_cli" {
 }
 
 # ─── No Parameter Store entries ───────────────────────────────────────────────────
-# CONTRACT: Do NOT add `aws_ssm_parameter` here ungated. They fail against Floci
-# with `UnrecognizedClientException` — the same provider-signing failure that
-# forced the awscli-fallback above — and nothing reads them: every consumer takes
-# host/port from `terraform output`. If production needs them, gate them the way
-# the cluster is gated. See [[awscli-fallback-for-floci]]
+# WHY: Nothing reads them — every consumer takes host/port from `terraform output`.
+# CONTRACT: A root that adds `aws_ssm_parameter` must declare the `ssm` provider
+# endpoint; undeclared, the provider signs against real AWS and fails with
+# `UnrecognizedClientException`, which reads like a Floci limitation and is not.

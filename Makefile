@@ -730,6 +730,11 @@ clean: ## Tear down infra + compose, including the emulator state volume
 	@echo "Removing Floci-created volumes (labelled floci=true, not compose)…"
 	@docker volume ls -q --filter label=floci=true \
 		| xargs -r docker volume rm -f 2>/dev/null || true
+	@# CONTRACT: Remove the ECR registry volume by name. Floci keeps the registry
+	@# container running across its own shutdown and the volume carries no compose
+	@# or floci label, so the sweeps above miss it; kept, Floci reports every old
+	@# repository as existing and the next apply fails with RepositoryAlreadyExists.
+	@docker volume rm -f floci-ecr-registry-data 2>/dev/null || true
 	@docker network rm 3mrai_3mrai-network 2>/dev/null || true
 	@# WARNING: Both prunes are machine-wide, not project-scoped — `image prune` removes
 	@# every DANGLING image (untagged, unreferenced, so no project loses a tagged image)
@@ -774,6 +779,11 @@ clean-state: ## Tear down state like `clean`, but KEEP the Docker build cache (f
 	@echo "Removing Floci-created volumes (labelled floci=true, not compose)…"
 	@docker volume ls -q --filter label=floci=true \
 		| xargs -r docker volume rm -f 2>/dev/null || true
+	@# CONTRACT: Remove the ECR registry volume by name. Floci keeps the registry
+	@# container running across its own shutdown and the volume carries no compose
+	@# or floci label, so the sweeps above miss it; kept, Floci reports every old
+	@# repository as existing and the next apply fails with RepositoryAlreadyExists.
+	@docker volume rm -f floci-ecr-registry-data 2>/dev/null || true
 	@docker network rm 3mrai_3mrai-network 2>/dev/null || true
 	@echo ""
 	@echo "  Build cache KEPT. Reclaimable right now:"
