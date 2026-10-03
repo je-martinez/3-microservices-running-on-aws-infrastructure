@@ -518,6 +518,11 @@ processors:
           - set(attributes["service_name"], "web")
             where attributes["service_name"] == nil
               and attributes["fluent.tag"] == "web"
+          # Pre-prod ships the same output through awslogs to /ecs/<family>-web.
+          - set(attributes["service_name"], "web")
+            where attributes["service_name"] == nil
+              and resource.attributes["cloudwatch.log.group.name"] != nil
+              and IsMatch(resource.attributes["cloudwatch.log.group.name"], "^/ecs/.*-web$")
           - set(attributes["severity_text"], "INFO")
             where attributes["service_name"] == "web" and attributes["severity_text"] == nil
           - set(attributes["severity_number"], 9)
@@ -816,7 +821,7 @@ exporters:
   # OpenObserve OTLP-HTTP ingest (ADR-0018). Use otlp_http — the otlphttp alias
   # is deprecated. Basic auth + stream-name are what OpenObserve requires.
   otlp_http/openobserve:
-    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    endpoint: ${env:O2_ENDPOINT}/api/${env:O2_ORG}
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: logs
@@ -827,7 +832,7 @@ exporters:
   # to bury a flow log. They keep their shared-context fields (user_id,
   # order_id, trace_id…), so a query still traces back to its request.
   otlp_http/openobserve_sql:
-    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    endpoint: ${env:O2_ENDPOINT}/api/${env:O2_ORG}
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: sql
@@ -838,7 +843,7 @@ exporters:
   # background-save failure — rare and quiet, so they must neither be weighed
   # against expire-cycle noise in the main stream nor discarded.
   otlp_http/openobserve_redis:
-    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    endpoint: ${env:O2_ENDPOINT}/api/${env:O2_ORG}
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: redis
@@ -848,7 +853,7 @@ exporters:
   # is the ONLY place the storage layer reports a restart, an auth failure or an
   # index build. filter/drop_wiredtiger_noise strips checkpoint noise inside it.
   otlp_http/openobserve_docdb:
-    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    endpoint: ${env:O2_ENDPOINT}/api/${env:O2_ORG}
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: docdb
@@ -860,7 +865,7 @@ exporters:
   # Severity comes from the HTTP status in transform/parse_body, so this stream
   # filters by ERROR/WARN like any other.
   otlp_http/openobserve_nginx:
-    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    endpoint: ${env:O2_ENDPOINT}/api/${env:O2_ORG}
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: nginx
@@ -870,7 +875,7 @@ exporters:
   # start, a recovery or a connection problem — rare and quiet, so they must
   # neither be weighed against checkpoint chatter nor discarded.
   otlp_http/openobserve_rds:
-    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    endpoint: ${env:O2_ENDPOINT}/api/${env:O2_ORG}
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: rds
@@ -882,7 +887,7 @@ exporters:
   # service's lines go missing from a dashboard — the answer is usually here,
   # with the raw `body` intact so the unrecognized format can be read directly.
   otlp_http/openobserve_unclassified:
-    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    endpoint: ${env:O2_ENDPOINT}/api/${env:O2_ORG}
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: unclassified
@@ -900,7 +905,7 @@ exporters:
   # which observability-up runs; it is not a version bug.
   # See [[ADR-0019-distributed-tracing-opentelemetry]]
   otlp_http/openobserve_traces:
-    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    endpoint: ${env:O2_ENDPOINT}/api/${env:O2_ORG}
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       # Without this header OpenObserve files every span under `default`.
@@ -924,14 +929,14 @@ exporters:
   # queried as `dimensions_service`, and the metric name becomes the stream name
   # sanitized: amazonaws.com/3MRAI/orders_total -> amazonaws_com_3mrai_orders_total.
   otlp_http/openobserve_metrics:
-    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    endpoint: ${env:O2_ENDPOINT}/api/${env:O2_ORG}
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: metrics
 
   # RUM metrics (Web Vitals) — its own stream, same instance and auth.
   otlp_http/openobserve_rum_metrics:
-    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    endpoint: ${env:O2_ENDPOINT}/api/${env:O2_ORG}
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: rum_metrics
@@ -941,7 +946,7 @@ exporters:
   # existing OTLP-logs exporter to model this one on, since the services log
   # to OpenObserve over fluent_forward, not OTLP.
   otlp_http/openobserve_rum_logs:
-    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    endpoint: ${env:O2_ENDPOINT}/api/${env:O2_ORG}
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: rum_logs

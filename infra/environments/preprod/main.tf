@@ -501,10 +501,16 @@ resource "random_password" "e2e_query_token" {
   special = false
 }
 
+# CONTRACT: Keep every min_* at 1. OpenObserve refuses to boot ("ZO_ROOT_USER_PASSWORD
+# is too weak") unless the password has a lowercase, uppercase, digit and special char.
 resource "random_password" "openobserve_root" {
   length           = 24
   special          = true
   override_special = "#"
+  min_lower        = 1
+  min_upper        = 1
+  min_numeric      = 1
+  min_special      = 1
 }
 
 # WHY: The proxy port Floci assigns per cluster (7000-7099, by creation order) is

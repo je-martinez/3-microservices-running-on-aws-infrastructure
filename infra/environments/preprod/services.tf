@@ -105,6 +105,13 @@ locals {
       API_GATEWAY_API_ID     = module.api_gateway.api_id
       OTLP_RUM_UPSTREAM      = "floci:4319"
     }
+    otel-collector = merge(local.aws_common, {
+      O2_ORG      = "3mrai"
+      O2_ENDPOINT = "http://floci:5080"
+    })
+    openobserve = {
+      ZO_ROOT_USER_EMAIL = "admin@3mrai.local"
+    }
   }
 
   secrets = {
@@ -128,6 +135,12 @@ locals {
     web = {
       GEOAPIFY_API_KEY = var.geoapify_api_key
     }
+    otel-collector = {
+      O2_BASIC_AUTH = base64encode("admin@3mrai.local:${random_password.openobserve_root.result}")
+    }
+    openobserve = {
+      ZO_ROOT_USER_PASSWORD = random_password.openobserve_root.result
+    }
   }
 
   services = {
@@ -149,6 +162,17 @@ locals {
     web = {
       port      = 80, cpu = 256, memory = 512, extra_ports = []
       listeners = { http = { port = 9090, container_port = 80, health_path = "/" } }
+    }
+    otel-collector = {
+      port = 4318, cpu = 256, memory = 512, extra_ports = [4317, 13133]
+      listeners = {
+        otlp = { port = 4318, container_port = 4318, health_path = "/" }
+        rum  = { port = 4319, container_port = 4319, health_path = "/" }
+      }
+    }
+    openobserve = {
+      port      = 5080, cpu = 512, memory = 1024, extra_ports = []
+      listeners = { http = { port = 5080, container_port = 5080, health_path = "/healthz" } }
     }
   }
 }

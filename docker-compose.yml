@@ -157,6 +157,7 @@ services:
       # the identifier in the body and generates a random one, which would change
       # on every `make clean` and force consumers to discover it at runtime.
       - O2_ORG=3mrai
+      - O2_ENDPOINT=http://openobserve:5080
     volumes:
       - ./observability/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
     networks: [3mrai-network]

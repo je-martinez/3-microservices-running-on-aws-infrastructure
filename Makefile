@@ -930,10 +930,10 @@ PP_TF_DIR  := infra/environments/preprod
 PP_TF      := terraform -chdir=$(PP_TF_DIR)
 PP_NETWORK := 3mrai-preprod_preprod-network
 PP_TF_VARS := -var python_bin=$(PY)
-PP_IMAGES  := users,orders,tracking,web
+PP_IMAGES  := users,orders,tracking,web,otel-collector,openobserve
 PP_ALIASES := users-grpc
 
-.PHONY: preprod-floci-up preprod-down preprod-up preprod-migrate preprod-smoke preprod-aliases preprod-deploy
+.PHONY: preprod-floci-up preprod-down preprod-up preprod-migrate preprod-smoke preprod-aliases preprod-deploy preprod-observability
 preprod-floci-up: scripts-setup ## Pre-prod: exclusivity guard, then Floci alone
 	@$(PY) infra/scripts/env_guard.py preprod
 	$(PP_COMPOSE) up -d --wait floci
@@ -958,6 +958,7 @@ preprod-up: preprod-floci-up lambda-bundles ## Pre-prod: everything, from scratc
 	$(PY) $(PP_TF_DIR)/scripts/wait_services.py --cluster "$$($(PP_TF) output -raw ecs_cluster_name)"
 	$(MAKE) --no-print-directory preprod-aliases
 	$(MAKE) --no-print-directory preprod-smoke
+	$(MAKE) --no-print-directory preprod-observability
 
 preprod-migrate: scripts-setup ## Pre-prod: Prisma (users) + golang-migrate (tracking) against Floci's RDS
 	@# CONTRACT: Run as the cluster superuser and keep the tracking baseline guard —
@@ -1006,3 +1007,16 @@ endif
 
 preprod-smoke: ## Pre-prod: health of every service through its ALB listener
 	@for p in 9101 9102 9103; do curl -fsS -o /dev/null -w "$$p %{http_code}\n" http://localhost:$$p/v1/health || exit 1; done
+	@# WHY: wait_services sees a running container, not a ready app; OpenObserve answers
+	@# 503 on /healthz for ~15s after start, so each probe gets 60s to turn 2xx.
+	@for u in http://localhost:9090/ http://localhost:5080/healthz; do \
+	  for i in $$(seq 30); do \
+	    c="$$(curl -s -o /dev/null -w '%{http_code}' $$u)"; case "$$c" in 2??) break ;; esac; sleep 2; \
+	  done; \
+	  echo "$$u $$c"; case "$$c" in 2??) ;; *) exit 1 ;; esac; \
+	done
+
+preprod-observability: ## Pre-prod: seed the traces schema and import dashboards into pre-prod's OpenObserve
+	@auth="$$(printf 'admin@3mrai.local:%s' "$$($(PP_TF) output -raw openobserve_root_password)" | base64 | tr -d '\n')"; \
+	O2_ORG=3mrai O2_URL=http://localhost:5080 O2_BASIC_AUTH="$$auth" python3 scripts/seed_traces_schema.py && \
+	O2_ORG=3mrai O2_URL=http://localhost:5080 O2_BASIC_AUTH="$$auth" node scripts/import-dashboards.mjs
