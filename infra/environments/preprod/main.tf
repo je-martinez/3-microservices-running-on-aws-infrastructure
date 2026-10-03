@@ -170,7 +170,7 @@ module "cognito" {
   # use above — the Lambda runs as a container on the pre-prod network and cannot reach
   # the host's localhost.
   aws_cli_endpoint_url_in_network = "http://floci:4566"
-  # LOCAL ONLY: real AWS rejects AWS_REGION as a reserved Lambda env key, so the
+  # WORKAROUND(local): real AWS rejects AWS_REGION as a reserved Lambda env key, so the
   # module omits it when this is "" (its default, i.e. production).
   lambda_region_env = local.region
 }

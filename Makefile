@@ -995,7 +995,7 @@ preprod-deploy: scripts-setup ## Pre-prod: redeploy one service (S=users|orders|
 	@test -n "$(S)" || { echo "usage: make preprod-deploy S=<service> [ENV_ONLY=1]"; exit 2; }
 ifeq ($(ENV_ONLY),1)
 	@# WHY: ECS reads secrets and SSM only at task start, so a config change needs new tasks.
-	$(PY) -c "import boto3,sys; boto3.client('ecs',endpoint_url='http://localhost:4566',region_name='us-east-1',aws_access_key_id='test',aws_secret_access_key='test').update_service(cluster=sys.argv[1],service=sys.argv[2],forceNewDeployment=True)" "$$($(PP_TF) output -raw ecs_cluster_name)" $(S)
+	$(PY) -c "import sys; from lib3mrai.aws import client; client('ecs').update_service(cluster=sys.argv[1], service=sys.argv[2], forceNewDeployment=True)" "$$($(PP_TF) output -raw ecs_cluster_name)" $(S)
 else
 	$(PY) $(PP_TF_DIR)/scripts/build_push.py --tf-dir $(PP_TF_DIR) --services $(S)
 	@# CONTRACT: Keep -target; a full apply re-touches the perpetual-drift resources.

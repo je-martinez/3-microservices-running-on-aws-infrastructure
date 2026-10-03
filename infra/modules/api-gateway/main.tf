@@ -193,8 +193,8 @@ locals {
   alb_mode = length(var.alb_backends) > 0
   route_service = {
     for k, r in local.routes : k => (
-      can(regex("^/v1/(orders|products|cart)", r.path)) ? "orders" :
-      can(regex("^/v1/(trackings|tracking/)", r.path)) ? "tracking" : "users"
+      can(regex("^/v1/(orders|products|cart)(/|$)", r.path)) ? "orders" :
+      can(regex("^/v1/(trackings(/|$)|tracking/)", r.path)) ? "tracking" : "users"
     )
   }
 }
