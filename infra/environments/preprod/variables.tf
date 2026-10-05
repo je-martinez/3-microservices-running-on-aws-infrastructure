@@ -56,11 +56,60 @@ variable "users_grpc_via_alb" {
   description = "false = USERS_GRPC_URL via the Docker alias users-grpc:50051 (preprod_aliases.py attaches it); true = through ALB :9151."
 }
 
-# WHY: nginx refuses to start with GEOAPIFY_API_KEY undefined, and SSM/Secrets Manager
-# reject empty values, so "disabled" is the off state.
+# WHY: Plain bools — they decide which SSM/Secrets entries exist, and for_each keys
+# cannot be sensitive. preprod_integrations.py writes all of these to
+# integrations.auto.tfvars.json. See [[2026-10-05-preprod-integrations-design]]
+variable "stripe_enabled" {
+  type    = bool
+  default = false
+}
+
+variable "geoapify_enabled" {
+  type    = bool
+  default = false
+}
+
+variable "stripe_secret_key_users" {
+  type      = string
+  default   = ""
+  sensitive = true
+}
+
+variable "stripe_secret_key_orders" {
+  type      = string
+  default   = ""
+  sensitive = true
+}
+
+variable "stripe_webhook_secret" {
+  type      = string
+  default   = ""
+  sensitive = true
+}
+
+variable "stripe_webhook_url_token_users" {
+  type      = string
+  default   = ""
+  sensitive = true
+}
+
+variable "stripe_webhook_url_token_orders" {
+  type      = string
+  default   = ""
+  sensitive = true
+}
+
+variable "stripe_webhook_allowed_cidrs" {
+  type        = string
+  default     = ""
+  description = "Stripe's webhook IPs plus private ranges; the same list as dev's generate_env_files.py."
+}
+
+# WHY: nginx refuses to start with GEOAPIFY_API_KEY undefined, and Secrets Manager
+# rejects empty values, so "disabled" is the off state.
 variable "geoapify_api_key" {
   type        = string
   default     = "disabled"
   sensitive   = true
-  description = "Geoapify key for the web /geocode/ proxy. Geocoding is off in pre-prod builds; the placeholder only lets nginx start."
+  description = "Geoapify key for the web /geocode/ proxy; only used when geoapify_enabled."
 }
