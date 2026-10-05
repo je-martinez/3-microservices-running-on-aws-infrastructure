@@ -129,7 +129,7 @@ def summary(env: dict[str, str]) -> str:
 
 
 LOCAL_SCRIPTS = ROOT / "infra" / "environments" / "local" / "scripts"
-HEADER = "Pre-prod integrations — make preprod-integrations. See docs/infrastructure/runbooks/preprod.md"
+HEADER = "Pre-prod integrations — make preprod-integrations. See [[preprod]]"
 WHSEC_RE = re.compile(r"^whsec_[A-Za-z0-9]+$")
 TIMEOUT_SECONDS = 30
 CUSTOM_DEFAULTS = {key: "" for key in (
@@ -241,6 +241,7 @@ def run(*, env_file: Path, tfvars_path: Path, regenerate: bool, prompt_allowed: 
     if not env_file.exists():
         create_skeleton(env_file)
         inf(f"created {env_file.name} — its CUSTOM box holds the pre-prod integration choices")
+    os.chmod(env_file, 0o600)
     if stripe_off:
         set_custom_value(env_file, "STRIPE_ENABLED", "false")
     if geoapify_off:
@@ -252,7 +253,7 @@ def run(*, env_file: Path, tfvars_path: Path, regenerate: bool, prompt_allowed: 
         if not (prompt_allowed and isatty()):
             no(f"undecided in {env_file.name}: {', '.join(pending)}")
             inf(f"    fill the CUSTOM box of {env_file} (true | false, plus the keys), then retry")
-            inf("    or decline without asking: make preprod-up STRIPE=off GEOAPIFY=off")
+            inf("    or decline without asking: make preprod-integrations STRIPE=off GEOAPIFY=off (preprod-up takes the same flags)")
             return 1
         for key, value in prompt(env, ask, ask_secret).items():
             set_custom_value(env_file, key, value)

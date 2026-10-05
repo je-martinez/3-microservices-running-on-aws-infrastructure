@@ -2,6 +2,7 @@
 
 import importlib.util
 import os
+import stat
 import sys
 from pathlib import Path
 
@@ -108,3 +109,31 @@ def test_stop_signals_a_confirmed_forwarder(tmp_path, monkeypatch):
     assert sl.stop() == 0
     assert len(calls) == 1
     assert not (tmp_path / "users.pid").exists()
+
+
+def _mode(path):
+    return stat.S_IMODE(path.stat().st_mode)
+
+
+def test_start_keeps_logs_and_pid_files_private(tmp_path, monkeypatch):
+    log_dir = tmp_path / "sub"
+    monkeypatch.setattr(sl, "LOG_DIR", log_dir)
+    monkeypatch.setattr(sl, "stop", lambda: 0)  # pid files hold pytest's own pid — see FakeProcess
+    sl.start(ON, spawn=lambda cmd, **k: FakeProcess())
+    assert _mode(log_dir) == 0o700
+    for service in sl.PORTS:
+        assert _mode(log_dir / f"{service}.log") == 0o600
+        assert _mode(log_dir / f"{service}.pid") == 0o600
+
+
+def test_start_tightens_a_pre_existing_world_readable_dir_and_log(tmp_path, monkeypatch):
+    log_dir = tmp_path / "sub"
+    log_dir.mkdir(mode=0o755)
+    os.chmod(log_dir, 0o755)
+    (log_dir / "users.log").write_text("old")
+    os.chmod(log_dir / "users.log", 0o644)
+    monkeypatch.setattr(sl, "LOG_DIR", log_dir)
+    monkeypatch.setattr(sl, "stop", lambda: 0)
+    sl.start(ON, spawn=lambda cmd, **k: FakeProcess())
+    assert _mode(log_dir) == 0o700
+    assert _mode(log_dir / "users.log") == 0o600

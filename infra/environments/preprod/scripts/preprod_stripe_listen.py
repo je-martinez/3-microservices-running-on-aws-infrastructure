@@ -48,6 +48,13 @@ def log_file(service: str) -> Path:
     return LOG_DIR / f"{service}.log"
 
 
+def write_private(path: Path, text: str) -> None:
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as handle:
+        handle.write(text)
+    os.chmod(path, 0o600)
+
+
 def is_forwarder(pid: int) -> bool:
     """WARNING: Signal a pid only when it is still one of our forwarders. A pid file
     outlives a crash or reboot, and the reused pid can be an unrelated process or the
@@ -90,16 +97,21 @@ def start(env: dict[str, str], spawn=subprocess.Popen) -> int:
         inf("Stripe is off in .env.preprod — no webhook forwarders started")
         return 0
     stop()
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    LOG_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(LOG_DIR, 0o700)
     child_env = pi.cli_env(env)
     for service, port in PORTS.items():
         log = log_file(service)
         if log.exists() and log.stat().st_size > MAX_BYTES:
             log.replace(log.with_suffix(".log.1"))
-        with log.open("a") as handle:
-            process = spawn(command(service, env), cwd=ROOT, stdout=handle, stderr=subprocess.STDOUT,
+        fd = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        try:
+            os.chmod(log, 0o600)
+            process = spawn(command(service, env), cwd=ROOT, stdout=fd, stderr=subprocess.STDOUT,
                             start_new_session=True, env=child_env)
-        pid_file(service).write_text(str(process.pid))
+        finally:
+            os.close(fd)
+        write_private(pid_file(service), str(process.pid))
         ok(f"{service}: forwarding → localhost:{port}/v1/{service}/stripe/webhook/<token> "
            f"(pid {process.pid}, logs/preprod-stripe/{service}.log)")
     return 0

@@ -110,6 +110,7 @@ def test_summary_says_on_off_only():
 
 
 import json
+import os
 import stat
 
 import pytest
@@ -204,6 +205,20 @@ def test_stripe_on_without_cli_aborts_before_tfvars(tmp_path):
                   STRIPE_PUBLISHABLE_KEY="pk_test_c")
     rc, _ = _run(tmp_path, which=lambda name: None)
     assert rc == 1 and not (tmp_path / "integrations.auto.tfvars.json").exists()
+
+
+def test_hand_created_world_readable_env_file_is_tightened_even_on_abort(tmp_path):
+    _stripe_ready(tmp_path)
+    f = tmp_path / ".env.preprod"
+    os.chmod(f, 0o644)
+    rc, _ = _run(tmp_path, which=lambda name: None)
+    assert rc == 1
+    assert stat.S_IMODE(f.stat().st_mode) == 0o600
+
+
+def test_undecided_hint_names_the_target_that_works_on_a_live_env(tmp_path, capsys):
+    _run(tmp_path)
+    assert "make preprod-integrations STRIPE=off GEOAPIFY=off" in capsys.readouterr().out
 
 
 def _stripe_ready(tmp_path):
