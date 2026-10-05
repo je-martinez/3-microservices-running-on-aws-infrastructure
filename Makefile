@@ -938,8 +938,9 @@ PP_NETWORK := 3mrai-preprod_preprod-network
 PP_TF_VARS := -var python_bin=$(PY)
 PP_IMAGES  := users,orders,tracking,web,otel-collector,openobserve,mailpit
 PP_ALIASES := users-grpc,mailpit
+PP_INTEGRATION_FLAGS := $(if $(filter off,$(STRIPE)),--stripe-off) $(if $(filter off,$(GEOAPIFY)),--geoapify-off)
 
-.PHONY: preprod-floci-up preprod-down preprod-up preprod-migrate preprod-smoke preprod-aliases preprod-deploy preprod-observability preprod-heal preprod-doctor preprod-e2e preprod-load-test preprod-load-test-smoke
+.PHONY: preprod-floci-up preprod-down preprod-up preprod-migrate preprod-smoke preprod-aliases preprod-deploy preprod-observability preprod-heal preprod-doctor preprod-e2e preprod-load-test preprod-load-test-smoke preprod-integrations preprod-stripe-listen
 preprod-floci-up: scripts-setup ## Pre-prod: exclusivity guard, then Floci alone
 	@$(PY) infra/scripts/env_guard.py preprod
 	$(PP_COMPOSE) up -d --wait floci
@@ -947,6 +948,7 @@ preprod-floci-up: scripts-setup ## Pre-prod: exclusivity guard, then Floci alone
 preprod-down: scripts-setup ## Pre-prod: full wipe (Floci, its children, ECR registry, Floci volumes, TF state)
 	@# CONTRACT: Keep the dev check first — the floci- sweeps below match dev's Floci too.
 	@$(PY) infra/scripts/env_guard.py --check-other preprod
+	@$(PY) $(PP_TF_DIR)/scripts/preprod_stripe_listen.py stop
 	$(PP_COMPOSE) down -v --remove-orphans
 	@# CONTRACT: Floci-launched containers and volumes carry no compose label, and the
 	@# ECR registry survives Floci's own shutdown; kept, the next apply fails with
@@ -956,10 +958,13 @@ preprod-down: scripts-setup ## Pre-prod: full wipe (Floci, its children, ECR reg
 	@docker volume rm -f floci-ecr-registry-data 2>/dev/null || true
 	@docker network rm $(PP_NETWORK) 2>/dev/null || true
 	@rm -rf $(PP_TF_DIR)/.terraform $(PP_TF_DIR)/.terraform-cognito $(PP_TF_DIR)/.terraform-docdb $(PP_TF_DIR)/.terraform-redis \
-	    $(PP_TF_DIR)/terraform.tfstate* $(PP_TF_DIR)/image-tags.auto.tfvars.json
+	    $(PP_TF_DIR)/terraform.tfstate* $(PP_TF_DIR)/image-tags.auto.tfvars.json $(PP_TF_DIR)/integrations.auto.tfvars.json
 
 preprod-up: preprod-floci-up ## Pre-prod: everything, from scratch (refuses on a live environment)
 	@$(PY) $(PP_TF_DIR)/scripts/preprod_live.py --tf-dir $(PP_TF_DIR)
+	@# CONTRACT: Run after preprod_live; --regenerate mints new webhook tokens, so on a LIVE
+	@# pre-prod the running services would reject them. See [[2026-10-05-preprod-integrations-design]]
+	$(PY) $(PP_TF_DIR)/scripts/preprod_integrations.py --regenerate $(PP_INTEGRATION_FLAGS)
 	$(MAKE) --no-print-directory lambda-bundles
 	$(PP_TF) init -input=false
 	$(PP_TF) apply -auto-approve -input=false $(PP_TF_VARS) -var deploy_services=false
@@ -971,6 +976,7 @@ preprod-up: preprod-floci-up ## Pre-prod: everything, from scratch (refuses on a
 	$(MAKE) --no-print-directory preprod-aliases
 	$(MAKE) --no-print-directory preprod-smoke
 	$(MAKE) --no-print-directory preprod-observability
+	$(PY) $(PP_TF_DIR)/scripts/preprod_stripe_listen.py start
 
 preprod-migrate: scripts-setup ## Pre-prod: Prisma (users) + golang-migrate (tracking) against Floci's RDS
 	@# CONTRACT: Run as the cluster superuser and keep the tracking baseline guard —
@@ -1002,8 +1008,15 @@ preprod-migrate: scripts-setup ## Pre-prod: Prisma (users) + golang-migrate (tra
 preprod-aliases: scripts-setup ## Pre-prod: attach stable Docker aliases to ECS tasks
 	$(PY) $(PP_TF_DIR)/scripts/preprod_aliases.py --cluster "$$($(PP_TF) output -raw ecs_cluster_name)" --network $(PP_NETWORK) --aliases $(PP_ALIASES)
 
+preprod-integrations: scripts-setup ## Pre-prod: decide Stripe/Geoapify in .env.preprod (STRIPE=off GEOAPIFY=off to decline)
+	$(PY) $(PP_TF_DIR)/scripts/preprod_integrations.py $(PP_INTEGRATION_FLAGS)
+
+preprod-stripe-listen: scripts-setup ## Pre-prod: (re)start the two stripe listen webhook forwarders
+	$(PY) $(PP_TF_DIR)/scripts/preprod_stripe_listen.py start
+
 preprod-deploy: scripts-setup ## Pre-prod: redeploy one service (S=users|orders|tracking|web; ENV_ONLY=1 = config only)
 	@test -n "$(S)" || { echo "usage: make preprod-deploy S=<service> [ENV_ONLY=1]"; exit 2; }
+	$(PY) $(PP_TF_DIR)/scripts/preprod_integrations.py --no-prompt
 ifeq ($(ENV_ONLY),1)
 	@# WHY: ECS reads secrets and SSM only at task start: write the edited values, then
 	@# start new tasks. -target keeps the perpetual-drift resources out of the apply.
