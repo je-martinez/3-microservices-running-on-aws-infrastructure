@@ -7,6 +7,7 @@ from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[1] / "build_push.py"
 sys.path.insert(0, str(Path(__file__).resolve().parents[5] / "infra" / "scripts"))
+sys.path.insert(0, str(SCRIPT.parent))
 _spec = importlib.util.spec_from_file_location("build_push", SCRIPT)
 bp = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(bp)
@@ -44,7 +45,7 @@ def test_web_gets_build_args():
 
 def test_web_build_enables_rum(monkeypatch):
     monkeypatch.setattr(bp, "terraform_output", lambda tf_dir, name: "ws://gw")
-    args = bp._build_args("web", Path("/tf"))
+    args = bp._build_args("web", Path("/tf"), {})
     assert args["NG_APP_RUM_ENABLED"] == "true"
     assert args["NG_APP_WS_URL"] == "ws://gw"
 
@@ -96,3 +97,33 @@ def test_tag_in_ecr_raises_other_errors():
     import pytest
     with pytest.raises(bp.ClientError):
         bp.tag_in_ecr(_Ecr(error="RepositoryNotFoundException"), "r/users", "t1")
+
+
+STRIPE_ON = {"STRIPE_ENABLED": "true", "STRIPE_PUBLISHABLE_KEY": "pk_test_pub",
+             "STRIPE_SECRET_KEY_USERS": "rk_test_u", "STRIPE_SECRET_KEY_ORDERS": "rk_test_o",
+             "GEOAPIFY_ENABLED": "true", "GEOAPIFY_API_KEY": "geo_secret"}
+
+
+def test_web_build_args_follow_integrations():
+    on = bp.web_build_args("ws://w", STRIPE_ON)
+    assert on["NG_APP_STRIPE_ENABLED"] == "true" and on["NG_APP_STRIPE_PUBLISHABLE_KEY"] == "pk_test_pub"
+    assert on["NG_APP_GEOCODE_ENABLED"] == "true" and on["NG_APP_WS_URL"] == "ws://w"
+    off = bp.web_build_args("ws://w", {})
+    assert off["NG_APP_STRIPE_ENABLED"] == "false" and off["NG_APP_STRIPE_PUBLISHABLE_KEY"] == ""
+    assert off["NG_APP_GEOCODE_ENABLED"] == "false"
+
+
+def test_web_build_args_never_carry_secret_keys():
+    values = set(bp.web_build_args("ws://w", STRIPE_ON).values())
+    assert not values & {"rk_test_u", "rk_test_o", "geo_secret"}
+
+
+def test_web_tag_changes_with_its_build_args_and_is_stable():
+    on, off = bp.web_build_args("ws://w", STRIPE_ON), bp.web_build_args("ws://w", {})
+    assert bp.service_tag("web", "abc", on) != bp.service_tag("web", "abc", off)
+    assert bp.service_tag("web", "abc", on) == bp.service_tag("web", "abc", dict(reversed(list(on.items()))))
+    assert bp.service_tag("web", "abc", on).startswith("abc-cfg")
+
+
+def test_only_web_gets_the_config_suffix():
+    assert bp.service_tag("users", "abc", {"X": "1"}) == "abc"
