@@ -5,6 +5,7 @@ and api ids and reassigns DB proxy ports on every apply, while the CUSTOM box
 holds hand-added values that must survive. See [[env-files]]
 """
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -144,12 +145,17 @@ def write_env_file(
     header: str,
     generated: dict[str, str],
     custom_defaults: dict[str, str] | None = None,
+    mode: int | None = None,
 ) -> None:
     """Write `path` with a fresh AUTO box and the file's existing CUSTOM block.
 
     CONTRACT: Seed `custom_defaults` PER KEY, never all-or-nothing. Seeding only
     an empty box skips a newly added default for every checkout that already has
     a CUSTOM box, and the service boots without it. See [[env-files]]
+
+    CONTRACT: A file holding a credential passes `mode` (0o600). It is applied
+    BEFORE the content is written, so the secret never sits in a world-readable
+    file. `None` leaves the mode alone.
     """
     for key, value in generated.items():
         if value is None or value == "":
@@ -172,4 +178,7 @@ def write_env_file(
     out += existing_custom
     out += [CUSTOM_END, ""]
 
+    if mode is not None:
+        path.touch(mode=mode)
+        os.chmod(path, mode)
     path.write_text("\n".join(out))

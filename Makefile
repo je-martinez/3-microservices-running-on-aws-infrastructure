@@ -940,7 +940,7 @@ PP_IMAGES  := users,orders,tracking,web,otel-collector,openobserve,mailpit
 PP_ALIASES := users-grpc,mailpit
 PP_INTEGRATION_FLAGS := $(if $(filter off,$(STRIPE)),--stripe-off) $(if $(filter off,$(GEOAPIFY)),--geoapify-off)
 
-.PHONY: preprod-floci-up preprod-down preprod-up preprod-migrate preprod-smoke preprod-aliases preprod-deploy preprod-observability preprod-heal preprod-doctor preprod-e2e preprod-load-test preprod-load-test-smoke preprod-integrations preprod-stripe-listen
+.PHONY: preprod-floci-up preprod-down preprod-up preprod-migrate preprod-smoke preprod-aliases preprod-deploy preprod-observability preprod-heal preprod-doctor preprod-e2e preprod-load-test preprod-load-test-smoke preprod-integrations preprod-stripe-listen preprod-env-file
 preprod-floci-up: scripts-setup ## Pre-prod: exclusivity guard, then Floci alone
 	@$(PY) infra/scripts/env_guard.py preprod
 	$(PP_COMPOSE) up -d --wait floci
@@ -958,7 +958,7 @@ preprod-down: scripts-setup ## Pre-prod: full wipe (Floci, its children, ECR reg
 	@docker volume rm -f floci-ecr-registry-data 2>/dev/null || true
 	@docker network rm $(PP_NETWORK) 2>/dev/null || true
 	@rm -rf $(PP_TF_DIR)/.terraform $(PP_TF_DIR)/.terraform-cognito $(PP_TF_DIR)/.terraform-docdb $(PP_TF_DIR)/.terraform-redis \
-	    $(PP_TF_DIR)/terraform.tfstate* $(PP_TF_DIR)/image-tags.auto.tfvars.json $(PP_TF_DIR)/integrations.auto.tfvars.json
+	    $(PP_TF_DIR)/terraform.tfstate* $(PP_TF_DIR)/image-tags.auto.tfvars.json $(PP_TF_DIR)/integrations.auto.tfvars.json .env.preprod.debug
 
 preprod-up: preprod-floci-up ## Pre-prod: everything, from scratch (refuses on a live environment)
 	@$(PY) $(PP_TF_DIR)/scripts/preprod_live.py --tf-dir $(PP_TF_DIR)
@@ -976,6 +976,7 @@ preprod-up: preprod-floci-up ## Pre-prod: everything, from scratch (refuses on a
 	$(MAKE) --no-print-directory preprod-aliases
 	$(MAKE) --no-print-directory preprod-smoke
 	$(MAKE) --no-print-directory preprod-observability
+	$(MAKE) --no-print-directory preprod-env-file
 	$(PY) $(PP_TF_DIR)/scripts/preprod_stripe_listen.py start
 
 preprod-migrate: scripts-setup ## Pre-prod: Prisma (users) + golang-migrate (tracking) against Floci's RDS
@@ -1010,6 +1011,9 @@ preprod-aliases: scripts-setup ## Pre-prod: attach stable Docker aliases to ECS 
 
 preprod-integrations: scripts-setup ## Pre-prod: decide Stripe/Geoapify in .env.preprod (STRIPE=off GEOAPIFY=off to decline)
 	$(PY) $(PP_TF_DIR)/scripts/preprod_integrations.py $(PP_INTEGRATION_FLAGS)
+
+preprod-env-file: scripts-setup ## Pre-prod: write .env.preprod.debug (URLs + OpenObserve login) from Terraform outputs
+	$(PY) $(PP_TF_DIR)/scripts/preprod_debug_env.py --tf-dir $(PP_TF_DIR)
 
 preprod-stripe-listen: scripts-setup ## Pre-prod: (re)start the two stripe listen webhook forwarders
 	$(PY) $(PP_TF_DIR)/scripts/preprod_stripe_listen.py start

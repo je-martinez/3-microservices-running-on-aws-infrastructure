@@ -30,7 +30,7 @@ Start from the situation, not the target:
 | Changed service source (Go, .NET, TS) | `docker compose up -d --build <svc>` | Rebuilds that one service; no teardown needed. Services are `users`, `orders`, `tracking`, `web` |
 | Changed a `.tf` file, stack running | `make infra-up` | Applies + regenerates every env file |
 | Changed a `.tf` file **and** doing a reset | `make clean-state && make bootstrap` | `bootstrap` runs `infra-up` itself — no separate apply |
-| Env files look stale or wrong | `make env-file` | Pure read of Terraform outputs; never applies |
+| Env files look stale or wrong | `make env-file` | Pure read of Terraform outputs; never applies. `.env.local.debug` holds the browser URLs and the OpenObserve login |
 | Changed Lambda source | `make redeploy-lambdas` | `compose` does NOT redeploy Lambdas |
 | Changed something under `assets/` | `make assets-sync` | Re-uploads only; touches no infrastructure |
 | Changed an `NG_APP_*` flag | `docker compose build web` | Inlined at build time; `restart` re-serves the old bundle |
@@ -169,9 +169,10 @@ Runbook: [[preprod]].
 | Apply changed config values (services.tf → SSM/Secrets) and restart that service's tasks — no rebuild | `make preprod-deploy S=<svc> ENV_ONLY=1` |
 | Health of every service through the ALB | `make preprod-smoke` |
 | "Something is off" (ECS vs containers, ALB targets, aliases, phantom stores) | `make preprod-doctor` |
+| Regenerate `.env.preprod.debug` (browser URLs + OpenObserve login), reading Terraform outputs only | `make preprod-env-file` |
 | After a Floci or Docker restart | `make preprod-heal` |
 | Playwright / Gatling against it | `make preprod-e2e ARGS="--project=…"`, `make preprod-load-test-smoke` |
-| Tear it all down (Floci, children, ECR registry, volumes, TF state); refuses while dev runs | `make preprod-down` |
+| Tear it all down (Floci, children, ECR registry, volumes, TF state, `.env.preprod.debug`); refuses while dev runs | `make preprod-down` |
 | Decide Stripe/Geoapify (prompts with a TTY; `STRIPE=off GEOAPIFY=off` declines) | `make preprod-integrations` |
 | Restart the two Stripe webhook forwarders (after a reboot or `preprod-heal`) | `make preprod-stripe-listen` |
 

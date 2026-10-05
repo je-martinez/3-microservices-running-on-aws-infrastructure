@@ -18,6 +18,7 @@ related:
   - "[[scripting-language]]"
   - "[[local-dev]]"
   - "[[testing]]"
+  - "[[openobserve-runbook]]"
   - "[[events-pipeline-design]]"
   - "[[2026-08-03-events-pipeline-milestone-design]]"
   - "[[2026-08-25-response-caching-layer-design]]"
@@ -50,7 +51,7 @@ new API id, and reassigns RDS proxy ports by cluster creation order.
 | `.env.local.orders` | the Orders service environment | compose `env_file:` |
 | `.env.local.tracking` | the Tracking service environment (incl. `E2E_TESTING_ENABLED=true` in CUSTOM, `EVENTS_QUEUE_URL`) | compose `env_file:` |
 | `.env.local.events-pipeline` | the events-pipeline Lambda environment (DocumentDB connection, `EVENTS_QUEUE_URL`, SES sender) | the Lambda's environment variables, set via Terraform |
-| `.env.local.debug` | HOST-reachable connection strings | a SQL client; **loaded by nothing** |
+| `.env.local.debug` | HOST-reachable connection strings **plus browser URLs and the OpenObserve login** (`WEB_URL` `localhost:3004`, `OPENOBSERVE_URL` `localhost:5080`, `OPENOBSERVE_USER`, `OPENOBSERVE_PASSWORD`, `MAILPIT_URL` `localhost:8025`); written **mode 600** | a SQL client or a browser (copy the value you need); **loaded by nothing** |
 | `.env.local.web` | the web app's build-time env (the six `NG_APP_*`: `NG_APP_WS_URL` and `NG_APP_API_GATEWAY_URL` in the AUTO box, the four flags in the CUSTOM box) **plus the runtime `GEOAPIFY_API_KEY`** | compose `env_file:` for the `web` service, compose `${VAR}` interpolation of `web.build.args` (the Makefile passes `--env-file .env.local.web`), `pnpm dev` via `angular.json`'s `ngxEnv.files`, `@ngx-env/builder`, and `apps/web/nginx.conf`'s envsubst template |
 | `.env.example` | the committed contract | documentation only |
 
@@ -242,6 +243,27 @@ workloads still read no env file: the script feeds Terraform through
 `integrations.auto.tfvars.json`. Flow and decision table: [[preprod]] (Integrations section) and
 [[2026-10-05-preprod-integrations-design]].
 
+## `.env.preprod.debug` — pre-prod URLs and OpenObserve login
+
+The pre-prod counterpart of `.env.local.debug`: **pre-prod only**, git-ignored by the `.env*` rule,
+**loaded by nothing**, written **mode 600** because it holds the OpenObserve login, and shaped
+like every other generated file (AUTO box rewritten each run, CUSTOM box preserved). Owner:
+`infra/environments/preprod/scripts/preprod_debug_env.py`, not `make env-file`.
+
+- **Keys:** `WEB_URL` (`localhost:9090`), `OPENOBSERVE_URL`, `OPENOBSERVE_USER`,
+  `OPENOBSERVE_PASSWORD` (the random password Terraform generates), `MAILPIT_URL`,
+  `USERS_URL` / `ORDERS_URL` / `TRACKING_URL` (the ALB listeners `:9101`-`:9103`),
+  `API_GATEWAY_URL` and `WS_URL`.
+- **No database URLs:** pre-prod does not publish the RDS proxy ports to the host.
+- **Lifecycle:** written by `make preprod-env-file` (reads Terraform outputs only, never applies;
+  fails with "run `make preprod-up` first" when they are missing) and at the end of
+  `make preprod-up`; deleted by `make preprod-down`.
+- `write_env_file` (`infra/scripts/lib3mrai/envfile.py`) gained an opt-in `mode` parameter that
+  sets the permissions **before** the content is written; callers that omit it behave as before.
+  `.env.local.debug` and `.env.preprod.debug` are the two callers that pass `0o600`.
+
+`.env.example` carries a commented block as the contract. Procedure: [[preprod]].
+
 ## Adding a service
 
 1. Add a `.env.local.<service>` entry to
@@ -344,3 +366,4 @@ When changing env plumbing, verify against a real bring-up, not by inspection:
 - [[ADR-0022-preprod-ecs-on-floci]]
 - [[2026-10-05-preprod-integrations-design]] — adds `.env.preprod`.
 - [[stripe-sandbox-setup]] — the Stripe keys and forwarders that `.env.preprod` feeds in pre-prod.
+- [[openobserve-runbook]] — where the OpenObserve login in the two debug files is used.
