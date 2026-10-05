@@ -29,6 +29,8 @@ related:
 
 # Pre-Prod Integrations — Opt-In Stripe and Geoapify Design
 
+Revised 2026-10-05: the Stripe CLI runs under the developer's `stripe login` session by default.
+
 ## Context / goal
 
 Pre-prod (the Floci-only ECS environment in `infra/environments/preprod/`) hardcodes both third-party integrations OFF:
@@ -63,17 +65,18 @@ STRIPE_ENABLED=              # true | false — empty = not decided yet
 STRIPE_SECRET_KEY_USERS=     # rk_test_… (policy: PaymentIntents None)
 STRIPE_SECRET_KEY_ORDERS=    # rk_test_… (policy: PaymentIntents Write)
 STRIPE_PUBLISHABLE_KEY=      # pk_test_…
+STRIPE_CLI_API_KEY=          # OPTIONAL — only for a machine without a `stripe login` session
 GEOAPIFY_ENABLED=            # true | false
 GEOAPIFY_API_KEY=
 ```
 
-Conditional fallback (see [Risks](#risks--to-verify-first)): if `stripe listen` refuses restricted keys, the CUSTOM box gains an optional `STRIPE_CLI_API_KEY=` (an `sk_test_…`), used only by the listeners and `--print-secret` and never deployed to a service.
+`STRIPE_CLI_API_KEY` is optional and exists only for a machine without a `stripe login` session. Empty means the Stripe CLI uses the developer's login session, which must belong to the **same Stripe sandbox** as the keys above. It is used only by the listeners and `--print-secret` and is never deployed to a service.
 
 Two secret keys because dev already uses distinct restricted keys per service with different policies (see the `ORDERS_STRIPE_SECRET_KEY` renaming CONTRACT in `e2e/playwright.config.ts`, and [[stripe-sandbox-setup]]). The same `sk_test_…` in both is allowed.
 
 AUTO box (derived values). Only `preprod-up` (`--regenerate`) rewrites them, which is safe because `preprod-up` always starts from scratch. Validate-only mode (`preprod-deploy`) and a plain `make preprod-integrations` while pre-prod is up **must preserve** the existing AUTO values: regenerating them on a live environment would desync `integrations.auto.tfvars.json` from the deployed secrets and leave the running `stripe listen` processes forwarding with stale tokens.
 
-- `STRIPE_WEBHOOK_SECRET`, from `stripe listen --print-secret --api-key <users key>`; never printed.
+- `STRIPE_WEBHOOK_SECRET`, from `stripe listen --print-secret`, run under the same CLI identity as the listeners (the `stripe login` session, or `STRIPE_CLI_API_KEY` when set; no `--api-key`); never printed.
 - One `STRIPE_WEBHOOK_URL_TOKEN` per service (random).
 
 ### 3. Decision table of the script
@@ -136,7 +139,7 @@ One process per service because `--forward-to` takes a single URL:
 
 The event lists come from the `FORWARDS` map in `infra/environments/local/scripts/set_stripe_webhook_secret.py` (single source) and the URL path shape follows `forward_command` there. The ports differ: that map carries dev's container ports (3000/3001), while pre-prod forwards to the ALB listeners 9101/9102 declared in `services.tf`.
 
-- Each listener passes `--api-key` with its own service's key, so there is no dependency on `stripe login`. If restricted keys are refused (see [Risks](#risks--to-verify-first)), every listener uses `STRIPE_CLI_API_KEY` instead.
+- Both forwarders and `--print-secret` run under ONE CLI identity: the developer's `stripe login` session by default, or `STRIPE_CLI_API_KEY` when set, passed in the `STRIPE_API_KEY` environment variable and never as `--api-key` (argv is visible in `ps`). One identity means both processes share the signing secret Terraform deploys. See [Risks](#risks).
 - Tokens are never printed; messages show `<token>`.
 - `preprod-up` runs `start` at the end, only when Stripe is enabled.
 - `preprod-down` runs `stop` first, always.
@@ -154,14 +157,12 @@ A dead listener leaves pre-prod up but with undelivered webhooks; the doctor rep
 
 With Stripe on, the 25 `paymentMethodId required` fixture failures known from dev will also appear. Fixing them is an existing separate follow-up (see [[2026-10-03-floci-preprod-follow-ups]]) and is out of scope here; the runbook must say so.
 
-## Risks / to verify first
+## Risks
 
-Not yet verified; the implementation plan checks these first:
+- **Login session on a different sandbox than the keys.** Payments succeed but webhooks silently never arrive. Mitigation: a one-time user check (plan Task 1: `stripe config --list | grep -E '^(display_name|account_id)'`, compared with the Dashboard) and a note in the [[preprod]] runbook.
+- **The login session expires periodically** (Stripe documents about 90 days). `--print-secret` then fails during `make preprod-up` with a message asking for `stripe login` (or `STRIPE_CLI_API_KEY`).
 
-- `stripe listen` accepts a **restricted** key (`rk_test_…`) for `--api-key` and `--print-secret`.
-- The two listeners, each with its own service key, receive the **same** signing secret (dev uses one `whsec_` for both services).
-
-Fallback if restricted keys are refused: an optional `STRIPE_CLI_API_KEY` (an `sk_test_…`) in the CUSTOM box, used only by the listeners and `--print-secret`, never deployed to a service (decisions 2 and 8).
+The former restricted-key risks are resolved: restricted keys never drive the CLI any more.
 
 ## Out of scope
 

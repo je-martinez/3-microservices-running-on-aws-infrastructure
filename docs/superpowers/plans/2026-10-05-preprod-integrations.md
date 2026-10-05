@@ -68,7 +68,7 @@ The session that wrote this plan was cleared. Everything needed is below.
 - Terraform receives values only through `infra/environments/preprod/integrations.auto.tfvars.json` (mode `600`, git-ignored) — never on a command line.
 - Web build args never carry a secret key or the Geoapify key. Web tag = `<base tag>-cfg<hash8>` (sha256 of its sorted build args); other services unchanged.
 - Webhook listeners: users → `http://localhost:9101/v1/users/stripe/webhook/<token>`, orders → `http://localhost:9102/v1/orders/stripe/webhook/<token>`, events from `FORWARDS` in `infra/environments/local/scripts/set_stripe_webhook_secret.py`.
-- **Deviation from spec §8, recorded on purpose:** both listeners and `--print-secret` use ONE CLI key — `STRIPE_CLI_API_KEY` when set, else `STRIPE_SECRET_KEY_USERS` — passed through the `STRIPE_API_KEY` environment variable, never `--api-key` (argv is visible in `ps`). One key guarantees one signing secret for both processes, which removes the spec's second risk. Task 10 amends the spec.
+- **Stripe CLI identity:** both forwarders and `--print-secret` authenticate with the developer's `stripe login` session — the same one dev uses — unless `STRIPE_CLI_API_KEY` is set; then that key goes in the `STRIPE_API_KEY` environment variable, never `--api-key` (argv is visible in `ps`). One identity for both processes means one signing secret. The login must belong to the SAME Stripe sandbox as the keys in `.env.preprod`, or payments work while webhooks silently never arrive. The spec (§2, §8, Risks) already says this.
 
 ## Review Focus
 
@@ -103,20 +103,19 @@ The session that wrote this plan was cleared. Everything needed is below.
 
 ---
 
-### Task 1: Probe the Stripe CLI with a restricted key (user-run, no code)
+### Task 1: Confirm the Stripe CLI login matches the keys' sandbox (user-run, no code)
 
-Decides which CUSTOM keys the user fills; the code supports both outcomes, so this never blocks later tasks.
+The forwarders use the developer's `stripe login` session by default. A session on a different sandbox than the keys in `.env.preprod` makes webhooks silently never arrive, so confirm it once. Never blocks Tasks 2-10.
 
-- [ ] **Step 1: Ask the user (in Spanish) to run this in THEIR OWN terminal** — the key must not pass through the agent:
+- [ ] **Step 1: Ask the user (in Spanish) to run this in THEIR OWN terminal** (account id and display name are not secrets, but the agent has no reason to see them):
 
 ```bash
-# In your own terminal. Paste your Users restricted test key between the quotes.
-export STRIPE_API_KEY='rk_test_...'
-stripe listen --print-secret >/dev/null 2>&1 && echo "PROBE: restricted key OK" || echo "PROBE: restricted key REFUSED"
-unset STRIPE_API_KEY
+stripe config --list | grep -E '^(display_name|account_id)'
 ```
 
-- [ ] **Step 2: Record the answer.** "OK" → the user leaves `STRIPE_CLI_API_KEY` empty. "REFUSED" → the user puts an `sk_test_…` key in `STRIPE_CLI_API_KEY` (used only by the listeners and `--print-secret`, never deployed). Note the outcome for Task 11's record.
+and compare with the Stripe Dashboard of the sandbox where they created the `rk_test_…` keys (Settings → Business → Account details shows the account id). If it differs or the CLI is not logged in: `stripe login` (opens the browser) and pick that sandbox.
+
+- [ ] **Step 2: Record the answer** ("login matches" / "re-logged in"). `STRIPE_CLI_API_KEY` stays empty. It is only for a machine without `stripe login` (no browser) — then an `sk_test_…` of the same sandbox goes there. The login expires periodically (Stripe documents ~90 days); an expired one surfaces in Task 11 as the `--print-secret` error asking for `stripe login`.
 
 ---
 
@@ -127,7 +126,7 @@ unset STRIPE_API_KEY
 - Create: `infra/environments/preprod/scripts/tests/test_preprod_integrations.py`
 
 **Interfaces:**
-- Produces (used by Tasks 3, 5, 6, 7, 8): `ENV_FILE: Path`, `TFVARS: Path`, `parse(path: Path) -> dict[str, str]`, `stripe_on(env) -> bool`, `geoapify_on(env) -> bool`, `cli_api_key(env) -> str`, `undecided(env) -> list[str]`, `problems(env) -> list[str]`, `tfvars(env, auto, cidrs: str) -> dict`, `summary(env) -> str`, `class IntegrationError(Exception)`.
+- Produces (used by Tasks 3, 5, 6, 7, 8): `ENV_FILE: Path`, `TFVARS: Path`, `parse(path: Path) -> dict[str, str]`, `stripe_on(env) -> bool`, `geoapify_on(env) -> bool`, `cli_api_key(env) -> str`, `cli_env(env, base=None) -> dict[str, str]`, `undecided(env) -> list[str]`, `problems(env) -> list[str]`, `tfvars(env, auto, cidrs: str) -> dict`, `summary(env) -> str`, `class IntegrationError(Exception)`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -211,9 +210,11 @@ def test_valid_config_has_no_problems():
     assert pi.problems({"STRIPE_ENABLED": "false", "GEOAPIFY_ENABLED": "false"}) == []
 
 
-def test_cli_key_falls_back_to_users_key():
-    assert pi.cli_api_key(ON) == "rk_test_users"
-    assert pi.cli_api_key({**ON, "STRIPE_CLI_API_KEY": "sk_test_cli"}) == "sk_test_cli"
+def test_cli_uses_the_login_session_unless_a_cli_key_is_set():
+    assert pi.cli_api_key(ON) == ""
+    assert "STRIPE_API_KEY" not in pi.cli_env(ON, base={})
+    assert pi.cli_env({**ON, "STRIPE_CLI_API_KEY": "sk_test_cli"}, base={})["STRIPE_API_KEY"] == "sk_test_cli"
+    assert pi.cli_env(ON, base={"PATH": "/bin"}) == {"PATH": "/bin"}"
 
 
 def test_tfvars_when_on():
@@ -259,6 +260,7 @@ See [[2026-10-05-preprod-integrations-design]]
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -305,9 +307,21 @@ def geoapify_on(env: dict[str, str]) -> bool:
 
 
 def cli_api_key(env: dict[str, str]) -> str:
-    """The key `stripe listen` authenticates with — one for both forwarders, so both
-    receive the same signing secret."""
-    return env.get("STRIPE_CLI_API_KEY") or env.get("STRIPE_SECRET_KEY_USERS", "")
+    """Empty means the developer's `stripe login` session — the identity dev uses too."""
+    return env.get("STRIPE_CLI_API_KEY", "")
+
+
+def cli_env(env: dict[str, str], base: dict[str, str] | None = None) -> dict[str, str]:
+    """Environment for every `stripe` CLI call.
+
+    CONTRACT: One identity for both forwarders and --print-secret, so both carry the
+    signing secret Terraform deployed. A key goes in STRIPE_API_KEY, never argv (`ps`).
+    """
+    child = dict(os.environ if base is None else base)
+    key = cli_api_key(env)
+    if key:
+        child["STRIPE_API_KEY"] = key
+    return child
 
 
 def undecided(env: dict[str, str]) -> list[str]:
@@ -402,7 +416,7 @@ def _run(tmp_path, **overrides):
         tfvars_path=tmp_path / "integrations.auto.tfvars.json",
         regenerate=True, prompt_allowed=True, stripe_off=False, geoapify_off=False,
         isatty=lambda: False, ask=ask, ask_secret=ask_secret,
-        print_secret=lambda key: "whsec_WEBHOOKSECRET", which=lambda name: "/usr/bin/stripe",
+        print_secret=lambda child_env: "whsec_WEBHOOKSECRET", which=lambda name: "/usr/bin/stripe",
         cidrs=lambda: "1.2.3.4",
     )
     kwargs.update(overrides)
@@ -538,7 +552,6 @@ import argparse
 import getpass
 import importlib.util
 import json
-import os
 import re
 import secrets
 import shutil
@@ -565,7 +578,7 @@ SKELETON = [
     "STRIPE_SECRET_KEY_USERS=",
     "STRIPE_SECRET_KEY_ORDERS=",
     "STRIPE_PUBLISHABLE_KEY=",
-    "# Optional sk_test_ for the stripe listen forwarders, when a restricted key cannot drive the CLI.",
+    "# Optional. Empty = your `stripe login` session, which must be the SAME sandbox as the keys above.",
     "STRIPE_CLI_API_KEY=",
     "GEOAPIFY_ENABLED=",
     "GEOAPIFY_API_KEY=",
@@ -608,21 +621,21 @@ def prompt(env: dict[str, str], ask=input, ask_secret=getpass.getpass) -> dict[s
     return updates
 
 
-def read_webhook_secret(api_key: str) -> str:
-    """`stripe listen --print-secret`, authenticated through STRIPE_API_KEY.
+def read_webhook_secret(child_env: dict[str, str]) -> str:
+    """`stripe listen --print-secret` under the CLI identity `cli_env` chose.
 
     WARNING: stdout IS the secret and stderr may echo the key — print neither.
     """
     try:
         result = subprocess.run(["stripe", "listen", "--print-secret"], capture_output=True, text=True,
-                                timeout=TIMEOUT_SECONDS, env={**os.environ, "STRIPE_API_KEY": api_key})
+                                timeout=TIMEOUT_SECONDS, env=child_env)
     except subprocess.TimeoutExpired as exc:
         raise IntegrationError(f"`stripe listen --print-secret` timed out after {TIMEOUT_SECONDS}s") from exc
     secret = result.stdout.strip()
     if result.returncode != 0 or not WHSEC_RE.match(secret):
         raise IntegrationError(
-            "`stripe listen --print-secret` returned no whsec_ value — if the restricted Users key "
-            "cannot drive the CLI, set STRIPE_CLI_API_KEY to an sk_test_ key in .env.preprod")
+            "`stripe listen --print-secret` returned no whsec_ value — run `stripe login` against the "
+            "same sandbox as your .env.preprod keys, or set STRIPE_CLI_API_KEY there")
     return secret
 
 
@@ -630,7 +643,7 @@ def regenerate_auto(env: dict[str, str], print_secret=read_webhook_secret) -> di
     if not stripe_on(env):
         return {}
     return {
-        "STRIPE_WEBHOOK_SECRET": print_secret(cli_api_key(env)),
+        "STRIPE_WEBHOOK_SECRET": print_secret(cli_env(env)),
         "STRIPE_WEBHOOK_URL_TOKEN_USERS": secrets.token_urlsafe(32),
         "STRIPE_WEBHOOK_URL_TOKEN_ORDERS": secrets.token_urlsafe(32),
     }
@@ -1076,7 +1089,7 @@ Expected: all PASS (the existing `test_stripe_vars_are_blanked_so_dev_env_files_
 - Create: `infra/environments/preprod/scripts/tests/test_preprod_stripe_listen.py`
 
 **Interfaces:**
-- Consumes: `preprod_integrations.parse`, `ENV_FILE`, `stripe_on`, `cli_api_key`; `FORWARDS` from `infra/environments/local/scripts/set_stripe_webhook_secret.py` (`{"users": (3000, "<events>"), "orders": (3001, "<events>")}` — only the events are used).
+- Consumes: `preprod_integrations.parse`, `ENV_FILE`, `stripe_on`, `cli_env`; `FORWARDS` from `infra/environments/local/scripts/set_stripe_webhook_secret.py` (`{"users": (3000, "<events>"), "orders": (3001, "<events>")}` — only the events are used).
 - Produces: CLI `preprod_stripe_listen.py {start|stop|status}` (status exit 1 when a listener is down). Functions `command(service, env)`, `start(env, spawn)`, `stop()`, `status()`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1098,6 +1111,7 @@ _spec.loader.exec_module(sl)
 
 ON = {"STRIPE_ENABLED": "true", "STRIPE_SECRET_KEY_USERS": "rk_test_USERKEY",
       "STRIPE_WEBHOOK_URL_TOKEN_USERS": "TOKU", "STRIPE_WEBHOOK_URL_TOKEN_ORDERS": "TOKO"}
+WITH_CLI_KEY = {**ON, "STRIPE_CLI_API_KEY": "sk_test_CLIKEY"}
 
 
 class FakeProcess:
@@ -1114,8 +1128,9 @@ def test_command_forwards_to_the_alb_listener_with_dev_events():
     assert sl.command("orders", ON)[-1] == "http://localhost:9102/v1/orders/stripe/webhook/TOKO"
 
 
-def test_the_key_never_goes_in_argv():
-    assert all("rk_test_USERKEY" not in part for part in sl.command("users", ON))
+def test_no_key_ever_goes_in_argv():
+    for part in sl.command("users", WITH_CLI_KEY):
+        assert "rk_test_USERKEY" not in part and "sk_test_CLIKEY" not in part
 
 
 def test_start_is_a_no_op_when_stripe_is_off(tmp_path, monkeypatch):
@@ -1125,19 +1140,25 @@ def test_start_is_a_no_op_when_stripe_is_off(tmp_path, monkeypatch):
     assert spawned == []
 
 
-def test_start_passes_the_cli_key_through_the_environment_and_masks_the_token(tmp_path, monkeypatch, capsys):
+def test_start_uses_the_login_session_unless_a_cli_key_is_set(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(sl, "LOG_DIR", tmp_path)
+    monkeypatch.setattr(sl, "stop", lambda: 0)  # pid files hold pytest's own pid — see FakeProcess
+    monkeypatch.delenv("STRIPE_API_KEY", raising=False)
     seen = []
 
     def spawn(cmd, **kwargs):
-        seen.append(kwargs["env"]["STRIPE_API_KEY"])
+        seen.append(kwargs["env"].get("STRIPE_API_KEY"))
         return FakeProcess()
 
     assert sl.start(ON, spawn=spawn) == 0
-    assert seen == ["rk_test_USERKEY", "rk_test_USERKEY"]
+    assert seen == [None, None]
     out = capsys.readouterr().out
     assert "TOKU" not in out and "TOKO" not in out and "<token>" in out
     assert (tmp_path / "users.pid").exists() and (tmp_path / "orders.pid").exists()
+
+    seen.clear()
+    assert sl.start(WITH_CLI_KEY, spawn=spawn) == 0
+    assert seen == ["sk_test_CLIKEY", "sk_test_CLIKEY"]
 
 
 def test_start_replaces_running_listeners(tmp_path, monkeypatch):
@@ -1172,10 +1193,10 @@ Expected: FAIL — script not found.
 #!/usr/bin/env python3
 """Run one `stripe listen` per service, forwarding pre-prod webhooks to its ALB listener.
 
-CONTRACT: One process per service — --forward-to takes a single URL. Both use ONE
-CLI key, so both receive the same signing secret that Terraform deployed.
-WARNING: The key travels in STRIPE_API_KEY, never argv (visible in `ps`), and
-messages show <token>, never the URL token. See [[2026-10-05-preprod-integrations-design]]
+CONTRACT: One process per service — --forward-to takes a single URL. Both run under
+ONE CLI identity (`cli_env`: the `stripe login` session, or STRIPE_CLI_API_KEY), so
+both carry the signing secret Terraform deployed.
+WARNING: Messages show <token>, never the URL token. See [[2026-10-05-preprod-integrations-design]]
 """
 
 from __future__ import annotations
@@ -1247,7 +1268,7 @@ def start(env: dict[str, str], spawn=subprocess.Popen) -> int:
         return 0
     stop()
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    child_env = {**os.environ, "STRIPE_API_KEY": pi.cli_api_key(env)}
+    child_env = pi.cli_env(env)
     for service, port in PORTS.items():
         log = log_file(service)
         if log.exists() and log.stat().st_size > MAX_BYTES:
@@ -1425,7 +1446,8 @@ Expected: exit 0, the flags line printed, "no new violations".
 # CONTRACT: Pre-prod only, read by make preprod-up / preprod-deploy — never by dev.
 # Each *_ENABLED is true | false; empty stops make preprod-up and names the file to fill.
 # Test keys only — any *_live_ key is refused. AUTO box (webhook secret + URL tokens)
-# is minted by make preprod-up. See docs/infrastructure/runbooks/preprod.md
+# is minted by make preprod-up. STRIPE_CLI_API_KEY empty = your `stripe login` session,
+# which must be the same sandbox as the keys. See docs/infrastructure/runbooks/preprod.md
 # STRIPE_ENABLED=
 # STRIPE_SECRET_KEY_USERS=
 # STRIPE_SECRET_KEY_ORDERS=
@@ -1450,7 +1472,8 @@ and this paragraph right after the table:
 **Before `make preprod-up`, an agent asks the user — Stripe yes/no, Geoapify yes/no — with a
 menu.** "No" → pass `STRIPE=off` / `GEOAPIFY=off`. "Yes" → tell the user to fill the CUSTOM box
 of `.env.preprod` (run `make preprod-integrations` once without a TTY to create the skeleton),
-wait for confirmation, then run `make preprod-up`. **Never read, print or write a key value**;
+wait for confirmation, then run `make preprod-up`. Stripe on also needs `stripe login` against the
+keys' sandbox (or `STRIPE_CLI_API_KEY`). **Never read, print or write a key value**;
 trust only the script's `Stripe: on · Geoapify: off` line. A key pasted in chat lands in the
 transcript, and the `!` prefix has no TTY for hidden input.
 ```
@@ -1461,9 +1484,9 @@ Then: `rsync -a --delete .claude/skills/local-env-lifecycle/ .ai/skills/local-en
   - `docs/infrastructure/runbooks/preprod.md`: new "Integrations" section — `.env.preprod` (CUSTOM keys, AUTO keys), the decision table (copy from the spec §3), `STRIPE=off GEOAPIFY=off`, the agent rule (verbatim from Step 2), later changes (spec §7), the listeners (`make preprod-stripe-listen`, logs under `logs/preprod-stripe/`, doctor line), the E2E note that the 25 `paymentMethodId required` fixture failures known from dev appear with Stripe on (separate follow-up, not a regression). Add `make preprod-integrations` and `make preprod-stripe-listen` to its command table.
   - `ADR-0022-preprod-ecs-on-floci`: dated (2026-10-05) amendment — Stripe and Geoapify go from always-off to a user decision in `.env.preprod`; link the spec.
   - `env-files`: add `.env.preprod` (pre-prod only, AUTO/CUSTOM, mode 600, written by `preprod_integrations.py`, not by `make env-file`).
-  - `stripe-sandbox-setup`: "Pre-prod" section — two restricted keys per service, `STRIPE_CLI_API_KEY` fallback, forwarders started by `make preprod-up` to `:9101`/`:9102`, one CLI key ⇒ one signing secret.
+  - `stripe-sandbox-setup`: "Pre-prod" section — two restricted keys per service; the forwarders started by `make preprod-up` to `:9101`/`:9102` run under the developer's `stripe login` session (same sandbox as the keys, or webhooks never arrive; re-login when it expires), `STRIPE_CLI_API_KEY` only for a machine without a login; one identity ⇒ one signing secret.
   - `2026-10-02-floci-preprod-environment-design`: dated amendment to its Stripe-off decision pointing at the new spec.
-  - `2026-10-05-preprod-integrations-design`: dated amendment — §8 now uses ONE CLI key (`STRIPE_CLI_API_KEY` or the Users key) for both forwarders and `--print-secret`, passed in `STRIPE_API_KEY` (never `--api-key`, visible in `ps`); this resolves risk 2. Record Task 1's probe outcome. Set `status: accepted`.
+  - `2026-10-05-preprod-integrations-design`: record Task 1's outcome (login confirmed against the keys' sandbox) and set `status: accepted` (with its `status/` tag).
   - `docs/plans/index.md`: link this plan.
   - Run the validator and report.
 
@@ -1485,7 +1508,7 @@ Expected: ends with `Stripe: off · Geoapify: off` early in the output, `Stripe 
 Run: `make preprod-down < /dev/null && mv .env.preprod .env.preprod.bak && make preprod-up < /dev/null; echo EXIT=$?`
 Expected: `NO: undecided in .env.preprod: STRIPE_ENABLED, GEOAPIFY_ENABLED`, EXIT non-zero, `.env.preprod` recreated with mode `-rw-------`. Then `mv .env.preprod.bak .env.preprod`.
 
-- [ ] **Step 3: Stripe + Geoapify on** — apply the agent rule: ask the user (Spanish, `AskUserQuestion`) yes/no for each; on yes, ask them to fill the CUSTOM box (with Task 1's outcome for `STRIPE_CLI_API_KEY`) and confirm. Then `make preprod-down < /dev/null && make preprod-up < /dev/null`.
+- [ ] **Step 3: Stripe + Geoapify on** — apply the agent rule: ask the user (Spanish, `AskUserQuestion`) yes/no for each; on yes, ask them to fill the CUSTOM box (`STRIPE_CLI_API_KEY` stays empty — Task 1 confirmed the login) and confirm. Then `make preprod-down < /dev/null && make preprod-up < /dev/null`.
 Expected:
   - `Stripe: on · Geoapify: on`, and at the end two `forwarding → localhost:910x/…/<token>` lines.
   - `terraform -chdir=infra/environments/preprod state list | grep -c 'aws_secretsmanager_secret.this\["users/STRIPE'` → 3 (and 3 for orders).
