@@ -4,12 +4,13 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-10-03
+updated: 2026-10-05
 tags: [type/spec, area/shared, status/active]
 related:
   - "[[2026-10-02-dev-stack-floci-2-1]]"
   - "[[2026-10-02-floci-preprod-environment]]"
   - "[[2026-10-03-floci-preprod-follow-ups]]"
+  - "[[2026-10-05-preprod-integrations]]"
   - "[[2026-09-10-in-app-notifications-design]]"
   - "[[2026-09-10-in-app-notifications]]"
   - "[[2026-08-27-tracking-go-migration-design]]"
@@ -156,6 +157,7 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-09-30-cart-add-quantity-morph]] — implementation plan for the add-to-cart morph: a shared `QtyStepper` (`a7S8KL`) instanced by the product card and the cart line, a store-side per-product quantity index, CSS-driven morph and in-cart chip styles, the `.pen` trash glyph, and propagation into [[angular-component-authoring]] and [[pencil-design-extraction]]; design spec [[2026-09-30-cart-add-quantity-morph-design]].
 - [[2026-10-02-dev-stack-floci-2-1]] — implementation plan to move the local dev stack from Floci 1.7.0 to a pinned Floci 2.1.0 without regressing data persistence across Floci restarts; precedes [[2026-10-02-floci-preprod-environment]].
 - [[2026-10-02-floci-preprod-environment]] — implementation plan for `make preprod-up`: a Floci-only pre-production environment running the services as ECS tasks from Floci's ECR, configured from SSM/Secrets Manager, behind API Gateway to ALB with no nginx; design spec [[2026-10-02-floci-preprod-environment-design]].
+- [[2026-10-05-preprod-integrations]] — implementation plan for the opt-in Stripe and Geoapify integrations in pre-prod; design spec [[2026-10-05-preprod-integrations-design]].
 - [[stripe-payments-milestone]] — logical execution plan and current status for the Stripe Payments milestone: dependency diagram, per-task PR status, the gap backlog carried from PR #85's review, and local environment state.
 
 > [!note] No plan note for the AuditActor enum
@@ -238,3 +240,4 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-10-02-dev-stack-floci-2-1]]
 - [[2026-10-02-floci-preprod-environment]]
 - [[2026-10-03-floci-preprod-follow-ups]]
+- [[2026-10-05-preprod-integrations]]

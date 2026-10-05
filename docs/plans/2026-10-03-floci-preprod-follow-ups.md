@@ -19,6 +19,7 @@ related:
   - "[[ADR-0022-preprod-ecs-on-floci]]"
   - "[[2026-10-03-floci-preprod-alb-and-ecs-behaviours]]"
   - "[[2026-10-05-preprod-integrations-design]]"
+  - "[[2026-10-05-preprod-integrations]]"
 ---
 
 # Floci Pre-Prod — Handoff and Follow-Ups
@@ -65,7 +66,7 @@ Git rules for the next session: the earlier standing authorization ("commit and 
 
 - [x] `make clean` and `make clean-state` do not guard against a running pre-prod. They run the same `name=^floci-` / `label=floci=true` sweeps and `docker volume rm floci-ecr-registry-data` that `preprod-down` is guarded for ([[environment-exclusivity]] rule 5), so a `make clean` while pre-prod runs deletes pre-prod's containers and its registry volume. Fix on its own branch: `env_guard.py --check-other dev` at the top of both targets. Fixed on `fix/clean-preprod-guard`, verified live 2026-10-03: with pre-prod up, both targets printed "preprod is running; refusing to tear down dev: the sweep would delete preprod's Floci containers and volumes." and exited with Error 1, no container or volume changed and `make preprod-smoke` stayed green; with only dev up, `make clean-state` passed the guard silently and tore dev down as before.
 - [ ] `infra/scripts/floci_heal.py:93` tells the user to run `make heal` even when invoked from `preprod-heal` (the pre-prod remedy is `make preprod-heal`).
-- [ ] Stripe + Geoapify opt-in for pre-prod — designed in [[2026-10-05-preprod-integrations-design]]
+- [ ] Stripe + Geoapify opt-in for pre-prod — designed in [[2026-10-05-preprod-integrations-design]] — plan: [[2026-10-05-preprod-integrations]]
 
 ## Accepted limits / deferred minors (no action unless they bite)
 
@@ -88,3 +89,4 @@ Git rules for the next session: the earlier standing authorization ("commit and 
 - [[skill-propagation]]
 - [[git-workflow]]
 - [[2026-10-05-preprod-integrations-design]]
+- [[2026-10-05-preprod-integrations]]

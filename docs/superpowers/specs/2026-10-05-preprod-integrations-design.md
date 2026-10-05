@@ -18,6 +18,7 @@ propagates-to:
 related:
   - "[[2026-10-02-floci-preprod-environment-design]]"
   - "[[2026-10-03-floci-preprod-follow-ups]]"
+  - "[[2026-10-05-preprod-integrations]]"
   - "[[2026-09-19-stripe-payments-design]]"
   - "[[2026-09-06-address-geocoding-proxy-design]]"
   - "[[ADR-0022-preprod-ecs-on-floci]]"
@@ -204,6 +205,7 @@ Fallback if restricted keys are refused: an optional `STRIPE_CLI_API_KEY` (an `s
 
 - [[2026-10-02-floci-preprod-environment-design]]
 - [[2026-10-03-floci-preprod-follow-ups]]
+- [[2026-10-05-preprod-integrations]]
 - [[2026-09-19-stripe-payments-design]]
 - [[2026-09-06-address-geocoding-proxy-design]]
 - [[ADR-0022-preprod-ecs-on-floci]]
