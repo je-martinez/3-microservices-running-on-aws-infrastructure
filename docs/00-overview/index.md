@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-10-02
+updated: 2026-10-05
 tags:
   - type/spec
   - area/shared
@@ -101,6 +101,7 @@ related:
   - "[[2026-09-19-stripe-payments]]"
   - "[[2026-09-30-cart-add-quantity-morph-design]]"
   - "[[2026-10-02-floci-preprod-environment-design]]"
+  - "[[2026-10-05-preprod-integrations-design]]"
   - "[[2026-09-30-cart-add-quantity-morph]]"
   - "[[stripe-payments-milestone]]"
   - "[[web-app-foundation-milestone]]"
@@ -357,6 +358,7 @@ Specs produced through the planning phase, normalized to vault conventions.
 - [[2026-09-19-stripe-payments-design]] — Design turning `NG_APP_STRIPE_ENABLED` into a real Stripe integration: Users owns the Stripe Customer and its PaymentMethods (lazy customer creation, `stripe_payment_methods` local cache reconciled by a Users-side webhook), Orders owns the PaymentIntent (charges before persisting, with an automatic refund on **any** post-charge failure — stock conflict, removed product, price-mismatch guard, or persistence failure, not only a 409), client-supplied idempotency (`Idempotency-Key` header, replay/mismatch guards, an in-flight-duplicate wait-and-reuse path), restricted API keys one per service (never a shared secret key), local webhook delivery via two host-side `stripe listen` processes sharing one signing secret, and webhook defense in depth — a per-service URL token plus a Stripe source-IP allowlist, both enforced in the services themselves since AWS WAF does not attach to this repo's HTTP APIs; per [[users-service-design]], [[testing]], [[env-files]], [[money-representation]], [[local-dev]], [[logging-context]], [[browser-rum]], [[stripe-sandbox-setup]], [[ADR-0009-apigw-alb-fargate]], [[ADR-0016-local-apigw-nginx-ecs]]. Milestone plan: [[stripe-payments-milestone]].
 - [[2026-09-30-cart-add-quantity-morph-design]] — Design for morphing the product card's Add button into a quantity stepper shared with the cart line (`QtyStepper`, `a7S8KL`), an always-rendered "In cart" chip, CSS-first motion, and the rules propagated to [[angular-component-authoring]] and [[pencil-design-extraction]]. Plan: [[2026-09-30-cart-add-quantity-morph]].
 - [[2026-10-02-floci-preprod-environment-design]] — Design for a Floci pre-production environment: a second compose file whose only image is Floci, with `users`, `orders`, `tracking`, `web`, the observability stack and Mailpit running as ECS services pulling from Floci's ECR, configured through SSM Parameter Store and Secrets Manager, with API Gateway routing to an ALB instead of nginx. Per [[local-dev-floci]], [[ADR-0016-local-apigw-nginx-ecs]], [[floci-storage-modes-and-tmp-corruption]].
+- [[2026-10-05-preprod-integrations-design]] — Design for letting the user opt in to a fully functional Stripe flow and Geoapify autocomplete in pre-prod (or decline each): one owner script and a git-ignored `.env.preprod` with preserved CUSTOM inputs, secrets reaching ECS through an auto tfvars file, a config-hashed web image tag, host-side `stripe listen` forwarders per service, and an agent rule that never touches key values. Per [[2026-10-02-floci-preprod-environment-design]], [[2026-09-19-stripe-payments-design]], [[preprod]], [[env-files]].
 
 ---
 
@@ -598,3 +600,4 @@ Origin materials the project grew from — kept for reference only, not the sour
 - [[environment-exclusivity]]
 - [[preprod]]
 - [[2026-10-03-floci-preprod-alb-and-ecs-behaviours]]
+- [[2026-10-05-preprod-integrations-design]]

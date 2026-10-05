@@ -4,7 +4,7 @@ type: plan
 area: infra
 status: accepted
 created: 2026-10-02
-updated: 2026-10-03
+updated: 2026-10-05
 tags:
   - type/plan
   - area/infra
@@ -89,7 +89,7 @@ Operational detail: [[preprod]]; decision: [[ADR-0022-preprod-ecs-on-floci]]; Fl
 - AWS provider `= 5.31.0`; every service the root touches has an `endpoints {}` entry.
 - Image tags are immutable: `<sha12>` or `<sha12>-dirty-<epoch>-<hash8>` (12-char SHA; epoch seconds; first 8 hex of the SHA-256 of `git diff HEAD`); never `latest`.
 - Service configuration only via SSM (`/3mrai-preprod/<svc>/<VAR>`) and Secrets Manager (`3mrai-preprod/<svc>/<VAR>`); no `.env.local.*` file is read by any pre-prod workload.
-- Stripe stays disabled in pre-prod (`STRIPE_ENABLED=false`, `NG_APP_STRIPE_ENABLED=false`); geocoding disabled (`NG_APP_GEOCODE_ENABLED=false`).
+- Stripe stays disabled in pre-prod (`STRIPE_ENABLED=false`, `NG_APP_STRIPE_ENABLED=false`); geocoding disabled (`NG_APP_GEOCODE_ENABLED=false`). *(Superseded: both are now a user decision, see [[2026-10-05-preprod-integrations-design]].)*
 - Python scripts run as `$(PY)` (`.venv/bin/python`), use `lib3mrai.aws.client` and `lib3mrai.console`; tests under `infra/scripts/tests/` or `infra/environments/preprod/scripts/tests/` (add the latter to `testpaths` in `infra/scripts/pyproject.toml`).
 - Comment tags/tense per [[code-comments]]; `make lint-comments` green. `nvm use` before Node; pnpm only.
 - Implementers never run git writes; vault writes only through `obsidian-vault`.
@@ -1377,7 +1377,7 @@ def _build_args(service: str, tf_dir: Path) -> dict[str, str]:
         return {
             "NG_APP_API_GATEWAY_URL": "/v1",
             "NG_APP_WS_URL": terraform_output(tf_dir, "ws_url"),
-            "NG_APP_STRIPE_ENABLED": "false",
+            "NG_APP_STRIPE_ENABLED": "false",  # superseded: [[2026-10-05-preprod-integrations-design]]
             "NG_APP_GEOCODE_ENABLED": "false",
             "NG_APP_RUM_ENABLED": "false",
         }
@@ -2358,5 +2358,6 @@ Expected: gateway suites green; Gatling completes with its assertions passing. A
 - [[ADR-0022-preprod-ecs-on-floci]]
 - [[environment-exclusivity]]
 - [[preprod]]
+- [[2026-10-05-preprod-integrations-design]]
 - [[2026-10-03-floci-preprod-alb-and-ecs-behaviours]]
 - [[2026-10-03-floci-preprod-follow-ups]]

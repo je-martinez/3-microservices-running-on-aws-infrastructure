@@ -15,6 +15,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import preprod_integrations as pi
+
 KEYS = ["api_gateway_url", "internal_api_key", "carrier_api_key", "e2e_query_token",
         "events_query_url", "ws_url", "notifications_queue_url", "events_topic_arn",
         "openobserve_root_password", "webhook_secret", "events_queue_url"]
@@ -26,7 +28,21 @@ STRIPE_VARS = ["STRIPE_WEBHOOK_SECRET", "STRIPE_WEBHOOK_URL_TOKEN", "STRIPE_SECR
                "ORDERS_STRIPE_WEBHOOK_URL_TOKEN", "ORDERS_STRIPE_SECRET_KEY"]
 
 
-def env_from_outputs(o: dict[str, str]) -> dict[str, str]:
+def stripe_env(integrations: dict[str, str]) -> dict[str, str]:
+    """CONTRACT: Blank, never omit, when Stripe is off — playwright.config.ts fills only
+    UNSET names from `.env.local.*`, so an omitted name takes the dev sandbox value."""
+    if not pi.stripe_on(integrations):
+        return {name: "" for name in STRIPE_VARS}
+    return {
+        "STRIPE_SECRET_KEY": integrations["STRIPE_SECRET_KEY_USERS"],
+        "ORDERS_STRIPE_SECRET_KEY": integrations["STRIPE_SECRET_KEY_ORDERS"],
+        "STRIPE_WEBHOOK_SECRET": integrations["STRIPE_WEBHOOK_SECRET"],
+        "STRIPE_WEBHOOK_URL_TOKEN": integrations["STRIPE_WEBHOOK_URL_TOKEN_USERS"],
+        "ORDERS_STRIPE_WEBHOOK_URL_TOKEN": integrations["STRIPE_WEBHOOK_URL_TOKEN_ORDERS"],
+    }
+
+
+def env_from_outputs(o: dict[str, str], integrations: dict[str, str] | None = None) -> dict[str, str]:
     basic = base64.b64encode(f"{OPENOBSERVE_USER}:{o['openobserve_root_password']}".encode()).decode()
     return {
         "API_GATEWAY_URL": o["api_gateway_url"],
@@ -49,10 +65,7 @@ def env_from_outputs(o: dict[str, str]) -> dict[str, str]:
         "EVENTS_TOPIC_ARN": o["events_topic_arn"],
         "EVENTS_QUEUE_URL": o["events_queue_url"],
         "WEBHOOK_SECRET": o["webhook_secret"],
-        # CONTRACT: Pre-prod has Stripe disabled. Blank, never omit: playwright.config.ts loads
-        # `.env.local.*` with dotenv, which only fills UNSET names, so an omitted name takes the
-        # dev sandbox value and the webhook specs fail against a stack that has no Stripe.
-        **{name: "" for name in STRIPE_VARS},
+        **stripe_env(integrations or {}),
     }
 
 
@@ -65,7 +78,8 @@ def main(argv: list[str] | None = None) -> int:
                                     capture_output=True, text=True, check=True).stdout)
     outputs = {k: raw[k]["value"] for k in KEYS}
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
-    os.execvpe(command[0], command, {**os.environ, **env_from_outputs(outputs)})
+    env = env_from_outputs(outputs, pi.parse(pi.ENV_FILE))
+    os.execvpe(command[0], command, {**os.environ, **env})
     return 0
 
 

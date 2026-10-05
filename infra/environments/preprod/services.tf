@@ -47,6 +47,13 @@ locals {
   }
   users_grpc_url = var.users_grpc_via_alb ? "http://floci:9151" : "http://users-grpc:50051"
 
+  # CONTRACT: Stripe entries exist ONLY when enabled — Secrets Manager rejects empty
+  # values, and a for-expression (not a ternary) keeps the object types consistent.
+  stripe_parameters = { for k, v in {
+    STRIPE_WEBHOOK_ALLOWED_CIDRS      = var.stripe_webhook_allowed_cidrs
+    STRIPE_WEBHOOK_TRUSTED_PROXY_HOPS = "0"
+  } : k => v if var.stripe_enabled }
+
   parameters = {
     users = merge(local.aws_common, local.otel_common, {
       COGNITO_USER_POOL_ID    = module.cognito.user_pool_id
@@ -64,10 +71,10 @@ locals {
       GRPC_PORT               = "50051"
       E2E_TESTING_ENABLED     = "true"
       CACHE_ENABLED           = "true"
-      STRIPE_ENABLED          = "false"
+      STRIPE_ENABLED          = tostring(var.stripe_enabled)
       DEPLOYMENT_ENVIRONMENT  = "preprod"
       METRICS_INTERVAL_MS     = "60000"
-    })
+    }, local.stripe_parameters)
     orders = merge(local.aws_common, {
       OTEL_EXPORTER_OTLP_ENDPOINT = "http://floci:4318"
       OTEL_EXPORTER_OTLP_PROTOCOL = "http/protobuf"
@@ -79,12 +86,12 @@ locals {
       EVENTS_TOPIC_ARN            = module.messaging.topic_arn
       ASSETS_BASE_URL             = module.assets_bucket.public_base_url
       CACHE_ENABLED               = "true"
-      STRIPE_ENABLED              = "false"
+      STRIPE_ENABLED              = tostring(var.stripe_enabled)
       SEED_ON_STARTUP             = "true"
       E2E_TESTING_ENABLED         = "true"
       DEPLOYMENT_ENVIRONMENT      = "preprod"
       METRICS_INTERVAL_MS         = "60000"
-    })
+    }, local.stripe_parameters)
     tracking = merge(local.aws_common, local.otel_common, {
       USERS_GRPC_URL               = local.users_grpc_url
       ORDERS_BASE_URL              = "http://floci:9102"
@@ -118,17 +125,25 @@ locals {
   }
 
   secrets = {
-    users = {
+    users = merge({
       DATABASE_WRITER_URL = "postgres://${var.db_username}:${var.db_password}@floci:${local.pg_port}/users"
       DATABASE_READER_URL = "postgres://${var.db_username}:${var.db_password}@floci:${local.pg_port}/users"
       WEBHOOK_SECRET      = random_password.webhook_secret.result
       INTERNAL_API_KEY    = random_password.internal_api_key.result
-    }
-    orders = {
+      }, { for k, v in {
+        STRIPE_SECRET_KEY        = var.stripe_secret_key_users
+        STRIPE_WEBHOOK_SECRET    = var.stripe_webhook_secret
+        STRIPE_WEBHOOK_URL_TOKEN = var.stripe_webhook_url_token_users
+    } : k => v if var.stripe_enabled })
+    orders = merge({
       DATABASE_WRITER_URL = "Server=floci;Port=${local.mysql_port};Database=orders;User=${var.db_username};Password=${var.db_password};SslMode=None;"
       DATABASE_READER_URL = "Server=floci;Port=${local.mysql_port};Database=orders;User=${var.db_username};Password=${var.db_password};SslMode=None;"
       INTERNAL_API_KEY    = random_password.internal_api_key.result
-    }
+      }, { for k, v in {
+        STRIPE_SECRET_KEY        = var.stripe_secret_key_orders
+        STRIPE_WEBHOOK_SECRET    = var.stripe_webhook_secret
+        STRIPE_WEBHOOK_URL_TOKEN = var.stripe_webhook_url_token_orders
+    } : k => v if var.stripe_enabled })
     tracking = {
       DATABASE_WRITER_URL      = "mysql+pymysql://${var.db_username}:${var.db_password}@floci:${local.mysql_port}/tracking?charset=utf8mb4"
       DATABASE_READER_URL      = "mysql+pymysql://${var.db_username}:${var.db_password}@floci:${local.mysql_port}/tracking?charset=utf8mb4"
@@ -136,7 +151,7 @@ locals {
       TRACKING_CARRIER_API_KEY = random_password.carrier_api_key.result
     }
     web = {
-      GEOAPIFY_API_KEY = var.geoapify_api_key
+      GEOAPIFY_API_KEY = var.geoapify_enabled ? var.geoapify_api_key : "disabled"
     }
     otel-collector = {
       O2_BASIC_AUTH = base64encode("admin@3mrai.local:${random_password.openobserve_root.result}")

@@ -4,13 +4,15 @@ type: convention
 area: infra
 status: active
 created: 2026-07-20
-updated: 2026-10-03
+updated: 2026-10-05
 tags:
   - type/convention
   - area/infra
   - status/active
 related:
   - "[[preprod]]"
+  - "[[2026-10-05-preprod-integrations-design]]"
+  - "[[stripe-sandbox-setup]]"
   - "[[ADR-0022-preprod-ecs-on-floci]]"
   - "[[2026-07-20-env-file-generation-design]]"
   - "[[scripting-language]]"
@@ -222,7 +224,23 @@ config work in both environments, with dev's values as defaults:
 
 A pre-prod config change is applied with `make preprod-deploy S=<svc> ENV_ONLY=1`: it applies
 `module.app_config` (writing the edited SSM and Secrets Manager values) and then forces a new
-deployment, because ECS reads both only at task start.
+deployment, because ECS reads both only at task start. Web build-time flags (a toggled
+integration) also need `S=web`: both `S=web ENV_ONLY=1` and `S=web`, see [[preprod]] (Later changes).
+
+## `.env.preprod` — the one pre-prod env file
+
+Pre-prod's integration choices live in `.env.preprod` at the repo root. It is **pre-prod only**
+(read by `make preprod-up` and `make preprod-deploy`, never by dev), git-ignored by the `.env*`
+rule, written with **mode 600**, and written by
+`infra/environments/preprod/scripts/preprod_integrations.py` — **not** by `make env-file`. It
+follows the same two-box shape: the CUSTOM box holds the user's decisions and test keys
+(`STRIPE_ENABLED`, `STRIPE_SECRET_KEY_USERS`, `STRIPE_SECRET_KEY_ORDERS`,
+`STRIPE_PUBLISHABLE_KEY`, `STRIPE_CLI_API_KEY`, `GEOAPIFY_ENABLED`, `GEOAPIFY_API_KEY`) and is
+preserved; the AUTO box (`STRIPE_WEBHOOK_SECRET`, one `STRIPE_WEBHOOK_URL_TOKEN_*` per service) is
+minted only by `make preprod-up`. `.env.example` carries a commented block as the contract. The
+workloads still read no env file: the script feeds Terraform through
+`integrations.auto.tfvars.json`. Flow and decision table: [[preprod]] (Integrations section) and
+[[2026-10-05-preprod-integrations-design]].
 
 ## Adding a service
 
@@ -324,3 +342,5 @@ When changing env plumbing, verify against a real bring-up, not by inspection:
   "no natural reviewer, so add a mechanical check" shape, applied to the comment linter.
 - [[preprod]] — the environment with no env files (SSM and Secrets Manager instead).
 - [[ADR-0022-preprod-ecs-on-floci]]
+- [[2026-10-05-preprod-integrations-design]] — adds `.env.preprod`.
+- [[stripe-sandbox-setup]] — the Stripe keys and forwarders that `.env.preprod` feeds in pre-prod.

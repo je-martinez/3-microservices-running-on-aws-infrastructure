@@ -5,6 +5,7 @@ from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[1] / "e2e_env.py"
 sys.path.insert(0, str(Path(__file__).resolve().parents[5] / "infra" / "scripts"))
+sys.path.insert(0, str(SCRIPT.parent))
 _spec = importlib.util.spec_from_file_location("e2e_env", SCRIPT)
 ee = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ee)
@@ -52,3 +53,20 @@ def test_webhook_secret_and_events_queue_come_from_pre_prod_outputs():
 
 def test_every_key_is_read_from_the_outputs():
     assert set(ee.KEYS) == set(OUTPUTS)
+
+
+ON = {"STRIPE_ENABLED": "true", "STRIPE_SECRET_KEY_USERS": "rk_test_u", "STRIPE_SECRET_KEY_ORDERS": "rk_test_o",
+      "STRIPE_WEBHOOK_SECRET": "whsec_x", "STRIPE_WEBHOOK_URL_TOKEN_USERS": "tu",
+      "STRIPE_WEBHOOK_URL_TOKEN_ORDERS": "to"}
+
+
+def test_stripe_on_feeds_each_service_its_own_values():
+    env = ee.env_from_outputs(OUTPUTS, ON)
+    assert env["STRIPE_SECRET_KEY"] == "rk_test_u" and env["ORDERS_STRIPE_SECRET_KEY"] == "rk_test_o"
+    assert env["STRIPE_WEBHOOK_SECRET"] == "whsec_x"
+    assert env["STRIPE_WEBHOOK_URL_TOKEN"] == "tu" and env["ORDERS_STRIPE_WEBHOOK_URL_TOKEN"] == "to"
+
+
+def test_stripe_off_in_the_file_still_blanks_every_var():
+    env = ee.env_from_outputs(OUTPUTS, {**ON, "STRIPE_ENABLED": "false"})
+    assert all(env[name] == "" for name in ee.STRIPE_VARS)

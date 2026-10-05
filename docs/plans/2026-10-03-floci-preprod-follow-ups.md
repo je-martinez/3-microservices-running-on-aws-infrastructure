@@ -4,7 +4,7 @@ type: plan
 area: infra
 status: active
 created: 2026-10-03
-updated: 2026-10-03
+updated: 2026-10-05
 tags:
   - type/plan
   - area/infra
@@ -18,6 +18,8 @@ related:
   - "[[environment-exclusivity]]"
   - "[[ADR-0022-preprod-ecs-on-floci]]"
   - "[[2026-10-03-floci-preprod-alb-and-ecs-behaviours]]"
+  - "[[2026-10-05-preprod-integrations-design]]"
+  - "[[2026-10-05-preprod-integrations]]"
 ---
 
 # Floci Pre-Prod — Handoff and Follow-Ups
@@ -59,11 +61,29 @@ Git rules for the next session: the earlier standing authorization ("commit and 
 - [ ] Web Playwright suite drift: 13 failures in `web-tokyo` against pre-prod. 9 come from a stale selector (`/^add$/i`, broken since commit 22d0497b) and the rest from a `dev-fill` control absent from production builds. Owner: e2e-impl. Not pre-prod defects; they would fail on dev too.
 - [ ] Notifications: in 2 of 3 real-browser runs the web app did not send the mark-read `PATCH /v1/notifications/read` (the direct API call works).
 - [ ] Gatling full load saturates Floci's single process in pre-prod (86% / 59% OK, p95 17-50 s, 502s from gateway/Cognito); smoke passes. Decide: accept as a local limit, or investigate (awslogs → Floci CloudWatch ingest load is a suspect).
-- [ ] Dev E2E: 25 `paymentMethodId required` failures (seen 2026-10-02, reproduced 2026-10-03 with the same count). Cause CONFIRMED: `STRIPE_ENABLED=true` sits in the CUSTOM box of `.env.local.orders`, and the E2E fixtures create orders without a `paymentMethodId`. Decision pending: fixtures should send a payment method when Stripe is on, or the suite should force Stripe off. The tracking outbox unit test flakes in full runs (shared local DB) but passes in isolation.
+- [ ] Dev E2E: 25 `paymentMethodId required` failures (seen 2026-10-02, reproduced 2026-10-03 with the same count; 23 observed in pre-prod with Stripe on, 2026-10-05). Cause CONFIRMED: `STRIPE_ENABLED=true` sits in the CUSTOM box of `.env.local.orders`, and the E2E fixtures create orders without a `paymentMethodId`. Decision pending: fixtures should send a payment method when Stripe is on, or the suite should force Stripe off. The tracking outbox unit test flakes in full runs (shared local DB) but passes in isolation.
 - [ ] Flaky web unit spec `apps/web/src/app/core/observability/rum-sdk.spec.ts` › "registers a callback for every vitals metric": failed once inside `make test-all` (onLCP mock called 0 times, the `vi.mock('web-vitals')` did not apply in that run) and passed 3/3 when the web suite was re-run alone via `pnpm --filter @3mrai/web test`. Pre-existing: the milestone touched only `apps/web/Dockerfile` and `apps/web/nginx.conf`. Because `test-unit` stops at the first failure, a flake here hides every later layer (tracking, e2e typecheck, the whole E2E run). Owner: web-impl.
 
 - [x] `make clean` and `make clean-state` do not guard against a running pre-prod. They run the same `name=^floci-` / `label=floci=true` sweeps and `docker volume rm floci-ecr-registry-data` that `preprod-down` is guarded for ([[environment-exclusivity]] rule 5), so a `make clean` while pre-prod runs deletes pre-prod's containers and its registry volume. Fix on its own branch: `env_guard.py --check-other dev` at the top of both targets. Fixed on `fix/clean-preprod-guard`, verified live 2026-10-03: with pre-prod up, both targets printed "preprod is running; refusing to tear down dev: the sweep would delete preprod's Floci containers and volumes." and exited with Error 1, no container or volume changed and `make preprod-smoke` stayed green; with only dev up, `make clean-state` passed the guard silently and tore dev down as before.
 - [ ] `infra/scripts/floci_heal.py:93` tells the user to run `make heal` even when invoked from `preprod-heal` (the pre-prod remedy is `make preprod-heal`).
+- [x] Stripe + Geoapify opt-in for pre-prod — designed in [[2026-10-05-preprod-integrations-design]] — plan: [[2026-10-05-preprod-integrations]]. Verified live 2026-10-05 (no key values):
+  - Both off: `make preprod-up STRIPE=off GEOAPIFY=off` 3m34s, exit 0, "Stripe: off · Geoapify: off", "no webhook forwarders started", smoke 200s; E2E (gateway, gateway-tracking, email) 95 passed, 11 skipped, 0 failed (baseline).
+  - No TTY, no file: "NO: undecided in .env.preprod: STRIPE_ENABLED, GEOAPIFY_ENABLED", make exit 2, skeleton created `-rw-------`, no tfvars written.
+  - Both on: `make preprod-up` 3m40s, exit 0, "Stripe: on · Geoapify: on", two forwarding lines, both listeners "Ready!", 3 `users/STRIPE*` + 3 `orders/STRIPE*` secrets, `/geocode/` 200, smoke 200s.
+  - E2E with Stripe on: 82 passed, 23 failed, 1 skipped; all 23 are order creation 400 "paymentMethodId field is required" (known fixture follow-up).
+  - Browser: order 261005-CWZX74 paid with 4242; `orders.log` `payment_intent.succeeded` [200]; `users.log` `payment_method.attached` [200].
+  - Dead listener: killed users listener, `preprod-doctor` "NO: users: stripe listen is not running - make preprod-stripe-listen", exit 2; restart hit 403 (login revoked mid-session), `stripe logout && stripe login`, `--print-secret` equal to the deployed secret, `make preprod-stripe-listen` both "Ready!", doctor exit 0.
+  - Geoapify toggle: `GEOAPIFY_ENABLED=false` plus `make preprod-deploy S=web` built and pushed a new `web:<sha>-cfgc5d25e09` (not "already in ECR"), `/geocode/` still 200; plus `make preprod-deploy S=web ENV_ONLY=1` gave 503 `geocoding_disabled`.
+- [ ] `preprod_stripe_listen.py start` reports OK right after spawn even if `stripe listen` dies at authentication (seen live with a revoked login). Poll the process after about 2 s.
+- [ ] `preprod_stripe_listen.py start` with Stripe off returns before `stop()`, so `make preprod-stripe-listen` leaves old listeners alive.
+- [ ] `preprod_stripe_listen.py` `command()` raises a raw `KeyError` when Stripe is on but the AUTO values are missing (after `stop()` already ran). Reuse `pi.current_auto()`.
+- [ ] `e2e_env.py` `stripe_env` raises a bare `KeyError` when an AUTO value is missing after a hand-edit.
+- [ ] `preprod-up` failing after the second apply never starts the listeners (a re-run is refused as live); `preprod-doctor` catches it.
+- [ ] Pre-prod `terraform.tfstate` is mode 644 and now holds real test keys; `chmod 600` it after apply.
+- [ ] `stripe_webhook_allowed_cidrs` has no Terraform precondition when `stripe_enabled`.
+- [ ] `apps/web/nginx.conf` `geocoding_disabled` 503 detail names dev's `.env.local.web`; make it environment-neutral.
+- [ ] `preprod-floci-up` leaves pre-prod Floci running after an undecided abort.
+- [ ] An interrupted prompt (Ctrl-C or EOF) in `preprod_integrations.py` prints a traceback (nothing is written).
 
 ## Accepted limits / deferred minors (no action unless they bite)
 
@@ -85,3 +105,5 @@ Git rules for the next session: the earlier standing authorization ("commit and 
 - [[2026-10-03-floci-preprod-alb-and-ecs-behaviours]]
 - [[skill-propagation]]
 - [[git-workflow]]
+- [[2026-10-05-preprod-integrations-design]]
+- [[2026-10-05-preprod-integrations]]

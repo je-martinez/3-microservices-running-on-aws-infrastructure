@@ -26,6 +26,13 @@ node_modules
 *.tfstate
 *.tfstate.*
 
+# ── Pre-prod secrets ────────────────────────────────────────────────────────
+# logs/ holds the Stripe CLI output (webhook signing secret + URL tokens) and
+# integrations.auto.tfvars.json holds the Stripe/Geoapify keys. No Dockerfile
+# COPYs either; uploading them hands the secrets to the Docker daemon.
+logs
+**/*.auto.tfvars.json
+
 # ── Build outputs (regenerated inside the image) ────────────────────────────
 # Copying a host dist/ in would let a developer's stale local build silently
 # become the image's contents — the same class of bug the users Dockerfile

@@ -17,6 +17,8 @@ from lib3mrai.console import no, ok
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
 from doctor import backing_state  # noqa: E402
 
+import preprod_integrations as pi  # noqa: E402
+
 
 def unhealthy_targets(descriptions: list[dict]) -> list[str]:
     return [d["Target"]["Id"] for d in descriptions if d["TargetHealth"]["State"] == "unhealthy"]
@@ -29,6 +31,13 @@ def remedy_for(state: str) -> str:
 def run_check(script: str, *args: str) -> int:
     sys.stdout.flush()
     return subprocess.run([sys.executable, str(Path(__file__).with_name(script)), *args]).returncode
+
+
+def stripe_listener_failures(env: dict[str, str], check=run_check) -> int:
+    """Both forwarders must be alive when Stripe is on; a dead one silently drops webhooks."""
+    if not pi.stripe_on(env):
+        return 0
+    return 1 if check("preprod_stripe_listen.py", "status") else 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -72,6 +81,7 @@ def main(argv: list[str] | None = None) -> int:
     common = ["--cluster", args.cluster, "--network", args.network, "--check"]
     failures += run_check("preprod_targets.py", *common)
     failures += run_check("preprod_aliases.py", *common, "--aliases", args.aliases)
+    failures += stripe_listener_failures(pi.parse(pi.ENV_FILE))
     return 1 if failures else 0
 
 

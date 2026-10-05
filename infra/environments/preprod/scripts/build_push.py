@@ -22,6 +22,8 @@ from lib3mrai.aws import client
 from lib3mrai.console import inf, ok
 from lib3mrai.envfile import terraform_output
 
+import preprod_integrations as pi
+
 ROOT = Path(__file__).resolve().parents[4]
 
 BUILDS = {
@@ -43,6 +45,30 @@ def image_tag(sha: str, dirty: bool, now: float, content_hash: str = "") -> str:
     if not dirty:
         return short
     return f"{short}-dirty-{int(now)}-{content_hash[:8]}"
+
+
+def web_build_args(ws_url: str, env: dict[str, str]) -> dict[str, str]:
+    """CONTRACT: Never a secret key or the Geoapify key — every NG_APP_* is readable in the bundle."""
+    stripe = pi.stripe_on(env)
+    return {
+        "NG_APP_API_GATEWAY_URL": "/v1",
+        "NG_APP_WS_URL": ws_url,
+        "NG_APP_STRIPE_ENABLED": "true" if stripe else "false",
+        "NG_APP_STRIPE_PUBLISHABLE_KEY": env.get("STRIPE_PUBLISHABLE_KEY", "") if stripe else "",
+        "NG_APP_GEOCODE_ENABLED": "true" if pi.geoapify_on(env) else "false",
+        "NG_APP_RUM_ENABLED": "true",
+    }
+
+
+def config_suffix(build_args: dict[str, str]) -> str:
+    digest = hashlib.sha256(json.dumps(sorted(build_args.items())).encode()).hexdigest()
+    return f"-cfg{digest[:8]}"
+
+
+def service_tag(service: str, base: str, build_args: dict[str, str]) -> str:
+    """CONTRACT: Web's tag carries its build args — a clean tree tags by SHA alone and a
+    tag already in ECR is never rebuilt, so a toggled integration would ship the old bundle."""
+    return base + config_suffix(build_args) if service == "web" else base
 
 
 def commands_for(service: str, url: str, tag: str, build_args: dict[str, str]) -> list[list[str]]:
@@ -93,15 +119,9 @@ def _ecr_login(registry: str) -> None:
                    input=password, text=True, check=True, capture_output=True)
 
 
-def _build_args(service: str, tf_dir: Path) -> dict[str, str]:
+def _build_args(service: str, tf_dir: Path, env: dict[str, str]) -> dict[str, str]:
     if service == "web":
-        return {
-            "NG_APP_API_GATEWAY_URL": "/v1",
-            "NG_APP_WS_URL": terraform_output(tf_dir, "ws_url"),
-            "NG_APP_STRIPE_ENABLED": "false",
-            "NG_APP_GEOCODE_ENABLED": "false",
-            "NG_APP_RUM_ENABLED": "true",
-        }
+        return web_build_args(terraform_output(tf_dir, "ws_url"), env)
     if service == "orders":
         has_cache = subprocess.run(["docker", "image", "inspect", "3mrai-nuget-cache:latest"],
                                    capture_output=True).returncode == 0
@@ -124,18 +144,22 @@ def main(argv: list[str] | None = None) -> int:
     tag = image_tag(_git("rev-parse", "HEAD"), dirty, time.time(), content)
     _ecr_login(next(iter(urls.values())).split("/", 1)[0])
 
+    env = pi.parse(pi.ENV_FILE)
+    build_args = {s: _build_args(s, args.tf_dir, env) for s in services}
+    tags = {s: service_tag(s, tag, build_args[s]) for s in services}
+
     ecr = client("ecr")
-    to_push = services_to_push(services, lambda s: tag_in_ecr(ecr, repository_name(urls[s]), tag))
+    to_push = services_to_push(services, lambda s: tag_in_ecr(ecr, repository_name(urls[s]), tags[s]))
     for service in services:
         if service not in to_push:
-            inf(f"    {service}:{tag} already in ECR - recording the tag, nothing built")
+            inf(f"    {service}:{tags[service]} already in ECR - recording the tag, nothing built")
             continue
-        inf(f"    {service} → {urls[service]}:{tag}")
-        for cmd in commands_for(service, urls[service], tag, _build_args(service, args.tf_dir)):
+        inf(f"    {service} → {urls[service]}:{tags[service]}")
+        for cmd in commands_for(service, urls[service], tags[service], build_args[service]):
             subprocess.run(cmd, cwd=ROOT, check=True)
-        ok(f"pushed {service}:{tag}")
+        ok(f"pushed {service}:{tags[service]}")
 
-    update_tags(args.tf_dir / "image-tags.auto.tfvars.json", {s: tag for s in services})
+    update_tags(args.tf_dir / "image-tags.auto.tfvars.json", tags)
     return 0
 
 

@@ -8,7 +8,7 @@ deciders: [Jose E. Martinez]
 supersedes: null
 superseded-by: null
 created: 2026-10-03
-updated: 2026-10-03
+updated: 2026-10-05
 tags:
   - type/adr
   - area/infra
@@ -22,6 +22,7 @@ related:
   - "[[ADR-0007-secrets-parameter-store]]"
   - "[[ADR-0018-observability-openobserve]]"
   - "[[preprod]]"
+  - "[[2026-10-05-preprod-integrations-design]]"
   - "[[environment-exclusivity]]"
   - "[[2026-10-03-floci-preprod-alb-and-ecs-behaviours]]"
 ---
@@ -94,6 +95,15 @@ ECS services in Floci (users, orders, tracking, web, otel-collector, openobserve
 - ADR-0016 is not superseded: nginx stays the dev mechanism. Its claim-to-header limitation no
   longer holds on Floci 2.1.0.
 
+## Amendment 2026-10-05 — integrations are a user decision
+
+Stripe and Geoapify went from always-off to a user decision recorded in `.env.preprod`: each is
+enabled or declined explicitly before `make preprod-up` (`STRIPE=off GEOAPIFY=off` declines
+without asking). Enabled integrations reach services only through SSM and Secrets Manager, as
+decision 2 requires, with the keys fed by Terraform from a git-ignored tfvars file. The rest of
+the topology is unchanged. Design: [[2026-10-05-preprod-integrations-design]]; operation:
+[[preprod]] (Integrations section).
+
 ## Related
 
 - [[2026-10-02-floci-preprod-environment-design]]
@@ -107,3 +117,4 @@ ECS services in Floci (users, orders, tracking, web, otel-collector, openobserve
 - [[environment-exclusivity]]
 - [[2026-10-03-floci-preprod-alb-and-ecs-behaviours]]
 - [[terraform-modules]]
+- [[2026-10-05-preprod-integrations-design]]
