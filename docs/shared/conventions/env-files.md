@@ -224,7 +224,8 @@ config work in both environments, with dev's values as defaults:
 
 A pre-prod config change is applied with `make preprod-deploy S=<svc> ENV_ONLY=1`: it applies
 `module.app_config` (writing the edited SSM and Secrets Manager values) and then forces a new
-deployment, because ECS reads both only at task start.
+deployment, because ECS reads both only at task start. Web build-time flags (a toggled
+integration) also need `S=web`: both `S=web ENV_ONLY=1` and `S=web`, see [[preprod]] (Later changes).
 
 ## `.env.preprod` — the one pre-prod env file
 

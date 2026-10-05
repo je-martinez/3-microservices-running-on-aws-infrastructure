@@ -107,7 +107,7 @@ The session that wrote this plan was cleared. Everything needed is below.
 
 The forwarders use the developer's `stripe login` session by default. A session on a different sandbox than the keys in `.env.preprod` makes webhooks silently never arrive, so confirm it once. Never blocks Tasks 2-10.
 
-- [ ] **Step 1: Ask the user (in Spanish) to run this in THEIR OWN terminal** (account id and display name are not secrets, but the agent has no reason to see them):
+- [x] **Step 1: Ask the user (in Spanish) to run this in THEIR OWN terminal** (account id and display name are not secrets, but the agent has no reason to see them):
 
 ```bash
 stripe config --list | grep -E '^(display_name|account_id)'
@@ -115,7 +115,7 @@ stripe config --list | grep -E '^(display_name|account_id)'
 
 and compare with the Stripe Dashboard of the sandbox where they created the `rk_test_…` keys (Settings → Business → Account details shows the account id). If it differs or the CLI is not logged in: `stripe login` (opens the browser) and pick that sandbox.
 
-- [ ] **Step 2: Record the answer** ("login matches" / "re-logged in"). `STRIPE_CLI_API_KEY` stays empty. It is only for a machine without `stripe login` (no browser) — then an `sk_test_…` of the same sandbox goes there. The login expires periodically (Stripe documents ~90 days); an expired one surfaces in Task 11 as the `--print-secret` error asking for `stripe login`.
+- [x] **Step 2: Record the answer** ("login matches" / "re-logged in"). `STRIPE_CLI_API_KEY` stays empty. It is only for a machine without `stripe login` (no browser) — then an `sk_test_…` of the same sandbox goes there. The login expires periodically (Stripe documents ~90 days); an expired one surfaces in Task 11 as the `--print-secret` error asking for `stripe login`.
 
 ---
 
@@ -128,7 +128,7 @@ and compare with the Stripe Dashboard of the sandbox where they created the `rk_
 **Interfaces:**
 - Produces (used by Tasks 3, 5, 6, 7, 8): `ENV_FILE: Path`, `TFVARS: Path`, `parse(path: Path) -> dict[str, str]`, `stripe_on(env) -> bool`, `geoapify_on(env) -> bool`, `cli_api_key(env) -> str`, `cli_env(env, base=None) -> dict[str, str]`, `undecided(env) -> list[str]`, `problems(env) -> list[str]`, `tfvars(env, auto, cidrs: str) -> dict`, `summary(env) -> str`, `class IntegrationError(Exception)`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 """Tests for preprod_integrations.py — pure helpers."""
@@ -242,12 +242,12 @@ def test_summary_says_on_off_only():
     assert pi.summary({}) == "Stripe: off · Geoapify: off"
 ```
 
-- [ ] **Step 2: Run them to verify they fail**
+- [x] **Step 2: Run them to verify they fail**
 
 Run: `.venv/bin/python -m pytest -q infra/environments/preprod/scripts/tests/test_preprod_integrations.py`
 Expected: FAIL — `FileNotFoundError` / no module `preprod_integrations.py`.
 
-- [ ] **Step 3: Write the helpers** (top of the new file; Task 3 appends the I/O half)
+- [x] **Step 3: Write the helpers** (top of the new file; Task 3 appends the I/O half)
 
 ```python
 """Decide pre-prod's Stripe and Geoapify integrations and feed every consumer.
@@ -368,12 +368,12 @@ def summary(env: dict[str, str]) -> str:
     return f"Stripe: {state(stripe_on(env))} · Geoapify: {state(geoapify_on(env))}"
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `.venv/bin/python -m pytest -q infra/environments/preprod/scripts/tests/test_preprod_integrations.py`
 Expected: all PASS.
 
-- [ ] **Step 5: Commit** (main session, confirmation menu) — `feat(infra): parse and validate pre-prod integration choices`
+- [x] **Step 5: Commit** (main session, confirmation menu) — `feat(infra): parse and validate pre-prod integration choices`
 
 ---
 
@@ -387,7 +387,7 @@ Expected: all PASS.
 - Consumes: Task 2 helpers.
 - Produces: `run(*, env_file, tfvars_path, regenerate, prompt_allowed, stripe_off, geoapify_off, isatty, ask, ask_secret, print_secret, which, cidrs) -> int`; CLI `preprod_integrations.py [--regenerate] [--no-prompt] [--stripe-off] [--geoapify-off]` (exit 0 ok, 1 refused). Task 9 calls the CLI.
 
-- [ ] **Step 1: Append the failing tests**
+- [x] **Step 1: Append the failing tests**
 
 ```python
 import json
@@ -539,12 +539,12 @@ def test_no_output_contains_a_key_value(tmp_path, capsys):
         assert secret not in out.out and secret not in out.err
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `.venv/bin/python -m pytest -q infra/environments/preprod/scripts/tests/test_preprod_integrations.py`
 Expected: the new tests FAIL with `AttributeError: module 'preprod_integrations' has no attribute 'run'`.
 
-- [ ] **Step 3: Append the implementation** (add these imports to the existing import block, then the code at the end of the file)
+- [x] **Step 3: Append the implementation** (add these imports to the existing import block, then the code at the end of the file)
 
 ```python
 # add to the imports at the top of the file:
@@ -732,17 +732,17 @@ if __name__ == "__main__":
 
 Note on `write_env_file`: it writes the AUTO header line `# >>> AUTO-GENERATED by \`make env-file\` — do not edit` (shared marker constant). Keep it — the marker text is what `read_custom_block` keys on; do not fork the constant.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `.venv/bin/python -m pytest -q infra/environments/preprod/scripts/tests/test_preprod_integrations.py`
 Expected: all PASS.
 
-- [ ] **Step 5: Run the whole pre-prod suite and the comment linter**
+- [x] **Step 5: Run the whole pre-prod suite and the comment linter**
 
 Run: `.venv/bin/python -m pytest -q infra/environments/preprod/scripts/tests && make lint-comments`
 Expected: all pass; "OK — no new violations".
 
-- [ ] **Step 6: Commit** (main session, confirmation menu) — `feat(infra): decide pre-prod integrations from a .env.preprod CUSTOM box`
+- [x] **Step 6: Commit** (main session, confirmation menu) — `feat(infra): decide pre-prod integrations from a .env.preprod CUSTOM box`
 
 ---
 
@@ -757,7 +757,7 @@ Expected: all pass; "OK — no new violations".
 **Interfaces:**
 - Consumes: the tfvars keys written by Task 3: `stripe_enabled`, `geoapify_enabled`, `stripe_secret_key_users`, `stripe_secret_key_orders`, `stripe_webhook_secret`, `stripe_webhook_url_token_users`, `stripe_webhook_url_token_orders`, `stripe_webhook_allowed_cidrs`, `geoapify_api_key`.
 
-- [ ] **Step 1: Replace the `geoapify_api_key` block in `variables.tf` and append the new variables**
+- [x] **Step 1: Replace the `geoapify_api_key` block in `variables.tf` and append the new variables**
 
 ```hcl
 # WHY: Plain bools — they decide which SSM/Secrets entries exist, and for_each keys
@@ -819,7 +819,7 @@ variable "geoapify_api_key" {
 }
 ```
 
-- [ ] **Step 2: Edit `services.tf` locals**
+- [x] **Step 2: Edit `services.tf` locals**
 
 Add, inside `locals { … }` right after `users_grpc_url = …`:
 
@@ -855,13 +855,13 @@ In `secrets.orders`, the same shape with `var.stripe_secret_key_orders` and `var
 
 In `secrets.web`: `GEOAPIFY_API_KEY = var.geoapify_enabled ? var.geoapify_api_key : "disabled"`.
 
-- [ ] **Step 3: Ignore the tfvars file** — append to `infra/environments/preprod/.gitignore`:
+- [x] **Step 3: Ignore the tfvars file** — append to `infra/environments/preprod/.gitignore`:
 
 ```
 integrations.auto.tfvars.json
 ```
 
-- [ ] **Step 4: Make nginx treat the `"disabled"` placeholder as OFF** — `apps/web/nginx.conf` decides "geocoding off" only on an EMPTY key (`map $geoapify_key $geoapify_disabled { "" 1; default 0; }`, ~line 33). With pre-prod's placeholder it would proxy `apiKey=disabled` to Geoapify, get a 401 and burn free-tier quota instead of answering 503. Change that map to:
+- [x] **Step 4: Make nginx treat the `"disabled"` placeholder as OFF** — `apps/web/nginx.conf` decides "geocoding off" only on an EMPTY key (`map $geoapify_key $geoapify_disabled { "" 1; default 0; }`, ~line 33). With pre-prod's placeholder it would proxy `apiKey=disabled` to Geoapify, get a 401 and burn free-tier quota instead of answering 503. Change that map to:
 
 ```nginx
 map $geoapify_key $geoapify_disabled {
@@ -872,9 +872,9 @@ map $geoapify_key $geoapify_disabled {
 }
 ```
 
-Dev never sets `disabled`, so dev behaviour is unchanged. Verify syntax: `docker run --rm -v "$PWD/apps/web/nginx.conf:/etc/nginx/conf.d/default.conf:ro" nginx:alpine nginx -t` — if it fails only on unresolved `${…}` envsubst placeholders or upstream names, that is the template, not your edit; compare against the same command on `git stash`ed code.
+Dev never sets `disabled`, so dev behaviour is unchanged. Verify syntax: `docker run --rm -v "$PWD/apps/web/nginx.conf:/etc/nginx/conf.d/default.conf:ro" nginx:alpine nginx -t` — if it fails only on unresolved `${…}` envsubst placeholders or upstream names, that is the template, not your edit; compare against the same command on `git stash`ed code. *(Drift: a plan defect, workers never run git writes; compare against the unedited file instead.)*
 
-- [ ] **Step 5: Validate and format**
+- [x] **Step 5: Validate and format**
 
 Run:
 ```bash
@@ -885,7 +885,7 @@ git check-ignore -v infra/environments/preprod/integrations.auto.tfvars.json
 ```
 Expected: `Success! The configuration is valid.` and the ignore rule printed. (`init -backend=false` creates `.terraform/`; `make preprod-down` deletes it — harmless.)
 
-- [ ] **Step 6: Commit** (main session, confirmation menu) — `feat(infra): wire pre-prod Stripe and Geoapify values through Terraform`
+- [x] **Step 6: Commit** (main session, confirmation menu) — `feat(infra): wire pre-prod Stripe and Geoapify values through Terraform`
 
 ---
 
@@ -899,7 +899,7 @@ Expected: `Success! The configuration is valid.` and the ignore rule printed. (`
 - Consumes: `preprod_integrations.parse`, `ENV_FILE`, `stripe_on`, `geoapify_on`.
 - Produces: `web_build_args(ws_url: str, env: dict) -> dict[str, str]`, `config_suffix(build_args: dict) -> str`, `service_tag(service: str, base: str, build_args: dict) -> str`.
 
-- [ ] **Step 1: Append the failing tests** to `test_build_push.py` (also add `sys.path.insert(0, str(SCRIPT.parent))` right after the existing `sys.path.insert(...)` line at the top, so the script's `import preprod_integrations` resolves)
+- [x] **Step 1: Append the failing tests** to `test_build_push.py` (also add `sys.path.insert(0, str(SCRIPT.parent))` right after the existing `sys.path.insert(...)` line at the top, so the script's `import preprod_integrations` resolves)
 
 ```python
 STRIPE_ON = {"STRIPE_ENABLED": "true", "STRIPE_PUBLISHABLE_KEY": "pk_test_pub",
@@ -932,12 +932,12 @@ def test_only_web_gets_the_config_suffix():
     assert bp.service_tag("users", "abc", {"X": "1"}) == "abc"
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `.venv/bin/python -m pytest -q infra/environments/preprod/scripts/tests/test_build_push.py`
 Expected: FAIL with `AttributeError: ... no attribute 'web_build_args'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add `import preprod_integrations as pi` after the `from lib3mrai...` imports. Add below `image_tag`:
 
@@ -1001,12 +1001,12 @@ In `main`, after `tag = image_tag(...)` and the `_ecr_login(...)` line, replace 
     return 0
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `.venv/bin/python -m pytest -q infra/environments/preprod/scripts/tests`
 Expected: all PASS (old build_push tests included).
 
-- [ ] **Step 5: Commit** (main session, confirmation menu) — `feat(infra): build the pre-prod web bundle from the chosen integrations`
+- [x] **Step 5: Commit** (main session, confirmation menu) — `feat(infra): build the pre-prod web bundle from the chosen integrations`
 
 ---
 
@@ -1020,7 +1020,7 @@ Expected: all PASS (old build_push tests included).
 - Consumes: `preprod_integrations.parse`, `ENV_FILE`, `stripe_on`.
 - Produces: `stripe_env(integrations: dict) -> dict[str, str]`; `env_from_outputs(o, integrations=None)`.
 
-- [ ] **Step 1: Append the failing tests** (and add `sys.path.insert(0, str(SCRIPT.parent))` after the existing `sys.path.insert(...)`)
+- [x] **Step 1: Append the failing tests** (and add `sys.path.insert(0, str(SCRIPT.parent))` after the existing `sys.path.insert(...)`)
 
 ```python
 ON = {"STRIPE_ENABLED": "true", "STRIPE_SECRET_KEY_USERS": "rk_test_u", "STRIPE_SECRET_KEY_ORDERS": "rk_test_o",
@@ -1040,12 +1040,12 @@ def test_stripe_off_in_the_file_still_blanks_every_var():
     assert all(env[name] == "" for name in ee.STRIPE_VARS)
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `.venv/bin/python -m pytest -q infra/environments/preprod/scripts/tests/test_e2e_env.py`
 Expected: FAIL — `env_from_outputs() takes 1 positional argument but 2 were given`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add `import preprod_integrations as pi` after the stdlib imports. Add above `env_from_outputs`:
 
@@ -1073,12 +1073,12 @@ In `main`, change the exec line to:
     os.execvpe(command[0], command, {**os.environ, **env})
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `.venv/bin/python -m pytest -q infra/environments/preprod/scripts/tests`
 Expected: all PASS (the existing `test_stripe_vars_are_blanked_so_dev_env_files_cannot_leak_in` still passes through the default).
 
-- [ ] **Step 5: Commit** (main session, confirmation menu) — `feat(infra): feed pre-prod E2E the Stripe values when Stripe is on`
+- [x] **Step 5: Commit** (main session, confirmation menu) — `feat(infra): feed pre-prod E2E the Stripe values when Stripe is on`
 
 ---
 
@@ -1092,7 +1092,7 @@ Expected: all PASS (the existing `test_stripe_vars_are_blanked_so_dev_env_files_
 - Consumes: `preprod_integrations.parse`, `ENV_FILE`, `stripe_on`, `cli_env`; `FORWARDS` from `infra/environments/local/scripts/set_stripe_webhook_secret.py` (`{"users": (3000, "<events>"), "orders": (3001, "<events>")}` — only the events are used).
 - Produces: CLI `preprod_stripe_listen.py {start|stop|status}` (status exit 1 when a listener is down). Functions `command(service, env)`, `start(env, spawn)`, `stop()`, `status()`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 """Tests for preprod_stripe_listen.py."""
@@ -1182,12 +1182,12 @@ def test_status_fails_when_a_listener_is_missing(tmp_path, monkeypatch):
     assert sl.status() == 0
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `.venv/bin/python -m pytest -q infra/environments/preprod/scripts/tests/test_preprod_stripe_listen.py`
 Expected: FAIL — script not found.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 #!/usr/bin/env python3
@@ -1308,12 +1308,12 @@ if __name__ == "__main__":
     sys.exit(main(sys.argv))
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `.venv/bin/python -m pytest -q infra/environments/preprod/scripts/tests`
 Expected: all PASS.
 
-- [ ] **Step 5: Commit** (main session, confirmation menu) — `feat(infra): run the pre-prod Stripe webhook forwarders in the background`
+- [x] **Step 5: Commit** (main session, confirmation menu) — `feat(infra): run the pre-prod Stripe webhook forwarders in the background`
 
 ---
 
@@ -1327,7 +1327,7 @@ Expected: all PASS.
 - Consumes: `preprod_integrations.parse/ENV_FILE/stripe_on`; CLI `preprod_stripe_listen.py status` (Task 7); existing `run_check(script, *args) -> int`.
 - Produces: `stripe_listener_failures(env, check=run_check) -> int`.
 
-- [ ] **Step 1: Append the failing tests** (ensure the test file inserts `SCRIPT.parent` into `sys.path` before `exec_module`, like Tasks 5-6; read the file's header first and keep its existing loading code)
+- [x] **Step 1: Append the failing tests** (ensure the test file inserts `SCRIPT.parent` into `sys.path` before `exec_module`, like Tasks 5-6; read the file's header first and keep its existing loading code)
 
 ```python
 def test_listener_check_skipped_when_stripe_is_off():
@@ -1343,12 +1343,12 @@ def test_listener_check_counts_a_down_listener():
 
 (If the module alias in that test file is not `pd`, use the alias it already defines.)
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `.venv/bin/python -m pytest -q infra/environments/preprod/scripts/tests/test_preprod_doctor.py`
 Expected: FAIL — no attribute `stripe_listener_failures`.
 
-- [ ] **Step 3: Implement** — add `import preprod_integrations as pi` with the other imports (after the `sys.path.insert(...)` line), add the function above `main`, and call it in `main` just before `return 1 if failures else 0`:
+- [x] **Step 3: Implement** — add `import preprod_integrations as pi` with the other imports (after the `sys.path.insert(...)` line), add the function above `main`, and call it in `main` just before `return 1 if failures else 0`:
 
 ```python
 def stripe_listener_failures(env: dict[str, str], check=run_check) -> int:
@@ -1362,12 +1362,12 @@ def stripe_listener_failures(env: dict[str, str], check=run_check) -> int:
     failures += stripe_listener_failures(pi.parse(pi.ENV_FILE))
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `.venv/bin/python -m pytest -q infra/environments/preprod/scripts/tests`
 Expected: all PASS.
 
-- [ ] **Step 5: Commit** (main session, confirmation menu) — `feat(infra): preprod-doctor checks the Stripe webhook forwarders`
+- [x] **Step 5: Commit** (main session, confirmation menu) — `feat(infra): preprod-doctor checks the Stripe webhook forwarders`
 
 ---
 
@@ -1379,7 +1379,7 @@ Expected: all PASS.
 **Interfaces:**
 - Consumes: CLIs from Tasks 3 and 7.
 
-- [ ] **Step 1: Add the flags variable** after `PP_ALIASES := …`:
+- [x] **Step 1: Add the flags variable** after `PP_ALIASES := …`:
 
 ```make
 PP_INTEGRATION_FLAGS := $(if $(filter off,$(STRIPE)),--stripe-off) $(if $(filter off,$(GEOAPIFY)),--geoapify-off)
@@ -1387,7 +1387,7 @@ PP_INTEGRATION_FLAGS := $(if $(filter off,$(STRIPE)),--stripe-off) $(if $(filter
 
 Add `preprod-integrations preprod-stripe-listen` to the `.PHONY:` line of that block.
 
-- [ ] **Step 2: Add the two targets** (after `preprod-aliases`):
+- [x] **Step 2: Add the two targets** (after `preprod-aliases`):
 
 ```make
 preprod-integrations: scripts-setup ## Pre-prod: decide Stripe/Geoapify in .env.preprod (STRIPE=off GEOAPIFY=off to decline)
@@ -1397,7 +1397,7 @@ preprod-stripe-listen: scripts-setup ## Pre-prod: (re)start the two stripe liste
 	$(PY) $(PP_TF_DIR)/scripts/preprod_stripe_listen.py start
 ```
 
-- [ ] **Step 3: Wire `preprod-up`** — insert right after the `preprod_live.py` line, and append one line at the very end of the recipe:
+- [x] **Step 3: Wire `preprod-up`** — insert right after the `preprod_live.py` line, and append one line at the very end of the recipe:
 
 ```make
 	@# CONTRACT: After preprod_live — --regenerate mints new webhook tokens, which a LIVE
@@ -1409,13 +1409,13 @@ preprod-stripe-listen: scripts-setup ## Pre-prod: (re)start the two stripe liste
 	$(PY) $(PP_TF_DIR)/scripts/preprod_stripe_listen.py start
 ```
 
-- [ ] **Step 4: Wire `preprod-deploy`** — right after its `@test -n "$(S)" …` usage line:
+- [x] **Step 4: Wire `preprod-deploy`** — right after its `@test -n "$(S)" …` usage line:
 
 ```make
 	$(PY) $(PP_TF_DIR)/scripts/preprod_integrations.py --no-prompt
 ```
 
-- [ ] **Step 5: Wire `preprod-down`** — right after the `env_guard.py --check-other preprod` line add the stop, and add the tfvars file to the final `rm -rf` list:
+- [x] **Step 5: Wire `preprod-down`** — right after the `env_guard.py --check-other preprod` line add the stop, and add the tfvars file to the final `rm -rf` list:
 
 ```make
 	@$(PY) $(PP_TF_DIR)/scripts/preprod_stripe_listen.py stop
@@ -1423,12 +1423,12 @@ preprod-stripe-listen: scripts-setup ## Pre-prod: (re)start the two stripe liste
 
 (`… $(PP_TF_DIR)/image-tags.auto.tfvars.json $(PP_TF_DIR)/integrations.auto.tfvars.json`)
 
-- [ ] **Step 6: Dry-run every touched target**
+- [x] **Step 6: Dry-run every touched target**
 
 Run: `make -n preprod-up preprod-deploy S=web preprod-down preprod-integrations preprod-stripe-listen STRIPE=off >/dev/null && make -n preprod-integrations STRIPE=off GEOAPIFY=off | grep -- '--stripe-off --geoapify-off' && make lint-comments`
 Expected: exit 0, the flags line printed, "no new violations".
 
-- [ ] **Step 7: Commit** (main session, confirmation menu) — `feat(infra): wire the pre-prod integrations into make`
+- [x] **Step 7: Commit** (main session, confirmation menu) — `feat(infra): wire the pre-prod integrations into make`
 
 ---
 
@@ -1439,7 +1439,7 @@ Expected: exit 0, the flags line printed, "no new violations".
 - Modify: `.claude/skills/local-env-lifecycle/SKILL.md`, then mirror to `.ai/skills/local-env-lifecycle/SKILL.md`
 - Vault (via `obsidian-vault` only): runbook `preprod`, `ADR-0022-preprod-ecs-on-floci`, `env-files`, `stripe-sandbox-setup`, `2026-10-02-floci-preprod-environment-design`, `2026-10-05-preprod-integrations-design`, `docs/plans/index.md`
 
-- [ ] **Step 1: Append to `.env.example`** (end of file):
+- [x] **Step 1: Append to `.env.example`** (end of file):
 
 ```
 # ─── .env.preprod ─────────────────────────────────────────────────────────────
@@ -1459,7 +1459,7 @@ Expected: exit 0, the flags line printed, "no new violations".
 
 Run: `.venv/bin/python infra/environments/local/scripts/generate_env_files.py --help >/dev/null; make -n env-file >/dev/null` — expected exit 0 (the example checker only requires dev keys to be present; an extra block is fine).
 
-- [ ] **Step 2: Add the agent rule to the skill** — in `.claude/skills/local-env-lifecycle/SKILL.md`, section "Pre-prod — the second local environment": add two rows to its table:
+- [x] **Step 2: Add the agent rule to the skill** — in `.claude/skills/local-env-lifecycle/SKILL.md`, section "Pre-prod — the second local environment": add two rows to its table:
 
 ```
 | Decide Stripe/Geoapify (prompts with a TTY; `STRIPE=off GEOAPIFY=off` declines) | `make preprod-integrations` |
@@ -1480,7 +1480,7 @@ transcript, and the `!` prefix has no TTY for hidden input.
 
 Then: `rsync -a --delete .claude/skills/local-env-lifecycle/ .ai/skills/local-env-lifecycle/ && nvm use && make ai-sync-check` (the check reports "stale" until committed — that is expected).
 
-- [ ] **Step 3: Dispatch `obsidian-vault`** (English, no git) with this brief:
+- [x] **Step 3: Dispatch `obsidian-vault`** (English, no git) with this brief:
   - `docs/infrastructure/runbooks/preprod.md`: new "Integrations" section — `.env.preprod` (CUSTOM keys, AUTO keys), the decision table (copy from the spec §3), `STRIPE=off GEOAPIFY=off`, the agent rule (verbatim from Step 2), later changes (spec §7), the listeners (`make preprod-stripe-listen`, logs under `logs/preprod-stripe/`, doctor line), the E2E note that the 25 `paymentMethodId required` fixture failures known from dev appear with Stripe on (separate follow-up, not a regression). Add `make preprod-integrations` and `make preprod-stripe-listen` to its command table.
   - `ADR-0022-preprod-ecs-on-floci`: dated (2026-10-05) amendment — Stripe and Geoapify go from always-off to a user decision in `.env.preprod`; link the spec.
   - `env-files`: add `.env.preprod` (pre-prod only, AUTO/CUSTOM, mode 600, written by `preprod_integrations.py`, not by `make env-file`).
@@ -1490,7 +1490,7 @@ Then: `rsync -a --delete .claude/skills/local-env-lifecycle/ .ai/skills/local-en
   - `docs/plans/index.md`: link this plan.
   - Run the validator and report.
 
-- [ ] **Step 4: Commit** (main session, confirmation menu) — `docs(infra): document the pre-prod integrations and the agent rule`
+- [x] **Step 4: Commit** (main session, confirmation menu) — `docs(infra): document the pre-prod integrations and the agent rule`
 
 ---
 
@@ -1498,17 +1498,17 @@ Then: `rsync -a --delete .claude/skills/local-env-lifecycle/ .ai/skills/local-en
 
 Dev must be DOWN (`make clean-state` if it runs; it refuses while pre-prod runs). Long targets run in the background with a bounded wait (see `docs/lessons/2026-09-22-bound-every-long-running-make-target.md`).
 
-- [ ] **Step 1: Regression with both off**
+- [x] **Step 1: Regression with both off**
 
 Run: `make preprod-up STRIPE=off GEOAPIFY=off < /dev/null`
 Expected: ends with `Stripe: off · Geoapify: off` early in the output, `Stripe is off in .env.preprod — no webhook forwarders started` at the end, smoke 200s. Then `make preprod-e2e ARGS="--project=gateway --project=gateway-tracking --project=email"` → the known baseline: 95 passed, 11 skipped, 0 failed.
 
-- [ ] **Step 2: No TTY, undecided → abort + skeleton**
+- [x] **Step 2: No TTY, undecided → abort + skeleton**
 
 Run: `make preprod-down < /dev/null && mv .env.preprod .env.preprod.bak && make preprod-up < /dev/null; echo EXIT=$?`
 Expected: `NO: undecided in .env.preprod: STRIPE_ENABLED, GEOAPIFY_ENABLED`, EXIT non-zero, `.env.preprod` recreated with mode `-rw-------`. Then `mv .env.preprod.bak .env.preprod`.
 
-- [ ] **Step 3: Stripe + Geoapify on** — apply the agent rule: ask the user (Spanish, `AskUserQuestion`) yes/no for each; on yes, ask them to fill the CUSTOM box (`STRIPE_CLI_API_KEY` stays empty — Task 1 confirmed the login) and confirm. Then `make preprod-down < /dev/null && make preprod-up < /dev/null`.
+- [x] **Step 3: Stripe + Geoapify on** — apply the agent rule: ask the user (Spanish, `AskUserQuestion`) yes/no for each; on yes, ask them to fill the CUSTOM box (`STRIPE_CLI_API_KEY` stays empty — Task 1 confirmed the login) and confirm. Then `make preprod-down < /dev/null && make preprod-up < /dev/null`.
 Expected:
   - `Stripe: on · Geoapify: on`, and at the end two `forwarding → localhost:910x/…/<token>` lines.
   - `terraform -chdir=infra/environments/preprod state list | grep -c 'aws_secretsmanager_secret.this\["users/STRIPE'` → 3 (and 3 for orders).
@@ -1516,20 +1516,32 @@ Expected:
   - Browser at `http://localhost:9090`: checkout pays with card `4242 4242 4242 4242`; `grep -E 'payment_intent.succeeded.*\[200\]' logs/preprod-stripe/orders.log` matches; the order shows paid. Saving a card produces a `payment_method.attached … [200]` line in `logs/preprod-stripe/users.log`.
   - `make preprod-e2e ARGS="--project=gateway --project=gateway-tracking --project=email"` runs the Stripe specs; the only new failures are the known `paymentMethodId required` fixture ones.
 
-- [ ] **Step 4: Dead listener is detected**
+- [x] **Step 4: Dead listener is detected**
 
 Run: `kill "$(cat logs/preprod-stripe/users.pid)"; make preprod-doctor; echo EXIT=$?; make preprod-stripe-listen && make preprod-doctor`
 Expected: first doctor prints `users: stripe listen is not running - make preprod-stripe-listen` and EXIT=2 (make's code for a failed recipe); after the restart, doctor passes.
 
-- [ ] **Step 5: Toggle without rebuilding the world** — set `GEOAPIFY_ENABLED=false` in CUSTOM, `make preprod-deploy S=web`; expected: a new `web:<sha>-cfg<hash>` tag is built and pushed (not "already in ECR"), and `curl -s 'http://localhost:9090/geocode/?text=Tegucigalpa'` now answers 503 `geocoding_disabled` (the Task 4 nginx map).
+- [x] **Step 5: Toggle without rebuilding the world** — set `GEOAPIFY_ENABLED=false` in CUSTOM, `make preprod-deploy S=web`; expected: a new `web:<sha>-cfg<hash>` tag is built and pushed (not "already in ECR"), and `curl -s 'http://localhost:9090/geocode/?text=Tegucigalpa'` now answers 503 `geocoding_disabled` (the Task 4 nginx map). *(Drift: this toggle is incomplete; it needs `make preprod-deploy S=web ENV_ONLY=1` and `make preprod-deploy S=web`, because only `ENV_ONLY=1` applies `module.app_config`.)*
 
-- [ ] **Step 6: Record** — dispatch `obsidian-vault` to tick this plan's boxes, and in `docs/plans/2026-10-03-floci-preprod-follow-ups.md` tick the "Stripe + Geoapify opt-in" follow-up with the evidence from Steps 1-5 (no key values).
+- [x] **Step 6: Record** — dispatch `obsidian-vault` to tick this plan's boxes, and in `docs/plans/2026-10-03-floci-preprod-follow-ups.md` tick the "Stripe + Geoapify opt-in" follow-up with the evidence from Steps 1-5 (no key values).
 
-- [ ] **Step 7: Gate** — run the `spec-implementation-audit` skill against the spec and this plan (all three directions); fix doc drift through `obsidian-vault`; a real code defect gets its own change.
+- [x] **Step 7: Gate** — run the `spec-implementation-audit` skill against the spec and this plan (all three directions); fix doc drift through `obsidian-vault`; a real code defect gets its own change.
 
 - [ ] **Step 8: Bring the environment back to what the user wants** (ask: leave pre-prod up, or `make preprod-down` + `make bootstrap` for dev).
 
 - [ ] **Step 9: PR** (main session, confirmation menu) — PR `feat/preprod-integrations` → `feature/floci-preprod-env`, title `feat(infra): opt-in Stripe and Geoapify for pre-prod`, body with Summary, Test plan (Steps 1-5 results) and `## References` (spec, plan, follow-ups note), ending with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`. Never merge without the user.
+
+## Drift from the shipped code
+
+Recorded by the 2026-10-05 spec-implementation audit. The code is the reference.
+
+- Task 2: the test snippet had a stray trailing `"`; fixed in the shipped test.
+- Task 4 Step 4: instructed `git stash`; a plan defect, workers never run git writes.
+- Task 7: the shipped `is_forwarder` guard (own process group, not the caller's, `ps` command line contains `stripe` and `listen`) goes beyond the plan's code. See [[2026-10-05-preprod-integrations-design]] section 8.
+- Task 9: the `preprod-up` CONTRACT comment was reworded for the comment linter.
+- Task 10: `.env.example` uses `See [[preprod]]` instead of the plan's wording.
+- Task 11 Step 5: the toggle is `S=web ENV_ONLY=1` plus `S=web`, not `S=web` alone.
+- Task 11 Steps 8 (environment decision) and 9 (PR) are intentionally left open.
 
 ## Related
 

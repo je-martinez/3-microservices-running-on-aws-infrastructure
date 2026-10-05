@@ -60,7 +60,7 @@ ECS cluster in local state has any service. Use `make preprod-deploy S=<svc>` or
 | Target | Does |
 |---|---|
 | `preprod-up` | Everything, from scratch; refuses on a live environment. Decides the integrations first (`preprod_integrations.py --regenerate`) and, when Stripe is on, starts the webhook forwarders last. `STRIPE=off GEOAPIFY=off` declines without asking |
-| `preprod-integrations` | Decide Stripe and Geoapify in `.env.preprod` (prompts with a TTY; `STRIPE=off GEOAPIFY=off` declines). Without `--regenerate` it preserves the AUTO values, so it is safe while pre-prod is up |
+| `preprod-integrations` | Decide Stripe and Geoapify in `.env.preprod` (prompts with a TTY; `STRIPE=off GEOAPIFY=off` declines). It never regenerates the AUTO values, but it may prompt (with a TTY) and rewrites `.env.preprod` and the tfvars file; with Stripe on and no AUTO values it stops with "run `make preprod-up`" |
 | `preprod-stripe-listen` | (Re)start the two `stripe listen` webhook forwarders; idempotent. Use after a reboot or `preprod-heal` |
 | `preprod-deploy S=<svc>` | Build, push with a new immutable tag, `-target` apply for that service, wait, clean stale targets, aliases, smoke. `ENV_ONLY=1` skips the build, applies `module.app_config` (writes the edited SSM and Secrets Manager values from `services.tf`), then forces a new deployment (ECS reads SSM and secrets only at task start) |
 | `preprod-heal` | After a Floci or Docker restart: Floci up, start Exited DocumentDB/Valkey containers, remove orphan task containers, wait, clean stale targets, re-apply aliases |
@@ -94,7 +94,8 @@ URL comes from `terraform output` in `infra/environments/preprod`.
 - Task definitions reference both by ARN in `secrets`; nothing is declared inline.
 - **Pre-prod has no `.env.local.*` files** ([[env-files]]); its one env file is `.env.preprod` (see Integrations).
 - A config change takes effect with `make preprod-deploy S=<svc> ENV_ONLY=1`: edit the value in
-  `services.tf`; the target writes it to SSM or Secrets Manager, then starts new tasks.
+  `services.tf`; the target writes it to SSM or Secrets Manager, then starts new tasks. A toggled
+  integration also needs a web rebuild: both `S=web ENV_ONLY=1` and `S=web` (see Later changes).
 - Collector endpoint: `O2_ENDPOINT`. Web RUM upstream: `OTLP_RUM_UPSTREAM`.
 - Image tags: `<sha12>` or `<sha12>-dirty-<epoch>-<hash8>` in
   `infra/environments/preprod/image-tags.auto.tfvars.json`.
@@ -115,6 +116,9 @@ data resets. Re-run `make preprod-observability` after OpenObserve is recreated.
 make preprod-deploy S=users          # code change
 make preprod-deploy S=users ENV_ONLY=1   # config change
 ```
+
+A toggled integration needs both `make preprod-deploy S=web ENV_ONLY=1` and `make preprod-deploy S=web`
+(see Later changes).
 
 `ENV_ONLY=1` also re-creates the DB-URL secret versions with identical values (Floci RDS drift
 makes Terraform see a change); this is harmless and brief.
@@ -173,17 +177,22 @@ The same rule lives in the `local-env-lifecycle` skill.
 
 ### Later changes
 
-`preprod-deploy` runs the script in validate-only mode (it never prompts and preserves the AUTO
+`preprod-deploy` runs the script with `--no-prompt` (it never prompts and preserves the AUTO
 values).
 
-- Change a Stripe secret key: `make preprod-deploy S=users ENV_ONLY=1` (and `S=orders`).
-- Toggle an integration or change the publishable key: `make preprod-deploy S=web`. The web image
-  tag carries a hash of its build args (`<base tag>-cfg<hash8>`), so the new config rebuilds
-  instead of reusing the old bundle. For Stripe also redeploy `users` and `orders` with
-  `ENV_ONLY=1`.
-- Enabling Stripe on a pre-prod that came up with it off needs `make preprod-down && make preprod-up`:
-  the webhook secret and URL tokens exist only after a from-scratch `preprod-up`, and a plain
-  `make preprod-integrations` stops with that message.
+- Change a Stripe secret-key value (Stripe staying on): `make preprod-deploy S=users ENV_ONLY=1` and
+  `make preprod-deploy S=orders ENV_ONLY=1`. Safe: the secret entries are unchanged.
+- Toggle Geoapify or change the publishable key: `make preprod-deploy S=web ENV_ONLY=1` **and**
+  `make preprod-deploy S=web`. The web image tag carries a hash of its build args
+  (`<base tag>-cfg<hash8>`), so the plain deploy rebuilds instead of reusing the old bundle, but its
+  `-target` apply never touches `module.app_config`, which holds `web/GEOAPIFY_API_KEY`;
+  `ENV_ONLY=1` applies it. With only `S=web`, `/geocode/` stayed 200 after turning Geoapify off;
+  after `ENV_ONLY=1` it answered 503 `geocoding_disabled`.
+- **Any Stripe toggle, on or off:** `make preprod-down && make preprod-up`. Off to on, the webhook
+  secret and URL tokens exist only after a from-scratch `preprod-up`. On to off, `ENV_ONLY=1`
+  applies only `module.app_config`, which destroys the `STRIPE_*` secrets and SSM parameters while
+  the untargeted task definitions still reference their ARNs, so the forced new deployment starts
+  tasks that cannot resolve them.
 
 ### Webhook listeners
 
@@ -193,7 +202,13 @@ per service because `--forward-to` takes a single URL: users to
 `localhost:9102/v1/orders/stripe/webhook/<token>`. Both run under one CLI identity (your
 `stripe login` session, or `STRIPE_CLI_API_KEY` passed in the `STRIPE_API_KEY` environment
 variable, never `--api-key`), so they share the signing secret Terraform deployed. Logs and pid
-files live under `logs/preprod-stripe/`. `preprod-down` stops them first.
+files live under `logs/preprod-stripe/`. `preprod-down` stops them right after the dev-exclusivity guard.
+
+File permissions: `logs/preprod-stripe/` is created `0o700` and its log and pid files `0o600`,
+because the Stripe CLI writes the `whsec_` signing secret and the URL tokens into those logs
+(local and git-ignored; never paste them). A pre-existing `.env.preprod` is `chmod`ed to `0o600`
+before any write, and the repo `.dockerignore` excludes `logs` and `**/*.auto.tfvars.json`, so
+neither reaches a build context.
 
 - Restart after a reboot or `preprod-heal`: `make preprod-stripe-listen` (idempotent).
 - `make preprod-doctor` fails with the listener line when Stripe is on and either forwarder is
@@ -202,6 +217,11 @@ files live under `logs/preprod-stripe/`. `preprod-down` stops them first.
   command line contains `stripe listen`, it leads its own process group, and it is not the
   caller's group); otherwise it just removes the stale pid file, and `status` reports that
   listener down.
+- Listeners dying with 403 "Permission denied" at authentication means the login was revoked or
+  expired: `stripe logout && stripe login`, then `make preprod-stripe-listen`. No redeploy is
+  needed: the re-login returned the same signing secret (`--print-secret` equals the deployed
+  `STRIPE_WEBHOOK_SECRET`). A device-flow login started through Claude Code's `!` needs
+  `stripe login --complete-device`.
 - Login session on a different sandbox than the keys: payments succeed but webhooks never
   arrive. If the login expires (about 90 days), `make preprod-up` fails at `--print-secret`
   asking for `stripe login`.
@@ -209,8 +229,8 @@ files live under `logs/preprod-stripe/`. `preprod-down` stops them first.
 ### E2E with Stripe on
 
 `e2e_env.py` reads `.env.preprod` and exports the Stripe variables when Stripe is on (blank, never
-omitted, when off). With Stripe on, the 25 `paymentMethodId required` fixture failures known
-from dev also appear in `make preprod-e2e`. That is a separate follow-up
+omitted, when off). With Stripe on, about 25 `paymentMethodId required` fixture failures (23 observed in pre-prod with Stripe on,
+2026-10-05), known from dev, also appear in `make preprod-e2e`. That is a separate follow-up
 ([[2026-10-03-floci-preprod-follow-ups]]), not a regression.
 
 ## Teardown
@@ -235,6 +255,18 @@ refuse while pre-prod runs ([[environment-exclusivity]]).
 - `make preprod-load-test-smoke`: 551 requests, 0 failures. Full `preprod-load-test` saturates
   Floci's single process (86% / 59% OK, p95 17-50 s); a local capacity limit.
 
+### Integrations verification (2026-10-05)
+
+No key values recorded.
+
+- Both off: `make preprod-up STRIPE=off GEOAPIFY=off` 3m34s, exit 0, "Stripe: off · Geoapify: off", "no webhook forwarders started", smoke 200s; E2E (gateway, gateway-tracking, email) 95 passed, 11 skipped, 0 failed (baseline).
+- No TTY, no file: "NO: undecided in .env.preprod: STRIPE_ENABLED, GEOAPIFY_ENABLED", make exit 2, skeleton created `-rw-------`, no tfvars written.
+- Both on: `make preprod-up` 3m40s, exit 0, "Stripe: on · Geoapify: on", two forwarding lines, both listeners "Ready!", 3 `users/STRIPE*` and 3 `orders/STRIPE*` secrets, `/geocode/` 200, smoke 200s.
+- E2E with Stripe on: 82 passed, 23 failed, 1 skipped; all 23 are order creation 400 "paymentMethodId field is required" (known fixture follow-up).
+- Browser: order 261005-CWZX74 paid with 4242; `orders.log` `payment_intent.succeeded` [200]; `users.log` `payment_method.attached` [200].
+- Dead listener: killed users listener, `preprod-doctor` "NO: users: stripe listen is not running - make preprod-stripe-listen", exit 2; the restart hit 403 (login revoked mid-session), `stripe logout && stripe login`, `--print-secret` equal to the deployed secret, `make preprod-stripe-listen` both "Ready!", doctor exit 0.
+- Geoapify toggle: `GEOAPIFY_ENABLED=false` plus `make preprod-deploy S=web` built and pushed a new `web:<sha>-cfgc5d25e09` (not "already in ECR"), `/geocode/` still 200; plus `make preprod-deploy S=web ENV_ONLY=1` gave 503 `geocoding_disabled`.
+
 ### Verification results
 
 - **SC1** gateway, gateway-tracking and email E2E: 95 passed, 11 skipped, 0 failed.
@@ -255,6 +287,7 @@ refuse while pre-prod runs ([[environment-exclusivity]]).
 | `RepositoryAlreadyExists` on apply | ECR registry survived a teardown; `make preprod-down` |
 | `NoSuchBucket` pulling an image | Dev Floci owns `:4566`; see [[environment-exclusivity]] |
 | OpenObserve crash loop | Root password rejected; keep special characters in the generated password |
+| `preprod-deploy` / `preprod-integrations` says the AUTO values are not generated | Stripe is on but `preprod-up` never minted them; `make preprod-down && make preprod-up` |
 | Trace waterfall `HTTP 400` | `make observability-traces-schema` equivalent: `make preprod-observability` |
 
 Cause and evidence for each Floci behaviour: [[2026-10-03-floci-preprod-alb-and-ecs-behaviours]].

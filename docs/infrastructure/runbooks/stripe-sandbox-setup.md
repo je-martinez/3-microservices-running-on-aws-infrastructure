@@ -299,7 +299,15 @@ The Floci pre-prod environment ([[preprod]]) can run Stripe on, as an opt-in rec
   forwarded event is signed with, and the dashboard's webhook secret is still not this one
   (section 3). The URL tokens are minted per service by `make preprod-up`.
 - Restart the forwarders with `make preprod-stripe-listen`; `make preprod-doctor` reports a dead
-  one. Logs: `logs/preprod-stripe/`.
+  one. Logs: `logs/preprod-stripe/` (they hold the `whsec_` signing secret in plaintext: local,
+  git-ignored, never paste them).
+- **A revoked or expired login** makes the listeners die with 403 "Permission denied": run
+  `stripe logout && stripe login` (`stripe login --complete-device` for a device flow started
+  through Claude Code's `!`), then `make preprod-stripe-listen`. The signing secret is unchanged,
+  so no redeploy is needed.
+- **Any Stripe toggle, on or off, is `make preprod-down && make preprod-up`**; only a changed
+  secret-key value with Stripe staying on is `make preprod-deploy S=users ENV_ONLY=1` and
+  `S=orders ENV_ONLY=1`. Detail: [[preprod]] (Later changes).
 
 ## Related
 

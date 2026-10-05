@@ -183,6 +183,18 @@ keys' sandbox (or `STRIPE_CLI_API_KEY`). **Never read, print or write a key valu
 trust only the script's `Stripe: on · Geoapify: off` line. A key pasted in chat lands in the
 transcript, and the `!` prefix has no TTY for hidden input.
 
+**Changing an integration after `make preprod-up`:**
+- Geoapify toggled, or a changed Stripe publishable key: needs BOTH
+  `make preprod-deploy S=web ENV_ONLY=1` (writes the `web/GEOAPIFY_API_KEY` secret) AND
+  `make preprod-deploy S=web` (rebuilds the bundle under a new `-cfg` tag).
+- ANY Stripe toggle, on or off: `make preprod-down && make preprod-up`. OFF→ON needs freshly
+  minted webhook values; ON→OFF via `ENV_ONLY` would delete secrets the running task
+  definitions still reference.
+- A changed Stripe secret-key value with Stripe staying on: `S=users ENV_ONLY=1` and
+  `S=orders ENV_ONLY=1`.
+- `make preprod-integrations` never regenerates the webhook values; with a TTY it may prompt,
+  and it rewrites `.env.preprod` and the tfvars file.
+
 **Dev and pre-prod are mutually exclusive.** Both need host port 4566 and the fixed-name
 `floci-ecr-registry`, and ECR URIs always carry `:4566`, so with both up Docker pulls images
 from the wrong Floci. `make up`, `make bootstrap` and `make bootstrap-provision` check for a
