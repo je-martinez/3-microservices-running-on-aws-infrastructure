@@ -172,6 +172,16 @@ Runbook: [[preprod]].
 | After a Floci or Docker restart | `make preprod-heal` |
 | Playwright / Gatling against it | `make preprod-e2e ARGS="--project=…"`, `make preprod-load-test-smoke` |
 | Tear it all down (Floci, children, ECR registry, volumes, TF state); refuses while dev runs | `make preprod-down` |
+| Decide Stripe/Geoapify (prompts with a TTY; `STRIPE=off GEOAPIFY=off` declines) | `make preprod-integrations` |
+| Restart the two Stripe webhook forwarders (after a reboot or `preprod-heal`) | `make preprod-stripe-listen` |
+
+**Before `make preprod-up`, an agent asks the user — Stripe yes/no, Geoapify yes/no — with a
+menu.** "No" → pass `STRIPE=off` / `GEOAPIFY=off`. "Yes" → tell the user to fill the CUSTOM box
+of `.env.preprod` (run `make preprod-integrations` once without a TTY to create the skeleton),
+wait for confirmation, then run `make preprod-up`. Stripe on also needs `stripe login` against the
+keys' sandbox (or `STRIPE_CLI_API_KEY`). **Never read, print or write a key value**;
+trust only the script's `Stripe: on · Geoapify: off` line. A key pasted in chat lands in the
+transcript, and the `!` prefix has no TTY for hidden input.
 
 **Dev and pre-prod are mutually exclusive.** Both need host port 4566 and the fixed-name
 `floci-ecr-registry`, and ECR URIs always carry `:4566`, so with both up Docker pulls images

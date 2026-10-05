@@ -4,7 +4,7 @@ type: spec
 area: infra
 status: accepted
 created: 2026-10-02
-updated: 2026-10-03
+updated: 2026-10-05
 tags:
   - type/spec
   - area/infra
@@ -97,6 +97,12 @@ disabled, cache-off spec), 0 failed.
   `<sha12>-dirty-<epoch>-<hash8>` on a dirty one: the epoch-seconds timestamp plus the first 8 hex
   characters of the SHA-256 of `git diff HEAD`. The content hash keeps two dirty builds in the
   same second distinct. See [[ADR-0022-preprod-ecs-on-floci]].
+
+**Amendment 2026-10-05 — integrations are no longer always off.** This design shipped pre-prod
+with Stripe and Geoapify hardcoded off (hence the "Stripe disabled" skips in the results above).
+[[2026-10-05-preprod-integrations-design]] replaces that with a user decision per integration,
+recorded in `.env.preprod`; the topology and the rest of this design are unchanged. Operation:
+[[preprod]] (Integrations section). Decision record: [[ADR-0022-preprod-ecs-on-floci]].
 
 ## Context
 
@@ -388,3 +394,4 @@ Floci 2.1.0 findings (claims→header works, SIGKILL persistence fix, lazy ECS r
 - [[environment-exclusivity]]
 - [[preprod]]
 - [[2026-10-03-floci-preprod-alb-and-ecs-behaviours]]
+- [[2026-10-05-preprod-integrations-design]]
