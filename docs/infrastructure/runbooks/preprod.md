@@ -25,6 +25,7 @@ related:
   - "[[stripe-sandbox-setup]]"
   - "[[2026-10-03-floci-preprod-follow-ups]]"
   - "[[testing]]"
+  - "[[env-files]]"
 ---
 
 # Pre-production — Floci environment
@@ -46,7 +47,7 @@ Order: exclusivity guard (`env_guard.py preprod`), Floci up (compose project `3m
 live-environment check (`preprod_live.py`), `lambda-bundles`, `terraform init`, Terraform apply with `deploy_services=false` (data stores,
 Cognito, messaging, ECR, config), build and push every image, `preprod-migrate`, apply with
 `deploy_services=true` (ECS services, ALB, gateway), wait for RUNNING tasks, deregister stale ALB
-targets, aliases, smoke, then `preprod-observability` (seed + dashboards). It does not run
+targets, aliases, smoke, then `preprod-observability` (seed + dashboards) and `preprod-env-file`. It does not run
 `preprod-doctor`. It is **not resumable**: on failure run
 `make preprod-down && make preprod-up`.
 
@@ -69,9 +70,10 @@ ECS cluster in local state has any service. Use `make preprod-deploy S=<svc>` or
 | `preprod-aliases` | Attach `users-grpc` and `mailpit` Docker aliases to the newest RUNNING task |
 | `preprod-migrate` | Prisma (users) and golang-migrate (tracking) against Floci's RDS |
 | `preprod-observability` | Seed the OpenObserve traces schema, import dashboards |
+| `preprod-env-file` | Write `.env.preprod.debug` (URLs and the OpenObserve login) from Terraform outputs; reads only, never applies, so it is safe on a live environment. `preprod-up` runs it last before the Stripe forwarders |
 | `preprod-e2e ARGS=…` | Playwright against pre-prod (`ARGS="--project=gateway"`) |
 | `preprod-load-test` / `preprod-load-test-smoke` | Gatling `fullJourney` / a ~20 s run |
-| `preprod-down` | Stops the Stripe forwarders first, then a full wipe: `down -v`, Floci children, ECR registry and volume, Floci volumes, local TF state, `integrations.auto.tfvars.json` and the `.terraform*` directories; refuses while the dev stack runs |
+| `preprod-down` | Stops the Stripe forwarders first, then a full wipe: `down -v`, Floci children, ECR registry and volume, Floci volumes, local TF state, `integrations.auto.tfvars.json`, `.env.preprod.debug` and the `.terraform*` directories; refuses while the dev stack runs |
 
 ## Ports
 
@@ -86,13 +88,26 @@ ECS cluster in local state has any service. Use `make preprod-deploy S=<svc>` or
 Internal only: OTLP `4318` (collector, traces; logs travel `awslogs` → CloudWatch → collector, and
 Users and Tracking set `OTEL_LOGS_EXPORTER=none`; Orders sets it in neither pre-prod nor dev, so pre-prod
 matches dev) and `4319` (browser RUM). The API Gateway
-URL comes from `terraform output` in `infra/environments/preprod`.
+URL comes from `terraform output` in `infra/environments/preprod`, and from `API_GATEWAY_URL` in
+`.env.preprod.debug`.
+
+### URLs and the OpenObserve login (`.env.preprod.debug`)
+
+`make preprod-up` ends by writing `.env.preprod.debug` at the repo root (mode 600, git-ignored,
+loaded by nothing). It lists `WEB_URL` (`localhost:9090`), `OPENOBSERVE_URL`, `OPENOBSERVE_USER`,
+`OPENOBSERVE_PASSWORD`, `MAILPIT_URL`, `USERS_URL` / `ORDERS_URL` / `TRACKING_URL`
+(`:9101`-`:9103`), `API_GATEWAY_URL` and `WS_URL`. To log into OpenObserve at `localhost:5080`,
+copy the user and password from that file. The password is random per environment; it is never
+written in the vault. Fallback when the file is missing or stale: `make preprod-env-file`
+regenerates it (Terraform outputs only, no apply), or read the value directly with
+`terraform output openobserve_root_password` in `infra/environments/preprod`. There are no
+database URLs: pre-prod does not publish the RDS proxy ports. Contract: [[env-files]].
 
 ## Configuration layout
 
 - Parameters: SSM `/3mrai-preprod/<svc>/<VAR>`. Secrets: Secrets Manager `3mrai-preprod/<svc>/<VAR>`.
 - Task definitions reference both by ARN in `secrets`; nothing is declared inline.
-- **Pre-prod has no `.env.local.*` files** ([[env-files]]); its one env file is `.env.preprod` (see Integrations).
+- **Pre-prod has no `.env.local.*` files** ([[env-files]]); its env files are `.env.preprod` (integrations, see Integrations) and the generated `.env.preprod.debug` (URLs and OpenObserve login, nothing reads it).
 - A config change takes effect with `make preprod-deploy S=<svc> ENV_ONLY=1`: edit the value in
   `services.tf`; the target writes it to SSM or Secrets Manager, then starts new tasks. A toggled
   integration also needs a web rebuild: both `S=web ENV_ONLY=1` and `S=web` (see Later changes).
@@ -236,7 +251,8 @@ omitted, when off). With Stripe on, about 25 `paymentMethodId required` fixture 
 ## Teardown
 
 `make preprod-down` removes everything including Floci-created RDS volumes and the ECR registry
-container. Anything less leaves `RepositoryAlreadyExists` on the next apply or phantom stores.
+container, and deletes `.env.preprod.debug` (its OpenObserve password dies with the environment;
+`.env.preprod` is kept, it holds your decisions and keys). Anything less leaves `RepositoryAlreadyExists` on the next apply or phantom stores.
 
 It refuses while the dev stack (compose project `3mrai`) runs: its `floci-` container and
 `floci=true` volume sweeps would delete dev's Floci children and data. Drop dev first with

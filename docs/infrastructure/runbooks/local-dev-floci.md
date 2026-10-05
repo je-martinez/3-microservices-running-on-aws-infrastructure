@@ -4,7 +4,7 @@ type: runbook
 area: infra
 status: active
 created: 2026-07-12
-updated: 2026-10-03
+updated: 2026-10-05
 integration-status: verified
 verified-on: 2026-07-15
 verified-by: Jose E. Martinez
@@ -234,7 +234,7 @@ Containers reported as **missing** cannot be healed; rebuild with
 
 | Target | Purpose |
 |---|---|
-| `make observability-up` | Start OpenObserve + the OTel collector (~512MB–1.5GB RAM) — UI at `http://localhost:5080` |
+| `make observability-up` | Start OpenObserve + the OTel collector (~512MB–1.5GB RAM) — UI at `http://localhost:5080`; the login and the web/Mailpit URLs are in `.env.local.debug` ([[env-files]]) |
 | `make observability-down` | Stop the observability stack, leaving the rest running |
 
 Run `make help` at any time for the authoritative, current list.
@@ -415,3 +415,4 @@ re-reports the same 8 in-place changes) — see the sibling section above ([[flo
 - [[preprod]]
 - [[environment-exclusivity]]
 - [[ADR-0022-preprod-ecs-on-floci]]
+- [[env-files]] — `.env.local.debug` holds the dev web/OpenObserve/Mailpit URLs and the OpenObserve login.

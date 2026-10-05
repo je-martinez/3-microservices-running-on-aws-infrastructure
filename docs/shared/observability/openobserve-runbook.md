@@ -4,7 +4,7 @@ type: runbook
 area: shared
 status: active
 created: 2026-07-10
-updated: 2026-10-03
+updated: 2026-10-05
 integration-status: verified
 verified-on: 2026-08-21
 verified-by: Jose E. Martinez
@@ -44,7 +44,7 @@ for why OpenObserve was chosen over SigNoz.
 make observability-up
 ```
 
-Starts OpenObserve and the OTel collector. UI at http://localhost:5080 once healthy (~5s) —
+Starts OpenObserve and the OTel collector. UI at http://localhost:5080 once healthy (~5s); the login is in `.env.local.debug` (pre-prod: `.env.preprod.debug`, see [[env-files]]) —
 **logs and traces both live there now**; see [Traces](#traces) below for how to open a trace
 waterfall. Jaeger is gone (removed 2026-08-21, see [[ADR-0019-distributed-tracing-opentelemetry]]
 Amendment) — there is no second UI to check.
@@ -403,6 +403,7 @@ against Floci.
 - [[ADR-0018-observability-openobserve]]
 - [[2026-07-10-openobserve-migration]]
 - [[local-dev]]
+- [[env-files]] — `.env.local.debug` / `.env.preprod.debug` hold the OpenObserve login and URLs.
 - [[2026-07-16-structured-logging-and-dashboards-design]]
 - [[2026-07-16-structured-logging-and-dashboards]] — the implementation plan for the dashboards this runbook documents.
 - [[2026-07-10-openobserve-migration-design]] — the design spec for the OpenObserve backend this runbook operates.
