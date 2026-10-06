@@ -16,7 +16,7 @@ export const architecturePreprod: ArchitectureData = {
     { id: "apigw", label: "API GW + Cognito", kind: "edge", aws: "api-gateway", zone: "edge" },
     { id: "alb", label: "ALB", kind: "edge", aws: "elb", zone: "edge" },
     { id: "ws", label: "WS API + connections", kind: "edge", aws: "api-gateway", zone: "edge" },
-    { id: "deploy", label: "ECR + SSM/secrets", kind: "data", aws: "ecr", zone: "edge" },
+    { id: "deploy", label: "Task config: ECR+SSM", kind: "data", aws: "ecr", zone: "edge" },
     { id: "web", label: "Web task", kind: "compute", aws: "ecs", zone: "compute" },
     { id: "orders", label: "Orders task", kind: "compute", aws: "ecs", zone: "compute" },
     { id: "users", label: "Users task", kind: "compute", aws: "ecs", zone: "compute" },

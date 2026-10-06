@@ -40,7 +40,7 @@ Remotion package `@3mrai/diagrams`: every animated flow, architecture and milest
 
 ## Output location
 
-Render into a `diagrams/` folder beside the vault section that owns the diagram (for example `docs/domains/orders/diagrams/<name>`), set as `output` without extension. Outputs are a GIF plus a last-frame PNG; milestone `DependencyGraph` entries are PNG only (`animated: false`). About 12 fps, at most ~1200 px wide, target at most ~2 MB per GIF. No MP4, no web player.
+Render into a `diagrams/` folder beside the vault section that owns the diagram (for example `docs/domains/<svc>/specs/diagrams/<name>`), set as `output` without extension. Outputs are a GIF plus a last-frame PNG; milestone `DependencyGraph` entries are PNG only (`animated: false`). About 12 fps, at most ~1200 px wide, target at most ~2 MB per GIF. No MP4, no web player.
 
 ## Verify loop (every diagram, every time)
 
