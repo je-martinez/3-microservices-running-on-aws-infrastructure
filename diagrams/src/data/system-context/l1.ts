@@ -13,7 +13,7 @@ export const systemContextL1: ArchitectureData = {
   nodes: [
     { id: "customer", label: "Customer", kind: "external", zone: "outside" },
     { id: "carrier", label: "Carrier", kind: "external", zone: "outside" },
-    { id: "stripe", label: "Stripe (optional)", kind: "external", zone: "outside" },
+    { id: "stripe", label: "Stripe (+ webhooks)", kind: "external", zone: "outside" },
     { id: "geoapify", label: "Geoapify (optional)", kind: "external", zone: "outside" },
     { id: "app", label: "3MRAI platform", kind: "compute", zone: "system" },
     { id: "cognito", label: "Cognito", kind: "edge", aws: "cognito", zone: "platform" },
@@ -23,7 +23,7 @@ export const systemContextL1: ArchitectureData = {
   edges: [
     { from: "customer", to: "app", label: "uses" },
     { from: "carrier", to: "app", label: "status" },
-    { from: "app", to: "stripe", label: "pay+hooks" },
+    { from: "app", to: "stripe", label: "payments" },
     { from: "app", to: "geoapify", label: "geocode" },
     { from: "app", to: "cognito", label: "auth" },
     { from: "app", to: "ses", label: "email" },
