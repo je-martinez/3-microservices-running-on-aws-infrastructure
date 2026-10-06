@@ -1,12 +1,15 @@
 import { Composition } from "remotion";
 import { catalog, type CatalogEntry } from "./catalog";
 import { ArchitectureMap } from "./primitives/ArchitectureMap";
+import { FlowSequence } from "./primitives/FlowSequence";
 import { durationFor, FPS, HEIGHT, WIDTH } from "./timing";
 
 function view(e: CatalogEntry) {
   switch (e.primitive) {
     case "architecture":
       return { component: ArchitectureMap, units: e.data.edges.length };
+    case "flow":
+      return { component: FlowSequence, units: e.data.steps.length };
     default:
       throw new Error(`primitive ${e.primitive} is not registered yet`);
   }

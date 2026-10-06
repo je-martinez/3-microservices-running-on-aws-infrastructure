@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { edgePoints, layoutArchitecture } from "../src/primitives/layout";
+import { edgePoints, layoutArchitecture, layoutFlow } from "../src/primitives/layout";
 
 const d = {
   title: "T",
@@ -38,5 +38,22 @@ describe("edgePoints", () => {
   it("connects top/bottom for vertically stacked boxes", () => {
     const p = edgePoints({ x: 0, y: 0, w: 100, h: 40 }, { x: 0, y: 200, w: 100, h: 40 });
     expect(p).toEqual({ x1: 50, y1: 40, x2: 50, y2: 200 });
+  });
+});
+
+describe("layoutFlow", () => {
+  const flow = {
+    title: "F",
+    actors: ["a", "b", "c"].map((id) => ({ id, label: id.toUpperCase(), kind: "compute" as const })),
+    steps: Array.from({ length: 10 }, (_, i) => ({ from: "a", to: i % 2 ? "b" : "c", label: `s${i}`, caption: "c" })),
+  };
+  const l = layoutFlow(flow, 1200, 675);
+  it("orders lanes left to right as declared", () => {
+    expect(l.lanes.a!.x).toBeLessThan(l.lanes.b!.x);
+    expect(l.lanes.b!.x).toBeLessThan(l.lanes.c!.x);
+  });
+  it("fits 10 rows above the caption bar", () => {
+    expect(l.rowY(9)).toBeLessThan(675 - 18 - 48 - 8);
+    expect(l.rowY(1)).toBeGreaterThan(l.rowY(0));
   });
 });
