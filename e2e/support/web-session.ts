@@ -104,7 +104,12 @@ export async function addFirstProductToCart(page: Page): Promise<void> {
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1, name: /new arrivals/i })).toBeVisible();
 
-  const addButton = page.locator("app-product-card").first().getByRole("button", { name: /^add$/i });
+  // CONTRACT: Match the ACCESSIBLE name, `Add <product name> to cart` — the button's
+  // `aria-label` replaces its visible "Add" text, so `/^add$/` finds nothing.
+  const addButton = page
+    .locator("app-product-card")
+    .first()
+    .getByRole("button", { name: /^add .+ to cart$/i });
   await expect(addButton, "no catalogue product offers an Add button").toBeVisible();
   await addButton.click();
 

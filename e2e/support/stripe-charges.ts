@@ -46,6 +46,15 @@ export async function customerIdForEmail(email: string): Promise<string | null> 
   return data[0]?.id ?? null;
 }
 
+/** The customer's `invoice_settings.default_payment_method` id, or null when unset. */
+export async function defaultPaymentMethodForCustomer(customerId: string): Promise<string | null> {
+  const customer = await client(USERS_KEY_ENV).customers.retrieve(customerId);
+  if (customer.deleted) throw new Error(`Stripe customer ${customerId} is deleted`);
+  const pm = customer.invoice_settings.default_payment_method;
+  if (pm === null) return null;
+  return typeof pm === "string" ? pm : pm.id;
+}
+
 /** One PaymentIntent, reduced to what a payment assertion needs. */
 export type ChargeAttempt = {
   id: string;

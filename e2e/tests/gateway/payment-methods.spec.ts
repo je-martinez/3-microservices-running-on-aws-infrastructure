@@ -9,6 +9,7 @@ import {
   signedEvent,
   webhookToken,
 } from "../../support/stripe-webhook.js";
+import { customerIdForEmail, defaultPaymentMethodForCustomer } from "../../support/stripe-charges.js";
 
 // Gateway E2E for the Users payment-method routes and the Stripe webhook, with a real
 // Cognito JWT through API_GATEWAY_URL. Proves each route resolves, carries the JWT
@@ -59,20 +60,35 @@ test.describe("payment methods", () => {
     expect(body.clientSecret).toMatch(/^seti_.+_secret_/);
   });
 
-  test("attach, set default and detach a test card, each visible in the list", async () => {
-    const api = await newAuthedClient();
+  test("attach two cards, set default and detach, each visible in the list", async () => {
+    const { token, email } = await getGatewayToken();
+    const api = await gatewayClient(token);
 
-    const attached = await api.post("v1/users/me/payment-methods", {
-      data: { paymentMethodId: "pm_card_visa" },
-    });
-    expect(attached.status(), `POST payment-methods failed: ${await attached.text()}`).toBe(200);
-    const { id: pmId } = await attached.json();
-    expect(pmId).toMatch(/^pm_/);
+    const attachCard = async (paymentMethodId: string): Promise<string> => {
+      const res = await api.post("v1/users/me/payment-methods", { data: { paymentMethodId } });
+      expect(res.status(), `POST payment-methods (${paymentMethodId}) failed: ${await res.text()}`).toBe(200);
+      const { id } = await res.json();
+      expect(id).toMatch(/^pm_/);
+      return id;
+    };
 
-    await test.step("list shows the card, not yet default", async () => {
+    const firstId = await attachCard("pm_card_visa");
+
+    await test.step("list shows the first card as the default", async () => {
       const rows = await listPaymentMethods(api);
-      expect(rows.map((r) => r.id)).toEqual([pmId]);
-      expect(rows[0]).toMatchObject({ type: "card", brand: "visa", last4: "4242", isDefault: false });
+      expect(rows.map((r) => r.id)).toEqual([firstId]);
+      expect(rows[0]).toMatchObject({ type: "card", brand: "visa", last4: "4242", isDefault: true });
+    });
+
+    await test.step("Stripe's customer default is the first card", async () => {
+      // WHY: Not `test.skip` — it aborts the whole test, dropping the steps below.
+      if (!process.env.STRIPE_SECRET_KEY) {
+        test.info().annotations.push({ type: "stripe-unchecked", description: "STRIPE_SECRET_KEY not set" });
+        return;
+      }
+      const customerId = await customerIdForEmail(email);
+      expect(customerId, `no Stripe customer for ${email} — the attach never reached Stripe`).not.toBeNull();
+      expect(await defaultPaymentMethodForCustomer(customerId!)).toBe(firstId);
     });
 
     await test.step("another user's JWT does not see it", async () => {
@@ -80,17 +96,26 @@ test.describe("payment methods", () => {
       expect(await listPaymentMethods(other)).toEqual([]);
     });
 
-    await test.step("PUT {id}/default carries the path param and flips isDefault", async () => {
-      const res = await api.put(`v1/users/me/payment-methods/${pmId}/default`);
+    const secondId = await attachCard("pm_card_mastercard");
+
+    await test.step("a second attach is not the default and leaves the first one so", async () => {
+      const rows = await listPaymentMethods(api);
+      const flags = Object.fromEntries(rows.map((r) => [r.id, r.isDefault]));
+      expect(flags, JSON.stringify(rows)).toEqual({ [firstId]: true, [secondId]: false });
+    });
+
+    await test.step("PUT {id}/default carries the path param and moves isDefault", async () => {
+      const res = await api.put(`v1/users/me/payment-methods/${secondId}/default`);
       expect(res.status(), `PUT default failed: ${await res.text()}`).toBe(204);
       const rows = await listPaymentMethods(api);
-      expect(rows.find((r) => r.id === pmId)?.isDefault).toBe(true);
+      const flags = Object.fromEntries(rows.map((r) => [r.id, r.isDefault]));
+      expect(flags, JSON.stringify(rows)).toEqual({ [firstId]: false, [secondId]: true });
     });
 
     await test.step("DELETE {id} removes it from the list", async () => {
-      const res = await api.delete(`v1/users/me/payment-methods/${pmId}`);
+      const res = await api.delete(`v1/users/me/payment-methods/${firstId}`);
       expect(res.status(), `DELETE payment-method failed: ${await res.text()}`).toBe(204);
-      expect(await listPaymentMethods(api)).toEqual([]);
+      expect((await listPaymentMethods(api)).map((r) => r.id)).toEqual([secondId]);
     });
   });
 

@@ -129,12 +129,17 @@ test("adding a card through the Payment Element raises the SAVED CARDS count", a
   await enterTestCard(page);
 
   // Decision 22's profile branch: saving is IMPLICIT and the checkbox chooses only
-  // whether the new card also becomes the default. It arrives checked.
+  // whether the new card also becomes the default — except for the first card, which
+  // Users makes the default regardless, so the box is locked checked.
+  const defaultCheckbox = page.getByTestId("default-card-checkbox");
   await expect(
-    page.getByTestId("default-card-checkbox"),
-    "the profile's `set as default` box should arrive CHECKED — a card added deliberately here is " +
-      "usually the one to use, per the design frame",
+    defaultCheckbox,
+    "an empty wallet's `set as default` box arrived UNCHECKED — the first card is always the default",
   ).toHaveAttribute("aria-checked", "true");
+  await expect(defaultCheckbox, "the first card's default box can be toggled off").toBeDisabled();
+  await expect(page.getByTestId("default-card-required-note")).toHaveText(
+    /your first card is saved as your default\./i,
+  );
 
   test.skip(sandboxReason !== null, sandboxReason ?? "");
   await confirmCard(page.getByTestId("add-card-button-submit"));
@@ -167,8 +172,8 @@ test("adding a card through the Payment Element raises the SAVED CARDS count", a
   ).toContainText(/visa .* 4242/i);
   await expect(
     row.getByTestId("default-badge"),
-    "the checkbox was checked but no Default badge rendered — `submit()` calls setDefault only " +
-      "when it is, and the reload then reads `isDefault` back from Users",
+    "the wallet's first card carries no Default badge — Users' attach makes the first active " +
+      "card the default, and the reload reads `isDefault` back from it",
   ).toBeVisible();
 
   // CONTRACT: The profile's rows carry NO radio. A choice here sends nowhere — the
@@ -200,19 +205,20 @@ test("promoting a card moves the Default badge and removing another drops the co
   const rows = page.getByTestId("saved-card-row");
   await expect(rows).toHaveCount(2);
 
-  // CONTRACT: BOTH rows arrive non-default, so pick one rather than deriving it from the
-  // badge. `attach-payment-method.command.ts` writes `isDefault: false` unconditionally —
-  // an attach never promotes, not even the first — so a spec that expects the first card
-  // to be default finds two `Set as default` links and reads as a broken demote.
+  // The first attach (the Visa) is the default and the second is not, so the promotion
+  // target is the row WITHOUT the badge.
+  const initialDefault = rows.filter({ has: page.getByTestId("default-badge") });
   await expect(
-    page.getByTestId("default-badge"),
-    "a card is flagged Default before any promotion. An attach writes `isDefault: false`, so a " +
-      "badge here means something else set it",
-  ).toHaveCount(0);
+    initialDefault,
+    "exactly one seeded card should arrive as Default — Users' attach makes only the first " +
+      "active card the default",
+  ).toHaveCount(1);
+  await expect(initialDefault.getByTestId("card-brand")).toContainText(/visa .* 4242/i);
 
-  const promoted = rows.first();
+  const promoted = rows.filter({ hasNot: page.getByTestId("default-badge") });
+  await expect(promoted).toHaveCount(1);
   const promotedBrand = (await promoted.getByTestId("card-brand").innerText()).trim();
-  const demotedBrand = (await rows.nth(1).getByTestId("card-brand").innerText()).trim();
+  const demotedBrand = (await initialDefault.getByTestId("card-brand").innerText()).trim();
   expect(promotedBrand, "both rows render the same brand and last4").not.toBe(demotedBrand);
 
   await promoted.getByTestId("set-default-link").click();
