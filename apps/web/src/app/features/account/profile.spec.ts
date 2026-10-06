@@ -21,12 +21,13 @@ import {
 import { of } from 'rxjs';
 import type { Stripe, StripeElements } from '@stripe/stripe-js';
 
-import { ProfilePage, SAVED_BANNER_DISMISS_MS } from './profile';
+import { ProfilePage } from './profile';
 import { APP_CONFIG } from '../../core/config/app-config';
 import { PaymentMethodsApi } from '../../core/api/payment-methods-api';
 import { ApiError } from '../../core/http/api-client';
 import { StripeLoader } from '../../core/payments/stripe-loader';
 import { SessionStore } from '../../core/auth/session-store';
+import { SAVED_BANNER_DISMISS_MS } from '../../shared/ui/saved-banner';
 import { StreetAutocomplete } from '../../shared/ui/street-autocomplete';
 import { awaitRequest, fillField, settle, textOf, USER } from '../auth/testing';
 
@@ -827,12 +828,6 @@ describe('ProfilePage', () => {
         await fakePump(2);
       }
 
-      function bannerEl(): HTMLElement {
-        const el = banner();
-        if (!el) throw new Error('banner not rendered');
-        return el;
-      }
-
       it('hides after SAVED_BANNER_DISMISS_MS and not before', async () => {
         await loadedWithFakeTimers();
         await fakeSave();
@@ -841,38 +836,6 @@ describe('ProfilePage', () => {
         expect(banner()).not.toBeNull();
 
         await elapse(1);
-        expect(banner()).toBeNull();
-      });
-
-      it('pauses while hovered and resumes with the remaining time on leave', async () => {
-        await loadedWithFakeTimers();
-        await fakeSave();
-
-        await elapse(2000);
-        bannerEl().dispatchEvent(new MouseEvent('mouseenter'));
-        await elapse(SAVED_BANNER_DISMISS_MS * 3);
-        expect(banner()).not.toBeNull();
-
-        bannerEl().dispatchEvent(new MouseEvent('mouseleave'));
-        await elapse(SAVED_BANNER_DISMISS_MS - 2000 - 1);
-        expect(banner()).not.toBeNull();
-        await elapse(1);
-        expect(banner()).toBeNull();
-      });
-
-      it('pauses while it holds keyboard focus, even after the pointer leaves', async () => {
-        await loadedWithFakeTimers();
-        await fakeSave();
-
-        const el = bannerEl();
-        el.dispatchEvent(new MouseEvent('mouseenter'));
-        el.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
-        el.dispatchEvent(new MouseEvent('mouseleave'));
-        await elapse(SAVED_BANNER_DISMISS_MS * 3);
-        expect(banner()).not.toBeNull();
-
-        el.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
-        await elapse(SAVED_BANNER_DISMISS_MS);
         expect(banner()).toBeNull();
       });
 
@@ -915,20 +878,6 @@ describe('ProfilePage', () => {
         expect(banner()).not.toBeNull();
         await elapse(1);
         expect(banner()).toBeNull();
-      });
-
-      it('clears the countdown when the page is destroyed', async () => {
-        await loadedWithFakeTimers();
-        const armed = vi.spyOn(globalThis, 'setTimeout');
-        await fakeSave();
-        const call = armed.mock.calls.findIndex(([, ms]) => ms === SAVED_BANNER_DISMISS_MS);
-        expect(call).toBeGreaterThanOrEqual(0);
-        const handle = armed.mock.results[call]?.value as unknown;
-        const cleared = vi.spyOn(globalThis, 'clearTimeout');
-
-        fixture.destroy();
-
-        expect(cleared).toHaveBeenCalledWith(handle);
       });
     });
   });

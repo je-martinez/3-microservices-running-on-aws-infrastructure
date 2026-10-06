@@ -2,7 +2,6 @@ import {
   afterNextRender,
   Component,
   computed,
-  DestroyRef,
   effect,
   ElementRef,
   ErrorHandler,
@@ -16,15 +15,7 @@ import {
 import { NgTemplateOutlet } from '@angular/common';
 import { form, maxLength, pattern, required, FormField } from '@angular/forms/signals';
 import { Router } from '@angular/router';
-import {
-  LucideCircleAlert,
-  LucideCircleCheck,
-  LucideLock,
-  LucideRefreshCw,
-  LucideRotateCw,
-  LucideTriangleAlert,
-  LucideX,
-} from '@lucide/angular';
+import { LucideLock, LucideRefreshCw, LucideTriangleAlert } from '@lucide/angular';
 import { firstValueFrom } from 'rxjs';
 import type { Address, User } from '../../core/api/types';
 import { APP_CONFIG } from '../../core/config/app-config';
@@ -36,6 +27,8 @@ import { ButtonPrimary } from '../../shared/ui/button-primary';
 import { Field } from '../../shared/ui/field';
 import { StreetAutocomplete } from '../../shared/ui/street-autocomplete';
 import { PhoneField } from '../../shared/ui/phone-field';
+import { SaveErrorBanner } from '../../shared/ui/save-error-banner';
+import { SavedBanner } from '../../shared/ui/saved-banner';
 import { DevFillButton } from '../../core/dev/dev-fill-button';
 import type { DevData } from '../../core/dev/dev-fill';
 import { PaymentMethodsTab } from './payment-methods-tab';
@@ -74,13 +67,6 @@ function formFromUser(user: User): ProfileForm {
   };
 }
 
-/**
- * WHY 6000: "Changes saved" plus an eight-word line is about 2-3 seconds of
- * reading at ~200 wpm; the rest is the time to notice the banner appeared.
- * Toast guidance floors auto-dismissal around 5s for a message with no action.
- */
-export const SAVED_BANNER_DISMISS_MS = 6000;
-
 function sameForm(a: ProfileForm, b: ProfileForm): boolean {
   return (Object.keys(a) as (keyof ProfileForm)[]).every((key) => a[key] === b[key]);
 }
@@ -103,14 +89,12 @@ function sameForm(a: ProfileForm, b: ProfileForm): boolean {
     NgTemplateOutlet,
     PaymentMethodsTab,
     PhoneField,
+    SaveErrorBanner,
+    SavedBanner,
     StreetAutocomplete,
-    LucideCircleAlert,
-    LucideCircleCheck,
     LucideLock,
     LucideRefreshCw,
-    LucideRotateCw,
     LucideTriangleAlert,
-    LucideX,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './profile.html',
@@ -150,22 +134,9 @@ export class ProfilePage {
   /**
    * The form values the last successful save produced; non-null shows the
    * "Changes saved" banner. Any edit that moves the model off them clears it.
+   * Each save yields a new object, which restarts the banner's countdown.
    */
-  private readonly savedForm = signal<ProfileForm | null>(null);
-  protected readonly showSaved = computed(() => this.savedForm() !== null);
-
-  /**
-   * CONTRACT: Hover and keyboard focus pause the dismiss countdown independently
-   * (WCAG 2.2.1), so leaving with the mouse while the X still holds focus keeps
-   * it paused. Both reset on every hide: a banner removed under a resting
-   * pointer never fires `mouseleave`, and the next one would never auto-hide.
-   */
-  private bannerHovered = false;
-  private bannerFocused = false;
-  private bannerTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Milliseconds left on the countdown; a resume continues from here. */
-  private bannerRemaining = SAVED_BANNER_DISMISS_MS;
-  private bannerStartedAt = 0;
+  protected readonly savedForm = signal<ProfileForm | null>(null);
 
   /**
    * One model for the whole screen, over the design's two sections.
@@ -210,7 +181,6 @@ export class ProfilePage {
       const saved = untracked(this.savedForm);
       if (saved !== null && !sameForm(saved, current)) this.dismissSaved();
     });
-    inject(DestroyRef).onDestroy(() => this.stopBannerTimer());
     void this.load();
   }
 
@@ -307,26 +277,19 @@ export class ProfilePage {
     this.resetForm();
   }
 
-  /** CONTRACT: The ONLY hide path — anything else leaves a stray timer running. */
+  /** Also the banner's own `dismissed`: its X and its elapsed countdown. */
   protected dismissSaved(): void {
-    this.stopBannerTimer();
-    this.bannerHovered = false;
-    this.bannerFocused = false;
-    this.bannerRemaining = SAVED_BANNER_DISMISS_MS;
     this.savedForm.set(null);
   }
 
   private showSavedBanner(saved: ProfileForm): void {
-    this.dismissSaved();
     this.savedForm.set(saved);
-    this.armBannerTimer();
     afterNextRender(() => this.revealSaveFooter(), { injector: this.injector });
   }
 
   /**
-   * CONTRACT: No auto-dismiss — the error banner hides only on a successful
-   * save, Cancel, or its X. A timed hide would leave a user who looked away
-   * with unsaved edits and nothing saying so. Scrolls only on the false→true
+   * CONTRACT: The error banner hides only on a successful save, Cancel, or its
+   * X — never on a timer (see SaveErrorBanner). Scrolls only on the false→true
    * edge; a retry that fails again leaves the page where the user put it.
    */
   private showSaveError(): void {
@@ -354,41 +317,6 @@ export class ProfilePage {
       typeof globalThis.matchMedia === 'function' &&
       globalThis.matchMedia('(prefers-reduced-motion: reduce)').matches;
     container.scrollTo({ top: container.scrollHeight, behavior: reduced ? 'auto' : 'smooth' });
-  }
-
-  protected onBannerHover(hovered: boolean): void {
-    this.bannerHovered = hovered;
-    this.syncBannerTimer();
-  }
-
-  /** Focus moving between elements INSIDE the banner is not a blur. */
-  protected onBannerFocus(event: FocusEvent, focused: boolean): void {
-    const banner = event.currentTarget as HTMLElement;
-    if (!focused && banner.contains(event.relatedTarget as Node | null)) return;
-    this.bannerFocused = focused;
-    this.syncBannerTimer();
-  }
-
-  /** Pauses while held; a resume continues the banked remainder, not a fresh 6s. */
-  private syncBannerTimer(): void {
-    if (!this.showSaved()) return;
-    if (this.bannerHovered || this.bannerFocused) {
-      if (this.bannerTimer === null) return;
-      this.stopBannerTimer();
-      this.bannerRemaining = Math.max(0, this.bannerRemaining - (Date.now() - this.bannerStartedAt));
-    } else if (this.bannerTimer === null) {
-      this.armBannerTimer();
-    }
-  }
-
-  private armBannerTimer(): void {
-    this.bannerStartedAt = Date.now();
-    this.bannerTimer = setTimeout(() => this.dismissSaved(), this.bannerRemaining);
-  }
-
-  private stopBannerTimer(): void {
-    if (this.bannerTimer !== null) clearTimeout(this.bannerTimer);
-    this.bannerTimer = null;
   }
 
   protected readonly canSave = computed(() => this.profileForm().valid() && !this.saving());

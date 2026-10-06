@@ -1,0 +1,33 @@
+<div class="bg-danger-bg flex h-fit w-full flex-row items-start justify-start gap-3 rounded-md py-2xl pr-3 pl-4">
+  <svg lucideCircleAlert class="text-danger-ink h-icon-lg w-icon-lg shrink-0"></svg>
+  <div class="flex h-fit min-w-0 flex-1 flex-col items-start justify-start gap-2">
+    <div class="flex h-fit w-full flex-col items-start justify-start gap-0.5">
+      <span class="text-danger-ink font-heading text-label font-bold tracking-[-0.0125rem]">
+        {{ heading() }}
+      </span>
+      <span class="text-danger-ink font-body text-body-sm leading-normal">
+        {{ message() }}
+      </span>
+    </div>
+    <button
+      type="button"
+      class="border-danger-line bg-surface-white text-danger-ink flex h-fit w-fit flex-row items-center justify-center gap-xs rounded-lg border px-3 py-xs text-body-sm font-semibold disabled:opacity-60"
+      [attr.data-testid]="retryTestId()"
+      [disabled]="retryDisabled()"
+      [attr.aria-busy]="busy()"
+      (click)="retry.emit()"
+    >
+      <svg lucideRotateCw class="h-3.5 w-3.5 shrink-0"></svg>
+      Try again
+    </button>
+  </div>
+  <button
+    type="button"
+    aria-label="Dismiss"
+    class="text-danger-ink flex h-7 w-7 shrink-0 flex-row items-center justify-center rounded-[0.375rem]"
+    [attr.data-testid]="dismissTestId()"
+    (click)="dismissed.emit()"
+  >
+    <svg lucideX class="h-4 w-4"></svg>
+  </button>
+</div>
