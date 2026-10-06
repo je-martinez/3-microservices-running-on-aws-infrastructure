@@ -7,6 +7,8 @@ type Base = {
   output: string;
   /** Repo-relative globs whose change may make this diagram stale. */
   watches: string[];
+  /** false → PNG only (DependencyGraph). Default true. */
+  animated?: boolean;
 };
 
 export type CatalogEntry =
