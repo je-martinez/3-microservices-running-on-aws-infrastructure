@@ -4,7 +4,7 @@ type: lesson
 area: infra
 status: active
 created: 2026-09-21
-updated: 2026-09-22
+updated: 2026-10-05
 tags:
   - type/lesson
   - area/infra
@@ -108,8 +108,8 @@ a newer provider's Cognito behavior is incompatible with Floci (see [[ADR-0017-f
 
 ## Environment pinning note
 
-`docker-compose.yml` pins `floci/floci:latest` (unpinned by digest). The behavior measured here
-was against Floci image label `1.7.0`. A future image pull can change emulator behavior, but it
+`docker-compose.yml` now pins `floci/floci:2.1.0`; the behaviour measured here was against
+Floci image label `1.7.0`. A future image pull can change emulator behavior, but it
 cannot remove this wait, because the wait is enforced by the Terraform provider client, not by
 whatever Floci returns.
 

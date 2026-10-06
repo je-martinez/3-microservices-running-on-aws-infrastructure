@@ -6,7 +6,7 @@ status: active
 created: 2026-07-12
 updated: 2026-10-05
 integration-status: verified
-verified-on: 2026-07-15
+verified-on: 2026-10-03
 verified-by: Jose E. Martinez
 tags: [type/runbook, area/infra, status/active]
 related:
@@ -305,7 +305,8 @@ Several infra decisions extend this runbook's flow without changing the entry po
 is Floci; the services run as ECS tasks inside it. It needs the same `:4566` and
 `floci-ecr-registry` as this bootstrap, so **the two never run together**: whichever starts
 second gets a prompt to drop the other or do nothing, and aborts without a TTY
-([[environment-exclusivity]]). Runbook: [[preprod]]; decision: [[ADR-0022-preprod-ecs-on-floci]].
+([[environment-exclusivity]]). Runbook: [[preprod]]; decision: [[ADR-0022-preprod-ecs-on-floci]]. Its URLs and the OpenObserve
+login are written to `.env.preprod.debug` ([[env-files]]).
 
 ## Known limitation — second `apply` is never a no-op
 

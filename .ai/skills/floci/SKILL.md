@@ -234,10 +234,10 @@ Source of truth with full evidence: [[floci-vs-ministack-spike-findings]]
     containers it spawns. Untested in 3MRAI: setting them is the only candidate fix, and it
     applies to containers created after the setting, not existing ones.
 
-16. **⚠️ On 2.1.0 a plain `docker compose stop floci` DESTROYS DocumentDB and ElastiCache
-    containers, and the API keeps reporting them `available`** (re-verified on 2.1.0).
+16. **⚠️ On 2.1.0 a SIGTERM stop (the compose default) DESTROYS DocumentDB and ElastiCache
+    containers (this repo sets `stop_signal: SIGKILL`, so its own `compose stop` is safe), and the API keeps reporting them `available`** (re-verified on 2.1.0).
     Floci's graceful SIGTERM shutdown deletes its DocumentDB and Valkey containers and never
-    relaunches them, so stop/start, a Docker restart and `up -d` recreation all end the same
+    relaunches them, so under SIGTERM stop/start, a Docker restart and `up -d` recreation all end the same
     way: a resource `Status: available` whose container is gone, noticed only when a service
     dials it and gets `getaddrinfo ENOTFOUND floci-docdb-…`. Floci documents
     `KEEP_RUNNING_ON_SHUTDOWN` for OpenSearch, ECR and EKS — **not for RDS, DocumentDB or

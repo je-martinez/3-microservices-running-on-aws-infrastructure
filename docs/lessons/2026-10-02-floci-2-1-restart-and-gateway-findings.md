@@ -4,7 +4,7 @@ type: lesson
 area: infra
 status: active
 created: 2026-10-02
-updated: 2026-10-02
+updated: 2026-10-05
 tags:
   - type/lesson
   - area/infra
@@ -138,6 +138,10 @@ to every shallow check, and the 1.7.0 knowledge in the earlier lessons gave the 
 for several items (second apply, claim-to-header, recreate wedging). Each item above has a probe
 or a verbatim output behind it.
 
+## Heal/doctor verification
+
+The dev-stack plan's Task 2 Step 6 (`make heal`) and Task 3 Step 5 (`docker stop` the Valkey container, then `make doctor`, expecting "fix: make heal") were part of the 2026-10-02/03 milestone work. The only live record kept is the dev regression in [[2026-10-03-floci-preprod-follow-ups]], green on 2026-10-03 (commit `8e6fc49c`): `make bootstrap`, `make doctor` all checks passed, `make down` then `make up` left the nginx alias attached. No separate transcript of the heal or stop-Valkey steps is kept.
+
 ## Related
 
 - [[2026-10-02-floci-preprod-environment-design]] — the design whose "Feasibility evidence" section
@@ -148,5 +152,6 @@ or a verbatim output behind it.
 - [[floci-storage-modes-and-tmp-corruption]] — why SIGKILL is safe under `persistent`.
 - [[floci-vs-ministack-spike-findings]] — the "Floci 2.1.0 re-verification" summary.
 - [[floci-rds-apigw-limits]] — second-apply behaviour.
+- [[2026-10-03-floci-preprod-follow-ups]] — the live dev regression of 2026-10-03.
 - [[floci-elasticache-two-ports-and-provider-panic]]
 - [[local-dev-floci]] — the runbook with `make heal` and `make doctor`.

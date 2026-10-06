@@ -138,7 +138,23 @@ Put overrides in CUSTOM; never edit the AUTO box. Services read their file via
 compose `env_file:` and declare **nothing** inline — an inline `environment:`
 silently beats `env_file:`.
 
+**Pre-prod is the exception.** `.env.preprod` (Stripe/Geoapify decisions and test
+keys; the CUSTOM box is the user's, the AUTO box is minted only by `make
+preprod-up`) and `.env.preprod.debug` (browser URLs and OpenObserve login, loaded
+by nothing) are written by `infra/environments/preprod/scripts/`, not `make
+env-file`. Both are mode 600 and git-ignored. **An agent never reads, prints or
+writes a key from `.env.preprod`**; before `make preprod-up` it asks the user
+yes/no per integration.
+
 Full rule: `.ai/rules/env-files.md`.
+
+### Pre-prod — a second environment, never beside dev
+
+Pre-prod (`make preprod-up`, compose project `3mrai-preprod`,
+`infra/environments/preprod/`) runs every service as an ECS task behind an ALB on
+its own Floci, with config via SSM and Secrets Manager and local Terraform state.
+It cannot run beside dev (shared port 4566 and ECR registry). `make clean` and
+`clean-state` refuse while it runs; `make preprod-down` refuses while dev runs.
 
 ### Logging, tracing, and PII
 

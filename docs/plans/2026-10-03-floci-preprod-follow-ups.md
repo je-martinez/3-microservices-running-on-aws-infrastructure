@@ -31,7 +31,7 @@ Resume point for the Floci pre-prod milestone. Design: [[2026-10-02-floci-prepro
 - [PR #117](https://github.com/je-martinez/3-microservices-running-on-aws-infrastructure/pull/117) is MERGED (squash, commit `d7fb466a`) into `feature/floci-preprod-env`. It carried plan A (dev stack on Floci 2.1.0) and plan B (pre-prod). `feat/floci-preprod` was auto-deleted. PR #116 (plan A alone) was closed as superseded.
 - Leftover remote branch `build/floci-2-1-dev` (plan A, already contained in `d7fb466a`) can be deleted. Ask the user first.
 - Work branch from now on: `feature/floci-preprod-env` (the local checkout is on it).
-- Local runtime: dev is UP (bootstrapped 2026-10-03), pre-prod is DOWN.
+- Local runtime: dev is UP (bootstrapped 2026-10-03), pre-prod is DOWN (as of 2026-10-03; at the 2026-10-05 audit pre-prod is UP and dev is DOWN).
 - Plans A and B are fully executed, reviewed and audited: per-task reviews, final whole-branch reviews, spec-implementation audit and re-audit clean.
 
 ## How to resume (do these in order)
@@ -65,7 +65,7 @@ Git rules for the next session: the earlier standing authorization ("commit and 
 - [ ] Flaky web unit spec `apps/web/src/app/core/observability/rum-sdk.spec.ts` › "registers a callback for every vitals metric": failed once inside `make test-all` (onLCP mock called 0 times, the `vi.mock('web-vitals')` did not apply in that run) and passed 3/3 when the web suite was re-run alone via `pnpm --filter @3mrai/web test`. Pre-existing: the milestone touched only `apps/web/Dockerfile` and `apps/web/nginx.conf`. Because `test-unit` stops at the first failure, a flake here hides every later layer (tracking, e2e typecheck, the whole E2E run). Owner: web-impl.
 
 - [x] `make clean` and `make clean-state` do not guard against a running pre-prod. They run the same `name=^floci-` / `label=floci=true` sweeps and `docker volume rm floci-ecr-registry-data` that `preprod-down` is guarded for ([[environment-exclusivity]] rule 5), so a `make clean` while pre-prod runs deletes pre-prod's containers and its registry volume. Fix on its own branch: `env_guard.py --check-other dev` at the top of both targets. Fixed on `fix/clean-preprod-guard`, verified live 2026-10-03: with pre-prod up, both targets printed "preprod is running; refusing to tear down dev: the sweep would delete preprod's Floci containers and volumes." and exited with Error 1, no container or volume changed and `make preprod-smoke` stayed green; with only dev up, `make clean-state` passed the guard silently and tore dev down as before.
-- [ ] `infra/scripts/floci_heal.py:93` tells the user to run `make heal` even when invoked from `preprod-heal` (the pre-prod remedy is `make preprod-heal`).
+- [x] `infra/scripts/floci_heal.py:93` told the user to run `make heal` even when invoked from `preprod-heal`. Fixed on `fix/preprod-milestone-audit`: the hint is environment-aware.
 - [x] Stripe + Geoapify opt-in for pre-prod — designed in [[2026-10-05-preprod-integrations-design]] — plan: [[2026-10-05-preprod-integrations]]. Verified live 2026-10-05 (no key values):
   - Both off: `make preprod-up STRIPE=off GEOAPIFY=off` 3m34s, exit 0, "Stripe: off · Geoapify: off", "no webhook forwarders started", smoke 200s; E2E (gateway, gateway-tracking, email) 95 passed, 11 skipped, 0 failed (baseline).
   - No TTY, no file: "NO: undecided in .env.preprod: STRIPE_ENABLED, GEOAPIFY_ENABLED", make exit 2, skeleton created `-rw-------`, no tfvars written.
@@ -81,9 +81,14 @@ Git rules for the next session: the earlier standing authorization ("commit and 
 - [ ] `preprod-up` failing after the second apply never starts the listeners (a re-run is refused as live); `preprod-doctor` catches it.
 - [ ] Pre-prod `terraform.tfstate` is mode 644 and now holds real test keys; `chmod 600` it after apply.
 - [ ] `stripe_webhook_allowed_cidrs` has no Terraform precondition when `stripe_enabled`.
-- [ ] `apps/web/nginx.conf` `geocoding_disabled` 503 detail names dev's `.env.local.web`; make it environment-neutral.
+- [x] `apps/web/nginx.conf` `geocoding_disabled` 503 detail named dev's `.env.local.web`. Fixed on `fix/preprod-milestone-audit`: the detail is environment-neutral.
 - [ ] `preprod-floci-up` leaves pre-prod Floci running after an undecided abort.
 - [ ] An interrupted prompt (Ctrl-C or EOF) in `preprod_integrations.py` prints a traceback (nothing is written).
+- [ ] `docker-compose.yml` `FLOCI_SERVICES_ECS_HOST_VOLUME_ROOTS` uses `${PWD}`, which is stale under `make -C` or another cwd, so the nginx task volume is rejected. Fix: export `PWD := $(CURDIR)` in the Makefile.
+- [ ] `check_example_covers()` does not see `.env.preprod` or `.env.preprod.debug`; their `.env.example` blocks are synced by hand.
+- [ ] `preprod-heal` has no `env_guard` (with dev up it fails at the `:4566` bind: harmless but unguarded).
+
+Milestone audit 2026-10-05 (4 parallel auditors): doc drift fixed on `fix/preprod-milestone-audit`; no Critical/Important code defects.
 
 ## Accepted limits / deferred minors (no action unless they bite)
 
@@ -107,3 +112,4 @@ Git rules for the next session: the earlier standing authorization ("commit and 
 - [[git-workflow]]
 - [[2026-10-05-preprod-integrations-design]]
 - [[2026-10-05-preprod-integrations]]
+- [[env-files]]

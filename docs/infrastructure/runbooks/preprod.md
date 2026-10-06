@@ -6,7 +6,7 @@ status: active
 created: 2026-10-03
 updated: 2026-10-05
 integration-status: verified
-verified-on: 2026-10-03
+verified-on: 2026-10-05
 verified-by: Jose E. Martinez
 tags:
   - type/runbook
@@ -44,10 +44,13 @@ make preprod-up        # about 3m40s from scratch
 
 Order: exclusivity guard (`env_guard.py preprod`), Floci up (compose project `3mrai-preprod`, healthcheck
 `GET /_floci/health HTTP/1.1`; the guard and Floci are the `preprod-floci-up` prerequisite),
-live-environment check (`preprod_live.py`), `lambda-bundles`, `terraform init`, Terraform apply with `deploy_services=false` (data stores,
-Cognito, messaging, ECR, config), build and push every image, `preprod-migrate`, apply with
-`deploy_services=true` (ECS services, ALB, gateway), wait for RUNNING tasks, deregister stale ALB
-targets, aliases, smoke, then `preprod-observability` (seed + dashboards) and `preprod-env-file`. It does not run
+live-environment check (`preprod_live.py`), the integrations decision (`preprod_integrations.py --regenerate`,
+after the live check; it stops with exit 1 when undecided and no TTY), `lambda-bundles`, `terraform init`, Terraform apply with
+`deploy_services=false` (data stores, Cognito, messaging, ECR, config, the ECS cluster, the ALB and the API
+Gateway), build and push every image, `preprod-migrate`, apply with `deploy_services=true` (adds the
+per-service task definitions, target groups, ALB listeners and ECS services), wait for RUNNING tasks, deregister stale ALB
+targets, aliases, smoke, then `preprod-observability` (seed + dashboards), `preprod-env-file` and, when Stripe
+is on, the webhook forwarders (`preprod_stripe_listen.py start`). It does not run
 `preprod-doctor`. It is **not resumable**: on failure run
 `make preprod-down && make preprod-up`.
 
@@ -63,13 +66,13 @@ ECS cluster in local state has any service. Use `make preprod-deploy S=<svc>` or
 | `preprod-up` | Everything, from scratch; refuses on a live environment. Decides the integrations first (`preprod_integrations.py --regenerate`) and, when Stripe is on, starts the webhook forwarders last. `STRIPE=off GEOAPIFY=off` declines without asking |
 | `preprod-integrations` | Decide Stripe and Geoapify in `.env.preprod` (prompts with a TTY; `STRIPE=off GEOAPIFY=off` declines). It never regenerates the AUTO values, but it may prompt (with a TTY) and rewrites `.env.preprod` and the tfvars file; with Stripe on and no AUTO values it stops with "run `make preprod-up`" |
 | `preprod-stripe-listen` | (Re)start the two `stripe listen` webhook forwarders; idempotent. Use after a reboot or `preprod-heal` |
-| `preprod-deploy S=<svc>` | Build, push with a new immutable tag, `-target` apply for that service, wait, clean stale targets, aliases, smoke. `ENV_ONLY=1` skips the build, applies `module.app_config` (writes the edited SSM and Secrets Manager values from `services.tf`), then forces a new deployment (ECS reads SSM and secrets only at task start) |
+| `preprod-deploy S=<svc>` (`S` is one of `users`, `orders`, `tracking`, `web`, `otel-collector`, `openobserve`, `mailpit`) | Build, push with a new immutable tag, `-target` apply for that service, wait, clean stale targets, aliases, smoke. `ENV_ONLY=1` skips the build, applies `module.app_config` (writes the edited SSM and Secrets Manager values from `services.tf`), then forces a new deployment (ECS reads SSM and secrets only at task start) |
 | `preprod-heal` | After a Floci or Docker restart: Floci up, start Exited DocumentDB/Valkey containers, remove orphan task containers, wait, clean stale targets, re-apply aliases |
 | `preprod-doctor` | ECS services vs containers, ALB target health, stale ALB targets (`preprod_targets.py --check`), aliases (`preprod_aliases.py --check`), phantom DocumentDB/Valkey, and (Stripe on) both webhook forwarders; prints the remedy per failure (heal vs down + up) |
 | `preprod-smoke` | `/v1/health` on 9101-9103, `:9090/`, `:5080/healthz` |
 | `preprod-aliases` | Attach `users-grpc` and `mailpit` Docker aliases to the newest RUNNING task |
 | `preprod-migrate` | Prisma (users) and golang-migrate (tracking) against Floci's RDS |
-| `preprod-observability` | Seed the OpenObserve traces schema, import dashboards |
+| `preprod-observability` | Seed the OpenObserve traces schema, import dashboards (runs `python3` and `node` off `PATH`; the seed script is stdlib-only) |
 | `preprod-env-file` | Write `.env.preprod.debug` (URLs and the OpenObserve login) from Terraform outputs; reads only, never applies, so it is safe on a live environment. `preprod-up` runs it last before the Stripe forwarders |
 | `preprod-e2e ARGS=…` | Playwright against pre-prod (`ARGS="--project=gateway"`) |
 | `preprod-load-test` / `preprod-load-test-smoke` | Gatling `fullJourney` / a ~20 s run |
@@ -113,7 +116,8 @@ database URLs: pre-prod does not publish the RDS proxy ports. Contract: [[env-fi
   integration also needs a web rebuild: both `S=web ENV_ONLY=1` and `S=web` (see Later changes).
 - Collector endpoint: `O2_ENDPOINT`. Web RUM upstream: `OTLP_RUM_UPSTREAM`.
 - Image tags: `<sha12>` or `<sha12>-dirty-<epoch>-<hash8>` in
-  `infra/environments/preprod/image-tags.auto.tfvars.json`.
+  `infra/environments/preprod/image-tags.auto.tfvars.json`; the web tag adds `-cfg<hash8>`, a hash of its
+  build args (see Later changes).
 - `build_push.py` skips build and push for a service whose tag already exists in ECR (tags are
   immutable), so the same commit with a clean tree reuses the pushed image and only records the tag.
 
@@ -171,7 +175,7 @@ A git-ignored file at the repo root, mode 600, with the AUTO and CUSTOM boxes of
 | Situation | Behaviour |
 |---|---|
 | Everything decided and valid | Continue silently; print a summary such as `Stripe: on · Geoapify: off`, never values |
-| Something undecided, TTY present | Prompt `Enable Stripe? [y/n]`; secret keys hidden (`getpass`), publishable key via `input`; same for Geoapify; writes CUSTOM |
+| Something undecided, TTY present | Prompt `Enable Stripe in pre-prod? [y/n]`; secret keys hidden (`getpass`), publishable key via `input`; same for Geoapify; writes CUSTOM |
 | Something undecided, no TTY | Create the skeleton file if missing and abort (exit 1), naming the file and the CUSTOM box to fill, or the alternative `STRIPE=off GEOAPIFY=off` |
 | `STRIPE=off` / `GEOAPIFY=off` on the make command line | Write `..._ENABLED=false` without asking |
 | `..._ENABLED=true` with a missing key | Abort naming the missing key |
@@ -200,8 +204,9 @@ values).
 - Toggle Geoapify or change the publishable key: `make preprod-deploy S=web ENV_ONLY=1` **and**
   `make preprod-deploy S=web`. The web image tag carries a hash of its build args
   (`<base tag>-cfg<hash8>`), so the plain deploy rebuilds instead of reusing the old bundle, but its
-  `-target` apply never touches `module.app_config`, which holds `web/GEOAPIFY_API_KEY`;
-  `ENV_ONLY=1` applies it. With only `S=web`, `/geocode/` stayed 200 after turning Geoapify off;
+  `-target` apply pulls in only what the task definition references (the SSM parameters and the
+  secret containers), never the secret versions, so the new `web/GEOAPIFY_API_KEY` value is not written;
+  `ENV_ONLY=1` applies `module.app_config` and writes it. With only `S=web`, `/geocode/` stayed 200 after turning Geoapify off;
   after `ENV_ONLY=1` it answered 503 `geocoding_disabled`.
 - **Any Stripe toggle, on or off:** `make preprod-down && make preprod-up`. Off to on, the webhook
   secret and URL tokens exist only after a from-scratch `preprod-up`. On to off, `ENV_ONLY=1`
@@ -265,7 +270,8 @@ refuse while pre-prod runs ([[environment-exclusivity]]).
 - `make preprod-e2e` (and the load targets) run through `e2e_env.py`, which exports the Terraform
   outputs as env vars, including `WEBHOOK_SECRET` and `EVENTS_QUEUE_URL`.
 - `make preprod-e2e ARGS="--project=gateway --project=gateway-tracking --project=email"`:
-  95 passed, 11 skipped (Stripe disabled, cache-off spec), 0 failed.
+  95 passed, 11 skipped, 0 failed (with `STRIPE=off`: the Stripe specs are skipped, plus the cache-off spec).
+  With Stripe on the same run is 82 passed, 23 failed, 1 skipped (known `paymentMethodId` fixtures).
 - The observability project passes 6/6. The web build has RUM on (`NG_APP_RUM_ENABLED=true`), so
   the `rum_logs` stream appears once a browser loads the web app on `:9090`.
 - `make preprod-load-test-smoke`: 551 requests, 0 failures. Full `preprod-load-test` saturates
@@ -281,6 +287,7 @@ No key values recorded.
 - E2E with Stripe on: 82 passed, 23 failed, 1 skipped; all 23 are order creation 400 "paymentMethodId field is required" (known fixture follow-up).
 - Browser: order 261005-CWZX74 paid with 4242; `orders.log` `payment_intent.succeeded` [200]; `users.log` `payment_method.attached` [200].
 - Dead listener: killed users listener, `preprod-doctor` "NO: users: stripe listen is not running - make preprod-stripe-listen", exit 2; the restart hit 403 (login revoked mid-session), `stripe logout && stripe login`, `--print-secret` equal to the deployed secret, `make preprod-stripe-listen` both "Ready!", doctor exit 0.
+- Debug env file (#120): `make preprod-env-file` wrote `.env.preprod.debug` with all 10 keys, mode `-rw-------`, nothing printed (2026-10-05).
 - Geoapify toggle: `GEOAPIFY_ENABLED=false` plus `make preprod-deploy S=web` built and pushed a new `web:<sha>-cfgc5d25e09` (not "already in ECR"), `/geocode/` still 200; plus `make preprod-deploy S=web ENV_ONLY=1` gave 503 `geocoding_disabled`.
 
 ### Verification results

@@ -207,11 +207,12 @@ declared).
 - **A CUSTOM-box key is declared by showing it commented out** (`# GEOAPIFY_API_KEY=`). The check
   reads `KEY=` with or without a leading `#`, and the commented form is the correct style.
 - **Order each section's keys as the generated file has them**, so the two diff side by side.
+- **Pre-prod's files are outside the gate.** `.env.preprod` and `.env.preprod.debug` are written by the preprod scripts and are NOT checked by `check_example_covers()`; keep their `.env.example` blocks in sync by hand (tracked in [[2026-10-03-floci-preprod-follow-ups]]).
 
 The same family as [[2026-09-29-repo-wide-gates-must-exclude-generated-and-duplicated-trees]]: a
 file whose counterpart is git-ignored has no natural reviewer, so it needs a mechanical check.
 
-## Pre-prod has no env files
+## Pre-prod workloads read no env file
 
 The pre-production environment ([[preprod]]) reads **no** `.env.local.*` file: every task gets
 its configuration from SSM `/3mrai-preprod/<svc>/<VAR>` and Secrets Manager
@@ -362,8 +363,9 @@ When changing env plumbing, verify against a real bring-up, not by inspection:
   both the image build and `pnpm dev`.
 - [[2026-09-29-repo-wide-gates-must-exclude-generated-and-duplicated-trees]] — the same
   "no natural reviewer, so add a mechanical check" shape, applied to the comment linter.
-- [[preprod]] — the environment with no env files (SSM and Secrets Manager instead).
+- [[preprod]] — the environment whose workloads read no env file (SSM and Secrets Manager); its two host-side files are `.env.preprod` and `.env.preprod.debug`.
 - [[ADR-0022-preprod-ecs-on-floci]]
 - [[2026-10-05-preprod-integrations-design]] — adds `.env.preprod`.
 - [[stripe-sandbox-setup]] — the Stripe keys and forwarders that `.env.preprod` feeds in pre-prod.
 - [[openobserve-runbook]] — where the OpenObserve login in the two debug files is used.
+- [[2026-10-03-floci-preprod-follow-ups]] — tracks the missing `.env.preprod*` coverage check.
