@@ -138,48 +138,41 @@
               [formField]="profileForm.postalCode"
               help="Used as the default delivery address at checkout."
             />
-
-            @if (saveError(); as message) {
-              <p role="alert" class="text-danger-red w-full shrink-0 text-body-sm">{{ message }}</p>
-            }
           </div>
 
           <div #saveFooter class="flex h-fit w-full shrink-0 flex-col items-stretch justify-start">
+            <!-- CONTRACT: `role="alert"` lives on the banner itself and OUTSIDE the
+                 status region below, which is empty whenever this renders — one live
+                 region announces, never two. An alert is announced on insertion, so
+                 unlike the status region it need not stay mounted. -->
+            @if (saveFailed()) {
+              <div class="pb-3 md:pb-4" animate.enter="profile-banner-enter" animate.leave="profile-banner-leave">
+                <app-save-error-banner
+                  data-testid="profile-save-error-banner"
+                  retryTestId="profile-save-error-retry"
+                  dismissTestId="profile-save-error-dismiss"
+                  [retryDisabled]="!canSave()"
+                  [busy]="saving()"
+                  (retry)="save()"
+                  (dismissed)="dismissSaveError()"
+                />
+              </div>
+            }
+
             <!-- CONTRACT: The live region stays mounted and only its content toggles.
                  A `role="status"` node inserted together with its text is skipped by
                  several screen readers, so the save is never announced. The gap to the
                  button row is padding INSIDE the animated element, so the empty region
                  adds no space. -->
             <div role="status" class="w-full">
-              @if (showSaved()) {
-                <div class="pb-3 md:pb-4" animate.enter="saved-banner-enter" animate.leave="saved-banner-leave">
-                  <div
+              @if (savedForm(); as saved) {
+                <div class="pb-3 md:pb-4" animate.enter="profile-banner-enter" animate.leave="profile-banner-leave">
+                  <app-saved-banner
                     data-testid="profile-saved-banner"
-                    class="bg-success-bg flex h-fit w-full flex-row items-center justify-start gap-3 rounded-md py-2xl pr-3 pl-4"
-                    (mouseenter)="onBannerHover(true)"
-                    (mouseleave)="onBannerHover(false)"
-                    (focusin)="onBannerFocus($event, true)"
-                    (focusout)="onBannerFocus($event, false)"
-                  >
-                    <svg lucideCircleCheck class="text-success-ink h-icon-lg w-icon-lg shrink-0"></svg>
-                    <div class="flex h-fit min-w-0 flex-1 flex-col items-start justify-start gap-0.5">
-                      <span class="text-success-ink font-heading text-label font-bold tracking-[-0.0125rem]">
-                        Changes saved
-                      </span>
-                      <span class="text-success-ink font-body text-body-sm leading-normal">
-                        Your personal details are up to date.
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      data-testid="profile-saved-banner-dismiss"
-                      aria-label="Dismiss"
-                      class="text-success-ink flex h-7 w-7 shrink-0 flex-row items-center justify-center rounded-[0.375rem]"
-                      (click)="dismissSaved()"
-                    >
-                      <svg lucideX class="h-4 w-4"></svg>
-                    </button>
-                  </div>
+                    dismissTestId="profile-saved-banner-dismiss"
+                    [restartKey]="saved"
+                    (dismissed)="dismissSaved()"
+                  />
                 </div>
               }
             </div>

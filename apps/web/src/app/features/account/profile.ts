@@ -2,9 +2,9 @@ import {
   afterNextRender,
   Component,
   computed,
-  DestroyRef,
   effect,
   ElementRef,
+  ErrorHandler,
   inject,
   Injector,
   signal,
@@ -15,13 +15,7 @@ import {
 import { NgTemplateOutlet } from '@angular/common';
 import { form, maxLength, pattern, required, FormField } from '@angular/forms/signals';
 import { Router } from '@angular/router';
-import {
-  LucideCircleCheck,
-  LucideLock,
-  LucideRefreshCw,
-  LucideTriangleAlert,
-  LucideX,
-} from '@lucide/angular';
+import { LucideLock, LucideRefreshCw, LucideTriangleAlert } from '@lucide/angular';
 import { firstValueFrom } from 'rxjs';
 import type { Address, User } from '../../core/api/types';
 import { APP_CONFIG } from '../../core/config/app-config';
@@ -33,6 +27,8 @@ import { ButtonPrimary } from '../../shared/ui/button-primary';
 import { Field } from '../../shared/ui/field';
 import { StreetAutocomplete } from '../../shared/ui/street-autocomplete';
 import { PhoneField } from '../../shared/ui/phone-field';
+import { SaveErrorBanner } from '../../shared/ui/save-error-banner';
+import { SavedBanner } from '../../shared/ui/saved-banner';
 import { DevFillButton } from '../../core/dev/dev-fill-button';
 import type { DevData } from '../../core/dev/dev-fill';
 import { PaymentMethodsTab } from './payment-methods-tab';
@@ -71,13 +67,6 @@ function formFromUser(user: User): ProfileForm {
   };
 }
 
-/**
- * WHY 6000: "Changes saved" plus an eight-word line is about 2-3 seconds of
- * reading at ~200 wpm; the rest is the time to notice the banner appeared.
- * Toast guidance floors auto-dismissal around 5s for a message with no action.
- */
-export const SAVED_BANNER_DISMISS_MS = 6000;
-
 function sameForm(a: ProfileForm, b: ProfileForm): boolean {
   return (Object.keys(a) as (keyof ProfileForm)[]).every((key) => a[key] === b[key]);
 }
@@ -100,12 +89,12 @@ function sameForm(a: ProfileForm, b: ProfileForm): boolean {
     NgTemplateOutlet,
     PaymentMethodsTab,
     PhoneField,
+    SaveErrorBanner,
+    SavedBanner,
     StreetAutocomplete,
-    LucideCircleCheck,
     LucideLock,
     LucideRefreshCw,
     LucideTriangleAlert,
-    LucideX,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './profile.html',
@@ -115,8 +104,9 @@ export class ProfilePage {
   private readonly usersApi = inject(UsersApi);
   private readonly session = inject(SessionStore);
   private readonly injector = inject(Injector);
+  private readonly errorHandler = inject(ErrorHandler);
 
-  /** The banner's live region plus the Save/Cancel row it sits above. */
+  /** Both banners plus the Save/Cancel row they sit above. */
   private readonly saveFooter = viewChild<ElementRef<HTMLElement>>('saveFooter');
 
   protected readonly user = this.session.user;
@@ -134,27 +124,19 @@ export class ProfilePage {
   protected readonly error = signal<string | null>(null);
 
   protected readonly saving = signal(false);
-  protected readonly saveError = signal<string | null>(null);
+  /**
+   * True shows the save-error banner. It renders the design's generic copy,
+   * never the server message: that detail reaches ErrorHandler (and RUM), and
+   * the banner's job is to say the edits survived and offer a retry.
+   */
+  protected readonly saveFailed = signal(false);
 
   /**
    * The form values the last successful save produced; non-null shows the
    * "Changes saved" banner. Any edit that moves the model off them clears it.
+   * Each save yields a new object, which restarts the banner's countdown.
    */
-  private readonly savedForm = signal<ProfileForm | null>(null);
-  protected readonly showSaved = computed(() => this.savedForm() !== null);
-
-  /**
-   * CONTRACT: Hover and keyboard focus pause the dismiss countdown independently
-   * (WCAG 2.2.1), so leaving with the mouse while the X still holds focus keeps
-   * it paused. Both reset on every hide: a banner removed under a resting
-   * pointer never fires `mouseleave`, and the next one would never auto-hide.
-   */
-  private bannerHovered = false;
-  private bannerFocused = false;
-  private bannerTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Milliseconds left on the countdown; a resume continues from here. */
-  private bannerRemaining = SAVED_BANNER_DISMISS_MS;
-  private bannerStartedAt = 0;
+  protected readonly savedForm = signal<ProfileForm | null>(null);
 
   /**
    * One model for the whole screen, over the design's two sections.
@@ -184,9 +166,12 @@ export class ProfilePage {
     // CONTRACT: Seed the form from whatever the session already holds, then
     // again once the fetch lands. Seeding only on load leaves every field blank
     // for a user who arrives with a cached profile, which reads as data loss.
+    // CONTRACT: Track `user` ONLY — `saving` is read untracked. Tracking it
+    // reseeds when a FAILED save ends, discarding the edits and clearing the
+    // error the same tick it is set.
     effect(() => {
       const current = this.user();
-      if (current !== null && !this.saving()) this.resetForm();
+      if (current !== null && !untracked(this.saving)) this.resetForm();
     });
     // CONTRACT: Clear on a value DIFFERENCE, never on any model write. The
     // reseed after a save writes an equal model, and clearing on the write
@@ -196,16 +181,22 @@ export class ProfilePage {
       const saved = untracked(this.savedForm);
       if (saved !== null && !sameForm(saved, current)) this.dismissSaved();
     });
-    inject(DestroyRef).onDestroy(() => this.stopBannerTimer());
     void this.load();
   }
 
+  /**
+   * CONTRACT: Both catches here and in `save` report to ErrorHandler as well as
+   * rendering a message. A caught-and-rendered error never reaches
+   * `RumErrorHandler`, so the failure is absent from `rum_logs`.
+   * See [[browser-rum]]
+   */
   protected async load(): Promise<void> {
     this.loading.set(this.session.user() === null);
     this.error.set(null);
     try {
       this.session.setUser(await firstValueFrom(this.usersApi.me()));
     } catch (error: unknown) {
+      this.errorHandler.handleError(error);
       this.error.set(authErrorMessage(error));
     } finally {
       this.loading.set(false);
@@ -276,30 +267,39 @@ export class ProfilePage {
     const current = this.user();
     if (!current) return;
 
-    this.saveError.set(null);
+    this.saveFailed.set(false);
     this.model.set(formFromUser(current));
   }
 
-  /** Cancel: an equal reseed would leave the banner up, so it is dismissed explicitly. */
+  /** Cancel: an equal reseed would leave the saved banner up, so it is dismissed explicitly. */
   protected discardEdits(): void {
     this.dismissSaved();
     this.resetForm();
   }
 
-  /** CONTRACT: The ONLY hide path — anything else leaves a stray timer running. */
+  /** Also the banner's own `dismissed`: its X and its elapsed countdown. */
   protected dismissSaved(): void {
-    this.stopBannerTimer();
-    this.bannerHovered = false;
-    this.bannerFocused = false;
-    this.bannerRemaining = SAVED_BANNER_DISMISS_MS;
     this.savedForm.set(null);
   }
 
   private showSavedBanner(saved: ProfileForm): void {
-    this.dismissSaved();
     this.savedForm.set(saved);
-    this.armBannerTimer();
     afterNextRender(() => this.revealSaveFooter(), { injector: this.injector });
+  }
+
+  /**
+   * CONTRACT: The error banner hides only on a successful save, Cancel, or its
+   * X — never on a timer (see SaveErrorBanner). Scrolls only on the false→true
+   * edge; a retry that fails again leaves the page where the user put it.
+   */
+  private showSaveError(): void {
+    if (this.saveFailed()) return;
+    this.saveFailed.set(true);
+    afterNextRender(() => this.revealSaveFooter(), { injector: this.injector });
+  }
+
+  protected dismissSaveError(): void {
+    this.saveFailed.set(false);
   }
 
   /**
@@ -319,41 +319,6 @@ export class ProfilePage {
     container.scrollTo({ top: container.scrollHeight, behavior: reduced ? 'auto' : 'smooth' });
   }
 
-  protected onBannerHover(hovered: boolean): void {
-    this.bannerHovered = hovered;
-    this.syncBannerTimer();
-  }
-
-  /** Focus moving between elements INSIDE the banner is not a blur. */
-  protected onBannerFocus(event: FocusEvent, focused: boolean): void {
-    const banner = event.currentTarget as HTMLElement;
-    if (!focused && banner.contains(event.relatedTarget as Node | null)) return;
-    this.bannerFocused = focused;
-    this.syncBannerTimer();
-  }
-
-  /** Pauses while held; a resume continues the banked remainder, not a fresh 6s. */
-  private syncBannerTimer(): void {
-    if (!this.showSaved()) return;
-    if (this.bannerHovered || this.bannerFocused) {
-      if (this.bannerTimer === null) return;
-      this.stopBannerTimer();
-      this.bannerRemaining = Math.max(0, this.bannerRemaining - (Date.now() - this.bannerStartedAt));
-    } else if (this.bannerTimer === null) {
-      this.armBannerTimer();
-    }
-  }
-
-  private armBannerTimer(): void {
-    this.bannerStartedAt = Date.now();
-    this.bannerTimer = setTimeout(() => this.dismissSaved(), this.bannerRemaining);
-  }
-
-  private stopBannerTimer(): void {
-    if (this.bannerTimer !== null) clearTimeout(this.bannerTimer);
-    this.bannerTimer = null;
-  }
-
   protected readonly canSave = computed(() => this.profileForm().valid() && !this.saving());
 
   /**
@@ -368,8 +333,9 @@ export class ProfilePage {
     this.profileForm().markAsTouched();
     if (!this.canSave()) return;
 
+    // WHY: The error banner stays up while a retry is in flight (its button
+    // disabled), so a second failure does not flash it out and back in.
     this.saving.set(true);
-    this.saveError.set(null);
     this.dismissSaved();
     const values = this.model();
     try {
@@ -401,9 +367,11 @@ export class ProfilePage {
       // the banner's values against an equal model rather than the raw input.
       const savedForm = formFromUser(updated);
       this.model.set(savedForm);
+      this.saveFailed.set(false);
       this.showSavedBanner(savedForm);
     } catch (error: unknown) {
-      this.saveError.set(authErrorMessage(error));
+      this.errorHandler.handleError(error);
+      this.showSaveError();
     } finally {
       this.saving.set(false);
     }

@@ -59998,6 +59998,1312 @@
           ]
         }
       ]
+    },
+    {
+      "type": "frame",
+      "id": "o6iIDG",
+      "x": 8026,
+      "y": -1456,
+      "name": "Save Error Banner",
+      "reusable": true,
+      "width": 712,
+      "fill": "$danger-bg",
+      "cornerRadius": 10,
+      "gap": 12,
+      "padding": [
+        14,
+        12,
+        14,
+        16
+      ],
+      "children": [
+        {
+          "type": "icon",
+          "id": "Z8GSFy",
+          "name": "Banner Icon",
+          "width": 22,
+          "height": 22,
+          "icon": "circle-alert",
+          "library": "lucide",
+          "fill": "$danger-text"
+        },
+        {
+          "type": "frame",
+          "id": "slgEL",
+          "name": "Banner Text",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 2,
+          "children": [
+            {
+              "type": "text",
+              "id": "tezDw",
+              "name": "Banner Title",
+              "fill": "$danger-text",
+              "content": "Couldn’t save your changes",
+              "fontFamily": "$font-heading",
+              "fontSize": 15,
+              "fontWeight": "700",
+              "letterSpacing": -0.2
+            },
+            {
+              "type": "text",
+              "id": "fwwyG",
+              "name": "Banner Sub",
+              "fill": "$danger-text",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "Something went wrong on our side. Your edits are still here — try again in a moment.",
+              "lineHeight": 1.5,
+              "fontFamily": "$font-body",
+              "fontSize": 13,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "Mx3JJ",
+              "name": "Banner Actions",
+              "padding": [
+                8,
+                0,
+                0,
+                0
+              ],
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "ieEUS",
+                  "name": "Retry Button",
+                  "fill": "$bg-white",
+                  "cornerRadius": 8,
+                  "stroke": "$danger-border",
+                  "strokeWidth": 1,
+                  "gap": 6,
+                  "padding": [
+                    6,
+                    12
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "G5Im5",
+                      "name": "Retry Icon",
+                      "width": 14,
+                      "height": 14,
+                      "icon": "rotate-cw",
+                      "library": "lucide",
+                      "fill": "$danger-text"
+                    },
+                    {
+                      "type": "text",
+                      "id": "cqnOe",
+                      "name": "Retry Label",
+                      "fill": "$danger-text",
+                      "content": "Try again",
+                      "fontFamily": "$font-body",
+                      "fontSize": 13,
+                      "fontWeight": "600"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "I3Qdf",
+          "name": "Dismiss Button",
+          "width": 28,
+          "height": 28,
+          "cornerRadius": 6,
+          "justifyContent": "center",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "icon",
+              "id": "jqQQl",
+              "name": "Dismiss Icon",
+              "width": 16,
+              "height": 16,
+              "icon": "x",
+              "library": "lucide",
+              "fill": "$danger-text"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "zj052",
+      "x": 31201,
+      "y": 3008,
+      "name": "Profile — Save Error",
+      "clip": true,
+      "width": 1440,
+      "height": 1425,
+      "fill": "$bg-body",
+      "layout": "vertical",
+      "children": [
+        {
+          "id": "NMWXR",
+          "type": "ref",
+          "ref": "EMNqu",
+          "name": "App Header",
+          "width": "fill_container"
+        },
+        {
+          "type": "frame",
+          "id": "GmsYL",
+          "name": "Body",
+          "width": "fill_container",
+          "height": "fill_container",
+          "fill": "$bg-body",
+          "layout": "vertical",
+          "padding": [
+            44,
+            48
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "XYXUR",
+              "name": "Profile Column",
+              "width": 760,
+              "layout": "vertical",
+              "gap": 26,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "y0Ox8i",
+                  "name": "Page Header",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 6,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "lR8Ai",
+                      "name": "Page Title",
+                      "fill": "$text-primary",
+                      "content": "Profile",
+                      "fontFamily": "$font-heading",
+                      "fontSize": 30,
+                      "fontWeight": "700",
+                      "letterSpacing": -0.8
+                    },
+                    {
+                      "type": "text",
+                      "id": "p95CS3",
+                      "name": "Page Sub",
+                      "fill": "$text-secondary",
+                      "content": "Update your details, delivery address and saved cards.",
+                      "fontFamily": "$font-body",
+                      "fontSize": 15,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "LcU7S",
+                  "name": "Identity Card",
+                  "width": "fill_container",
+                  "fill": "$bg-white",
+                  "cornerRadius": 12,
+                  "stroke": "$border-color",
+                  "strokeWidth": 1,
+                  "gap": 16,
+                  "padding": 20,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "btXwa",
+                      "name": "Avatar",
+                      "width": 56,
+                      "height": 56,
+                      "fill": "$brand-navy",
+                      "cornerRadius": 28,
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "OMzdN",
+                          "name": "Avatar Initials",
+                          "fill": "#FFFFFF",
+                          "content": "JM",
+                          "fontFamily": "$font-heading",
+                          "fontSize": 18,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "e17Boo",
+                      "name": "Identity Text",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 3,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "VyjqF",
+                          "name": "Identity Name",
+                          "fill": "$text-primary",
+                          "content": "Jose Martinez",
+                          "fontFamily": "$font-body",
+                          "fontSize": 16.5,
+                          "fontWeight": "600"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "UCav1",
+                          "name": "Identity Email",
+                          "gap": 7,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "wGC7b",
+                              "name": "Lock Icon",
+                              "width": 13,
+                              "height": 13,
+                              "icon": "lock",
+                              "library": "lucide",
+                              "fill": "$text-muted"
+                            },
+                            {
+                              "type": "text",
+                              "id": "y6Zgi6",
+                              "name": "Email Text",
+                              "fill": "$text-secondary",
+                              "content": "jose@3mrai.com · sign-in email, can't be changed",
+                              "fontFamily": "$font-body",
+                              "fontSize": 13.5,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "S2ing",
+                      "name": "Member Badge",
+                      "height": 30,
+                      "fill": "$border-color",
+                      "cornerRadius": 15,
+                      "padding": [
+                        0,
+                        13
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "g9R5E",
+                          "name": "Badge Text",
+                          "fill": "$brand-navy",
+                          "content": "Member since Aug 2026",
+                          "fontFamily": "$font-body",
+                          "fontSize": 12.5,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "shg5y",
+                  "name": "Section PERSONAL DETAILS",
+                  "width": "fill_container",
+                  "fill": "$bg-white",
+                  "cornerRadius": 12,
+                  "stroke": "$border-color",
+                  "strokeWidth": 1,
+                  "layout": "vertical",
+                  "gap": 16,
+                  "padding": 24,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "aASYJ",
+                      "name": "Section Label",
+                      "fill": "$text-muted",
+                      "content": "PERSONAL DETAILS",
+                      "fontFamily": "$font-body",
+                      "fontSize": 12,
+                      "fontWeight": "600",
+                      "letterSpacing": 1.5
+                    },
+                    {
+                      "type": "frame",
+                      "id": "yk3fB",
+                      "name": "Row",
+                      "width": "fill_container",
+                      "gap": 18,
+                      "children": [
+                        {
+                          "id": "YdOJv",
+                          "type": "ref",
+                          "ref": "TLRTA",
+                          "name": "Full Name Field",
+                          "width": "fill_container",
+                          "descendants": {
+                            "x9933l": {
+                              "content": "Full name"
+                            },
+                            "DBNRz": {
+                              "height": 58
+                            },
+                            "RPJzp": {
+                              "icon": "user"
+                            },
+                            "XjoNi": {
+                              "content": "Jose Martinez",
+                              "fill": "$text-primary"
+                            }
+                          }
+                        },
+                        {
+                          "id": "G53d8c",
+                          "type": "ref",
+                          "ref": "TLRTA",
+                          "name": "Phone Field",
+                          "width": "fill_container",
+                          "descendants": {
+                            "x9933l": {
+                              "content": "Phone number"
+                            },
+                            "DBNRz": {
+                              "height": 58
+                            },
+                            "RPJzp": {
+                              "icon": "phone"
+                            },
+                            "XjoNi": {
+                              "content": "+1 809 555 0142",
+                              "fill": "$text-primary"
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "oYdL4",
+                      "name": "Actions",
+                      "width": "fill_container",
+                      "gap": 12,
+                      "justifyContent": "end",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "id": "eyKak",
+                          "type": "ref",
+                          "ref": "aUEDx",
+                          "name": "Cancel Button",
+                          "width": 130,
+                          "height": 46,
+                          "descendants": {
+                            "nrllx": {
+                              "enabled": false
+                            },
+                            "P9plnT": {
+                              "content": "Cancel",
+                              "fontSize": 14.5
+                            }
+                          }
+                        },
+                        {
+                          "id": "L6pyVT",
+                          "type": "ref",
+                          "ref": "sHl96",
+                          "name": "Save Button",
+                          "width": 170,
+                          "height": 46,
+                          "descendants": {
+                            "G7D9G": {
+                              "content": "Save changes",
+                              "fontSize": 14.5
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "id": "DiOZK",
+                      "type": "ref",
+                      "ref": "o6iIDG",
+                      "name": "Save Error Banner",
+                      "width": "fill_container"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "kULJD",
+                  "name": "Tabs",
+                  "width": "fill_container",
+                  "stroke": "$border-color",
+                  "strokeWidth": {
+                    "bottom": 1
+                  },
+                  "gap": 28,
+                  "padding": [
+                    0,
+                    4
+                  ],
+                  "alignItems": "end",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "NRNrM",
+                      "name": "Tab Delivery address",
+                      "layout": "vertical",
+                      "gap": 10,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "d0RTp",
+                          "name": "Tab Label Row",
+                          "gap": 7,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "hiW49",
+                              "name": "Tab Label",
+                              "fill": "$text-primary",
+                              "content": "Delivery address",
+                              "fontFamily": "$font-body",
+                              "fontSize": 14.5,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "rectangle",
+                          "cornerRadius": 1,
+                          "id": "n2Paga",
+                          "name": "Tab Indicator",
+                          "fill": "$brand-navy",
+                          "width": 124,
+                          "height": 2
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "pf9dd",
+                      "name": "Tab Payment methods",
+                      "layout": "vertical",
+                      "gap": 10,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "t8HNd",
+                          "name": "Tab Label Row",
+                          "gap": 7,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "PHxtR",
+                              "name": "Tab Label",
+                              "fill": "$text-secondary",
+                              "content": "Payment methods",
+                              "fontFamily": "$font-body",
+                              "fontSize": 14.5,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "rectangle",
+                          "cornerRadius": 1,
+                          "id": "pJ9u8",
+                          "name": "Tab Indicator",
+                          "fill": "#FFFFFF00",
+                          "width": 124,
+                          "height": 2
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "Pq5gx",
+                  "name": "Section DELIVERY ADDRESS",
+                  "width": "fill_container",
+                  "fill": "$bg-white",
+                  "cornerRadius": 12,
+                  "stroke": "$border-color",
+                  "strokeWidth": 1,
+                  "layout": "vertical",
+                  "gap": 16,
+                  "padding": 24,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "v864k",
+                      "name": "Address Lines",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 16,
+                      "children": [
+                        {
+                          "id": "w9cMbm",
+                          "type": "ref",
+                          "ref": "TLRTA",
+                          "name": "Address Line 1 Field",
+                          "width": "fill_container",
+                          "descendants": {
+                            "x9933l": {
+                              "content": "Address Line 1",
+                              "enabled": true
+                            },
+                            "DBNRz": {
+                              "height": 58
+                            },
+                            "RPJzp": {
+                              "icon": "map-pin"
+                            },
+                            "XjoNi": {
+                              "content": "Av. Rómulo Betancourt 1204",
+                              "fill": "$text-primary"
+                            },
+                            "ZLo0l": {
+                              "enabled": false,
+                              "content": "Used as the default delivery address at checkout."
+                            }
+                          }
+                        },
+                        {
+                          "id": "BqDzY",
+                          "type": "ref",
+                          "ref": "TLRTA",
+                          "name": "Address Line 2 Field",
+                          "width": "fill_container",
+                          "descendants": {
+                            "x9933l": {
+                              "enabled": true,
+                              "content": "Address Line 2"
+                            },
+                            "DBNRz": {
+                              "height": 58
+                            },
+                            "RPJzp": {
+                              "icon": "building"
+                            },
+                            "XjoNi": {
+                              "content": "Apto 5B",
+                              "fill": "$text-primary"
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "id": "m5aWjd",
+                      "type": "ref",
+                      "ref": "TLRTA",
+                      "name": "City Field",
+                      "width": "fill_container",
+                      "descendants": {
+                        "x9933l": {
+                          "content": "City"
+                        },
+                        "DBNRz": {
+                          "height": 58
+                        },
+                        "RPJzp": {
+                          "icon": "map"
+                        },
+                        "XjoNi": {
+                          "content": "Santo Domingo",
+                          "fill": "$text-primary"
+                        }
+                      }
+                    },
+                    {
+                      "id": "yKGE6",
+                      "type": "ref",
+                      "ref": "TLRTA",
+                      "name": "State Field",
+                      "width": "fill_container",
+                      "descendants": {
+                        "x9933l": {
+                          "content": "State"
+                        },
+                        "DBNRz": {
+                          "height": 58
+                        },
+                        "RPJzp": {
+                          "icon": "landmark"
+                        },
+                        "XjoNi": {
+                          "content": "Distrito Nacional",
+                          "fill": "$text-primary"
+                        }
+                      }
+                    },
+                    {
+                      "id": "ePKeq",
+                      "type": "ref",
+                      "ref": "TLRTA",
+                      "name": "ZIP Code Field",
+                      "width": "fill_container",
+                      "descendants": {
+                        "x9933l": {
+                          "content": "ZIP Code"
+                        },
+                        "DBNRz": {
+                          "height": 58
+                        },
+                        "RPJzp": {
+                          "icon": "hash"
+                        },
+                        "XjoNi": {
+                          "content": "10604",
+                          "fill": "$text-primary"
+                        },
+                        "ZLo0l": {
+                          "enabled": true,
+                          "content": "Used as the default delivery address at checkout."
+                        }
+                      }
+                    },
+                    {
+                      "type": "frame",
+                      "id": "X9Dhh",
+                      "name": "Actions",
+                      "width": "fill_container",
+                      "gap": 12,
+                      "justifyContent": "end",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "id": "rFQlQ",
+                          "type": "ref",
+                          "ref": "aUEDx",
+                          "name": "Cancel Button",
+                          "width": 140,
+                          "height": 58,
+                          "descendants": {
+                            "nrllx": {
+                              "enabled": false
+                            },
+                            "P9plnT": {
+                              "content": "Cancel"
+                            }
+                          }
+                        },
+                        {
+                          "id": "xskyH",
+                          "type": "ref",
+                          "ref": "sHl96",
+                          "name": "Save Button",
+                          "width": 190,
+                          "height": 58,
+                          "descendants": {
+                            "G7D9G": {
+                              "content": "Save changes"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "EubQg",
+      "x": 9760,
+      "y": 4400,
+      "name": "Mobile — Profile Save Error",
+      "clip": true,
+      "width": 390,
+      "fill": "$bg-body",
+      "layout": "vertical",
+      "children": [
+        {
+          "id": "ExoH1",
+          "type": "ref",
+          "ref": "fguH5",
+          "name": "App Header",
+          "width": "fill_container"
+        },
+        {
+          "type": "frame",
+          "id": "TyLCC",
+          "name": "Body",
+          "width": "fill_container",
+          "fill": "$bg-body",
+          "layout": "vertical",
+          "gap": 20,
+          "padding": [
+            20,
+            20,
+            28,
+            20
+          ],
+          "children": [
+            {
+              "type": "frame",
+              "id": "pKNxy",
+              "name": "Page Header",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 4,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "wXNWh",
+                  "name": "Page Title",
+                  "fill": "$text-primary",
+                  "content": "Profile",
+                  "fontFamily": "$font-heading",
+                  "fontSize": 26,
+                  "fontWeight": "700",
+                  "letterSpacing": -0.5
+                },
+                {
+                  "type": "text",
+                  "id": "Y4GW0m",
+                  "name": "Page Sub",
+                  "fill": "$text-secondary",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "Update your details, delivery address and saved cards.",
+                  "lineHeight": 1.45,
+                  "fontFamily": "$font-body",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "nj2K1",
+              "name": "Identity Card",
+              "width": "fill_container",
+              "fill": "$bg-white",
+              "cornerRadius": 12,
+              "stroke": "$border-color",
+              "strokeWidth": 1,
+              "layout": "vertical",
+              "gap": 14,
+              "padding": 18,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "bxODz",
+                  "name": "Identity Top",
+                  "width": "fill_container",
+                  "gap": 14,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "s0hPhZ",
+                      "name": "Avatar",
+                      "width": 52,
+                      "height": 52,
+                      "fill": "$brand-navy",
+                      "cornerRadius": 26,
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "KI8XA",
+                          "name": "Avatar Initials",
+                          "fill": "#FFFFFF",
+                          "content": "JM",
+                          "fontFamily": "$font-heading",
+                          "fontSize": 17,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "hlM2x",
+                      "name": "Identity Text",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 3,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "Ffj57",
+                          "name": "Identity Name",
+                          "fill": "$text-primary",
+                          "content": "Jose Martinez",
+                          "fontFamily": "$font-body",
+                          "fontSize": 16,
+                          "fontWeight": "600"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "I2OYg",
+                          "name": "Identity Email",
+                          "width": "fill_container",
+                          "gap": 6,
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "sHFeN",
+                              "name": "Lock Icon",
+                              "width": 13,
+                              "height": 13,
+                              "icon": "lock",
+                              "library": "lucide",
+                              "fill": "$text-muted"
+                            },
+                            {
+                              "type": "text",
+                              "id": "zOPc7",
+                              "name": "Email Text",
+                              "fill": "$text-secondary",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "jose@3mrai.com · sign-in email, can't be changed",
+                              "lineHeight": 1.4,
+                              "fontFamily": "$font-body",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "g1aFRS",
+                  "name": "Member Badge",
+                  "height": 30,
+                  "fill": "$bg-subtle",
+                  "cornerRadius": 15,
+                  "padding": [
+                    0,
+                    13
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "uVqkm",
+                      "name": "Badge Text",
+                      "fill": "$text-secondary",
+                      "content": "Member since Aug 2026",
+                      "fontFamily": "$font-body",
+                      "fontSize": 12.5,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "EgwwN",
+              "name": "Section PERSONAL DETAILS",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 12,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "Lq6uT",
+                  "name": "Section Label",
+                  "fill": "$text-muted",
+                  "content": "PERSONAL DETAILS",
+                  "fontFamily": "$font-body",
+                  "fontSize": 12,
+                  "fontWeight": "600",
+                  "letterSpacing": 1.5
+                },
+                {
+                  "id": "XNVrm",
+                  "type": "ref",
+                  "ref": "TLRTA",
+                  "name": "Full Name Field",
+                  "width": "fill_container",
+                  "descendants": {
+                    "x9933l": {
+                      "content": "Full name"
+                    },
+                    "DBNRz": {
+                      "height": 56
+                    },
+                    "RPJzp": {
+                      "icon": "user"
+                    },
+                    "XjoNi": {
+                      "content": "Jose Martinez",
+                      "fill": "$text-primary"
+                    }
+                  }
+                },
+                {
+                  "id": "oPjiX",
+                  "type": "ref",
+                  "ref": "TLRTA",
+                  "name": "Phone Field",
+                  "width": "fill_container",
+                  "descendants": {
+                    "x9933l": {
+                      "content": "Phone number"
+                    },
+                    "DBNRz": {
+                      "height": 56
+                    },
+                    "RPJzp": {
+                      "icon": "phone"
+                    },
+                    "XjoNi": {
+                      "content": "+1 809 555 0142",
+                      "fill": "$text-primary"
+                    }
+                  }
+                },
+                {
+                  "type": "frame",
+                  "id": "kbvjF",
+                  "name": "Actions",
+                  "width": "fill_container",
+                  "gap": 10,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "id": "Vg8yG",
+                      "type": "ref",
+                      "ref": "aUEDx",
+                      "name": "Cancel Button",
+                      "width": "fill_container",
+                      "height": 46,
+                      "descendants": {
+                        "nrllx": {
+                          "enabled": false
+                        },
+                        "P9plnT": {
+                          "content": "Cancel",
+                          "fontSize": 14.5
+                        }
+                      }
+                    },
+                    {
+                      "id": "vGbXj",
+                      "type": "ref",
+                      "ref": "sHl96",
+                      "name": "Save Button",
+                      "width": "fill_container",
+                      "height": 46,
+                      "descendants": {
+                        "G7D9G": {
+                          "content": "Save changes",
+                          "fontSize": 14.5
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "id": "d6AQl8",
+                  "type": "ref",
+                  "ref": "o6iIDG",
+                  "name": "Save Error Banner",
+                  "width": "fill_container"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "iAh8I",
+              "name": "Tabs",
+              "width": "fill_container",
+              "stroke": "$border-color",
+              "strokeWidth": {
+                "bottom": 1
+              },
+              "gap": 22,
+              "alignItems": "end",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "ecp6B",
+                  "name": "Tab Delivery address",
+                  "layout": "vertical",
+                  "gap": 9,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "ZHngB",
+                      "name": "Tab Label Row",
+                      "gap": 7,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "rXPij",
+                          "name": "Tab Label",
+                          "fill": "$text-primary",
+                          "content": "Delivery address",
+                          "fontFamily": "$font-body",
+                          "fontSize": 13.5,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "rectangle",
+                      "cornerRadius": 1,
+                      "id": "Qkrys",
+                      "name": "Tab Indicator",
+                      "fill": "$brand-navy",
+                      "width": 112,
+                      "height": 2
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "eriOt",
+                  "name": "Tab Payment methods",
+                  "layout": "vertical",
+                  "gap": 9,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "oIzgR",
+                      "name": "Tab Label Row",
+                      "gap": 7,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "Dc3j5",
+                          "name": "Tab Label",
+                          "fill": "$text-secondary",
+                          "content": "Payment methods",
+                          "fontFamily": "$font-body",
+                          "fontSize": 13.5,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "rectangle",
+                      "cornerRadius": 1,
+                      "id": "oxmpN",
+                      "name": "Tab Indicator",
+                      "fill": "#FFFFFF00",
+                      "width": 112,
+                      "height": 2
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "vMQ8H",
+              "name": "Section DELIVERY ADDRESS",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 12,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "kUx4u",
+                  "name": "Address Lines",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 12,
+                  "children": [
+                    {
+                      "id": "NEjdh",
+                      "type": "ref",
+                      "ref": "TLRTA",
+                      "name": "Address Line 1 Field",
+                      "width": "fill_container",
+                      "descendants": {
+                        "x9933l": {
+                          "content": "Address Line 1",
+                          "enabled": true
+                        },
+                        "DBNRz": {
+                          "height": 56
+                        },
+                        "RPJzp": {
+                          "icon": "map-pin"
+                        },
+                        "XjoNi": {
+                          "content": "Av. Rómulo Betancourt 1204",
+                          "fill": "$text-primary"
+                        },
+                        "ZLo0l": {
+                          "enabled": false,
+                          "content": "Used as the default delivery address at checkout."
+                        }
+                      }
+                    },
+                    {
+                      "id": "CIJMy",
+                      "type": "ref",
+                      "ref": "TLRTA",
+                      "name": "Address Line 2 Field",
+                      "width": "fill_container",
+                      "descendants": {
+                        "x9933l": {
+                          "enabled": true,
+                          "content": "Address Line 2"
+                        },
+                        "DBNRz": {
+                          "height": 56
+                        },
+                        "RPJzp": {
+                          "icon": "building"
+                        },
+                        "XjoNi": {
+                          "content": "Apto 5B",
+                          "fill": "$text-primary"
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "id": "sUfvw",
+                  "type": "ref",
+                  "ref": "TLRTA",
+                  "name": "City Field",
+                  "width": "fill_container",
+                  "descendants": {
+                    "x9933l": {
+                      "content": "City"
+                    },
+                    "DBNRz": {
+                      "height": 56
+                    },
+                    "RPJzp": {
+                      "icon": "map"
+                    },
+                    "XjoNi": {
+                      "content": "Santo Domingo",
+                      "fill": "$text-primary"
+                    }
+                  }
+                },
+                {
+                  "id": "kdrl7",
+                  "type": "ref",
+                  "ref": "TLRTA",
+                  "name": "State Field",
+                  "width": "fill_container",
+                  "descendants": {
+                    "x9933l": {
+                      "content": "State"
+                    },
+                    "DBNRz": {
+                      "height": 56
+                    },
+                    "RPJzp": {
+                      "icon": "landmark"
+                    },
+                    "XjoNi": {
+                      "content": "Distrito Nacional",
+                      "fill": "$text-primary"
+                    }
+                  }
+                },
+                {
+                  "id": "Z3jLKt",
+                  "type": "ref",
+                  "ref": "TLRTA",
+                  "name": "ZIP Code Field",
+                  "width": "fill_container",
+                  "descendants": {
+                    "x9933l": {
+                      "content": "ZIP Code"
+                    },
+                    "DBNRz": {
+                      "height": 56
+                    },
+                    "RPJzp": {
+                      "icon": "hash"
+                    },
+                    "XjoNi": {
+                      "content": "10604",
+                      "fill": "$text-primary"
+                    },
+                    "ZLo0l": {
+                      "enabled": true,
+                      "content": "Used as the default delivery address at checkout."
+                    }
+                  }
+                },
+                {
+                  "type": "frame",
+                  "id": "SC6ta",
+                  "name": "Actions",
+                  "width": "fill_container",
+                  "gap": 12,
+                  "children": [
+                    {
+                      "id": "vQzFy",
+                      "type": "ref",
+                      "ref": "aUEDx",
+                      "name": "Cancel Button",
+                      "width": "fill_container",
+                      "height": 54,
+                      "descendants": {
+                        "nrllx": {
+                          "enabled": false
+                        },
+                        "P9plnT": {
+                          "content": "Cancel"
+                        }
+                      }
+                    },
+                    {
+                      "id": "s7LY0z",
+                      "type": "ref",
+                      "ref": "sHl96",
+                      "name": "Save Button",
+                      "width": "fill_container",
+                      "height": 54,
+                      "descendants": {
+                        "G7D9G": {
+                          "content": "Save changes"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
     }
   ],
   "variables": {
@@ -60132,6 +61438,18 @@
     "warn-amber": {
       "type": "color",
       "value": "#F59E0B"
+    },
+    "danger-bg": {
+      "type": "color",
+      "value": "#FEF2F2"
+    },
+    "danger-text": {
+      "type": "color",
+      "value": "#B91C1C"
+    },
+    "danger-border": {
+      "type": "color",
+      "value": "#FECACA"
     }
   },
   "fileToken": "d47359f3-8968-480c-b671-faa693ea90b5"
