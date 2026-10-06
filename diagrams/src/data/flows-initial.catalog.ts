@@ -45,7 +45,7 @@ export const initialFlowEntries: CatalogEntry[] = [
     title: observabilityTelemetry.title,
     primitive: "flow",
     output: "docs/shared/observability/diagrams/observability-telemetry",
-    watches: ["observability/**", "docker-compose.yml"],
+    watches: ["observability/**", "docker-compose.yml", "apps/web/nginx.conf"],
     data: observabilityTelemetry,
   },
 ];

@@ -13,7 +13,7 @@ export const checkoutAddressGeocodingProxy: FlowData = {
   ],
   steps: [
     { from: "web", to: "nginx", label: "Street query", caption: "After a 300 ms debounce and 3+ characters, a same-origin call with no bearer token" },
-    { from: "nginx", to: "web", label: "503 disabled", caption: "With the key unset nginx answers itself; a keyless call would still burn free-tier quota" },
+    { from: "nginx", to: "web", label: "503 disabled", caption: "If the key is unset, nginx answers 503 itself rather than burn free-tier quota" },
     { from: "nginx", to: "geoapify", label: "Autocomplete", caption: "nginx appends the key and strips Authorization and Cookie before leaving the host" },
     { from: "geoapify", to: "nginx", label: "Suggestions", caption: "OpenStreetMap streets; Santo Domingo results carry no house numbers" },
     { from: "nginx", to: "o2", label: "Access log", caption: "The only logged location, so the free-tier call count is a web-geocode query", async: true },

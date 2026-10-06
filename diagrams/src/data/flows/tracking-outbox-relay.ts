@@ -9,6 +9,7 @@ export const trackingOutboxRelay: FlowData = {
     { id: "db", label: "Tracking DB", kind: "data", aws: "rds" },
     { id: "poller", label: "Outbox poller", kind: "compute", aws: "ecs" },
     { id: "topic", label: "Events topic", kind: "messaging", aws: "sns" },
+    { id: "queue", label: "Events queue", kind: "messaging", aws: "sqs" },
     { id: "pipeline", label: "Events pipeline", kind: "compute", aws: "lambda" },
   ],
   steps: [
@@ -20,6 +21,7 @@ export const trackingOutboxRelay: FlowData = {
     { from: "poller", to: "db", label: "Delete row", caption: "Delivered rows are deleted; the commit after publishing releases the row locks" },
     { from: "poller", to: "db", label: "Reschedule", caption: "A failed publish keeps the row, bumps its attempts and backs off up to 5 minutes" },
     { from: "poller", to: "poller", label: "Discard", caption: "A row at 12 attempts is deleted and logged at ERROR with its order id" },
-    { from: "topic", to: "pipeline", label: "Deliver", caption: "Delivery is at-least-once; the pipeline dedupes a re-publish on its event_id", async: true },
+    { from: "topic", to: "queue", label: "Raw delivery", caption: "The topic fans the event out to the events queue, body unchanged", async: true },
+    { from: "queue", to: "pipeline", label: "Batch", caption: "At-least-once: the pipeline dedupes a re-publish on its event_id", async: true },
   ],
 };

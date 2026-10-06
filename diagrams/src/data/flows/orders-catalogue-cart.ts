@@ -12,7 +12,7 @@ export const ordersCatalogueCart: FlowData = {
   ],
   steps: [
     { from: "web", to: "orders", label: "List products", caption: "The home page loads the catalogue once; category chips and search filter in the browser" },
-    { from: "orders", to: "cache", label: "Catalogue key", caption: "One key shared by every buyer, 10-minute TTL; a miss reads the products table" },
+    { from: "orders", to: "cache", label: "Catalogue key", caption: "One key shared by every buyer, 10-minute TTL; a miss goes on to the DB" },
     { from: "web", to: "orders", label: "Read cart", caption: "The drawer reads the cart on open; a buyer with no cart gets an empty one, never a 404" },
     { from: "orders", to: "users", label: "Resolve user id", caption: "Per-user keys need the user id: the identity cache first, else Users over gRPC" },
     { from: "orders", to: "cache", label: "Cart key", caption: "A per-user key with a 60-second TTL; a hit returns the stored body without the handler" },
