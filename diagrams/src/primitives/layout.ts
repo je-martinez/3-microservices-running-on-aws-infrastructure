@@ -68,13 +68,13 @@ export function edgePath(a: Rect, b: Rect, sameColumn: boolean): EdgePath {
   };
 }
 
-/** Pick the label font size and line count that fit `label` in a box `w` x `h`; `clipped` when none does. */
 /** Boxes narrower than this drop their AWS icon so the label keeps the width. */
 export const ICON_MIN_W = 140;
 
 /** Height of the small id line a tagged box (dependency task) draws above its label. */
 export const TAG_H = 16;
 
+/** Pick the label font size and line count that fit `label` in a box `w` x `h`; `clipped` when none does. */
 export function fitLabel(label: string, w: number, h: number, hasIcon: boolean, reserved = 0) {
   const pad = w < 120 ? 8 : 10;
   const icon = hasIcon ? Math.max(20, Math.min(36, h - 16, w * 0.2)) : 0;
@@ -88,6 +88,64 @@ export function fitLabel(label: string, w: number, h: number, hasIcon: boolean, 
     }
   }
   return { size: 13, lines: Math.max(1, Math.min(3, Math.floor(inner / 14.3))), icon, pad, clipped: true };
+}
+
+const JOG = 26; // half the free run between two phase columns' tasks (GAP + PAD + GAP)
+const LANE_MIN = 8; // the arrow's halo width: a row gap narrower than this is not a lane
+
+/** True when the segment crosses the interior of `r` (Liang-Barsky clip). */
+function segmentHits(x1: number, y1: number, x2: number, y2: number, r: Rect): boolean {
+  let t0 = 0, t1 = 1;
+  const dx = x2 - x1, dy = y2 - y1;
+  const clips: [number, number][] = [[-dx, x1 - r.x], [dx, r.x + r.w - x1], [-dy, y1 - r.y], [dy, r.y + r.h - y1]];
+  for (const [p, q] of clips) {
+    if (p === 0) { if (q <= 0) return false; continue; }
+    const t = q / p;
+    if (p < 0) t0 = Math.max(t0, t); else t1 = Math.min(t1, t);
+    if (t0 >= t1) return false;
+  }
+  return true;
+}
+
+/** The y of the free horizontal lane in [xa, xb] closest to `near`: a row gap, else below the lowest task. */
+function laneY(xa: number, xb: number, near: number, others: Rect[]): number {
+  const spans = others.filter((r) => r.x < xb && r.x + r.w > xa).map((r) => [r.y, r.y + r.h] as const).sort((p, q) => p[0] - q[0]);
+  const lanes: number[] = [];
+  let bottom = -Infinity;
+  for (const [top, end] of spans) {
+    if (bottom > -Infinity && top - bottom >= LANE_MIN) lanes.push((bottom + top) / 2);
+    bottom = Math.max(bottom, end);
+  }
+  lanes.push(bottom + 7);
+  return lanes.reduce((best, y) => (Math.abs(y - near) < Math.abs(best - near) ? y : best));
+}
+
+/**
+ * SVG path for a dependency arrow: side to side between columns, whatever the row gap, so a steep
+ * edge never leaves through the top of its task. When another task sits on that line, the arrow
+ * detours through the nearest free row gap instead of cutting through the task's label.
+ */
+export function depPath(a: Rect, b: Rect, tasks: Rect[] = []): EdgePath {
+  if (isSameColumn(a, b)) return edgePath(a, b, true);
+  const right = b.x > a.x;
+  const x1 = right ? a.x + a.w : a.x, y1 = a.y + a.h / 2, x2 = right ? b.x : b.x + b.w, y2 = b.y + b.h / 2;
+  const others = tasks.filter((r) => r !== a && r !== b);
+  if (!others.some((r) => segmentHits(x1, y1, x2, y2, r))) {
+    return {
+      d: `M ${x1} ${y1} L ${x2} ${y2}`,
+      len: Math.hypot(x2 - x1, y2 - y1),
+      label: { x: (x1 + x2) / 2, y: (y1 + y2) / 2 - 8, anchor: "middle" },
+    };
+  }
+  const dir = right ? 1 : -1;
+  const xa = x1 + dir * JOG, xb = x2 - dir * JOG;
+  // WHY nearest the SOURCE row: every detour leaving one task shares a single trunk and reads as a tree.
+  const ly = laneY(Math.min(xa, xb), Math.max(xa, xb), y1, others);
+  return {
+    d: `M ${x1} ${y1} H ${xa} V ${ly} H ${xb} V ${y2} H ${x2}`,
+    len: 2 * JOG + Math.abs(ly - y1) + Math.abs(xb - xa) + Math.abs(y2 - ly),
+    label: { x: (xa + xb) / 2, y: ly - 8, anchor: "middle" },
+  };
 }
 
 /** Index of the edge/step animating at `frame`; undefined during the intro and once all are done. */

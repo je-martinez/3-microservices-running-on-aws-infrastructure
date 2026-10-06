@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { bundle } from "@remotion/bundler";
 import { renderMedia, renderStill, selectComposition } from "@remotion/renderer";
 import { catalog } from "../catalog";
+import { parseEntry } from "./parse-entry";
 
 const pkgRoot = fileURLToPath(new URL("../../", import.meta.url));
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -16,11 +17,20 @@ if (unknownIds.length) {
   process.exit(1);
 }
 const entries = wanted.length ? catalog.filter((e) => wanted.includes(e.id)) : catalog;
+// WHY before bundling: a schema violation fails in seconds, naming the entry, instead of mid-render.
+const parsed = entries.map((e) => {
+  try {
+    return { ...e, data: parseEntry(e) };
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : err);
+    process.exit(1);
+  }
+});
 
 const serveUrl = await bundle({ entryPoint: join(pkgRoot, "src/index.ts") });
 const kb = (p: string) => `${Math.round(statSync(p).size / 1024)} KB`;
 
-for (const e of entries) {
+for (const e of parsed) {
   const composition = await selectComposition({ serveUrl, id: e.id, inputProps: { data: e.data } });
   const base = join(repoRoot, e.output);
   mkdirSync(dirname(base), { recursive: true });

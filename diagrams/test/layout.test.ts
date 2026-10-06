@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeIndex, TAG_H, edgePath, edgePoints, fitLabel, isSameColumn, layoutArchitecture, layoutDependency, layoutFlow } from "../src/primitives/layout";
+import { activeIndex, TAG_H, depPath, edgePath, edgePoints, fitLabel, isSameColumn, layoutArchitecture, layoutDependency, layoutFlow } from "../src/primitives/layout";
 import { ARCH_STEP, durationFor, HOLD, INTRO, STEP, unitProgress } from "../src/timing";
 
 const d = {
@@ -143,6 +143,37 @@ describe("edgePath", () => {
     expect(p.d).toBe("M 100 20 L 300 20");
     expect(p.len).toBe(200);
     expect(p.label).toEqual({ x: 200, y: 12, anchor: "middle" });
+  });
+});
+
+describe("depPath", () => {
+  const a = { x: 0, y: 300, w: 100, h: 40 };
+  it("leaves the right side and enters the left side even when the rows are far apart", () => {
+    const p = depPath(a, { x: 200, y: 0, w: 100, h: 40 });
+    expect(p.d).toBe("M 100 320 L 200 20");
+  });
+  it("mirrors the sides for a right-to-left edge", () => {
+    expect(depPath({ x: 200, y: 0, w: 100, h: 40 }, a).d).toBe("M 200 20 L 100 320");
+  });
+  it("brackets a same-column edge like edgePath", () => {
+    const b = { x: 0, y: 400, w: 100, h: 40 };
+    expect(depPath(a, b)).toEqual(edgePath(a, b, true));
+  });
+  it("stays straight when no other task sits on the line", () => {
+    const from = { x: 0, y: 0, w: 100, h: 40 }, to = { x: 400, y: 0, w: 100, h: 40 };
+    expect(depPath(from, to, [from, to, { x: 200, y: 100, w: 100, h: 40 }]).d).toBe("M 100 20 L 400 20");
+  });
+  it("detours a blocked skip-phase edge through the free gap between the rows it would cross", () => {
+    const from = { x: 0, y: 0, w: 100, h: 40 }, to = { x: 400, y: 0, w: 100, h: 40 };
+    const tasks = [from, to, { x: 200, y: 0, w: 100, h: 40 }, { x: 200, y: 54, w: 100, h: 40 }];
+    const p = depPath(from, to, tasks);
+    expect(p.d).toBe("M 100 20 H 126 V 47 H 374 V 20 H 400");
+    expect(p.len).toBe(26 + 27 + 248 + 27 + 26);
+  });
+  it("detours below the lowest task when no gap between rows is free", () => {
+    const from = { x: 0, y: 0, w: 100, h: 40 }, to = { x: 400, y: 0, w: 100, h: 40 };
+    const p = depPath(from, to, [from, to, { x: 200, y: 0, w: 100, h: 40 }, { x: 200, y: 42, w: 100, h: 40 }]);
+    expect(p.d).toBe("M 100 20 H 126 V 89 H 374 V 20 H 400");
   });
 });
 

@@ -18,6 +18,7 @@ export const shoppingFlowEntries: CatalogEntry[] = [
       "apps/web/src/app/features/catalogue/**",
       "apps/web/src/app/core/cart/**",
     ],
+    source: "diagrams/src/data/flows/orders-catalogue-cart.ts",
     data: ordersCatalogueCart,
   },
   {
@@ -30,6 +31,7 @@ export const shoppingFlowEntries: CatalogEntry[] = [
       "services/orders/src/Orders.Infrastructure/Caching/**",
       "infra/modules/redis/**",
     ],
+    source: "diagrams/src/data/flows/response-cache.ts",
     data: responseCache,
   },
   {
@@ -43,6 +45,7 @@ export const shoppingFlowEntries: CatalogEntry[] = [
       "apps/web/src/app/shared/ui/street-autocomplete.ts",
       "apps/web/src/app/features/checkout/checkout-payment.ts",
     ],
+    source: "diagrams/src/data/flows/checkout-address-geocoding-proxy.ts",
     data: checkoutAddressGeocodingProxy,
   },
 ];

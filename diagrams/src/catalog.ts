@@ -13,6 +13,8 @@ type Base = {
   title: string;
   /** Repo-relative path WITHOUT extension; render.ts appends .gif / .png. */
   output: string;
+  /** Repo-relative path of the data module this entry renders; an implicit drift watch. */
+  source: string;
   /** Repo-relative globs whose change may make this diagram stale. */
   watches: string[];
   /** false → PNG only (DependencyGraph). Default true. */

@@ -9,6 +9,7 @@ export const architectureEntries: CatalogEntry[] = [
     output: "docs/00-overview/diagrams/architecture-dev-floci",
     watches: ["infra/modules/**", "infra/environments/local/**", "docker-compose.yml"],
     primitive: "architecture",
+    source: "diagrams/src/data/architecture/dev-floci.ts",
     data: architectureDevFloci,
   },
   {
@@ -17,6 +18,7 @@ export const architectureEntries: CatalogEntry[] = [
     output: "docs/00-overview/diagrams/architecture-preprod",
     watches: ["infra/modules/**", "infra/environments/preprod/**", "docker-compose.preprod.yml"],
     primitive: "architecture",
+    source: "diagrams/src/data/architecture/preprod.ts",
     data: architecturePreprod,
   },
 ];

@@ -1,6 +1,4 @@
 import { execFileSync } from "node:child_process";
-import { catalog } from "../catalog";
-import { affectedDiagrams } from "./drift";
 
 const repoRoot = new URL("../../../", import.meta.url).pathname;
 const base = process.env.DIAGRAMS_BASE ?? "main";
@@ -8,6 +6,9 @@ const git = (...args: string[]) =>
   execFileSync("git", args, { cwd: repoRoot, encoding: "utf8" }).split("\n").filter(Boolean);
 
 try {
+  // CONTRACT: load the catalog inside the guard; a static import would crash on a broken data module instead of reporting "skipped".
+  const { catalog } = await import("../catalog");
+  const { affectedDiagrams } = await import("./drift");
   let changed: string[] = [];
 
   try {

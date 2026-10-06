@@ -10,6 +10,7 @@ export const eventsFlowEntries: CatalogEntry[] = [
     primitive: "flow",
     output: "docs/domains/tracking/specs/diagrams/tracking-outbox-relay",
     watches: ["services/tracking-go/internal/outbox/**", "services/tracking-go/internal/bus/**", "services/tracking-go/internal/app/update_status.go"],
+    source: "diagrams/src/data/flows/tracking-outbox-relay.ts",
     data: trackingOutboxRelay,
   },
   {
@@ -18,6 +19,7 @@ export const eventsFlowEntries: CatalogEntry[] = [
     primitive: "flow",
     output: "docs/domains/events-pipeline/specs/diagrams/events-pipeline-fanout-dlq",
     watches: ["functions/events-pipeline/src/**", "infra/modules/messaging/**", "infra/modules/lambda/**"],
+    source: "diagrams/src/data/flows/events-pipeline-fanout-dlq.ts",
     data: eventsPipelineFanoutDlq,
   },
   {
@@ -30,6 +32,7 @@ export const eventsFlowEntries: CatalogEntry[] = [
       "infra/modules/api-gateway-ws/**",
       "functions/events-pipeline/src/shared/realtime/**",
     ],
+    source: "diagrams/src/data/flows/websocket-lifecycle.ts",
     data: websocketLifecycle,
   },
 ];

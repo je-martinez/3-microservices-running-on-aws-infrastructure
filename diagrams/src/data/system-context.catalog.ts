@@ -14,6 +14,7 @@ export const systemContextEntries: CatalogEntry[] = [
     output: "docs/00-overview/diagrams/system-context-l1",
     watches,
     primitive: "architecture",
+    source: "diagrams/src/data/system-context/l1.ts",
     data: systemContextL1,
   },
   {
@@ -22,6 +23,7 @@ export const systemContextEntries: CatalogEntry[] = [
     output: "docs/00-overview/diagrams/system-context-l2",
     watches: [...watches, "infra/modules/messaging/**", "infra/modules/lambda/**", "infra/modules/api-gateway-ws/**", "infra/modules/dynamodb/**"],
     primitive: "architecture",
+    source: "diagrams/src/data/system-context/l2.ts",
     data: systemContextL2,
   },
 ];

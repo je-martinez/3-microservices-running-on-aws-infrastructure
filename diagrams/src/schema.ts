@@ -75,3 +75,10 @@ export const DependencyData = z
     for (const e of d.deps) for (const id of [e.from, e.to]) if (!tasks.has(id)) unknown(ctx, "task", id);
   });
 export type DependencyData = z.infer<typeof DependencyData>;
+
+/** Composition props per primitive: what Remotion Studio edits and render.ts validates. */
+export const PropsSchema = {
+  architecture: z.object({ data: ArchitectureData }),
+  flow: z.object({ data: FlowData }),
+  dependency: z.object({ data: DependencyData }),
+} as const;

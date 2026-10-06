@@ -7,7 +7,7 @@ Remotion package `@3mrai/diagrams`: every animated flow, architecture and milest
 - `remotion` and every `@remotion/*` package pinned to the same exact version (`4.0.533`, no caret). Bump them together or not at all.
 - React 19, TypeScript 6, zod 4 (schemas), Vitest 4 (tests). `@nxavis/aws-icons` pinned exact.
 - pnpm only: `pnpm --filter @3mrai/diagrams <script>`, `pnpm dlx`. Never `npm`/`npx`. Run `nvm use` first.
-- Layout: `src/catalog.ts` (source of truth, one entry per diagram), `src/schema.ts` (zod), `src/data/{architecture,system-context,flows,milestones}/*.ts`, `src/primitives/`, `src/theme/`, `src/scripts/{drift,check-drift,render}.ts`, `test/`.
+- Layout: `src/catalog.ts` (aggregates `src/data/<group>.catalog.ts`, one entry per diagram), `src/schema.ts` (zod), `src/data/{architecture,system-context,flows,milestones}/*.ts`, `src/primitives/`, `src/theme/`, `src/scripts/{drift,check-drift,render}.ts`, `test/`.
 
 ## The three primitives — pick by what the diagram says
 
@@ -32,11 +32,23 @@ Remotion package `@3mrai/diagrams`: every animated flow, architecture and milest
 
 ## Adding or changing an entry
 
-1. Add the data file under `src/data/...` and its entry in `src/catalog.ts`.
-2. Every entry declares `watches`: globs of the real files the diagram depicts. `test/catalog.test.ts` fails when a glob matches nothing, and the drift check (`make diagrams-check`) relies on them. A typo silently disables drift detection, so keep them tight and real.
-3. `id` and `output` must be unique across the catalog. `output` has no extension; the renderer adds `.gif` and `.png`.
+1. Add the data file under `src/data/<kind>/` and its entry in `src/data/<group>.catalog.ts` (never directly in `src/catalog.ts`), with `source` set to the data file's repo-relative path (e.g. `diagrams/src/data/flows/users-signup-otp.ts`). The catalog test requires it to exist and be tracked.
+2. Every entry declares `watches`: globs of the handlers/modules the diagram depicts, not whole service trees. `test/catalog.test.ts` fails when a glob matches nothing, and `make diagrams-check` relies on them. A typo silently disables drift detection, so keep them tight and real. `source`, `src/primitives/**`, `src/theme/**`, `src/schema.ts` and `src/timing.ts` are implicit watches; test files never count as drift.
+3. `id`, `output` and the output **basename** must be unique across the catalog (Obsidian resolves an embed by basename). `output` has no extension; the renderer adds `.gif` and `.png`.
 4. Edges and steps reference declared node/actor ids; the schema rejects unknown ones.
 5. AWS icons: only `src/theme/aws-icons.ts` imports `@nxavis/aws-icons`. Everything else asks the adapter for a service. Swapping the icon source touches that one file.
+
+## Authoring rules
+
+Full text: [[diagrams]]. In short:
+
+- Cross-zone edge labels: at most 10 characters.
+- Order zones so edges join adjacent zones; avoid edges leaving a crowded zone's left sub-column.
+- `DependencyGraph` draws arrows over the task boxes, and a skip-phase arrow blocked by a task detours through a row gap: order tasks within each phase to minimise crossings, faithful to the milestone note.
+- A single long word next to an AWS icon wraps mid-word; prefer short names.
+- A self-step on the right-most actor clips its label; move the step or reorder the actors.
+- At most ~12 nodes; `ArchitectureMap` at most 18 including `system-context`. Never drop real services to fit.
+- GIF budget: changed pixels per frame drive the size. Never fade or animate the whole canvas; architecture maps reveal each edge in `ARCH_STEP` = 12 frames.
 
 ## Output location
 

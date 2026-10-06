@@ -13,10 +13,11 @@ export function ArrowLabel({ at, text }: { at: Anchor; text: string }) {
 /**
  * An SVG arrow from (x1,y1) to (x2,y2), or along `path` when given; `progress` 0→1 animates the stroke.
  * A `label` passed here is drawn inline; layouts with nodes draw it through ArrowLabel instead.
+ * `halo` underlays a background-coloured stroke so an arrow drawn over boxes stays visibly continuous.
  */
 export function Arrow(p: {
   x1?: number; y1?: number; x2?: number; y2?: number; path?: { d: string; len: number }; progress: number;
-  label?: string; dashed?: boolean; active?: boolean; id: string;
+  label?: string; dashed?: boolean; active?: boolean; halo?: boolean; id: string;
 }) {
   const straight = p.x1 !== undefined && p.y1 !== undefined && p.x2 !== undefined && p.y2 !== undefined;
   const d = p.path ? p.path.d : straight ? `M ${p.x1} ${p.y1} L ${p.x2} ${p.y2}` : "";
@@ -29,6 +30,10 @@ export function Arrow(p: {
           <path d="M0,0 L10,5 L0,10 z" fill={colour} />
         </marker>
       </defs>
+      {p.halo ? (
+        <path d={d} fill="none" stroke={tokens.bg} strokeWidth={8} strokeLinejoin="round"
+          strokeDasharray={`${len}`} strokeDashoffset={len * (1 - p.progress)} />
+      ) : null}
       <path
         d={d} fill="none" stroke={colour} strokeWidth={p.active ? 3 : 2}
         strokeDasharray={p.dashed ? "8 6" : `${len}`} strokeDashoffset={p.dashed ? 0 : len * (1 - p.progress)}

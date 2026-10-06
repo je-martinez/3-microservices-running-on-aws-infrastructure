@@ -56,8 +56,11 @@ specialist: stack, primitives, detail limits and the verify loop live in
 2. **Read the sources the diagram depicts**: `infra/modules/**`,
    `infra/environments/**`, `docker-compose*.yml`, handlers and
    `services/<svc>/openapi.yaml`.
-3. **Edit the data and the catalog entry** (`src/data/...`, `src/catalog.ts`).
-   Every entry needs `watches` that match real files.
+3. **Edit the data and the catalog entry** (`src/data/<kind>/...` and
+   `src/data/<group>.catalog.ts`, never `src/catalog.ts` directly). Every entry
+   needs `source` (its data module's repo path) and `watches` scoped to the
+   handlers/modules it depicts, all matching tracked files. Follow the
+   **Authoring rules** in `diagrams/CLAUDE.md` (full text: `[[diagrams]]`).
 4. **Run the tests**: `pnpm --filter @3mrai/diagrams test`.
 5. **Render by ID** (`make diagrams-render ID=<id>`) and **Read the PNG**: check
    contrast, clipping and overlapping labels.

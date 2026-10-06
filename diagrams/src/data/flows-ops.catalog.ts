@@ -17,6 +17,7 @@ export const opsFlowEntries: CatalogEntry[] = [
       "functions/events-pipeline/src/handler.ts",
       "observability/**",
     ],
+    source: "diagrams/src/data/flows/business-metrics.ts",
     data: businessMetrics,
   },
   {
@@ -30,6 +31,7 @@ export const opsFlowEntries: CatalogEntry[] = [
       "observability/otel-collector-config.yaml",
       "observability/dashboards/rum.dashboard.json",
     ],
+    source: "diagrams/src/data/flows/browser-rum.ts",
     data: browserRum,
   },
   {
@@ -37,7 +39,9 @@ export const opsFlowEntries: CatalogEntry[] = [
     title: preprodDeploy.title,
     primitive: "flow",
     output: "docs/infrastructure/runbooks/diagrams/preprod-deploy",
+    // WHY Makefile stays: the preprod-up target is the only source of the step order this flow draws.
     watches: ["infra/environments/preprod/**", "docker-compose.preprod.yml", "Makefile"],
+    source: "diagrams/src/data/flows/preprod-deploy.ts",
     data: preprodDeploy,
   },
   {
@@ -45,7 +49,12 @@ export const opsFlowEntries: CatalogEntry[] = [
     title: terraformTwoPhaseApply.title,
     primitive: "flow",
     output: "docs/infrastructure/decisions/diagrams/terraform-two-phase-apply",
-    watches: ["infra/environments/local/**", "Makefile"],
+    watches: [
+      "infra/environments/local/backend/**",
+      "infra/environments/local/*.tf",
+      "infra/environments/local/post/**",
+    ],
+    source: "diagrams/src/data/flows/terraform-two-phase-apply.ts",
     data: terraformTwoPhaseApply,
   },
 ];

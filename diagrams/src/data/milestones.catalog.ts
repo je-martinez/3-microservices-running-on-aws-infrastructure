@@ -11,6 +11,7 @@ export const milestoneEntries: CatalogEntry[] = [
     animated: false,
     output: "docs/plans/diagrams/users-service-deps",
     watches: ["docs/plans/users-service-milestone.md"],
+    source: "diagrams/src/data/milestones/users-service.ts",
     data: usersServiceDeps,
   },
   {
@@ -20,6 +21,7 @@ export const milestoneEntries: CatalogEntry[] = [
     animated: false,
     output: "docs/plans/diagrams/services-infra-scaffold-deps",
     watches: ["docs/plans/services-infra-scaffold-milestone.md"],
+    source: "diagrams/src/data/milestones/services-infra-scaffold.ts",
     data: servicesInfraScaffoldDeps,
   },
   {
@@ -29,6 +31,7 @@ export const milestoneEntries: CatalogEntry[] = [
     animated: false,
     output: "docs/plans/diagrams/documentation-vault-deps",
     watches: ["docs/plans/documentation-vault-milestone.md"],
+    source: "diagrams/src/data/milestones/documentation-vault.ts",
     data: documentationVaultDeps,
   },
 ];
