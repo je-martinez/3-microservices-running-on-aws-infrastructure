@@ -241,3 +241,4 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-10-02-floci-preprod-environment]]
 - [[2026-10-03-floci-preprod-follow-ups]]
 - [[2026-10-05-preprod-integrations]]
+- [[2026-10-06-remotion-diagrams]]
