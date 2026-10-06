@@ -109,8 +109,6 @@ rules:
 # Project-level servers from .mcp.json. Distinct from `plugin-mcp-servers`
 # above: those ship inside Claude Code plugins and have no config to project.
 mcp:
-  drawio: universal
-
   # pencil: stdio server behind scripts/pencil_mcp.py, which resolves the Pen
   # desktop binary per platform — no Claude Code dependency, so the config
   # projects. The pencil-design-extraction SKILL stays excluded (see below);

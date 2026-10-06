@@ -5,13 +5,6 @@
     ]
   },
   "mcpServers": {
-    "drawio": {
-      "command": "pnpm",
-      "args": [
-        "dlx",
-        "@drawio/mcp"
-      ]
-    },
     "pencil": {
       "command": "sh",
       "args": [

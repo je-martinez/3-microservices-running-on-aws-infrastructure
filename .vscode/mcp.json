@@ -1,14 +1,6 @@
 {
   "inputs": [],
   "servers": {
-    "drawio": {
-      "type": "stdio",
-      "command": "pnpm",
-      "args": [
-        "dlx",
-        "@drawio/mcp"
-      ]
-    },
     "pencil": {
       "type": "stdio",
       "command": "sh",
