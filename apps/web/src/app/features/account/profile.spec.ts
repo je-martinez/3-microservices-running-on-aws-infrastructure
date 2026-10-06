@@ -6,6 +6,7 @@ import {
   provideHttpClientTesting,
   type TestRequest,
 } from '@angular/common/http/testing';
+import { ErrorHandler } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { provideRouter } from '@angular/router';
@@ -23,6 +24,7 @@ import type { Stripe, StripeElements } from '@stripe/stripe-js';
 import { ProfilePage, SAVED_BANNER_DISMISS_MS } from './profile';
 import { APP_CONFIG } from '../../core/config/app-config';
 import { PaymentMethodsApi } from '../../core/api/payment-methods-api';
+import { ApiError } from '../../core/http/api-client';
 import { StripeLoader } from '../../core/payments/stripe-loader';
 import { SessionStore } from '../../core/auth/session-store';
 import { StreetAutocomplete } from '../../shared/ui/street-autocomplete';
@@ -60,6 +62,7 @@ const MORGAN = {
 describe('ProfilePage', () => {
   let fixture: ComponentFixture<ProfilePage>;
   let controller: HttpTestingController;
+  let handleError: ReturnType<typeof vi.fn>;
 
   const STRIPE_ENABLED = APP_CONFIG.stripeEnabled;
 
@@ -77,8 +80,10 @@ describe('ProfilePage', () => {
   }
 
   beforeEach(async () => {
+    handleError = vi.fn();
     TestBed.configureTestingModule({
       providers: [
+        { provide: ErrorHandler, useValue: { handleError } },
         provideHttpClient(),
         provideHttpClientTesting(),
         provideRouter([]),
@@ -305,6 +310,300 @@ describe('ProfilePage', () => {
 
     expect(fieldValues()).toContain('Portland');
     controller.verify();
+  });
+
+  describe('failed save', () => {
+    const UNAVAILABLE = { message: 'Service unavailable' };
+
+    async function editCityAndFailSave(): Promise<void> {
+      create();
+      (await awaitRequest(fixture, controller, ME)).flush(MORGAN);
+      await settle(fixture);
+
+      fillField(fixture, 'City', 'Salem');
+      root().querySelector<HTMLButtonElement>('app-button-primary button')?.click();
+      await settle(fixture);
+      (await awaitRequest(fixture, controller, ME)).flush(UNAVAILABLE, {
+        status: 503,
+        statusText: 'Service Unavailable',
+      });
+      await settle(fixture);
+    }
+
+    /**
+     * CONTRACT: A failed save neither reseeds the form nor clears its error.
+     * `saving` flipping back to false is not a new server user, so a reseed on
+     * it discards the edits and hides the message in the same tick.
+     */
+    it('keeps the edits and shows the save-error banner', async () => {
+      await editCityAndFailSave();
+
+      expect(fieldValues()).toContain('Salem');
+      expect(fieldValues()).not.toContain('Portland');
+      expect(textOf(fixture, '[role="alert"]')).toContain('Couldn’t save your changes');
+    });
+
+    /** CONTRACT: Rendered AND reported — see [[browser-rum]]. */
+    it('reports the failure to ErrorHandler', async () => {
+      await editCityAndFailSave();
+
+      expect(handleError).toHaveBeenCalledTimes(1);
+      const [reported] = handleError.mock.calls[0] as [unknown];
+      expect(reported).toBeInstanceOf(ApiError);
+      expect((reported as ApiError).status).toBe(503);
+    });
+
+    it('re-sends the preserved edits on the next save', async () => {
+      await editCityAndFailSave();
+
+      root().querySelector<HTMLButtonElement>('app-button-primary button')?.click();
+      await settle(fixture);
+      const patch = await awaitRequest(fixture, controller, ME);
+      expect(patch.request.body).toMatchObject({ address: { city: 'Salem' } });
+      patch.flush({ ...MORGAN, address: { ...MORGAN.address, city: 'Salem' } });
+      await settle(fixture);
+
+      expect(root().querySelector('[role="alert"]')).toBeNull();
+    });
+  });
+
+  describe('save-error banner', () => {
+    const ERROR_BANNER = '[data-testid="profile-save-error-banner"]';
+    const SAVED_BANNER = '[data-testid="profile-saved-banner"]';
+    const SALEM = { ...MORGAN, address: { ...MORGAN.address, city: 'Salem' } };
+
+    const errorBanner = () => root().querySelector<HTMLElement>(ERROR_BANNER);
+    const savedBanner = () => root().querySelector<HTMLElement>(SAVED_BANNER);
+    const retryButton = () =>
+      root().querySelector<HTMLButtonElement>('[data-testid="profile-save-error-retry"]');
+    const saveButton = () => root().querySelector<HTMLButtonElement>('app-button-primary button');
+
+    const fail = (patch: TestRequest) =>
+      patch.flush({ message: 'Service unavailable' }, { status: 503, statusText: 'Unavailable' });
+
+    async function loaded(): Promise<void> {
+      create();
+      (await awaitRequest(fixture, controller, ME)).flush(MORGAN);
+      await settle(fixture);
+    }
+
+    /** Clicks `button`, then answers the PATCH it sends with `respond`. */
+    async function sendVia(
+      button: HTMLButtonElement | null,
+      respond: (patch: TestRequest) => void,
+    ): Promise<TestRequest> {
+      button?.click();
+      await settle(fixture);
+      const patch = await awaitRequest(fixture, controller, ME);
+      respond(patch);
+      await settle(fixture);
+      return patch;
+    }
+
+    async function editCityAndFail(): Promise<void> {
+      await loaded();
+      fillField(fixture, 'City', 'Salem');
+      await sendVia(saveButton(), fail);
+    }
+
+    function clickCancel(): void {
+      Array.from(root().querySelectorAll('button'))
+        .find((b) => b.textContent?.trim() === 'Cancel')
+        ?.click();
+    }
+
+    it('is absent until a save fails', async () => {
+      await loaded();
+      expect(errorBanner()).toBeNull();
+
+      fillField(fixture, 'City', 'Salem');
+      await sendVia(saveButton(), fail);
+
+      expect(errorBanner()).not.toBeNull();
+      expect(errorBanner()?.getAttribute('role')).toBe('alert');
+      expect(textOf(fixture, ERROR_BANNER)).toContain('Couldn’t save your changes');
+      expect(textOf(fixture, ERROR_BANNER)).toContain(
+        'Something went wrong on our side. Your edits are still here — try again in a moment.',
+      );
+    });
+
+    /**
+     * CONTRACT: One error rendering. The server detail goes to ErrorHandler,
+     * not the page — a second alert beside the banner announces twice.
+     */
+    it('is the only alert on the page, with no server message rendered', async () => {
+      await editCityAndFail();
+
+      expect(root().querySelectorAll('[role="alert"]')).toHaveLength(1);
+      expect(root().textContent).not.toContain('Service unavailable');
+      expect(errorBanner()?.closest('[role="status"]')).toBeNull();
+    });
+
+    it('re-sends the edited values on Try again, then swaps to the saved banner', async () => {
+      await editCityAndFail();
+
+      const patch = await sendVia(retryButton(), (req) => req.flush(SALEM));
+
+      expect(patch.request.method).toBe('PATCH');
+      expect(patch.request.body).toMatchObject({ address: { city: 'Salem' } });
+      expect(errorBanner()).toBeNull();
+      expect(savedBanner()).not.toBeNull();
+    });
+
+    it('stays up and reports again when Try again fails too', async () => {
+      await editCityAndFail();
+      expect(handleError).toHaveBeenCalledTimes(1);
+
+      await sendVia(retryButton(), fail);
+
+      expect(errorBanner()).not.toBeNull();
+      expect(savedBanner()).toBeNull();
+      expect(fieldValues()).toContain('Salem');
+      expect(handleError).toHaveBeenCalledTimes(2);
+      expect(handleError.mock.calls[1]?.[0]).toBeInstanceOf(ApiError);
+    });
+
+    it('disables Try again and Save while the request is in flight', async () => {
+      await editCityAndFail();
+      expect(retryButton()?.disabled).toBe(false);
+
+      retryButton()?.click();
+      await settle(fixture);
+      const patch = await awaitRequest(fixture, controller, ME);
+
+      expect(errorBanner()).not.toBeNull();
+      expect(retryButton()?.disabled).toBe(true);
+      expect(retryButton()?.getAttribute('aria-busy')).toBe('true');
+      expect(saveButton()?.disabled).toBe(true);
+
+      patch.flush(SALEM);
+      await settle(fixture);
+    });
+
+    it('hides when its dismiss button is pressed, keeping the edits', async () => {
+      await editCityAndFail();
+
+      root().querySelector<HTMLButtonElement>('[data-testid="profile-save-error-dismiss"]')?.click();
+      await settle(fixture);
+
+      expect(errorBanner()).toBeNull();
+      expect(fieldValues()).toContain('Salem');
+    });
+
+    it('hides on Cancel', async () => {
+      await editCityAndFail();
+
+      clickCancel();
+      await settle(fixture);
+
+      expect(errorBanner()).toBeNull();
+      expect(fieldValues()).toContain('Portland');
+    });
+
+    it('stays up while the user keeps editing', async () => {
+      await editCityAndFail();
+
+      fillField(fixture, 'ZIP Code', '97301');
+      fillField(fixture, 'Full name', 'Morgan R. Reyes');
+      await settle(fixture);
+
+      expect(errorBanner()).not.toBeNull();
+    });
+
+    it('replaces a visible saved banner when the next save fails', async () => {
+      await loaded();
+      await sendVia(saveButton(), (patch) => patch.flush(MORGAN));
+      expect(savedBanner()).not.toBeNull();
+
+      await sendVia(saveButton(), fail);
+
+      expect(savedBanner()).toBeNull();
+      expect(errorBanner()).not.toBeNull();
+    });
+
+    it('is replaced by the saved banner when a plain Save succeeds', async () => {
+      await editCityAndFail();
+
+      await sendVia(saveButton(), (patch) => patch.flush(SALEM));
+
+      expect(errorBanner()).toBeNull();
+      expect(savedBanner()).not.toBeNull();
+    });
+
+    it('renders above the Save/Cancel row', async () => {
+      await editCityAndFail();
+
+      const save = root().querySelector('app-button-primary');
+      expect(errorBanner()).toBeTruthy();
+      expect(save).toBeTruthy();
+      expect(errorBanner()!.compareDocumentPosition(save!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    /** WORKAROUND(test): jsdom has no `Element.scrollTo` — see the saved-banner block. */
+    describe('scroll to the end of the page', () => {
+      let scrolled: ReturnType<typeof vi.fn>;
+
+      beforeEach(() => {
+        scrolled = vi.fn();
+        Object.defineProperty(Element.prototype, 'scrollTo', {
+          value: scrolled,
+          configurable: true,
+          writable: true,
+        });
+        vi.stubGlobal('matchMedia', (query: string) => ({ matches: false, media: query }) as MediaQueryList);
+      });
+
+      afterEach(() => {
+        delete (Element.prototype as Partial<Element>).scrollTo;
+        vi.unstubAllGlobals();
+      });
+
+      it('scrolls once when the banner appears, not again on a repeat failure', async () => {
+        await editCityAndFail();
+        expect(scrolled).toHaveBeenCalledTimes(1);
+        expect(scrolled).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'smooth' }));
+
+        await sendVia(retryButton(), fail);
+
+        expect(scrolled).toHaveBeenCalledTimes(1);
+      });
+    });
+  });
+
+  describe('reseeding from the session user', () => {
+    async function loaded(): Promise<void> {
+      create();
+      (await awaitRequest(fixture, controller, ME)).flush(MORGAN);
+      await settle(fixture);
+    }
+
+    it('reseeds when a new server user arrives while not saving', async () => {
+      await loaded();
+
+      TestBed.inject(SessionStore).setUser({
+        ...MORGAN,
+        address: { ...MORGAN.address, city: 'Eugene' },
+      });
+      await settle(fixture);
+
+      expect(fieldValues()).toContain('Eugene');
+    });
+
+    it('reseeds from the user a successful save returns', async () => {
+      await loaded();
+
+      fillField(fixture, 'City', 'salem');
+      root().querySelector<HTMLButtonElement>('app-button-primary button')?.click();
+      await settle(fixture);
+      (await awaitRequest(fixture, controller, ME)).flush({
+        ...MORGAN,
+        address: { ...MORGAN.address, city: 'Salem' },
+      });
+      await settle(fixture);
+
+      expect(fieldValues()).toContain('Salem');
+      expect(fieldValues()).not.toContain('salem');
+    });
   });
 
   describe('saved banner', () => {
@@ -682,6 +981,8 @@ describe('ProfilePage', () => {
 
     const root = fixture.nativeElement as HTMLElement;
     expect(textOf(fixture, '[role="alert"]')).toContain('We could not load your profile.');
+    expect(handleError).toHaveBeenCalledTimes(1);
+    expect(handleError.mock.calls[0]?.[0]).toBeInstanceOf(ApiError);
 
     root.querySelector<HTMLButtonElement>('[role="alert"] button')?.click();
     (await awaitRequest(fixture, controller, ME)).flush(MORGAN);

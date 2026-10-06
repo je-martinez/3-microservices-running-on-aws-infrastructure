@@ -5,6 +5,7 @@ import {
   DestroyRef,
   effect,
   ElementRef,
+  ErrorHandler,
   inject,
   Injector,
   signal,
@@ -16,9 +17,11 @@ import { NgTemplateOutlet } from '@angular/common';
 import { form, maxLength, pattern, required, FormField } from '@angular/forms/signals';
 import { Router } from '@angular/router';
 import {
+  LucideCircleAlert,
   LucideCircleCheck,
   LucideLock,
   LucideRefreshCw,
+  LucideRotateCw,
   LucideTriangleAlert,
   LucideX,
 } from '@lucide/angular';
@@ -101,9 +104,11 @@ function sameForm(a: ProfileForm, b: ProfileForm): boolean {
     PaymentMethodsTab,
     PhoneField,
     StreetAutocomplete,
+    LucideCircleAlert,
     LucideCircleCheck,
     LucideLock,
     LucideRefreshCw,
+    LucideRotateCw,
     LucideTriangleAlert,
     LucideX,
   ],
@@ -115,8 +120,9 @@ export class ProfilePage {
   private readonly usersApi = inject(UsersApi);
   private readonly session = inject(SessionStore);
   private readonly injector = inject(Injector);
+  private readonly errorHandler = inject(ErrorHandler);
 
-  /** The banner's live region plus the Save/Cancel row it sits above. */
+  /** Both banners plus the Save/Cancel row they sit above. */
   private readonly saveFooter = viewChild<ElementRef<HTMLElement>>('saveFooter');
 
   protected readonly user = this.session.user;
@@ -134,7 +140,12 @@ export class ProfilePage {
   protected readonly error = signal<string | null>(null);
 
   protected readonly saving = signal(false);
-  protected readonly saveError = signal<string | null>(null);
+  /**
+   * True shows the save-error banner. It renders the design's generic copy,
+   * never the server message: that detail reaches ErrorHandler (and RUM), and
+   * the banner's job is to say the edits survived and offer a retry.
+   */
+  protected readonly saveFailed = signal(false);
 
   /**
    * The form values the last successful save produced; non-null shows the
@@ -184,9 +195,12 @@ export class ProfilePage {
     // CONTRACT: Seed the form from whatever the session already holds, then
     // again once the fetch lands. Seeding only on load leaves every field blank
     // for a user who arrives with a cached profile, which reads as data loss.
+    // CONTRACT: Track `user` ONLY — `saving` is read untracked. Tracking it
+    // reseeds when a FAILED save ends, discarding the edits and clearing the
+    // error the same tick it is set.
     effect(() => {
       const current = this.user();
-      if (current !== null && !this.saving()) this.resetForm();
+      if (current !== null && !untracked(this.saving)) this.resetForm();
     });
     // CONTRACT: Clear on a value DIFFERENCE, never on any model write. The
     // reseed after a save writes an equal model, and clearing on the write
@@ -200,12 +214,19 @@ export class ProfilePage {
     void this.load();
   }
 
+  /**
+   * CONTRACT: Both catches here and in `save` report to ErrorHandler as well as
+   * rendering a message. A caught-and-rendered error never reaches
+   * `RumErrorHandler`, so the failure is absent from `rum_logs`.
+   * See [[browser-rum]]
+   */
   protected async load(): Promise<void> {
     this.loading.set(this.session.user() === null);
     this.error.set(null);
     try {
       this.session.setUser(await firstValueFrom(this.usersApi.me()));
     } catch (error: unknown) {
+      this.errorHandler.handleError(error);
       this.error.set(authErrorMessage(error));
     } finally {
       this.loading.set(false);
@@ -276,11 +297,11 @@ export class ProfilePage {
     const current = this.user();
     if (!current) return;
 
-    this.saveError.set(null);
+    this.saveFailed.set(false);
     this.model.set(formFromUser(current));
   }
 
-  /** Cancel: an equal reseed would leave the banner up, so it is dismissed explicitly. */
+  /** Cancel: an equal reseed would leave the saved banner up, so it is dismissed explicitly. */
   protected discardEdits(): void {
     this.dismissSaved();
     this.resetForm();
@@ -300,6 +321,22 @@ export class ProfilePage {
     this.savedForm.set(saved);
     this.armBannerTimer();
     afterNextRender(() => this.revealSaveFooter(), { injector: this.injector });
+  }
+
+  /**
+   * CONTRACT: No auto-dismiss — the error banner hides only on a successful
+   * save, Cancel, or its X. A timed hide would leave a user who looked away
+   * with unsaved edits and nothing saying so. Scrolls only on the false→true
+   * edge; a retry that fails again leaves the page where the user put it.
+   */
+  private showSaveError(): void {
+    if (this.saveFailed()) return;
+    this.saveFailed.set(true);
+    afterNextRender(() => this.revealSaveFooter(), { injector: this.injector });
+  }
+
+  protected dismissSaveError(): void {
+    this.saveFailed.set(false);
   }
 
   /**
@@ -368,8 +405,9 @@ export class ProfilePage {
     this.profileForm().markAsTouched();
     if (!this.canSave()) return;
 
+    // WHY: The error banner stays up while a retry is in flight (its button
+    // disabled), so a second failure does not flash it out and back in.
     this.saving.set(true);
-    this.saveError.set(null);
     this.dismissSaved();
     const values = this.model();
     try {
@@ -401,9 +439,11 @@ export class ProfilePage {
       // the banner's values against an equal model rather than the raw input.
       const savedForm = formFromUser(updated);
       this.model.set(savedForm);
+      this.saveFailed.set(false);
       this.showSavedBanner(savedForm);
     } catch (error: unknown) {
-      this.saveError.set(authErrorMessage(error));
+      this.errorHandler.handleError(error);
+      this.showSaveError();
     } finally {
       this.saving.set(false);
     }

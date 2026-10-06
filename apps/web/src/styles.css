@@ -59,6 +59,9 @@
   --color-success-bg: #ECFDF5;
   --color-success-ink: #047857;
   --color-danger-red: #DC2626;
+  --color-danger-bg: #FEF2F2;
+  --color-danger-ink: #B91C1C;
+  --color-danger-line: #FECACA;
   --color-info-blue: #2563EB;
   --color-info-bg: #EFF6FF;
   --color-warn-ink: #B45309;
@@ -439,32 +442,32 @@ app-app-header {
  * the banner into view right after it renders, and a banner still collapsed
  * to 0 at that instant is measured short, leaving "Save changes" below the
  * fold. Durations match the drawer's: in 250ms, out 200ms. */
-@keyframes saved-banner-fade-in {
+@keyframes profile-banner-fade-in {
   from {
     opacity: 0;
   }
 }
 
-@keyframes saved-banner-fade-out {
+@keyframes profile-banner-fade-out {
   to {
     opacity: 0;
   }
 }
 
-.saved-banner-enter {
-  animation: 250ms ease both saved-banner-fade-in;
+.profile-banner-enter {
+  animation: 250ms ease both profile-banner-fade-in;
 }
 
-.saved-banner-leave {
-  animation: 200ms ease both saved-banner-fade-out;
+.profile-banner-leave {
+  animation: 200ms ease both profile-banner-fade-out;
 }
 
 /* WARNING: Reduced motion is a medical setting, not a taste preference. Kept at
  * 1ms rather than 0s: Angular removes the leaving node on `animationend`, which
  * a zero-duration animation may never emit, stranding the banner in the DOM. */
 @media (prefers-reduced-motion: reduce) {
-  .saved-banner-enter,
-  .saved-banner-leave {
+  .profile-banner-enter,
+  .profile-banner-leave {
     animation-duration: 1ms;
   }
 }

@@ -138,13 +138,55 @@
               [formField]="profileForm.postalCode"
               help="Used as the default delivery address at checkout."
             />
-
-            @if (saveError(); as message) {
-              <p role="alert" class="text-danger-red w-full shrink-0 text-body-sm">{{ message }}</p>
-            }
           </div>
 
           <div #saveFooter class="flex h-fit w-full shrink-0 flex-col items-stretch justify-start">
+            <!-- CONTRACT: `role="alert"` lives on the banner itself and OUTSIDE the
+                 status region below, which is empty whenever this renders — one live
+                 region announces, never two. An alert is announced on insertion, so
+                 unlike the status region it need not stay mounted. -->
+            @if (saveFailed()) {
+              <div class="pb-3 md:pb-4" animate.enter="profile-banner-enter" animate.leave="profile-banner-leave">
+                <div
+                  role="alert"
+                  data-testid="profile-save-error-banner"
+                  class="bg-danger-bg flex h-fit w-full flex-row items-start justify-start gap-3 rounded-md py-2xl pr-3 pl-4"
+                >
+                  <svg lucideCircleAlert class="text-danger-ink h-icon-lg w-icon-lg shrink-0"></svg>
+                  <div class="flex h-fit min-w-0 flex-1 flex-col items-start justify-start gap-2">
+                    <div class="flex h-fit w-full flex-col items-start justify-start gap-0.5">
+                      <span class="text-danger-ink font-heading text-label font-bold tracking-[-0.0125rem]">
+                        Couldn’t save your changes
+                      </span>
+                      <span class="text-danger-ink font-body text-body-sm leading-normal">
+                        Something went wrong on our side. Your edits are still here — try again in a moment.
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      data-testid="profile-save-error-retry"
+                      class="border-danger-line bg-surface-white text-danger-ink flex h-fit w-fit flex-row items-center justify-center gap-xs rounded-lg border px-3 py-xs text-body-sm font-semibold disabled:opacity-60"
+                      [disabled]="!canSave()"
+                      [attr.aria-busy]="saving()"
+                      (click)="save()"
+                    >
+                      <svg lucideRotateCw class="h-3.5 w-3.5 shrink-0"></svg>
+                      Try again
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    data-testid="profile-save-error-dismiss"
+                    aria-label="Dismiss"
+                    class="text-danger-ink flex h-7 w-7 shrink-0 flex-row items-center justify-center rounded-[0.375rem]"
+                    (click)="dismissSaveError()"
+                  >
+                    <svg lucideX class="h-4 w-4"></svg>
+                  </button>
+                </div>
+              </div>
+            }
+
             <!-- CONTRACT: The live region stays mounted and only its content toggles.
                  A `role="status"` node inserted together with its text is skipped by
                  several screen readers, so the save is never announced. The gap to the
@@ -152,7 +194,7 @@
                  adds no space. -->
             <div role="status" class="w-full">
               @if (showSaved()) {
-                <div class="pb-3 md:pb-4" animate.enter="saved-banner-enter" animate.leave="saved-banner-leave">
+                <div class="pb-3 md:pb-4" animate.enter="profile-banner-enter" animate.leave="profile-banner-leave">
                   <div
                     data-testid="profile-saved-banner"
                     class="bg-success-bg flex h-fit w-full flex-row items-center justify-start gap-3 rounded-md py-2xl pr-3 pl-4"
