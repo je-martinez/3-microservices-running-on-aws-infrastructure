@@ -26,13 +26,12 @@ Adding two icons (`circle-alert`, `rotate-cw`) to the lazy profile save-error ba
 
 ## Evidence
 
-A source-map measurement put `@lucide/angular` at about 153 kB of the roughly 347 kB shared initial chunk (46 icons). Removing four registered-but-unused icons from `app.config.ts` (`apple`, `chevron-down`, `link`, `sparkles`, leftovers of the removed Apple Pay and Link tabs) saved 12.70 kB. Together with a type-only `SeverityNumber` import in `rum-error-handler.ts` (-2.26 kB, `@opentelemetry/api-logs` out of main), the initial total went from 597.60 to 582.64 kB.
+A source-map measurement put `@lucide/angular` at about 153 kB of the roughly 347 kB shared initial chunk (46 icons). Removing four registered-but-unused icons from `app.config.ts` (`apple`, `chevron-down`, `link`, `sparkles`, leftovers of the removed Apple Pay and Link tabs) saved 12.70 kB. Together with a type-only `SeverityNumber` import in `rum-error-handler.ts` (-2.26 kB, `@opentelemetry/api-logs` out of main), the initial total went from 597.60 to 582.64 kB. A follow-up made `rum-propagation-interceptor.ts` OTel-free, so `@opentelemetry/api` ships in the lazy `rum-sdk` chunk and the initial total is 556.05 kB (main 161.16 kB); the rule is in [[browser-rum]].
 
 `pnpm build` is the only check that sees this: the budget is a build gate, not a test or lint rule (see [[browser-rum]]).
 
 ## Noted, not done
 
-- About 26 kB of `@opentelemetry/api` is still statically imported by `rum-propagation-interceptor.ts`.
 - Icons used only by name through `LucideDynamicIcon` could avoid component classes.
 
 ## Related

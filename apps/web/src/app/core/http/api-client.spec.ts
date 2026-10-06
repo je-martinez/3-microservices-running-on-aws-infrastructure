@@ -1,9 +1,10 @@
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
-import { WebTracerProvider } from '@opentelemetry/sdk-trace-web';
 import { firstValueFrom } from 'rxjs';
 
+import { APP_CONFIG } from '../config/app-config';
+import { initRum, isRumStarted } from '../observability/rum';
 import { rumPropagationInterceptor } from '../observability/rum-propagation-interceptor';
 import { ApiClient, ApiError } from './api-client';
 
@@ -136,8 +137,16 @@ describe('ApiClient with rumPropagationInterceptor', () => {
   let api: ApiClient;
   let controller: HttpTestingController;
 
-  beforeAll(() => {
-    new WebTracerProvider().register();
+  // WHY: The interceptor builds its span only once rum-sdk.ts has loaded;
+  // initRum()'s real dynamic import runs past vitest's 5000ms default.
+  beforeAll(async () => {
+    Object.defineProperty(APP_CONFIG, 'rumEnabled', { value: true, configurable: true });
+    initRum();
+    await vi.waitFor(() => expect(isRumStarted()).toBe(true), { timeout: 15000 });
+  }, 15000);
+
+  afterAll(() => {
+    Object.defineProperty(APP_CONFIG, 'rumEnabled', { value: false, configurable: true });
   });
 
   beforeEach(() => {

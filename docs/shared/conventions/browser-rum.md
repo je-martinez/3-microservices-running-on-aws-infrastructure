@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-09-20
-updated: 2026-10-02
+updated: 2026-10-06
 tags:
   - type/convention
   - area/shared
@@ -43,6 +43,13 @@ checklist per trigger, and the concrete failure each rule prevents.
 - The interceptor is registered LAST: `[refreshInterceptor, authInterceptor,
   rumPropagationInterceptor]`. A new interceptor goes BEFORE it unless it has a specific reason
   not to — the RUM one must see the fully-formed request.
+- The interceptor is OTel-free: it has no value import of any `@opentelemetry/*` package. It
+  filters on `gatewayPath(req.url)` and calls `startGatewaySpan(method, route)` from `rum.ts`,
+  which delegates to a handle `initRum()` sets once the lazy `rum-sdk.ts` has loaded. The CLIENT
+  span (`${method} ${route}`, linked to the page span, `traceparent` via `propagation.inject`) is
+  built inside `rum-sdk.ts`. Until the SDK has loaded, or with `NG_APP_RUM_ENABLED` off, the
+  request passes through untouched (no `traceparent`), and a gateway error then omits `trace_id`
+  instead of recording an all-zeros one.
 - Nothing else is needed for tracing. Do not add per-call instrumentation, and do NOT enable
   OTel's XHR auto-instrumentation "for completeness": it propagates independently via
   `propagateTraceHeaderCorsUrls` and would double every request's spans.
@@ -83,6 +90,10 @@ checklist per trigger, and the concrete failure each rule prevents.
   module scope in a file the app always loads. A static OTel import in an always-loaded file
   silently re-inflates the initial bundle even with the flag off; that happened here and cost
   173 kB before it was caught.
+  An ESLint rule in `apps/web/eslint.config.js` (`@typescript-eslint/no-restricted-imports`,
+  pattern `@opentelemetry/*`, `allowTypeImports: true`) forbids OTel value imports everywhere in
+  `src` except `rum-sdk.ts` and specs; type-only imports are allowed. `@opentelemetry/api` ships
+  in the lazy `rum-sdk` chunk (initial bundle 556.05 kB).
 - **`pnpm build` is part of "done".** The initial-bundle budget (600 kB, `apps/web/angular.json`)
   is a real gate and `pnpm test`/`lint`/`typecheck` do not check it. A whole implementation plan
   ran to completion without it and shipped a budget breach.
@@ -107,7 +118,7 @@ checklist per trigger, and the concrete failure each rule prevents.
   `infra/environments/local/scripts/generate_env_files.py` — editing only nginx leaves `pnpm dev`
   broken, silently).
 - **Every gateway call is its own trace root; the page it came from is a link, never a parent.**
-  `rumPropagationInterceptor` starts its CLIENT span from `ROOT_CONTEXT`, deliberately, so an
+  The CLIENT span (built in `rum-sdk.ts`) starts from `ROOT_CONTEXT`, deliberately, so an
   in-flight span higher up the call stack can never silently re-parent it. The page-scoped root
   span still exists — the lazily-loaded SDK module creates it, a root-provided `RumNavigation`
   service rotates it on Angular Router `NavigationEnd`, and it is ended on `visibilitychange →
