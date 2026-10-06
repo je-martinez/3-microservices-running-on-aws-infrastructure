@@ -26,6 +26,9 @@ related:
 
 ## Why this note exists
 
+![[browser-rum.gif]]
+
+
 The web app now emits browser telemetry — OTel traces joined to the backend's, Web Vitals, JS
 error logs (see [[2026-09-19-web-rum-integration-design]]). Nothing about that fact makes a
 FUTURE endpoint, screen, or flow inherit it. A new feature can ship, the RUM dashboards stay
@@ -193,3 +196,4 @@ See [[live-session-indicator]] and [[2026-10-02-a-websocket-can-die-without-tell
   rule that an aggregate over `app_traces` must scope itself in SQL.
 - [[live-session-indicator]] — evidence-only connection state and the silent-badge UI split.
 - [[2026-10-02-a-websocket-can-die-without-telling-you]] — the measured failures behind that rule.
+- [[2026-10-06-remotion-diagrams-design]]

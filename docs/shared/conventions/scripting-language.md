@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-19
-updated: 2026-08-13
+updated: 2026-10-06
 tags:
   - type/convention
   - area/shared
@@ -26,9 +26,10 @@ repo venv created by `make scripts-setup`; callers invoke `.venv/bin/python` by 
 path.
 
 **2. JavaScript second.** When the task already lives in the Node ecosystem present in the
-repo — vault tooling, the pnpm workspace, anything needing npm dependencies. The three
-existing `scripts/*.mjs` (`validate-vault.mjs`, `drawio-to-svg.mjs`, `import-dashboards.mjs`)
-are the standing example: they consume Node libraries and run under the repo's pinned Node
+repo — vault tooling, the pnpm workspace, anything needing npm dependencies. The two
+existing `scripts/*.mjs` (`validate-vault.mjs`, `import-dashboards.mjs`) and the TypeScript
+scripts under `diagrams/src/scripts/*.ts` (render and drift check, see [[diagrams]]) are the
+standing example: they consume Node libraries and run under the repo's pinned Node
 (`.nvmrc`), so moving them to Python would add a runtime without buying anything.
 
 **3. Bash last.** Only with an explicitly documented limitation, and the *why* must be
@@ -78,3 +79,4 @@ re-implemented per script.
 - [[developer-experience-milestone]]
 - [[local-dev]]
 - [[package-manager]] — sibling convention for the Node package manager (pnpm), same evidence-first shape.
+- [[diagrams]] — its `diagrams/src/scripts/*.ts` fall under the Node-ecosystem exception.

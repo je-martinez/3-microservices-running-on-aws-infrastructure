@@ -2,17 +2,17 @@
 title: "ADR-0015: draw.io as the vault diagram format"
 type: adr
 area: shared
-status: accepted
+status: superseded
 id: ADR-0015
 created: 2026-06-27
-updated: 2026-06-27
+updated: 2026-10-06
 deciders: [Jose E. Martinez]
 supersedes: null
-superseded-by: null
+superseded-by: "ADR-0023-remotion-diagrams"
 tags:
   - type/adr
   - area/shared
-  - status/accepted
+  - status/superseded
 related:
   - "[[architecture]]"
   - "[[system-context]]"

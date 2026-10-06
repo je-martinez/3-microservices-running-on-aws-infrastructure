@@ -4,7 +4,7 @@ type: spec
 area: infra
 status: active
 created: 2026-06-26
-updated: 2026-10-03
+updated: 2026-10-06
 tags: [type/spec, area/infra, status/active]
 related:
   - "[[ADR-0022-preprod-ecs-on-floci]]"
@@ -68,6 +68,9 @@ full account. The modules validate, but phase 2 has not yet been applied, so `or
 `tracking_app` do not exist in the local database today.
 
 ### Messaging
+
+![[websocket-lifecycle.gif]]
+
 
 | Resource | Detail |
 |---|---|
@@ -142,3 +145,4 @@ ALB listeners instead of an nginx task. See [[ADR-0022-preprod-ecs-on-floci]] an
 - [[two-phase-terraform-apply]]
 - [[ADR-0022-preprod-ecs-on-floci]]
 - [[preprod]]
+- [[2026-10-06-remotion-diagrams-design]]

@@ -244,6 +244,9 @@ The Prisma model method **`findByIdOrCognitoSub`** (`services/users/src/shared/d
 
 ## `custom:app_user_id` token claim
 
+![[auth-password-signin-refresh.gif]]
+
+
 `POST /v1/users/register` reserves the `usr_` id **before** calling Cognito `signUp`, passing it through as `appUserId`. This lands in a custom Cognito user-pool attribute, `custom:app_user_id`, at sign-up time — before the corresponding Postgres row exists. The same id is then used as the row's own `id`.
 
 A **Pre-Token-Generation V2 Lambda** (the repo's first Lambda, `infra/modules/cognito/pre-token-lambda/`) copies `custom:app_user_id` into an `app_user_id` claim on both the id and access tokens. It is wired via the [[awscli-fallback-for-floci]] pattern (the pinned AWS provider has no `pre_token_generation_config` block). `app_user_id` is an additive, read-only convenience claim — it does not change identity resolution, which still goes through `x-user-id` / `cognitoSub`.
@@ -252,6 +255,9 @@ See [[cognito-pre-token-lambda]] (infra spec) and [[2026-07-12-app-user-id-token
 
 ## Cognito identity capture
 
+![[users-cognito-identity-webhook.gif]]
+
+
 `POST /v1/webhooks/cognito` is a **public** route (no JWT authorizer) guarded only by a shared secret (`x-webhook-secret`, verified against `env.WEBHOOK_SECRET`). It validates the payload against `cognitoWebhookPayloadSchema` (manual `safeParse`, not Fastify's `schema.body`, so an invalid payload returns `422` rather than Fastify's default `400`) and delegates to `CaptureCognitoIdentityCommand` — the single persistence path for identity capture, writing `users_cognito_data` + `users_cognito_events` in one nested/transactional Prisma write.
 
 Because Floci never invokes Cognito Lambda triggers for PostConfirmation locally (see [[ADR-0017-floci-local]]), `register.ts` calls `CaptureCognitoIdentityCommand` **in-process** whenever `NODE_ENV !== "production"`, synthesizing the same event shape the production webhook receives. In production, the Lambda shim owns this call. The derived `message_id` (see [`users_cognito_events`](#users_cognito_events--event-log)) makes a double capture harmless. Identity capture is best-effort and never a precondition for registration: a failure is logged, not propagated.
@@ -259,6 +265,11 @@ Because Floci never invokes Cognito Lambda triggers for PostConfirmation locally
 See [[2026-07-09-users-cognito-webhook-design]] for the full design.
 
 ## Passwordless OTP authentication
+
+![[users-signup-otp.gif]]
+
+![[auth-passwordless-otp-signin.gif]]
+
 
 > [!info] Implemented and verified live (2026-08-05)
 > `CUSTOM_AUTH` in **both** local and production — never native `USER_AUTH`/`EMAIL_OTP`, which
@@ -301,6 +312,9 @@ Full design and the Floci feasibility evidence that ruled out native `EMAIL_OTP`
 [[2026-08-05-passwordless-otp-auth-design]] and [[2026-08-05-passwordless-otp-auth]].
 
 ## Password reset
+
+![[users-password-reset.gif]]
+
 
 > [!info] Implemented and verified end to end through the gateway (2026-08-09)
 
@@ -450,6 +464,9 @@ whose every call returns `401` until a manual reload. Covered by `sign-out.spec.
 `e2e/tests/web/stale-session.spec.ts`.
 
 ## Account deletion
+
+![[users-account-deletion-cascade.gif]]
+
 
 > [!info] Shipped 2026-08-26 — Account Deletion milestone
 > Full design: [[2026-08-25-account-deletion-design]]. `DELETE /v1/users/me` is the only
@@ -1073,3 +1090,4 @@ convention/pattern notes in `shared/`) live in `docs/domains/users/decisions/`:
 - [[2026-08-27-tracking-go-migration-design]] — Tracking's Python-to-Go migration, including the
   `proto/users.proto` consumption mechanism change (committed stubs via `buf generate`, replacing
   the retired Python codegen and its byte-for-byte drift guard) documented above.
+- [[2026-10-06-remotion-diagrams-design]]

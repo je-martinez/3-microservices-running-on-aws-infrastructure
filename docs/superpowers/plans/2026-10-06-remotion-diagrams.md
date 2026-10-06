@@ -17,12 +17,12 @@ propagates-to:
   - "[[index]]"
   - "[[mcp-servers]]"
   - "[[scripting-language]]"
-  - "[[drawio-diagram-legibility]]"
+  - "[[diagram-legibility]]"
   - "[[ADR-0015-drawio-diagrams]]"
 related:
   - "[[2026-10-06-remotion-diagrams-design]]"
   - "[[ADR-0015-drawio-diagrams]]"
-  - "[[drawio-diagram-legibility]]"
+  - "[[diagram-legibility]]"
   - "[[skill-propagation]]"
   - "[[doc-propagation]]"
 ---
@@ -569,7 +569,7 @@ export function awsIcon(service: AwsService): ComponentType<{ size?: number }> {
 }
 ```
 
-- [ ] **Step 4: Implement `diagrams/src/theme/tokens.ts`** — light pastel fills with DARK text (the legibility rule from `[[drawio-diagram-legibility]]`):
+- [ ] **Step 4: Implement `diagrams/src/theme/tokens.ts`** — light pastel fills with DARK text (the legibility rule from `[[diagram-legibility]]`):
 
 ```ts
 import { loadFont } from "@remotion/google-fonts/Inter";
@@ -1394,7 +1394,7 @@ Expected: no output. (The kept historical items, the spec/plan, and the new note
 
 - [[2026-10-06-remotion-diagrams-design]]
 - [[ADR-0015-drawio-diagrams]]
-- [[drawio-diagram-legibility]]
+- [[diagram-legibility]]
 - [[skill-propagation]]
 - [[doc-propagation]]
 - [[code-comments]]

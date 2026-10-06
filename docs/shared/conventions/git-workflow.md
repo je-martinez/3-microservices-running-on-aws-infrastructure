@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-03
-updated: 2026-10-02
+updated: 2026-10-06
 tags:
   - type/convention
   - area/shared
@@ -13,6 +13,7 @@ related:
   - "[[phase-c-review-flow]]"
   - "[[linear-references]]"
   - "[[milestone-plan]]"
+  - "[[diagrams]]"
   - "[[2026-07-03-git-workflow-decentralization-design]]"
   - "[[2026-07-03-git-workflow-decentralization]]"
 ---
@@ -156,6 +157,24 @@ Where they go:
 Keep it proportionate: a one-line chore does not need five footers. Attach the references that
 genuinely help someone understand or trace the change.
 
+## Diagrams (PR body)
+
+When a PR introduces a new diagrammed flow or alters an existing one, the PR body includes a
+`## Diagrams` section next to `## References`: embed the rendered GIF through the branch's raw URL
+plus **one line on what changed**.
+
+```markdown
+## Diagrams
+
+![orders checkout](https://github.com/je-martinez/3-microservices-running-on-aws-infrastructure/raw/<branch>/<path>.gif)
+
+Checkout now shows the Stripe webhook step.
+```
+
+The section is **mandatory when `make diagrams-check` flagged something** (a flagged diagram that
+was not re-rendered is dismissed with a one-line justification in the same section) and optional
+otherwise. Rules for the diagrams themselves: [[diagrams]].
+
 ## Branch flow (Linear-driven)
 
 - **Milestone → feature branch** `feature/<milestone-slug>` (off `main`).
@@ -180,3 +199,4 @@ restate them.
 - [[milestone-plan]]
 - [[2026-07-03-git-workflow-decentralization-design]] — the design spec that introduced this convention (decentralizing git off `github-ops`).
 - [[2026-07-03-git-workflow-decentralization]] — the implementation plan for that design.
+- [[diagrams]] — the diagram convention the `## Diagrams` PR section serves.

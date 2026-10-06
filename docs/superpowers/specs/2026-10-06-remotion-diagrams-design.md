@@ -17,19 +17,32 @@ propagates-to:
   - "[[index]]"
   - "[[mcp-servers]]"
   - "[[scripting-language]]"
-  - "[[drawio-diagram-legibility]]"
   - "[[ADR-0015-drawio-diagrams]]"
+  - "[[diagrams]]"
+  - "[[ADR-0023-remotion-diagrams]]"
+  - "[[diagram-legibility]]"
+  - "[[users-service-design]]"
+  - "[[ADR-0020-self-owned-password-reset]]"
+  - "[[orders-service-design]]"
+  - "[[tracking-service-design]]"
+  - "[[events-pipeline-design]]"
+  - "[[aws-resources]]"
+  - "[[openobserve-runbook]]"
+  - "[[browser-rum]]"
+  - "[[x-cache-response-header]]"
+  - "[[preprod]]"
+  - "[[two-phase-terraform-apply]]"
+  - "[[users-service-milestone]]"
+  - "[[services-infra-scaffold-milestone]]"
+  - "[[documentation-vault-milestone]]"
 related:
   - "[[ADR-0015-drawio-diagrams]]"
-  - "[[drawio-diagram-legibility]]"
+  - "[[diagram-legibility]]"
   - "[[skill-propagation]]"
   - "[[doc-propagation]]"
 ---
 
 # Remotion Diagrams — Animated Flow and Architecture Diagrams
-
-> [!note] Targets not yet created
-> The validator requires every `propagates-to:` entry to resolve, so three targets are listed here as plain names until they exist: the new convention `diagrams` (`docs/shared/conventions/diagrams.md`), the new ADR `ADR-0023-remotion-diagrams` (supersedes [[ADR-0015-drawio-diagrams]]), and the lesson `diagram-legibility` (the rename of [[drawio-diagram-legibility]], already listed above under its current name). Add them to `propagates-to:` as wikilinks when created.
 
 ## Goal
 
@@ -210,7 +223,7 @@ MP4 output, an embedded web player, and a blocking CI gate.
 ## Related
 
 - [[ADR-0015-drawio-diagrams]]
-- [[drawio-diagram-legibility]]
+- [[diagram-legibility]]
 - [[milestone-plan]]
 - [[git-workflow]]
 - [[architecture]]

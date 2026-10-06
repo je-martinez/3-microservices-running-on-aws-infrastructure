@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-08-27
+updated: 2026-10-06
 tags:
   - type/spec
   - area/shared
@@ -20,7 +20,9 @@ related:
   - "[[ADR-0018-observability-openobserve]]"
   - "[[ADR-0017-floci-local]]"
   - "[[local-dev-floci]]"
-  - "[[ADR-0015-drawio-diagrams]]"
+  - "[[ADR-0023-remotion-diagrams]]"
+  - "[[diagrams]]"
+  - "[[ADR-0016-local-apigw-nginx-ecs]]"
   - "[[tracking-service-design]]"
   - "[[2026-08-27-tracking-go-migration-design]]"
   - "[[ADR-0021-tracking-go-gin-sqlc-stack]]"
@@ -38,13 +40,19 @@ This note describes the overall runtime architecture of **3MRAI**: how traffic f
 
 ## Architecture Overview
 
-![[architecture.drawio.svg]]
+Local dev (Floci) and pre-prod (ECS on Floci) topologies:
+
+![[architecture-dev-floci.gif]]
+
+![[architecture-preprod.gif]]
+
+Aurora is the production target; local dev and pre-prod run plain RDS PostgreSQL/MySQL clusters without replicas. Diagram rules: [[diagrams]].
 
 ---
 
 ## Traffic Ingress
 
-All external traffic enters through **Amazon API Gateway**, which validates JWTs issued by **Amazon Cognito** before forwarding requests. Authenticated requests pass to the **Application Load Balancer (ALB)**, which routes to the appropriate ECS Fargate service based on path prefix.
+All external traffic enters through **Amazon API Gateway**, which validates JWTs issued by **Amazon Cognito** before forwarding requests. In production and pre-prod, authenticated requests pass to the **Application Load Balancer (ALB)**, which routes to the appropriate ECS Fargate service. Local dev has no ALB: an **nginx ECS task** fronts the services instead ([[ADR-0016-local-apigw-nginx-ecs]]).
 
 Relevant decisions: [[ADR-0009-apigw-alb-fargate]], [[ADR-0010-cognito-auth]].
 
@@ -60,26 +68,12 @@ Each microservice runs as an independent ECS Fargate task definition. Stacks dif
 | Orders | .NET Core 10 | Minimal APIs + Entity Framework Core |
 | Tracking | Go 1.26.7 | Gin |
 
-> [!info] Tracking migrated from Python/FastAPI to Go/Gin (2026-08-27)
-> `services/tracking-go/` is now THE Tracking service; `services/tracking/` (Python) is retired.
-> See [[tracking-service-design]] and [[2026-08-27-tracking-go-migration-design]] for the full
-> migration (hexagonal architecture, sqlc + golang-migrate, a four-part closing gate met on
-> three of four criteria) and [[ADR-0021-tracking-go-gin-sqlc-stack]] for the stack decision.
-> **This makes Go the repo's fourth *service* runtime**, alongside Node.js, .NET, and — in the
-> events pipeline only — also Node.js. Both Lambda functions under `functions/`
-> (`events-pipeline` and `realtime-events`) are Node.js/TypeScript, not Python; verify this
-> directly against `functions/*/package.json` rather than assuming it, since an earlier draft
-> of this note's propagating brief asserted the events pipeline ran Python and it does not.
+> [!info] Tracking is Go
+> `services/tracking-go/` is the Tracking service (hexagonal architecture, sqlc + golang-migrate). See [[tracking-service-design]], [[2026-08-27-tracking-go-migration-design]] and [[ADR-0021-tracking-go-gin-sqlc-stack]]. Both Lambda functions under `functions/` (`events-pipeline` and `realtime-events`) are Node.js/TypeScript.
 >
-> **No *service* is Python any more — but Python has not left the repo.** It remains the
-> repo's default scripting language by explicit convention ([[scripting-language]]): infra
-> scripting, Terraform pre/post effects, and anything touching AWS, JSON, or non-trivial
-> control flow default to Python, run from the repo venv (`make scripts-setup`) and invoked
-> by Terraform/Makefile via `.venv/bin/python`'s absolute path. `infra/scripts/lib3mrai/`,
-> `infra/scripts/doctor.py`, `infra/scripts/redeploy_lambdas.py`, and
-> `infra/environments/local/bootstrap.py` are all Python, and stay that way.
+> Python remains the repo's default **scripting** language ([[scripting-language]]): infra scripting, Terraform pre/post effects and anything touching AWS, JSON or non-trivial control flow.
 
-Services are stateless at the HTTP layer; all domain state lives in the service's own Aurora cluster (see [Persistence](#persistence--aurora-per-service--documentdb-event-store) below).
+Services are stateless at the HTTP layer; all domain state lives in the service's own database cluster (see [Persistence](#persistence--aurora-per-service--documentdb-event-store) below).
 
 Services follow **screaming architecture** with **dependency injection** — see [[ADR-0008-screaming-arch-di]], [[screaming-architecture]], [[dependency-injection]].
 
@@ -87,10 +81,12 @@ Services follow **screaming architecture** with **dependency injection** — see
 
 ## Inter-Service Communication — gRPC
 
-Synchronous cross-service calls use **gRPC** over private networking (no public exposure):
+gRPC runs **toward Users**, over private networking (no public exposure):
 
-- `Users` → `Orders`: user context enrichment.
-- `Orders` → `Tracking`: order-to-shipment linking.
+- `Orders` → `Users`: user and address lookups.
+- `Tracking` → `Users`: identity resolution.
+
+The other service-to-service calls are plain **HTTP**: `Users` → `Orders`, `Users` → `Tracking` (account-deletion cascade) and `Orders` → `Tracking` (shipment creation).
 
 Relevant decision: [[ADR-0003-grpc-inter-service]].
 
@@ -100,8 +96,8 @@ Relevant decision: [[ADR-0003-grpc-inter-service]].
 
 Domain events are published asynchronously via the **CQRS** pattern:
 
-1. A service emits a domain event (e.g. `USER_CREATED`, `ORDER_CREATED`) to its **SQS queue**.
-2. A single **Lambda function** (Node.js) consumes the queue, validates the message with Zod, and dispatches it to the appropriate handler.
+1. A service publishes a domain event (e.g. `USER_CREATED`, `ORDER_CREATED`) to an **SNS topic**, which fans out to two **SQS queues**: the events queue and a filtered notifications queue.
+2. A single **Lambda function** (Node.js) consumes the events queue, validates the message with Zod, and dispatches it to the appropriate handler.
 3. The Lambda persists the full event document — including a `status_history` audit trail — to **DocumentDB** (the event store).
 
 This pipeline is separate from the operational databases of each service. Services read and write their own domain state in their Aurora clusters (see [Persistence](#persistence--aurora-per-service--documentdb-event-store)); DocumentDB is the event store only.
@@ -113,16 +109,16 @@ Pattern reference: [[cqrs]].
 
 ## Persistence — Aurora per service + DocumentDB event store
 
-Each operational service owns its own **Aurora** cluster with read/write replica topology. DocumentDB is used exclusively by the events pipeline as the event store.
+Each operational service owns its own database cluster. **Aurora is the production target**, with a read/write replica topology; local dev and pre-prod run plain RDS PostgreSQL/MySQL clusters **without replicas**. DocumentDB is used exclusively by the events pipeline as the event store.
 
-| Service | Engine | Topology |
+| Service | Engine (production) | Topology (production) |
 |---|---|---|
 | Users | Aurora PostgreSQL | 1 write replica + 1 read replica |
 | Orders | Aurora MySQL | 1 write replica + 1 read replica |
 | Tracking | Aurora MySQL | 1 write replica + 1 read replica |
 | Events pipeline | DocumentDB | Event store (append-only; not an operational DB) |
 
-Services send all mutations to their **write replica** and all query handlers to their **read replica**. Replication lag is acceptable for the eventual-consistency read paths in this system.
+In production, services send all mutations to their **write replica** and all query handlers to their **read replica**. Replication lag is acceptable for the eventual-consistency read paths in this system.
 
 Relevant decision: [[ADR-0006-read-write-replicas]].
 
@@ -190,7 +186,9 @@ Compose and Terraform. See [[ADR-0017-floci-local]] (which supersedes the earlie
 - [[openobserve-cloudwatch]]
 - [[scripting-language]] — Python remains the repo's default scripting language; only service runtimes went all-Node/.NET/Go.
 - [[local-dev-floci]]
-- [[ADR-0015-drawio-diagrams]]
+- [[ADR-0023-remotion-diagrams]]
+- [[diagrams]]
+- [[ADR-0016-local-apigw-nginx-ecs]]
 - [[tracking-service-design]] — Tracking's runtime is now Go/Gin; see the Compute Layer table above.
 - [[2026-08-27-tracking-go-migration-design]] — the Python-to-Go migration design.
 - [[ADR-0021-tracking-go-gin-sqlc-stack]] — the Go stack decision (Gin, sqlc, golang-migrate, goenv).

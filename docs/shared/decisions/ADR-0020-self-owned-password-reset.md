@@ -5,7 +5,7 @@ area: shared
 status: accepted
 id: ADR-0020
 created: 2026-08-09
-updated: 2026-08-09
+updated: 2026-10-06
 deciders: [Jose E. Martinez]
 supersedes: null
 superseded-by: null
@@ -36,6 +36,9 @@ native flows on this substrate without measuring them first. The same discipline
 here: both the native path and a self-owned path were probed empirically before choosing.
 
 ## Decision — Users mints the code, emails it via the events pipeline, applies the change with `AdminSetUserPassword`
+
+![[users-password-reset.gif]]
+
 
 **Cognito's own `ForgotPassword`/`ConfirmForgotPassword` is not used anywhere in this flow.**
 Three separate, measured findings rule it out — none of them assumed:
@@ -139,3 +142,4 @@ See [[testing]] for where these are exercised (unit + gateway E2E,
 - [[email-templates]] — the `forgot-password` template, the fifth.
 - [[logging-context]] — masked-email logging applied throughout this flow.
 - [[testing]] — the three-layer testing convention this flow's gateway E2E follows.
+- [[2026-10-06-remotion-diagrams-design]]

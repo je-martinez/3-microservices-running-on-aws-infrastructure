@@ -4,7 +4,7 @@ type: plan
 area: shared
 status: active
 created: 2026-06-28
-updated: 2026-06-28
+updated: 2026-10-06
 tags:
   - type/plan
   - area/shared
@@ -23,7 +23,7 @@ related:
   - "[[linear-references]]"
   - "[[2026-06-28-services-infra-scaffold]]"
   - "[[2026-06-28-services-infra-scaffold-design]]"
-  - "[[ADR-0015-drawio-diagrams]]"
+  - "[[ADR-0023-remotion-diagrams]]"
 ---
 
 # Services & Infra Scaffold — Milestone Plan
@@ -71,7 +71,7 @@ This plan follows the [[milestone-plan]] convention. Detailed task content lives
 
 ### Dependency diagram
 
-![[services-infra-scaffold-deps.drawio.svg]]
+![[services-infra-scaffold-deps.png]]
 
 The five scaffold tasks (JE-17 through JE-21) have no blockers and can run in parallel. JE-22 (root docker-compose) is blocked by the four service scaffolds JE-17–JE-20 because its `build:` contexts reference each service's `Dockerfile`; those files must exist before the compose file can reference them. JE-23 (skill discovery) is independent and can run at any time during the milestone. JE-24 (skill install & preload) is blocked by JE-23 — skills must be cataloged and the install proposal confirmed before they can be installed via npx and preloaded into each implementer agent. Note that infra (JE-21) does not block docker-compose since the compose file only wires the four application services — Terraform is a separate deployment concern.
 
@@ -81,4 +81,4 @@ The five scaffold tasks (JE-17 through JE-21) have no blockers and can run in pa
 - [[linear-references]] — Linear reference convention.
 - [[2026-06-28-services-infra-scaffold]] — the implementation plan with detailed task steps.
 - [[2026-06-28-services-infra-scaffold-design]] — the design spec specifying each deliverable.
-- [[ADR-0015-drawio-diagrams]] — governs the `.drawio.svg` diagram format.
+- [[ADR-0023-remotion-diagrams]] — governs the diagram format; see [[diagrams]].

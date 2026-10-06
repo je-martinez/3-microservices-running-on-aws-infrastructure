@@ -4,7 +4,7 @@ type: spec
 area: orders
 status: accepted
 created: 2026-06-26
-updated: 2026-09-19
+updated: 2026-10-06
 tags: [type/spec, area/orders, status/accepted]
 related:
   - "[[2026-09-18-cqrs-dispatch-tracking-orders-design]]"
@@ -68,6 +68,9 @@ related:
 
 ## Summary
 
+![[orders-checkout-stripe.gif]]
+
+
 The Orders service is responsible for creating and managing orders submitted by users. It exposes a REST API built with .NET Core 10 Minimal APIs, persists data in Aurora MySQL using two replicas (one for reads, one for writes), and publishes an `ORDER_CREATED` event to SQS whenever a new order is placed. Inter-service data retrieval is handled via gRPC.
 
 ## Stack & Data Store
@@ -123,6 +126,9 @@ Tracking serves no gRPC (see [[tracking-service-design]]). See
 
 ## Delivery address flow (Users → Orders → Tracking)
 
+![[checkout-address-geocoding-proxy.gif]]
+
+
 The delivery address originates in Users, flows through Orders at order-creation time, and ends up
 in Tracking — persisted as an independent **snapshot** at each stop, not as a shared reference.
 
@@ -157,6 +163,9 @@ Orders.CreateOrder
 > edits their address.
 
 ## Cart
+
+![[orders-catalogue-cart.gif]]
+
 
 A user's in-progress selection of products, persisted server-side so the frontend does every
 calculation-free render and computes nothing itself. At most **one active cart per user**. Full
@@ -940,3 +949,4 @@ Full milestone design: [[2026-07-14-orders-service-milestone-design]].
 - [[2026-09-18-cqrs-dispatch-tracking-orders-design]] — planned CQRS command/query bus
   (Wolverine) and transactional outbox design for this service, migrated endpoint-by-endpoint;
   not yet implemented. See [Cross-cutting rules](#cross-cutting-rules) above.
+- [[2026-10-06-remotion-diagrams-design]]

@@ -4,7 +4,7 @@ type: plan
 area: shared
 status: active
 created: 2026-06-27
-updated: 2026-06-27
+updated: 2026-10-06
 tags:
   - type/plan
   - area/shared
@@ -25,7 +25,7 @@ related:
   - "[[milestone-plan]]"
   - "[[linear-references]]"
   - "[[2026-06-26-3mrai-docs-vault]]"
-  - "[[ADR-0015-drawio-diagrams]]"
+  - "[[ADR-0023-remotion-diagrams]]"
 ---
 
 # Documentation Vault — Milestone Plan
@@ -83,7 +83,7 @@ This plan follows the [[milestone-plan]] convention.
 
 ### Dependency diagram
 
-![[documentation-vault-deps.drawio.svg]]
+![[documentation-vault-deps.png]]
 
 The diagram shows the DAG of blocking relationships. JE-6 (Templates) is the main gate: it unblocks all five service-spec tasks in parallel (JE-9 through JE-13). JE-14 (Overview MOC) cannot start until all five service specs complete, since the overview links to each of them. JE-15 (Bases) depends on JE-14 because the Base views query frontmatter fields that only exist after all content notes are in place. JE-7 and JE-8 (Shared base) are sequential with each other but run independently from the service specs once JE-6 is done.
 
@@ -92,4 +92,4 @@ The diagram shows the DAG of blocking relationships. JE-6 (Templates) is the mai
 - [[milestone-plan]] — convention this plan follows; defines table structure and Linear reference rules.
 - [[linear-references]] — general Linear reference convention; tags and inline links.
 - [[2026-06-26-3mrai-docs-vault]] — the vault build plan that specifies each deliverable in detail.
-- [[ADR-0015-drawio-diagrams]] — governs the `.drawio.svg` diagram format.
+- [[ADR-0023-remotion-diagrams]] — governs the diagram format; see [[diagrams]].

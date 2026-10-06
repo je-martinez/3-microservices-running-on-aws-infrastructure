@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-10-05
+updated: 2026-10-06
 tags:
   - type/spec
   - area/shared
@@ -59,13 +59,15 @@ related:
   - "[[2026-07-20-env-file-generation-design]]"
   - "[[2026-07-30-post-infra-root-design]]"
   - "[[ADR-0015-drawio-diagrams]]"
+  - "[[ADR-0023-remotion-diagrams]]"
+  - "[[diagrams]]"
   - "[[ADR-0019-distributed-tracing-opentelemetry]]"
   - "[[logging-context]]"
   - "[[ministack-auth-chain-spike-findings]]"
   - "[[floci-vs-ministack-spike-findings]]"
   - "[[floci-rds-apigw-limits]]"
   - "[[2026-07-12-prisma-lazy-promise-als]]"
-  - "[[drawio-diagram-legibility]]"
+  - "[[diagram-legibility]]"
   - "[[cognito-pre-token-lambda]]"
   - "[[awscli-fallback-for-floci]]"
   - "[[execution-log-for-provisioning-scripts]]"
@@ -239,7 +241,8 @@ All ADRs use continuous global numbering and live in `docs/shared/decisions/`.
 
 ### Documentation & Diagrams
 
-- [[ADR-0015-drawio-diagrams]] — draw.io (`.drawio.svg`) as the vault diagram format, replacing Mermaid.
+- [[ADR-0023-remotion-diagrams]] — Remotion as the vault diagram tool: data-driven animated GIF + PNG diagrams from a catalog with `watches` globs; supersedes [[ADR-0015-drawio-diagrams]].
+- [[ADR-0015-drawio-diagrams]] — (superseded by [[ADR-0023-remotion-diagrams]]) draw.io (`.drawio.svg`) as the vault diagram format, replacing Mermaid.
 
 ### Environments
 
@@ -266,6 +269,7 @@ Coding and data conventions defined once in `shared/` and referenced project-wid
 - [[milestone-plan]] — Structure and required sections for every milestone plan note in `docs/plans/`.
 - [[phase-c-review-flow]] — Phase C execution cadence: chain issues, batch PRs, stop at dependency gates, user merges every PR.
 - [[git-workflow]] — Who may run git, commit/branch conventions, and the A/B/C/D/E confirmation menu.
+- [[diagrams]] — Remotion diagrams: catalog and `watches`, outputs and location, legibility and GIF budget, keep-current rule, `make diagrams-check`, the `## Diagrams` PR section and the `diagram-impl` write boundary.
 - [[local-dev]] — Running the stack locally (Makefile) and testing endpoints with `.http` files.
 - [[testing]] — Three-layer testing convention: unit/integration, internal E2E, and gateway E2E (real Cognito JWT) — an endpoint missing gateway E2E is an incomplete change.
 - [[scripting-language]] — Scripting-language decision tree for the repo: Python first, JavaScript second, Bash last with a documented reason.
@@ -359,7 +363,7 @@ Specs produced through the planning phase, normalized to vault conventions.
 - [[2026-09-30-cart-add-quantity-morph-design]] — Design for morphing the product card's Add button into a quantity stepper shared with the cart line (`QtyStepper`, `a7S8KL`), an always-rendered "In cart" chip, CSS-first motion, and the rules propagated to [[angular-component-authoring]] and [[pencil-design-extraction]]. Plan: [[2026-09-30-cart-add-quantity-morph]].
 - [[2026-10-02-floci-preprod-environment-design]] — Design for a Floci pre-production environment: a second compose file whose only image is Floci, with `users`, `orders`, `tracking`, `web`, the observability stack and Mailpit running as ECS services pulling from Floci's ECR, configured through SSM Parameter Store and Secrets Manager, with API Gateway routing to an ALB instead of nginx. Per [[local-dev-floci]], [[ADR-0016-local-apigw-nginx-ecs]], [[floci-storage-modes-and-tmp-corruption]].
 - [[2026-10-05-preprod-integrations-design]] — Design for letting the user opt in to a fully functional Stripe flow and Geoapify autocomplete in pre-prod (or decline each): one owner script and a git-ignored `.env.preprod` with preserved CUSTOM inputs, secrets reaching ECS through an auto tfvars file, a config-hashed web image tag, host-side `stripe listen` forwarders per service, and an agent rule that never touches key values. Per [[2026-10-02-floci-preprod-environment-design]], [[2026-09-19-stripe-payments-design]], [[preprod]], [[env-files]].
-- [[2026-10-06-remotion-diagrams-design]] — Design for replacing draw.io with Remotion: data-driven animated GIF + PNG diagrams (architecture, flows, milestone dependency graphs) from a catalog with `watches` globs and a non-blocking `make diagrams-check`, a `diagram-impl` agent, a keep-current convention, and a `## Diagrams` PR section. Supersedes [[ADR-0015-drawio-diagrams]] once ADR-0023 lands.
+- [[2026-10-06-remotion-diagrams-design]] — Design for replacing draw.io with Remotion: data-driven animated GIF + PNG diagrams (architecture, flows, milestone dependency graphs) from a catalog with `watches` globs and a non-blocking `make diagrams-check`, a `diagram-impl` agent, a keep-current convention, and a `## Diagrams` PR section. Superseded [[ADR-0015-drawio-diagrams]] via [[ADR-0023-remotion-diagrams]].
 
 ---
 
@@ -455,7 +459,7 @@ what makes a lesson reusable is the shape of the mistake, not the service it hap
 ### Observability and documentation output
 
 - [[2026-08-16-cloudwatch-lambda-log-prefix-defeats-json-parse]] — CloudWatch's Lambda log prefix defeats a JSON-anchored parse.
-- [[drawio-diagram-legibility]] — XML validity does not make a diagram legible; verify contrast and fit by rendering to PNG.
+- [[diagram-legibility]] — a valid diagram source does not make a legible diagram; verify contrast and fit by reading the rendered PNG, and budget GIF size by changed pixels.
 - [[2026-09-18-cqrs-rule-lived-only-in-the-vault-not-in-the-file-agents-read-first]] — the CQRS rule was in the vault and had been since the first commit, but `services/orders/CLAUDE.md` carried a narrower version, so an agent satisfied every sentence it was told to read and still inlined an EF query in a route.
 
 ### Configuration whose absent value reads as a deliberate choice
@@ -534,7 +538,9 @@ Origin materials the project grew from — kept for reference only, not the sour
 - [[floci-rds-apigw-limits]]
 - [[floci-storage-modes-and-tmp-corruption]]
 - [[2026-07-12-prisma-lazy-promise-als]]
-- [[drawio-diagram-legibility]]
+- [[diagram-legibility]]
+- [[diagrams]]
+- [[ADR-0023-remotion-diagrams]]
 - [[cognito-pre-token-lambda]]
 - [[awscli-fallback-for-floci]]
 - [[execution-log-for-provisioning-scripts]]
