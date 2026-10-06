@@ -144,20 +144,61 @@
             }
           </div>
 
-          <div class="flex h-fit w-full shrink-0 flex-row items-center justify-end gap-3">
-            <button
-              type="button"
-              class="h-field border-line-strong text-brand-navy flex w-35 shrink-0 flex-row items-center justify-center rounded-md border text-base font-semibold"
-              (click)="resetForm()"
-            >
-              Cancel
-            </button>
-            <div class="w-47.5">
-              <app-button-primary
-                [label]="saving() ? 'Saving…' : 'Save changes'"
-                [disabled]="!canSave()"
-                (clicked)="save()"
-              />
+          <div #saveFooter class="flex h-fit w-full shrink-0 flex-col items-stretch justify-start">
+            <!-- CONTRACT: The live region stays mounted and only its content toggles.
+                 A `role="status"` node inserted together with its text is skipped by
+                 several screen readers, so the save is never announced. The gap to the
+                 button row is padding INSIDE the animated element, so the empty region
+                 adds no space. -->
+            <div role="status" class="w-full">
+              @if (showSaved()) {
+                <div class="pb-3 md:pb-4" animate.enter="saved-banner-enter" animate.leave="saved-banner-leave">
+                  <div
+                    data-testid="profile-saved-banner"
+                    class="bg-success-bg flex h-fit w-full flex-row items-center justify-start gap-3 rounded-md py-2xl pr-3 pl-4"
+                    (mouseenter)="onBannerHover(true)"
+                    (mouseleave)="onBannerHover(false)"
+                    (focusin)="onBannerFocus($event, true)"
+                    (focusout)="onBannerFocus($event, false)"
+                  >
+                    <svg lucideCircleCheck class="text-success-ink h-icon-lg w-icon-lg shrink-0"></svg>
+                    <div class="flex h-fit min-w-0 flex-1 flex-col items-start justify-start gap-0.5">
+                      <span class="text-success-ink font-heading text-label font-bold tracking-[-0.0125rem]">
+                        Changes saved
+                      </span>
+                      <span class="text-success-ink font-body text-body-sm leading-normal">
+                        Your personal details are up to date.
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      data-testid="profile-saved-banner-dismiss"
+                      aria-label="Dismiss"
+                      class="text-success-ink flex h-7 w-7 shrink-0 flex-row items-center justify-center rounded-[0.375rem]"
+                      (click)="dismissSaved()"
+                    >
+                      <svg lucideX class="h-4 w-4"></svg>
+                    </button>
+                  </div>
+                </div>
+              }
+            </div>
+
+            <div class="flex h-fit w-full shrink-0 flex-row items-center justify-end gap-3">
+              <button
+                type="button"
+                class="h-field border-line-strong text-brand-navy flex w-35 shrink-0 flex-row items-center justify-center rounded-md border text-base font-semibold"
+                (click)="discardEdits()"
+              >
+                Cancel
+              </button>
+              <div class="w-47.5">
+                <app-button-primary
+                  [label]="saving() ? 'Saving…' : 'Save changes'"
+                  [disabled]="!canSave()"
+                  (clicked)="save()"
+                />
+              </div>
             </div>
           </div>
         </ng-template>

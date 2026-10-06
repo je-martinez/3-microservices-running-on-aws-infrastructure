@@ -1,7 +1,11 @@
 import 'fake-indexeddb/auto';
 
 import { provideHttpClient } from '@angular/common/http';
-import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import {
+  HttpTestingController,
+  provideHttpClientTesting,
+  type TestRequest,
+} from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { provideRouter } from '@angular/router';
@@ -16,7 +20,7 @@ import {
 import { of } from 'rxjs';
 import type { Stripe, StripeElements } from '@stripe/stripe-js';
 
-import { ProfilePage } from './profile';
+import { ProfilePage, SAVED_BANNER_DISMISS_MS } from './profile';
 import { APP_CONFIG } from '../../core/config/app-config';
 import { PaymentMethodsApi } from '../../core/api/payment-methods-api';
 import { StripeLoader } from '../../core/payments/stripe-loader';
@@ -301,6 +305,333 @@ describe('ProfilePage', () => {
 
     expect(fieldValues()).toContain('Portland');
     controller.verify();
+  });
+
+  describe('saved banner', () => {
+    const BANNER = '[data-testid="profile-saved-banner"]';
+
+    function banner(): HTMLElement | null {
+      return root().querySelector<HTMLElement>(BANNER);
+    }
+
+    async function loaded(): Promise<void> {
+      create();
+      (await awaitRequest(fixture, controller, ME)).flush(MORGAN);
+      await settle(fixture);
+    }
+
+    async function saveWith(respond: (patch: TestRequest) => void): Promise<void> {
+      root().querySelector<HTMLButtonElement>('app-button-primary button')?.click();
+      await settle(fixture);
+      respond(await awaitRequest(fixture, controller, ME));
+      await settle(fixture);
+    }
+
+    const succeed = (patch: TestRequest) => patch.flush(MORGAN);
+
+    it('is absent until a save succeeds', async () => {
+      await loaded();
+      expect(banner()).toBeNull();
+
+      await saveWith(succeed);
+
+      expect(banner()).not.toBeNull();
+      expect(textOf(fixture, BANNER)).toContain('Changes saved');
+      expect(textOf(fixture, BANNER)).toContain('Your personal details are up to date.');
+      // WHY: the live region must already be mounted for the announcement to fire.
+      expect(banner()?.closest('[role="status"]')).not.toBeNull();
+    });
+
+    it('stays absent after a failed save', async () => {
+      await loaded();
+
+      await saveWith((patch) =>
+        patch.flush({ message: 'Service unavailable' }, { status: 503, statusText: 'Unavailable' }),
+      );
+
+      expect(banner()).toBeNull();
+    });
+
+    it('hides once a field is edited after the save', async () => {
+      await loaded();
+      await saveWith(succeed);
+      expect(banner()).not.toBeNull();
+
+      fillField(fixture, 'City', 'Salem');
+      await settle(fixture);
+
+      expect(banner()).toBeNull();
+    });
+
+    it('hides as soon as another save starts', async () => {
+      await loaded();
+      await saveWith(succeed);
+      expect(banner()).not.toBeNull();
+
+      root().querySelector<HTMLButtonElement>('app-button-primary button')?.click();
+      await settle(fixture);
+      const patch = await awaitRequest(fixture, controller, ME);
+
+      expect(banner()).toBeNull();
+      patch.flush(MORGAN);
+      await settle(fixture);
+    });
+
+    it('hides on Cancel', async () => {
+      await loaded();
+      await saveWith(succeed);
+
+      Array.from(root().querySelectorAll('button'))
+        .find((b) => b.textContent?.trim() === 'Cancel')
+        ?.click();
+      await settle(fixture);
+
+      expect(banner()).toBeNull();
+    });
+
+    it('hides when its dismiss button is pressed', async () => {
+      await loaded();
+      await saveWith(succeed);
+
+      root().querySelector<HTMLButtonElement>('[data-testid="profile-saved-banner-dismiss"]')?.click();
+      await settle(fixture);
+
+      expect(banner()).toBeNull();
+    });
+
+    it('renders its live region above the Save/Cancel row', async () => {
+      await loaded();
+      await saveWith(succeed);
+
+      const region = banner()?.closest('[role="status"]');
+      const save = root().querySelector('app-button-primary');
+      expect(region).toBeTruthy();
+      expect(save).toBeTruthy();
+      expect(region!.compareDocumentPosition(save!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    /**
+     * WORKAROUND(test): jsdom implements neither `Element.scrollTo` nor
+     * `matchMedia`, so both are stubbed here. Unstubbed, the component's guard
+     * skips the scroll and every assertion below sees zero calls.
+     */
+    describe('scroll to the end of the page', () => {
+      let scrolled: ReturnType<typeof vi.fn>;
+
+      function stubMotion(reduced: boolean): void {
+        vi.stubGlobal('matchMedia', (query: string) => ({ matches: reduced, media: query }) as MediaQueryList);
+      }
+
+      beforeEach(() => {
+        scrolled = vi.fn();
+        Object.defineProperty(Element.prototype, 'scrollTo', {
+          value: scrolled,
+          configurable: true,
+          writable: true,
+        });
+        stubMotion(false);
+      });
+
+      afterEach(() => {
+        delete (Element.prototype as Partial<Element>).scrollTo;
+        vi.unstubAllGlobals();
+      });
+
+      it('scrolls the enclosing .app-scroll column to its end, smoothly', async () => {
+        await loaded();
+        const column = document.createElement('div');
+        column.className = 'app-scroll';
+        Object.defineProperty(column, 'scrollHeight', { value: 1800 });
+        const host = fixture.nativeElement as HTMLElement;
+        host.parentElement!.insertBefore(column, host);
+        column.appendChild(host);
+        expect(scrolled).not.toHaveBeenCalled();
+
+        await saveWith(succeed);
+
+        expect(scrolled).toHaveBeenCalledTimes(1);
+        expect(scrolled).toHaveBeenCalledWith({ top: 1800, behavior: 'smooth' });
+        expect(scrolled.mock.contexts[0]).toBe(column);
+      });
+
+      it('falls back to the document scroller outside AppLayout', async () => {
+        await loaded();
+
+        await saveWith(succeed);
+
+        expect(scrolled).toHaveBeenCalledTimes(1);
+        expect(scrolled.mock.contexts[0]).toBe(document.documentElement);
+      });
+
+      it('scrolls instantly under prefers-reduced-motion', async () => {
+        stubMotion(true);
+        await loaded();
+
+        await saveWith(succeed);
+
+        expect(scrolled).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'auto' }));
+      });
+
+      it('does not scroll when the banner hides', async () => {
+        await loaded();
+        await saveWith(succeed);
+        scrolled.mockClear();
+
+        root().querySelector<HTMLButtonElement>('[data-testid="profile-saved-banner-dismiss"]')?.click();
+        await settle(fixture);
+        fillField(fixture, 'City', 'Salem');
+        await settle(fixture);
+
+        expect(banner()).toBeNull();
+        expect(scrolled).not.toHaveBeenCalled();
+      });
+    });
+
+    /**
+     * CONTRACT: Fake timers go in only AFTER the profile loads, and the save is
+     * driven by `fakePump`, never `settle` — `settle` waits on a real
+     * `setTimeout(0)` that a faked clock never fires, and the test hangs.
+     */
+    describe('auto-dismiss', () => {
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      async function fakePump(turns = 10): Promise<void> {
+        for (let turn = 0; turn < turns; turn += 1) {
+          await vi.advanceTimersByTimeAsync(0);
+          fixture.detectChanges();
+        }
+      }
+
+      async function fakeSave(): Promise<void> {
+        root().querySelector<HTMLButtonElement>('app-button-primary button')?.click();
+        for (let turn = 0; turn < 50; turn += 1) {
+          const [patch] = controller.match((req) => req.url.endsWith(ME) && req.method === 'PATCH');
+          if (patch) {
+            patch.flush(MORGAN);
+            await fakePump();
+            return;
+          }
+          await fakePump(1);
+        }
+        throw new Error('PATCH /v1/users/me never sent');
+      }
+
+      async function loadedWithFakeTimers(): Promise<void> {
+        await loaded();
+        vi.useFakeTimers();
+      }
+
+      async function elapse(ms: number): Promise<void> {
+        await vi.advanceTimersByTimeAsync(ms);
+        await fakePump(2);
+      }
+
+      function bannerEl(): HTMLElement {
+        const el = banner();
+        if (!el) throw new Error('banner not rendered');
+        return el;
+      }
+
+      it('hides after SAVED_BANNER_DISMISS_MS and not before', async () => {
+        await loadedWithFakeTimers();
+        await fakeSave();
+
+        await elapse(SAVED_BANNER_DISMISS_MS - 1);
+        expect(banner()).not.toBeNull();
+
+        await elapse(1);
+        expect(banner()).toBeNull();
+      });
+
+      it('pauses while hovered and resumes with the remaining time on leave', async () => {
+        await loadedWithFakeTimers();
+        await fakeSave();
+
+        await elapse(2000);
+        bannerEl().dispatchEvent(new MouseEvent('mouseenter'));
+        await elapse(SAVED_BANNER_DISMISS_MS * 3);
+        expect(banner()).not.toBeNull();
+
+        bannerEl().dispatchEvent(new MouseEvent('mouseleave'));
+        await elapse(SAVED_BANNER_DISMISS_MS - 2000 - 1);
+        expect(banner()).not.toBeNull();
+        await elapse(1);
+        expect(banner()).toBeNull();
+      });
+
+      it('pauses while it holds keyboard focus, even after the pointer leaves', async () => {
+        await loadedWithFakeTimers();
+        await fakeSave();
+
+        const el = bannerEl();
+        el.dispatchEvent(new MouseEvent('mouseenter'));
+        el.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+        el.dispatchEvent(new MouseEvent('mouseleave'));
+        await elapse(SAVED_BANNER_DISMISS_MS * 3);
+        expect(banner()).not.toBeNull();
+
+        el.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+        await elapse(SAVED_BANNER_DISMISS_MS);
+        expect(banner()).toBeNull();
+      });
+
+      it('hides immediately on the X, leaving no timer to hide a later banner early', async () => {
+        await loadedWithFakeTimers();
+        await fakeSave();
+
+        await elapse(4000);
+        root().querySelector<HTMLButtonElement>('[data-testid="profile-saved-banner-dismiss"]')?.click();
+        await fakePump(2);
+        expect(banner()).toBeNull();
+
+        await fakeSave();
+        await elapse(SAVED_BANNER_DISMISS_MS - 1);
+        expect(banner()).not.toBeNull();
+      });
+
+      it('leaves no timer behind after an edit hides it', async () => {
+        await loadedWithFakeTimers();
+        await fakeSave();
+
+        await elapse(4000);
+        fillField(fixture, 'City', 'Salem');
+        await fakePump(2);
+        expect(banner()).toBeNull();
+
+        fillField(fixture, 'City', 'Portland');
+        await fakeSave();
+        await elapse(SAVED_BANNER_DISMISS_MS - 1);
+        expect(banner()).not.toBeNull();
+      });
+
+      it('restarts the full countdown on a new successful save', async () => {
+        await loadedWithFakeTimers();
+        await fakeSave();
+
+        await elapse(4000);
+        await fakeSave();
+        await elapse(SAVED_BANNER_DISMISS_MS - 1);
+        expect(banner()).not.toBeNull();
+        await elapse(1);
+        expect(banner()).toBeNull();
+      });
+
+      it('clears the countdown when the page is destroyed', async () => {
+        await loadedWithFakeTimers();
+        const armed = vi.spyOn(globalThis, 'setTimeout');
+        await fakeSave();
+        const call = armed.mock.calls.findIndex(([, ms]) => ms === SAVED_BANNER_DISMISS_MS);
+        expect(call).toBeGreaterThanOrEqual(0);
+        const handle = armed.mock.results[call]?.value as unknown;
+        const cleared = vi.spyOn(globalThis, 'clearTimeout');
+
+        fixture.destroy();
+
+        expect(cleared).toHaveBeenCalledWith(handle);
+      });
+    });
   });
 
   /**
