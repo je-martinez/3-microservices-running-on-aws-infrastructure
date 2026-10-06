@@ -7,7 +7,24 @@ let started = false;
 let loggerProvider: LoggerProvider | undefined;
 let pageSpanAccessor: (() => Span | undefined) | undefined;
 let pageSpanStarter: ((name: string) => void) | undefined;
+let gatewaySpanStarter:
+  | ((method: string, route: string, pageRoute: string | undefined) => GatewaySpan)
+  | undefined;
 let activePageRoute: string | undefined;
+
+/**
+ * CONTRACT: The CLIENT span of one gateway call, as rum-sdk.ts hands it to
+ * the always-loaded interceptor. Call end() exactly once, after fail() if the
+ * call failed — end() marks the span OK unless fail() ran first.
+ */
+export interface GatewaySpan {
+  /** The W3C carrier (`traceparent`) to set on the outgoing request. */
+  readonly headers: Readonly<Record<string, string>>;
+  readonly traceId: string;
+  run<T>(fn: () => T): T;
+  fail(message: string): void;
+  end(): void;
+}
 
 /**
  * WHY: Exported and read-only so specs and manual checks can assert whether
@@ -30,22 +47,32 @@ export function getRumLoggerProvider(): LoggerProvider | undefined {
 }
 
 /**
- * WHY: Exported so rum-propagation-interceptor.ts (always loaded) can LINK
- * its CLIENT span to the current page span WITHOUT statically importing
- * @opentelemetry/sdk-trace-web. Undefined both when the flag is off and
- * before rum-sdk.ts has started.
+ * WHY: Exported so specs can observe the current page span without importing
+ * rum-sdk.ts. Undefined both when the flag is off and before rum-sdk.ts has
+ * started.
  */
 export function getActivePageSpan(): Span | undefined {
   return pageSpanAccessor?.();
 }
 
 /**
- * WHY: The route PATTERN rum-navigation.ts resolved (`/orders/:orderId`), so
- * rum-propagation-interceptor.ts tags page.route without the Router or
+ * WHY: The route PATTERN rum-navigation.ts resolved (`/orders/:orderId`),
+ * which startGatewaySpan() tags as page.route without the Router or
  * location.pathname. Undefined before the first NavigationEnd.
  */
 export function getActivePageRoute(): string | undefined {
   return activePageRoute;
+}
+
+/**
+ * CONTRACT: Returns undefined when the flag is off and until rum-sdk.ts has
+ * started — the interceptor then sends the request untouched. Do NOT give
+ * rum-propagation-interceptor.ts a value import from @opentelemetry/* to
+ * fill that window: it is always loaded, and the import puts the OTel API
+ * back into the initial bundle even with the flag off. See [[browser-rum]]
+ */
+export function startGatewaySpan(method: string, route: string): GatewaySpan | undefined {
+  return gatewaySpanStarter?.(method, route, activePageRoute);
 }
 
 /**
@@ -75,10 +102,11 @@ export function initRum(): void {
   // WHY: Dynamic, never static — a static import pulls OTel and web-vitals
   // into the entry chunk for every visitor, including with the flag off.
   // See rum-sdk.ts.
-  void import('./rum-sdk').then(({ startRumSdk, getActivePageSpan, startPageSpan }) => {
-    loggerProvider = startRumSdk();
-    pageSpanAccessor = getActivePageSpan;
-    pageSpanStarter = startPageSpan;
+  void import('./rum-sdk').then((sdk) => {
+    loggerProvider = sdk.startRumSdk();
+    pageSpanAccessor = sdk.getActivePageSpan;
+    pageSpanStarter = sdk.startPageSpan;
+    gatewaySpanStarter = sdk.startGatewaySpan;
     started = true;
   });
 }

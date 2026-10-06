@@ -34,6 +34,30 @@ export default defineConfig([
     },
   },
   {
+    // CONTRACT: Only the lazily-imported rum-sdk.ts may import @opentelemetry/*
+    // as a value. Anywhere else the import lands in the initial bundle for every
+    // visitor, RUM flag on or off — one value import of @opentelemetry/api in
+    // the interceptor adds ~26 kB to main. Type-only imports are erased.
+    // See [[browser-rum]]
+    files: ['src/**/*.ts'],
+    ignores: ['src/app/core/observability/rum-sdk.ts', 'src/**/*.spec.ts'],
+    rules: {
+      '@typescript-eslint/no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@opentelemetry/*'],
+              allowTypeImports: true,
+              message:
+                'Value-import OTel only in rum-sdk.ts (lazy chunk); reach it through rum.ts.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ['**/*.html'],
     extends: [angular.configs.templateRecommended, angular.configs.templateAccessibility],
     rules: {},

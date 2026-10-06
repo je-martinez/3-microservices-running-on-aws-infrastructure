@@ -7,8 +7,26 @@ import { LoggerProvider, BatchLogRecordProcessor } from '@opentelemetry/sdk-logs
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
-import { trace, type Span, type Tracer } from '@opentelemetry/api';
+import {
+  context,
+  propagation,
+  trace,
+  ROOT_CONTEXT,
+  SpanKind,
+  SpanStatusCode,
+  type Span,
+  type Tracer,
+} from '@opentelemetry/api';
 import { onCLS, onFCP, onINP, onLCP, onTTFB, type Metric } from 'web-vitals';
+
+import type { GatewaySpan } from './rum';
+
+// WHY: Inlined beside the custom page.route key rather than imported; the
+// values match ATTR_HTTP_REQUEST_METHOD / ATTR_HTTP_ROUTE in
+// @opentelemetry/semantic-conventions.
+const ATTR_HTTP_REQUEST_METHOD = 'http.request.method';
+const ATTR_HTTP_ROUTE = 'http.route';
+const ATTR_PAGE_ROUTE = 'page.route';
 
 let pageTracer: Tracer | undefined;
 let activePageSpan: Span | undefined;
@@ -16,10 +34,10 @@ let awaitingFirstRoute = false;
 
 /**
  * CONTRACT: Returns the in-flight page span, or undefined between navigations
- * and before the SDK has started. rum-propagation-interceptor.ts LINKS its
- * CLIENT span to this when present and omits the link otherwise — the
- * cross-service join rides on traceparent alone and must never regress on a
- * missing page span. See [[2026-09-19-web-rum-integration-design]]
+ * and before the SDK has started. startGatewaySpan() LINKS its CLIENT span to
+ * this when present and omits the link otherwise — the cross-service join
+ * rides on traceparent alone and must never regress on a missing page span.
+ * See [[2026-09-19-web-rum-integration-design]]
  */
 export function getActivePageSpan(): Span | undefined {
   return activePageSpan;
@@ -58,6 +76,72 @@ export function startPageSpan(name: string): void {
   endActivePageSpan();
   if (!pageTracer) return;
   activePageSpan = pageTracer.startSpan(name);
+}
+
+/**
+ * CONTRACT: One CLIENT span per gateway call, each its own trace root; the
+ * page it came from is a LINK plus a page.route attribute, never a parent.
+ * The cross-service join depends on the traceparent in `headers` and on
+ * nothing in that linking. Reached only through rum.ts's startGatewaySpan(),
+ * so the always-loaded interceptor holds no OTel value import.
+ * See [[2026-09-19-web-rum-integration-design]]
+ */
+export function startGatewaySpan(
+  method: string,
+  route: string,
+  pageRoute: string | undefined,
+): GatewaySpan {
+  const pageContext = activePageSpan?.spanContext();
+
+  const span = trace.getTracer('3mrai-web').startSpan(
+    `${method} ${route}`,
+    {
+      kind: SpanKind.CLIENT,
+      // CONTRACT: The page span is LINKED, never made the parent. Parenting
+      // pulls every call a screen makes into one trace, so opening a single
+      // operation means paging past its neighbours — 169 backend spans across
+      // four operations for one checkout. OpenObserve indexes the link as a
+      // queryable field but draws its waterfall from parent/child alone, so
+      // this is data, not a clickable jump.
+      links: pageContext ? [{ context: pageContext }] : [],
+      attributes: {
+        [ATTR_HTTP_REQUEST_METHOD]: method,
+        // WHY: The route, never req.url — the full URL can carry a query
+        // string, and [[logging-context]] forbids leaking identifying values
+        // through telemetry attributes.
+        [ATTR_HTTP_ROUTE]: route,
+        // CONTRACT: The route PATTERN rum-navigation.ts resolved, never
+        // location.pathname — a resolved id gives this attribute one value
+        // per order, and grouping a screen's calls then matches a single
+        // visit. See routePatternOf().
+        ...(pageRoute ? { [ATTR_PAGE_ROUTE]: pageRoute } : {}),
+      },
+    },
+    // CONTRACT: ROOT_CONTEXT, never context.active() — an in-flight span
+    // higher up the call stack would silently re-parent this one and undo the
+    // per-call trace split.
+    ROOT_CONTEXT,
+  );
+  const spanContext = trace.setSpan(context.active(), span);
+
+  const headers: Record<string, string> = {};
+  propagation.inject(spanContext, headers);
+
+  let failed = false;
+
+  return {
+    headers,
+    traceId: span.spanContext().traceId,
+    run: (fn) => context.with(spanContext, fn),
+    fail: (message) => {
+      failed = true;
+      span.setStatus({ code: SpanStatusCode.ERROR, message });
+    },
+    end: () => {
+      if (!failed) span.setStatus({ code: SpanStatusCode.OK });
+      span.end();
+    },
+  };
 }
 
 /**
