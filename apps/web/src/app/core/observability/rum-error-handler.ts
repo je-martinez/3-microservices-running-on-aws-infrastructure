@@ -1,9 +1,14 @@
 import { ErrorHandler, Injectable, inject } from '@angular/core';
-import { SeverityNumber } from '@opentelemetry/api-logs';
+import type { SeverityNumber } from '@opentelemetry/api-logs';
 
 import { SessionStore } from '../auth/session-store';
 import { ApiError } from '../http/api-client';
 import { getRumLoggerProvider } from './rum';
+
+// WHY: A type-only import plus the literal — importing the SeverityNumber
+// enum as a value puts @opentelemetry/api-logs in the initial bundle on a
+// handler every visitor loads, flag on or off. The type pins the value.
+const SEVERITY_ERROR: SeverityNumber.ERROR = 17;
 
 interface RumErrorRecord {
   message: string;
@@ -91,7 +96,7 @@ export class RumErrorHandler implements ErrorHandler {
 
     const logger = provider.getLogger('3mrai-web-errors');
     logger.emit({
-      severityNumber: SeverityNumber.ERROR,
+      severityNumber: SEVERITY_ERROR,
       severityText: 'ERROR',
       body: record.message,
       attributes: { ...record },
