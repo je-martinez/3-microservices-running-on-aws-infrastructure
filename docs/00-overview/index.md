@@ -403,6 +403,8 @@ what makes a lesson reusable is the shape of the mistake, not the service it hap
 - [[2026-09-10-signal-forms-required-accepts-whitespace]] — Signal Forms' `required()` accepts whitespace, so it is weaker than the `.trim()` guard it replaces.
 - [[2026-09-19-esbuild-drops-decorator-metadata]] — esbuild emits no `design:paramtypes`, so Nest type-based DI injects `undefined` under `tsx` and Vitest while the `tsc` build works.
 - [[2026-09-19-nest-grpc-interceptors-silently-dropped]] — `GrpcOptions` has no `interceptors` key, so interceptors passed under `server:` vanish without a warning and a wrong `x-api-key` returned user data.
+- [[2026-10-06-angular-vitest-runner-shares-modules-across-spec-files-unless-isolate-is-on]] — the Angular Vitest builder defaults `isolate: false`, so a module stays bound to an earlier spec file's mocks; `apps/web` sets `isolate: true` and pays ~25 s of suite time.
+- [[2026-10-06-lucide-angular-is-one-module-every-icon-ships-in-the-initial-bundle]] — `@lucide/angular` splits as one module, so even a lazy-route-only icon costs ~3.3 kB of initial bundle; register only used icons.
 
 ### Browser and UI defects invisible to the obvious probe
 

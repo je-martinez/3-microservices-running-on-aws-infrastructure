@@ -10,18 +10,15 @@ import { provideRouter, withViewTransitions } from '@angular/router';
 import { provideStore } from '@ngrx/store';
 import {
   provideLucideIcons,
-  LucideApple,
   LucideArrowLeft,
   LucideArrowRight,
   LucideBell,
   LucideBuilding2,
   LucideCheck,
-  LucideChevronDown,
   LucideChevronLeft,
   LucideCreditCard,
   LucideEyeOff,
   LucideInfo,
-  LucideLink,
   LucideLock,
   LucideLockKeyhole,
   LucideLogOut,
@@ -39,7 +36,6 @@ import {
   LucideShieldAlert,
   LucideShieldCheck,
   LucideShoppingBag,
-  LucideSparkles,
   LucideStore,
   LucideTimer,
   LucideTrash2,
@@ -104,23 +100,21 @@ export const appConfig: ApplicationConfig = {
     // Phase 1 exercises almost none of this. It is registered up front so
     // phase 2 adds reducers rather than rewiring bootstrap.
     provideStore({}),
-    // Every icon referenced by the shared UI primitives (Task 7), registered
-    // by name for the LucideDynamicIcon component (`<svg [lucideIcon]="x">`)
-    // each shared component uses to render a string-typed icon input. Add
-    // here when a screen (Tasks 9-11) needs one not already listed.
+    // WARNING: List only names some template or TS map passes as a string to
+    // LucideDynamicIcon (`<svg [lucideIcon]="x">`) — a missing one throws
+    // "Unable to resolve icon". Every class here ships in the INITIAL chunk at
+    // ~3 kB each, lazy route or not: @lucide/angular is a single module, so a
+    // stale entry is dead weight against the 600 kB budget.
     provideLucideIcons(
-      LucideApple,
       LucideArrowLeft,
       LucideArrowRight,
       LucideBell,
       LucideBuilding2,
       LucideCheck,
-      LucideChevronDown,
       LucideChevronLeft,
       LucideCreditCard,
       LucideEyeOff,
       LucideInfo,
-      LucideLink,
       LucideLock,
       LucideLockKeyhole,
       LucideLogOut,
@@ -138,7 +132,6 @@ export const appConfig: ApplicationConfig = {
       LucideShieldAlert,
       LucideShieldCheck,
       LucideShoppingBag,
-      LucideSparkles,
       LucideStore,
       LucideTimer,
       LucideTrash2,

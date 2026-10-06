@@ -92,6 +92,7 @@
             "setupFiles": [
               "src/test-setup.ts"
             ],
+            "isolate": true,
             "buildTarget": "::test"
           }
         },
