@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-09-19
-updated: 2026-09-30
+updated: 2026-10-05
 tags: [type/spec, area/shared, status/active]
 related:
   - "[[users-service-design]]"
@@ -600,6 +600,12 @@ that the checkout selector already calls — `list`, `setup-intent`/`attach` (ad
 `PUT .../default` (set default), `DELETE` (remove). No new Users endpoint is added by this
 decision.
 
+**Profile — Add Card's "set as default" checkbox.** When the profile's card list is empty, the
+checkbox renders checked and locked (it cannot be unchecked): a customer's only card must be
+their default, and the attach route already makes it so (see "Users HTTP surface"), so the web
+skips the separate `PUT .../default` call. With one or more saved cards the checkbox is a free
+choice and, when checked, the web calls `PUT .../default` after the attach.
+
 ### 23. The checkout can add a card inline, not only select one
 
 The original Web section described the Stripe branch as a saved-card selector plus a
@@ -610,15 +616,22 @@ instances as the profile, Decision 22) sits alongside an inline new-card form �
 — reachable without leaving the checkout page, with a "Cancel" link that collapses it back to
 the saved-cards list.
 
-**Real behavioural branch for Users' API.** The `Save Info Row`'s "Save this card for future
-purchases" checkbox is not cosmetic — it decides which Stripe call the resulting payment
-method goes through:
+**Real behavioural branch for Users' API.** When the buyer already has at least one saved card,
+the `Save Info Row`'s "Save this card for future purchases" checkbox is not cosmetic — it
+decides which Stripe call the resulting payment method goes through:
 - **Checked:** the SetupIntent's resulting `pm_...` is **attached** to the customer via
   `POST /v1/users/me/payment-methods` (Decision 4's attach route) exactly as today — it becomes
   a saved card, appears in future listings, and is eligible to be set default.
 - **Unchecked:** the payment method is used **once**, for this order's PaymentIntent only, and
   is never attached to the customer — no row is written to `stripe_payment_methods`, and it
   will not appear in any future `GET /v1/users/me/payment-methods` listing.
+
+**A buyer with no saved card has no opt-out.** The checkbox renders checked and locked, with the
+helper text "Your first card is saved as your default."; confirming always attaches the card,
+and the selector then switches to the `Saved Cards List` with that card selected. Two reasons:
+with no saved card the inline form IS the whole surface, so an unsaved one-time card had
+nowhere to render — confirming produced no visible change (bug reproduced 2026-10-05) — and a
+customer's only card must be their default.
 
 This is a real branch the current five-endpoint surface does not express on its own — the
 existing routes assume every confirmed SetupIntent gets attached. The web app must send this
@@ -921,7 +934,14 @@ All routes flag-guarded; not mounted when `STRIPE_ENABLED` is off.
   returns a SetupIntent `client_secret` for Elements.
 - `GET /v1/users/me/payment-methods` — lists from the local copy.
 - `POST /v1/users/me/payment-methods` — confirms the tokenized `pm_...`, attaches it to the
-  customer, writes the local row in the same response.
+  customer, writes the local row in the same response. When the caller has no other active
+  (non-soft-deleted) payment method, the attached card becomes their default: under the same
+  user-row lock (`lockUserRow`) and interactive transaction as set-default, it sets Stripe's
+  `invoice_settings.default_payment_method` and writes the local row with `isDefault=true`;
+  otherwise `isDefault=false`. Both writes are required because the `customer.updated`
+  reconciliation syncs the local flag FROM Stripe, so a local-only flag would be reverted. The
+  lock serialises concurrent first-card attaches so only one becomes default. Implemented in
+  `services/users/src/payment-methods/commands/attach-payment-method.command.ts`.
 - `DELETE /v1/users/me/payment-methods/:id` — detaches in Stripe, soft-deletes locally.
 - `PUT /v1/users/me/payment-methods/:id/default` — sets `invoice_settings.default_payment_method`,
   mirrors `isDefault` locally.
@@ -997,7 +1017,9 @@ and becomes the `Stripe Payment Element` frame's two parts: a `Saved Cards List`
 `Saved Card Row` instances (default preselected), and, per Decision 23, an inline
 `New Card Block` — `Method Tabs` (Card / Apple Pay / Link), the four `SField` rows, a
 "Cancel" link collapsing it back to the list, a "Save this card for future purchases"
-checkbox, and a `Save Card Button` — shown directly when the user has no saved cards.
+checkbox, and a `Save Card Button` — shown directly when the user has no saved cards. In that
+case the checkbox renders checked and locked (Decision 23) and the block hands over to the
+`Saved Cards List` once the card is attached.
 `pay()` sends the selected `paymentMethodId` and maps a 402 to an actionable card error via
 the existing `authErrorMessage` pattern (the same shape as the current 409 mapping).
 
