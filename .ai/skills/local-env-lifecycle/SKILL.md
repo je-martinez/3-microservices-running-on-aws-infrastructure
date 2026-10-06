@@ -9,7 +9,7 @@ metadata:
 
 # Local environment lifecycle
 
-The Makefile has ~66 targets. This skill covers the ones that create, destroy or
+The Makefile has ~69 targets. This skill covers the ones that create, destroy or
 repair local environment state, and exists because **the obvious choice is often
 the wrong one**: `bootstrap-provision` cannot be re-run, `clean` is not the
 cheapest reset, and a stack that looks broken is usually one missing step rather
@@ -27,6 +27,7 @@ Start from the situation, not the target:
 | Suspect corrupt state or a stale layer | `make clean && make bootstrap` | The full reset; also reclaims the build cache and dangling images |
 | A `bootstrap` died **at or after `migrate`** | `make doctor` → `make bootstrap-converge` → `make post-infra` | Phase 2 died; resume it. All three steps — converge does not call post-infra |
 | A `bootstrap` died **during `infra-up`** | `make clean && make bootstrap` | Phase 1 died, and it cannot be re-run. The one case the expensive reset is right |
+| Docker Desktop / Floci restarted, or services Exited | `make heal` | Starts Floci, restarts exited DocDB/Valkey with their data, wakes ECS, drops orphan tasks, restarts Exited services, re-attaches the nginx alias. Missing (not Exited) containers need `make clean && make bootstrap` |
 | Changed service source (Go, .NET, TS) | `docker compose up -d --build <svc>` | Rebuilds that one service; no teardown needed. Services are `users`, `orders`, `tracking`, `web` |
 | Changed a `.tf` file, stack running | `make infra-up` | Applies + regenerates every env file |
 | Changed a `.tf` file **and** doing a reset | `make clean-state && make bootstrap` | `bootstrap` runs `infra-up` itself — no separate apply |

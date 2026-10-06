@@ -19,6 +19,7 @@ from lib3mrai.console import inf, no, ok
 FLOCI_HEALTH_URL = "http://localhost:4566/_floci/health"
 BACKING_SERVICES = ("docdb", "elasticache")
 NON_RUNNING_STATUSES = ("exited", "created")
+DEFAULT_NETWORK = "3mrai_3mrai-network"
 DESCRIBE_BATCH = 100
 TASK_CONTAINER = re.compile(r"^floci-ecs-([0-9a-f]+)-")
 
@@ -38,7 +39,11 @@ def floci_answers(url: str = FLOCI_HEALTH_URL, timeout: float = 3.0) -> bool:
 
 
 def stack_network() -> str:
-    return os.environ.get("FLOCI_NETWORK", "3mrai_3mrai-network")
+    return os.environ.get("FLOCI_NETWORK", DEFAULT_NETWORK)
+
+
+def heal_command() -> str:
+    return "make heal" if stack_network() == DEFAULT_NETWORK else "make preprod-heal"
 
 
 def wake_ecs(ecs) -> list[str]:
@@ -90,7 +95,7 @@ def exited_backing_containers(run=docker) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     if not floci_answers():
-        no("Floci is down — run `make heal` from the repo root (it starts Floci first)")
+        no(f"Floci is down — run `{heal_command()}` from the repo root (it starts Floci first)")
         return 1
 
     try:

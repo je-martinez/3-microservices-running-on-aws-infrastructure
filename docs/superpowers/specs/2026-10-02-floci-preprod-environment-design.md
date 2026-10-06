@@ -69,7 +69,7 @@ record: [[ADR-0022-preprod-ecs-on-floci]].
 | 8 | Success criterion 2: Gatling `fullJourney` runs | `make preprod-load-test-smoke` passes (551 requests, 0 failures). **Full load saturates Floci's single process** (86% / 59% OK, p95 17-50 s): a known local capacity limit, not a pre-prod defect |
 | 9 | Healthcheck `GET /` | **`GET /_floci/health HTTP/1.1` with `Host: localhost`**; 2.1.0 answers `GET /` over HTTP/1.0 without `Host` with `500` |
 | 10 | Config parameters under `/3mrai/preprod/...` | `/3mrai-preprod/<svc>/<VAR>` and Secrets Manager `3mrai-preprod/<svc>/<VAR>` |
-| 11 | Lifecycle rows `preprod-up` and `preprod-heal` below | **Superseded.** `preprod-up` = live-environment refusal (amendment 16) → guard → Floci → apply A → build/push (`PP_IMAGES`) → migrate → apply B → wait → stale-target cleanup → aliases → smoke → `preprod-observability`. `preprod-heal` = `compose up --wait floci` → `floci_heal` (`FLOCI_NETWORK`) → wait → stale-target cleanup → aliases |
+| 11 | Lifecycle rows `preprod-up` and `preprod-heal` below | **Superseded.** `preprod-up` = live-environment refusal (amendment 16) → guard → Floci → live-environment check → integrations decision (`preprod_integrations.py --regenerate`, amendment of 2026-10-05) → apply A → build/push (`PP_IMAGES`) → migrate → apply B → wait → stale-target cleanup → aliases → smoke → `preprod-observability` → `preprod-env-file` → Stripe forwarders (when on). `preprod-heal` = `compose up --wait floci` → `floci_heal` (`FLOCI_NETWORK`) → wait → stale-target cleanup → aliases |
 | 12 | Doctor reports a stray ECR registry | **Dropped.** `preprod-down` removes the registry and doctor runs against a live environment. Doctor also checks stale ALB targets and aliases |
 | 13 | Every `preprod-*` target names the next command on failure | **make stops at the failing step**; `preprod-doctor` prints the remedy per failure (heal vs down + up). The next command is not printed for every target |
 | 14 | RUM unspecified for pre-prod | **RUM is enabled** in pre-prod web builds (`NG_APP_RUM_ENABLED=true`); `rum_logs` appears once a browser loads the app |
@@ -269,14 +269,15 @@ blocks during implementation — the list above is illustrative, the route map i
 - New modules:
   - `ecr` — one repository per image.
   - `ecs-service` — generic: task definition (image, cpu/memory, `secrets`, `environment`,
-    `portMappings`, `awslogs`), service, optional target group + listener rule.
-  - `alb` — load balancer; *(superseded by amendment 1: one listener per service)* listeners `9090` (web, host), `9091` (API, internal), `4318`
+    `portMappings`, `awslogs`), service, optional target group + listener rule *(as built: one target
+    group and listener per `listeners` entry, no listener rules)*.
+  - `alb` — load balancer *(as built: the module creates only the load balancer; listeners live in `ecs-service`)*; *(superseded by amendment 1: one listener per service)* listeners `9090` (web, host), `9091` (API, internal), `4318`
     (OTLP, internal), `5080` (OpenObserve, host), `8025` (Mailpit UI, host); path rules on `9091`.
   - `app-config` — SSM parameters and Secrets Manager secrets per service.
 - `api-gateway` gains a mode where integrations target the ALB with `request_parameters`
   instead of the nginx task; dev keeps its current wiring until a separate decision.
 - Applies are split: **A** (ECR, data stores, Cognito, messaging, config) then image push, then
-  **B** (ECS services, ALB, gateway integrations), because task definitions need pushed images.
+  **B** (ECS services, ALB, gateway integrations), because task definitions need pushed images (as built: the ALB, the ECS cluster and the gateway are created in A because the integrations target fixed listener ports; B adds only `module.service`).
 
 ## Lifecycle (Makefile)
 

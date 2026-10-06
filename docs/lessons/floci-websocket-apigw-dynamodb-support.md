@@ -4,7 +4,7 @@ type: lesson
 area: infra
 status: active
 created: 2026-08-06
-updated: 2026-09-13
+updated: 2026-10-05
 tags:
   - type/lesson
   - area/infra
@@ -196,8 +196,8 @@ hides which system is wrong]] and
 ## Probe hygiene
 
 The design-time POC (WebSocket API, two Lambdas, a DynamoDB table) was created and torn down
-**outside** Terraform, deliberately, to avoid Floci's known "second `terraform apply` fails"
-quirk (see [[floci-rds-apigw-limits]] and [[ADR-0017-floci-local]]) while still exercising the
+**outside** Terraform, deliberately, to avoid Floci's non-converging second `terraform apply`
+(8 perpetual in-place changes on 2.1.0) (see [[floci-rds-apigw-limits]] and [[ADR-0017-floci-local]]) while still exercising the
 real emulator; the existing local stack was untouched.
 
 ## Related

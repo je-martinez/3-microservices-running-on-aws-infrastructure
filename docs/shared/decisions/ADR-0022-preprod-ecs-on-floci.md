@@ -48,20 +48,22 @@ Add a **pre-production environment** whose only compose image is Floci
 runs inside Floci:
 
 ```
-host :9101-9103 / :9090 / :5080 / :8025
+host :4566 (API Gateway, AWS APIs, ECR)
         │
 API Gateway v2 (JWT authorizer; x-user-id overwritten from the claim on auth routes,
         │        removed on public routes; /health routes overwrite the path)
         ▼
 ALB — one listener per service (users 9101, orders 9102, tracking 9103, web 9090,
         │        OpenObserve 5080, Mailpit UI 8025, OTLP 4318 / RUM 4319)
+        │        (host-published: 9090, 9101-9103, 5080, 8025; internal: 4318, 4319)
         ▼
 ECS services in Floci (users, orders, tracking, web, otel-collector, openobserve, mailpit)
         images from Floci's ECR · config from SSM + Secrets Manager
 ```
 
 1. **Seven ECS services pull immutable-tagged images from Floci's ECR.** Tags are `<sha12>` or
-   `<sha12>-dirty-<epoch>-<hash8>`; never `latest`.
+   `<sha12>-dirty-<epoch>-<hash8>`; never `latest`. The web image appends `-cfg<hash8>` (a hash of
+   its build args) so an integration toggle rebuilds the bundle (amendment 2026-10-05).
 2. **Configuration only through SSM and Secrets Manager.** Parameters live at
    `/3mrai-preprod/<svc>/<VAR>`, secrets at `3mrai-preprod/<svc>/<VAR>`, referenced by ARN in each
    task definition's `secrets`. No `.env.local.*` file is read by a pre-prod workload.

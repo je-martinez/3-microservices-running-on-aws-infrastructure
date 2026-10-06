@@ -87,7 +87,7 @@ With Stripe on and the AUTO values missing, `preprod-deploy` (`--no-prompt`) and
 |---|---|
 | Everything decided and valid | Continue silently; print a summary such as `Stripe: on · Geoapify: off`, never values. |
 | Something undecided, TTY present | Prompt `Enable Stripe in pre-prod? [y/n]`; secret keys via `getpass`, publishable key via `input`. Same for Geoapify. Write CUSTOM. |
-| Something undecided, no TTY | Create the skeleton file if missing and **abort (exit 1)** naming the file and the CUSTOM box to fill, or the alternative `STRIPE=off GEOAPIFY=off`. |
+| Something undecided, no TTY | Create the skeleton file if missing and **abort (exit 1; `make` reports exit 2)** naming the file and the CUSTOM box to fill, or the alternative `STRIPE=off GEOAPIFY=off`. |
 | `STRIPE=off` / `GEOAPIFY=off` on the make command line | Write `…_ENABLED=false` without asking. |
 | `…_ENABLED=true` with a missing key | Abort naming the missing key. |
 | Live keys (`sk_live_`, `rk_live_`, `pk_live_`) | Refused: pre-prod accepts test keys only. |
@@ -129,7 +129,7 @@ Web's tag becomes `<base tag>-cfg<hash8>`, where `hash8` is the sha256 of its so
 ### 7. Later changes
 
 - Change a Stripe secret-key value (Stripe staying on): `make preprod-deploy S=users ENV_ONLY=1` and `make preprod-deploy S=orders ENV_ONLY=1`. Safe: the secret entries are unchanged.
-- Toggle Geoapify or change the publishable key: `make preprod-deploy S=web ENV_ONLY=1` **and** `make preprod-deploy S=web`. `ENV_ONLY=1` applies `module.app_config`, which holds `web/GEOAPIFY_API_KEY`; the plain deploy rebuilds under the new `-cfg<hash8>` tag, but its `-target module.service["web"]` never touches `app_config`. Verified live: with only `S=web`, `/geocode/` stayed 200; after `ENV_ONLY=1` it answered 503 `geocoding_disabled`. Decision: two commands, the Makefile unchanged.
+- Toggle Geoapify or change the publishable key: `make preprod-deploy S=web ENV_ONLY=1` **and** `make preprod-deploy S=web`. `ENV_ONLY=1` applies `module.app_config`, which holds `web/GEOAPIFY_API_KEY`; the plain deploy rebuilds under the new `-cfg<hash8>` tag, but its `-target module.service["web"]` pulls in only what the task definition references (the SSM parameters and the secret containers), never the secret versions, so the new `web/GEOAPIFY_API_KEY` value is not written. Verified live: with only `S=web`, `/geocode/` stayed 200; after `ENV_ONLY=1` it answered 503 `geocoding_disabled`. Decision: two commands, the Makefile unchanged.
 - **Any Stripe toggle, on or off:** `make preprod-down && make preprod-up`. Off to on: the AUTO values only exist after `--regenerate`. On to off: `ENV_ONLY=1` applies only `module.app_config`, which destroys the `STRIPE_*` secrets and SSM parameters while the untargeted task definitions (`module.service`) still reference their ARNs through `module.app_config.refs`; `forceNewDeployment` then starts tasks that cannot resolve them.
 
 ### 8. Webhook listeners

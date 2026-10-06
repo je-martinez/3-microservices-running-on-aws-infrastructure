@@ -38,7 +38,7 @@ variable "python_bin" {
 variable "deploy_services" {
   type        = bool
   default     = false
-  description = "false = data plane only (apply A); true = ECS services, ALB listeners, gateway (apply B)."
+  description = "false = everything except module.service (apply A); true = adds the per-service task definitions, target groups, ALB listeners and ECS services (apply B)."
 }
 
 variable "image_tags" {

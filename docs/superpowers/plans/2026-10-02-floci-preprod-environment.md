@@ -468,6 +468,8 @@ image-tags.auto.tfvars.json
 .state/
 ```
 
+> As built: `users_grpc_via_alb` defaults to `false` (Task 9 settled on the Docker alias `users-grpc:50051`), and the `.gitignore` has no `.state/` entry; it lists `integrations.auto.tfvars.json` instead.
+
 - [x] **Step 5: Makefile section**
 
 Append:
@@ -607,6 +609,8 @@ data "aws_rds_cluster" "mysql" {
   cluster_identifier = module.rds_mysql.cluster_identifier
 }
 ```
+
+> As built: `random_password.openobserve_root` also sets `min_lower`, `min_upper`, `min_numeric` and `min_special` to 1 (`infra/environments/preprod/main.tf`), and both `data "aws_rds_cluster"` blocks carry `depends_on = [module.rds_aurora]` / `[module.rds_mysql]` so the lookup waits for the cluster.
 
 - [x] **Step 3: Outputs**
 
@@ -1776,6 +1780,11 @@ locals {
     )
   }
 }
+```
+
+> As built: the two regexes are anchored, `^/v1/(orders|products|cart)(/|$)` and `^/v1/(trackings(/|$)|tracking/)` (`infra/modules/api-gateway/main.tf`, `route_service`), so a path such as `/v1/orders-x` is not routed to Orders.
+
+```hcl
 
 # LOCAL: one HTTP_PROXY integration per route, path baked into the URI.
 resource "aws_apigatewayv2_integration" "per_route" {

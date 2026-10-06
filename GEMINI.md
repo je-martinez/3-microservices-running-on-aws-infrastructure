@@ -328,6 +328,13 @@ which produces a value that ignores the generated one.
 Adding a service means adding one env file and one `env_file:` line — nothing
 inline.
 
+## Pre-prod exception
+
+`.env.preprod` and `.env.preprod.debug` are written by
+`infra/environments/preprod/scripts/`, not `make env-file`, and are mode 600. An
+agent never reads, prints or writes a key from `.env.preprod`; before
+`make preprod-up` it asks the user yes/no per integration.
+
 ## Version control
 
 `.env.example` is the committed contract. Everything else matching `.env*` is

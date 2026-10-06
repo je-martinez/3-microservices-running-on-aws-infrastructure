@@ -4,7 +4,7 @@ type: plan
 area: infra
 status: accepted
 created: 2026-10-02
-updated: 2026-10-03
+updated: 2026-10-05
 tags:
   - type/plan
   - area/infra
@@ -549,6 +549,15 @@ Dispatch `obsidian-vault` (English output) with the facts of this plan's Tasks 1
 - [x] **Step 5: Hand over for commit**
 
 Proposed message: `docs(infra): record Floci 2.1.0 restart and gateway behaviour`
+
+> [!note] As built (audit 2026-10-05)
+> The snippets above are the plan as written; the shipped code differs in these places. When code and plan disagree, the code is right: do not align it to the plan.
+>
+> - **Healthcheck:** `GET /_floci/health HTTP/1.1` with `Host: localhost` and `Connection: close`. HTTP/1.0 without a `Host` header returns 500.
+> - **Image comment:** "Pinned, never latest — a major bump changes restart semantics and the image's tooling (2.x ships no curl)".
+> - **`floci_heal.py`:** `live_task_ids` uses `describe_tasks`; only `lastStatus` STOPPED is dead and `failures` entries stay live (`list_tasks` also returns STOPPED tasks). The `TASK_CONTAINER` regex is `[0-9a-f]+`. `exited_backing_containers` also covers `created`. `main` checks `floci_answers()` first. The orphan scan is limited to the stack network.
+> - **`make heal` has four steps:** `compose up -d --wait floci`, then `floci_heal.py`, then `compose up -d`, then `bootstrap.py`.
+> - **`doctor.py`:** `backing_state` treats only Exited/Created as `exited`; Restarting, Dead and Removing count as `missing`. `redis_remedy` exists, and `wake_ecs_reconciler` returns a bool and never raises.
 
 ## Related
 
