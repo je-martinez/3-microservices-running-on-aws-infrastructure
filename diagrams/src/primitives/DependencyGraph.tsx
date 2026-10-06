@@ -24,7 +24,7 @@ export function DependencyGraph({ data }: { data: DependencyData }) {
       <svg width={width} height={height} style={{ position: "absolute", inset: 0 }}>
         {data.deps.map((e, i) => <Arrow key={i} id={`d${i}`} path={edgePath(l.tasks[e.from]!, l.tasks[e.to]!, isSameColumn(l.tasks[e.from]!, l.tasks[e.to]!))} progress={1} />)}
       </svg>
-      {data.tasks.map((t) => <NodeBox key={t.id} {...l.tasks[t.id]!} label={`${t.id} ${t.label}`} kind="compute" />)}
+      {data.tasks.map((t) => <NodeBox key={t.id} {...l.tasks[t.id]!} label={t.label} tag={t.id} kind="compute" />)}
     </AbsoluteFill>
   );
 }

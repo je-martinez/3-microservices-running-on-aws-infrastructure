@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeIndex, edgePath, edgePoints, fitLabel, isSameColumn, layoutArchitecture, layoutDependency, layoutFlow } from "../src/primitives/layout";
+import { activeIndex, TAG_H, edgePath, edgePoints, fitLabel, isSameColumn, layoutArchitecture, layoutDependency, layoutFlow } from "../src/primitives/layout";
 import { durationFor, INTRO, STEP } from "../src/timing";
 
 const d = {
@@ -178,12 +178,10 @@ describe("layoutDependency at scale", () => {
       expect(r.y + r.h).toBeLessThanOrEqual(675);
     }
   });
-  it("does not clip a 'JE-123 ' + 30-char label in a single-column phase", () => {
-    const r = l.tasks["JE-120"]!;
-    expect(fitLabel(`JE-123 ${"L".repeat(30)}`, r.w, r.h, false).clipped).toBe(false);
-  });
-  it("does not clip a 30-char label in the two-column phase", () => {
-    const r = l.tasks["JE-100"]!;
-    expect(fitLabel("L".repeat(30), r.w, r.h, false).clipped).toBe(false);
+  it("fits the id tag plus a 30-char label in both the single- and two-column phases", () => {
+    for (const id of ["JE-120", "JE-100"]) {
+      const r = l.tasks[id]!;
+      expect(fitLabel("L".repeat(30), r.w, r.h, false, TAG_H).clipped).toBe(false);
+    }
   });
 });

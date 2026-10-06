@@ -25,7 +25,7 @@ export function Arrow(p: {
   return (
     <g opacity={p.progress > 0 ? 1 : 0}>
       <defs>
-        <marker id={`h-${p.id}`} markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+        <marker id={`h-${p.id}`} markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" viewBox="0 0 10 10" refX="9" refY="5" orient="auto">
           <path d="M0,0 L10,5 L0,10 z" fill={colour} />
         </marker>
       </defs>

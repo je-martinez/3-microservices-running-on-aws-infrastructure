@@ -8,6 +8,7 @@ const TOP = 96; // title band
 const ZONE_HEADER = 32;
 const NODE_H = 56;
 const MIN_NODE_H = 44;
+const NODE_H_DENSE = 72; // two-column zones have the room for 3 label lines plus a tag
 const GAP = 14;
 const BRACKET_OUT = 12;
 
@@ -19,11 +20,11 @@ export function layoutArchitecture(d: ArchitectureData, w: number, h: number) {
     const zone = { x: PAD + i * (zw + PAD), y: TOP, w: zw, h: h - TOP - PAD };
     zones[z.id] = zone;
     const members = d.nodes.filter((n) => n.zone === z.id);
-    const fit = (rows: number) => Math.min(NODE_H, (zone.h - ZONE_HEADER - GAP * (rows + 1)) / rows);
+    const fit = (rows: number, cap = NODE_H) => Math.min(cap, (zone.h - ZONE_HEADER - GAP * (rows + 1)) / rows);
     // CONTRACT: a zone whose single column would drop nodes below MIN_NODE_H lays out in two sub-columns.
     const cols = members.length > 1 && fit(members.length) < MIN_NODE_H ? 2 : 1;
     const rows = Math.ceil(members.length / cols);
-    const nodeH = fit(Math.max(rows, 1));
+    const nodeH = fit(Math.max(rows, 1), cols === 2 ? NODE_H_DENSE : NODE_H);
     const nodeW = (zone.w - GAP * (cols + 1)) / cols;
     members.forEach((n, j) => {
       const col = Math.floor(j / rows), row = j % rows;
@@ -71,17 +72,22 @@ export function edgePath(a: Rect, b: Rect, sameColumn: boolean): EdgePath {
 /** Boxes narrower than this drop their AWS icon so the label keeps the width. */
 export const ICON_MIN_W = 140;
 
-export function fitLabel(label: string, w: number, h: number, hasIcon: boolean) {
+/** Height of the small id line a tagged box (dependency task) draws above its label. */
+export const TAG_H = 16;
+
+export function fitLabel(label: string, w: number, h: number, hasIcon: boolean, reserved = 0) {
   const pad = w < 120 ? 8 : 10;
   const icon = hasIcon ? Math.max(20, Math.min(36, h - 16, w * 0.2)) : 0;
   const avail = w - 4 - 2 * pad - (hasIcon ? icon + 10 : 0);
+  const inner = h - 8 - reserved;
   const width = (size: number) => label.length * size * 0.58;
-  const maxLines = h >= 52 ? 3 : h >= 36 ? 2 : 1;
-  for (let lines = 1; lines <= maxLines; lines++) {
+  for (let lines = 1; lines <= 3; lines++) {
     const sizes = lines === 1 ? [18, 17, 16, 15] : [17, 16, 15, 14, 13];
-    for (const size of sizes) if (width(size) <= avail * lines * (lines === 1 ? 1 : 0.92)) return { size, lines, icon, pad, clipped: false };
+    for (const size of sizes) {
+      if (lines * size * 1.1 <= inner && width(size) <= avail * lines * (lines === 1 ? 1 : 0.92)) return { size, lines, icon, pad, clipped: false };
+    }
   }
-  return { size: 13, lines: maxLines, icon, pad, clipped: true };
+  return { size: 13, lines: Math.max(1, Math.min(3, Math.floor(inner / 14.3))), icon, pad, clipped: true };
 }
 
 /** Index of the edge/step animating at `frame`; undefined during the intro and once all are done. */

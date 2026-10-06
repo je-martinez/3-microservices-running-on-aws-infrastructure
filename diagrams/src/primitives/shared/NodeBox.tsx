@@ -1,12 +1,18 @@
 import type { AwsService, NodeKind } from "../../schema";
 import { awsIcon } from "../../theme/aws-icons";
 import { tokens } from "../../theme/tokens";
-import { fitLabel, ICON_MIN_W, type Rect } from "../layout";
+import { fitLabel, ICON_MIN_W, TAG_H, type Rect } from "../layout";
 
-export function NodeBox(props: Rect & { label: string; kind: NodeKind; aws?: AwsService; opacity?: number; highlight?: boolean }) {
+const warned = new Set<string>();
+
+export function NodeBox(props: Rect & { label: string; tag?: string; kind: NodeKind; aws?: AwsService; opacity?: number; highlight?: boolean }) {
   const c = tokens.kind[props.kind];
   const Icon = props.aws && props.w >= ICON_MIN_W ? awsIcon(props.aws) : null;
-  const fit = fitLabel(props.label, props.w, props.h, Icon !== null);
+  const fit = fitLabel(props.label, props.w, props.h, Icon !== null, props.tag ? TAG_H : 0);
+  if (fit.clipped && !warned.has(props.label)) {
+    warned.add(props.label);
+    console.warn(`diagrams: label "${props.label}" is clipped in a ${Math.round(props.w)}x${Math.round(props.h)} box`);
+  }
   return (
     <div
       style={{
@@ -18,8 +24,11 @@ export function NodeBox(props: Rect & { label: string; kind: NodeKind; aws?: Aws
       }}
     >
       {Icon ? <span style={{ flex: "none", display: "flex" }}><Icon size={fit.icon} /></span> : null}
-      <span style={{ minWidth: 0, overflowWrap: "anywhere", display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: fit.lines, overflow: "hidden" }}>
-        {props.label}
+      <span style={{ minWidth: 0, display: "flex", flexDirection: "column" }}>
+        {props.tag ? <span style={{ fontSize: 12, lineHeight: `${TAG_H}px`, fontWeight: 700, opacity: 0.8 }}>{props.tag}</span> : null}
+        <span style={{ minWidth: 0, overflowWrap: "anywhere", display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: fit.lines, overflow: "hidden" }}>
+          {props.label}
+        </span>
       </span>
     </div>
   );
