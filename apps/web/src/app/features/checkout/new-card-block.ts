@@ -5,6 +5,7 @@ import {
   computed,
   effect,
   inject,
+  input,
   output,
   signal,
   viewChild,
@@ -60,9 +61,16 @@ export class NewCardBlock {
   readonly cancelled = output<void>();
   readonly confirmed = output<ConfirmedCard>();
 
+  /**
+   * CONTRACT: True when the buyer has NO saved card — the checkbox then renders
+   * checked and locked, and confirm() always attaches. Left opt-in there, an
+   * unchecked first card confirms with no visible change on the checkout.
+   */
+  readonly saveRequired = input(false);
 
   /** Decision 23: unchecked by default — saving a card is opt-in. */
   protected readonly saveForFuture = signal(false);
+  protected readonly willSave = computed(() => this.saveRequired() || this.saveForFuture());
   protected readonly confirming = signal(false);
   protected readonly cardError = signal<string | null>(null);
 
@@ -89,11 +97,12 @@ export class NewCardBlock {
   }
 
   protected toggleSaveForFuture(): void {
+    if (this.saveRequired()) return;
     this.saveForFuture.update((value) => !value);
   }
 
   /**
-   * Confirms the SetupIntent, then attaches ONLY if the buyer asked to.
+   * Confirms the SetupIntent, then attaches ONLY if the card is to be saved.
    *
    * CONTRACT: Every failure path reports to ErrorHandler as well as rendering a
    * message. A caught-and-rendered error never reaches `RumErrorHandler`, so a
@@ -116,7 +125,7 @@ export class NewCardBlock {
       }
       const paymentMethodId = setup.paymentMethodId;
 
-      const saved = this.saveForFuture();
+      const saved = this.willSave();
       if (saved) await firstValueFrom(this.paymentMethods.attach(paymentMethodId));
       this.confirmed.emit({ id: paymentMethodId, saved });
     } catch (error: unknown) {

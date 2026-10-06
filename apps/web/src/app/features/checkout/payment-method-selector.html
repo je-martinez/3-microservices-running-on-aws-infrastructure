@@ -12,6 +12,7 @@
   @if (showNewCardBlock()) {
     <app-new-card-block
       data-testid="new-card-block"
+      [saveRequired]="noSavedCards()"
       (cancelled)="closeNewCard()"
       (confirmed)="onCardConfirmed($event)"
     />

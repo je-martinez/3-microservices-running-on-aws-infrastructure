@@ -25,25 +25,34 @@
     </p>
   }
 
-  <div class="flex h-fit w-full shrink-0 flex-row items-center justify-start gap-md pt-1">
-    <button
-      data-testid="save-card-checkbox"
-      type="button"
-      role="checkbox"
-      class="flex h-4.5 w-4.5 shrink-0 flex-row items-center justify-center rounded border"
-      [class.bg-brand-orange]="saveForFuture()"
-      [class.border-brand-orange]="saveForFuture()"
-      [class.border-line-strong]="!saveForFuture()"
-      [attr.aria-checked]="saveForFuture()"
-      (click)="toggleSaveForFuture()"
-    >
-      @if (saveForFuture()) {
-        <svg lucideCheck class="text-surface-white h-3 w-3"></svg>
-      }
-    </button>
-    <span class="text-ink-primary text-body leading-body flex-1 font-medium">
-      Save this card for future purchases
-    </span>
+  <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-xs pt-1">
+    <div class="flex h-fit w-full shrink-0 flex-row items-center justify-start gap-md">
+      <button
+        data-testid="save-card-checkbox"
+        type="button"
+        role="checkbox"
+        class="flex h-4.5 w-4.5 shrink-0 flex-row items-center justify-center rounded border disabled:opacity-50"
+        [class.bg-brand-orange]="willSave()"
+        [class.border-brand-orange]="willSave()"
+        [class.border-line-strong]="!willSave()"
+        [attr.aria-checked]="willSave()"
+        [attr.aria-disabled]="saveRequired()"
+        [disabled]="saveRequired()"
+        (click)="toggleSaveForFuture()"
+      >
+        @if (willSave()) {
+          <svg lucideCheck class="text-surface-white h-3 w-3"></svg>
+        }
+      </button>
+      <span class="text-ink-primary text-body leading-body flex-1 font-medium">
+        Save this card for future purchases
+      </span>
+    </div>
+    @if (saveRequired()) {
+      <p data-testid="save-card-required-note" class="text-ink-secondary text-body-sm w-full">
+        Your first card is saved as your default.
+      </p>
+    }
   </div>
 
   @if (cardError(); as message) {

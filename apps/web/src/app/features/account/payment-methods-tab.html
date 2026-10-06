@@ -99,7 +99,11 @@
         (clicked)="openAddCard()"
       />
     } @else {
-      <app-profile-add-card (cancelled)="closeAddCard()" (added)="onCardAdded()" />
+      <app-profile-add-card
+        [defaultRequired]="noSavedCards()"
+        (cancelled)="closeAddCard()"
+        (added)="onCardAdded()"
+      />
     }
 
     <div

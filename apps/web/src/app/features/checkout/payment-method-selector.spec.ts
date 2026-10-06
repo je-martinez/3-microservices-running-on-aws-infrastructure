@@ -2,6 +2,7 @@ import { ErrorHandler } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import {
   LucideApple,
   LucideCheck,
@@ -16,6 +17,7 @@ import { of, throwError } from 'rxjs';
 import type { Stripe, StripeElements } from '@stripe/stripe-js';
 
 import { PaymentMethodSelector } from './payment-method-selector';
+import { NewCardBlock } from './new-card-block';
 import { PaymentMethodsApi } from '../../core/api/payment-methods-api';
 import { StripeLoader } from '../../core/payments/stripe-loader';
 import { ApiError } from '../../core/http/api-client';
@@ -107,6 +109,16 @@ describe('PaymentMethodSelector', () => {
 
   function rows(root: HTMLElement): HTMLElement[] {
     return Array.from(root.querySelectorAll('app-saved-card-row'));
+  }
+
+  function newCardBlock(): NewCardBlock | null {
+    return fixture.debugElement.query(By.directive(NewCardBlock))?.componentInstance ?? null;
+  }
+
+  async function openNewCard(root: HTMLElement): Promise<void> {
+    root.querySelector<HTMLElement>('[data-testid="add-card-button"] button')?.click();
+    fixture.detectChanges();
+    await settle(fixture);
   }
 
   it('lists the saved cards it read from the gateway', async () => {
@@ -269,6 +281,30 @@ describe('PaymentMethodSelector', () => {
     expect(rows(root)).toHaveLength(0);
   });
 
+  /**
+   * CONTRACT: With no saved card the block's save checkbox is locked on. Left
+   * opt-in, an unchecked first card confirms and the checkout shows no change.
+   */
+  it('requires saving when the buyer has no cards', async () => {
+    const root = await render([]);
+    const checkbox = query(root, 'save-card-checkbox') as HTMLButtonElement | null;
+
+    expect(newCardBlock()?.saveRequired()).toBe(true);
+    expect(checkbox?.getAttribute('aria-checked')).toBe('true');
+    expect(checkbox?.disabled).toBe(true);
+  });
+
+  /** Decision 23 stands for a buyer who already has cards: saving stays opt-in. */
+  it('keeps saving opt-in when the buyer already has cards', async () => {
+    const root = await render([card()]);
+    await openNewCard(root);
+    const checkbox = query(root, 'save-card-checkbox') as HTMLButtonElement | null;
+
+    expect(newCardBlock()?.saveRequired()).toBe(false);
+    expect(checkbox?.getAttribute('aria-checked')).toBe('false');
+    expect(checkbox?.disabled).toBe(false);
+  });
+
   it('collapses to the list on Cancel and back on Add card', async () => {
     const root = await render([card()]);
 
@@ -304,10 +340,11 @@ describe('PaymentMethodSelector', () => {
   });
 
   /**
-   * A card saved from the inline form becomes a selected saved card, so the
-   * list is re-read rather than patched locally — Users assigns `isDefault`.
+   * A first card is saved, re-read and selected, so the form gives way to the
+   * saved-cards list — the list is re-read rather than patched locally, since
+   * Users assigns `isDefault`.
    */
-  it('re-reads the list and selects a card saved from the inline form', async () => {
+  it('swaps the form for the list with the first card selected once it is saved', async () => {
     const selected: (string | null)[] = [];
     paymentMethods.list.mockReturnValueOnce(of([])).mockReturnValue(
       of([card({ id: 'pm_new', isDefault: true })]),
@@ -319,13 +356,18 @@ describe('PaymentMethodSelector', () => {
     await settle(fixture);
     const root = fixture.nativeElement as HTMLElement;
 
-    query(root, 'save-card-checkbox')?.click();
-    fixture.detectChanges();
     query(root, 'save-card-button')?.click();
     await settle(fixture);
 
+    expect(paymentMethods.attach).toHaveBeenCalledWith('pm_new');
     expect(paymentMethods.list).toHaveBeenCalledTimes(2);
-    expect(selected).toContain('pm_new');
+    expect(selected).toEqual(['pm_new']);
+    expect(query(root, 'new-card-block')).toBeNull();
+    expect(query(root, 'saved-cards-list')).not.toBeNull();
+    expect(rows(root)).toHaveLength(1);
+    expect(rows(root)[0].querySelector('[data-testid="saved-card-row"]')?.className).toContain(
+      'border-brand-navy',
+    );
   });
 
   /**
@@ -335,16 +377,21 @@ describe('PaymentMethodSelector', () => {
    */
   it('emits a one-time card without re-reading the list', async () => {
     const selected: (string | null)[] = [];
-    await render([]);
+    paymentMethods.list.mockReturnValue(of([card({ isDefault: true })]));
+    await TestBed.compileComponents();
+    fixture = TestBed.createComponent(PaymentMethodSelector);
     fixture.componentInstance.selectedPaymentMethodId.subscribe((id) => selected.push(id));
+    fixture.detectChanges();
+    await settle(fixture);
     const root = fixture.nativeElement as HTMLElement;
+    await openNewCard(root);
 
     query(root, 'save-card-button')?.click();
     await settle(fixture);
 
     expect(paymentMethods.attach).not.toHaveBeenCalled();
     expect(paymentMethods.list).toHaveBeenCalledTimes(1);
-    expect(selected).toEqual(['pm_new']);
+    expect(selected).toEqual(['pm_1', 'pm_new']);
   });
 
   it('sets a default and re-reads the list', async () => {

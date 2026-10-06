@@ -66,9 +66,12 @@ export class PaymentMethodSelector {
     })),
   );
 
+  /** Drives the new-card block's locked "save" checkbox: a first card is always kept. */
+  protected readonly noSavedCards = computed(() => this.cards().length === 0);
+
   /** With no card on file the form IS the surface — there is nothing to pick. */
   protected readonly showNewCardBlock = computed(
-    () => this.addingCard() || (!this.loading() && this.cards().length === 0),
+    () => this.addingCard() || (!this.loading() && this.noSavedCards()),
   );
 
   constructor() {
@@ -96,11 +99,12 @@ export class PaymentMethodSelector {
   }
 
   /**
-   * CONTRACT: A SAVED card re-reads the list; an unsaved one does not. Users
-   * assigns `isDefault` on attach, so patching the list locally would render a
-   * default badge the server may not have granted — and re-reading after an
-   * unsaved confirmation would look for a card that was deliberately never
-   * attached. See [[2026-09-19-stripe-payments-design]]
+   * CONTRACT: A SAVED card re-reads the list and selects it, which swaps the
+   * form for the saved-cards list; an unsaved one does not re-read. Users
+   * assigns `isDefault` on attach, so a locally patched list can render a
+   * default badge the server did not grant. An unsaved card exists only when
+   * the buyer already has cards — a first card is always saved.
+   * See [[2026-09-19-stripe-payments-design]]
    */
   protected async onCardConfirmed(confirmed: ConfirmedCard): Promise<void> {
     this.addingCard.set(false);
