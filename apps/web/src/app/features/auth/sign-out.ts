@@ -3,6 +3,7 @@ import { Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 
 import { UsersApi } from '../../core/api/users-api';
+import { SessionRehydration } from '../../core/auth/session-rehydration';
 import { SessionStore } from '../../core/auth/session-store';
 import { TokenStore } from '../../core/auth/token-store';
 import { NotificationsSocket } from '../../core/notifications/notifications-socket';
@@ -20,6 +21,7 @@ export class SignOut {
   private readonly usersApi = inject(UsersApi);
   private readonly tokenStore = inject(TokenStore);
   private readonly sessionStore = inject(SessionStore);
+  private readonly rehydration = inject(SessionRehydration);
   private readonly socket = inject(NotificationsSocket);
   private readonly router = inject(Router);
 
@@ -49,6 +51,11 @@ export class SignOut {
     this.socket.disconnect();
     this.sessionStore.clear();
     await this.tokenStore.clear();
+    // CONTRACT: Settle rehydration as signed out BEFORE navigating. Its boot
+    // read is memoised, so guestGuard otherwise still sees the session the
+    // page loaded with and bounces /login back to `/`, leaving a signed-in
+    // shell whose every call 401s until a manual reload.
+    this.rehydration.markRestored(false);
     await this.router.navigateByUrl('/login');
   }
 }

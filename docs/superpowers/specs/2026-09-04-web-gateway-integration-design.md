@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-09-04
-updated: 2026-09-07
+updated: 2026-10-06
 tags:
   - type/spec
   - area/shared
@@ -135,11 +135,15 @@ the JSON version is the file format: the `/v1` rewrite still writes `$default` P
 - `core/auth/refresh-interceptor.ts` — on a 401, calls `POST /v1/users/refresh` once and
   retries. CRITICAL: the in-flight refresh MUST be shared across concurrent requests
   (`shareReplay`), or five parallel calls fire five refreshes and four fail. On refresh
-  failure, clear the session and redirect to `/login`. Contract note: `/v1/users/refresh`
+  failure, clear the session, settle the rehydration state as signed out
+  (`SessionRehydration.markRestored(false)`) and redirect to `/login` — rehydration memoises
+  the boot read, so an unsettled one lets `guestGuard` bounce `/login` back to `/` into a
+  shell whose calls all 401. Contract note: `/v1/users/refresh`
   returns ONLY `idToken` + `accessToken` — it does NOT rotate the refresh token, so the
   original refresh token is retained.
 - `core/auth/guards.ts` — `authGuard` protecting `/`, `/orders`, `/checkout`, `/profile`;
-  `guestGuard` bouncing authenticated users away from `/login`. The `authGuard` MUST await
+  `guestGuard` bouncing authenticated users away from `/login` (it reads the rehydration state
+  when the in-memory session is empty). The `authGuard` MUST await
   rehydration of the token from IndexedDB, which is asynchronous — otherwise a reload on
   `/orders` evicts the user before their session is read.
 - `core/api/*.ts` — one service per domain: `users-api`, `catalogue-api`, `orders-api`,
