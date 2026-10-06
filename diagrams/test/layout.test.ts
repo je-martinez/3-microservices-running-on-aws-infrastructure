@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { activeIndex, TAG_H, edgePath, edgePoints, fitLabel, isSameColumn, layoutArchitecture, layoutDependency, layoutFlow } from "../src/primitives/layout";
-import { durationFor, INTRO, STEP } from "../src/timing";
+import { ARCH_STEP, durationFor, HOLD, INTRO, STEP, unitProgress } from "../src/timing";
 
 const d = {
   title: "T",
@@ -152,6 +152,25 @@ describe("activeIndex", () => {
     expect(activeIndex(INTRO, 3)).toBe(0);
     expect(activeIndex(INTRO + STEP, 3)).toBe(1);
     expect(activeIndex(durationFor(3) - 1, 3)).toBeUndefined();
+  });
+
+  it("steps by ARCH_STEP when asked, and is undefined on the last frame", () => {
+    expect(ARCH_STEP).toBe(12);
+    expect(durationFor(5, ARCH_STEP)).toBe(INTRO + 5 * ARCH_STEP + HOLD);
+    expect(durationFor(5)).toBe(INTRO + 5 * STEP + HOLD);
+    expect(activeIndex(INTRO + ARCH_STEP, 5, ARCH_STEP)).toBe(1);
+    expect(activeIndex(INTRO + 5 * ARCH_STEP - 1, 5, ARCH_STEP)).toBe(4);
+    expect(activeIndex(durationFor(5, ARCH_STEP) - 1, 5, ARCH_STEP)).toBeUndefined();
+  });
+});
+
+describe("unitProgress", () => {
+  it("defaults to STEP and reaches 1 before the next edge starts at ARCH_STEP", () => {
+    expect(unitProgress(INTRO + STEP, 1)).toBe(0);
+    expect(unitProgress(INTRO, 0, ARCH_STEP)).toBe(0);
+    const next = INTRO + ARCH_STEP;
+    expect(unitProgress(next - 1, 0, ARCH_STEP)).toBe(1);
+    expect(unitProgress(next, 1, ARCH_STEP)).toBe(0);
   });
 });
 

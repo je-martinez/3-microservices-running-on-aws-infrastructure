@@ -91,8 +91,8 @@ export function fitLabel(label: string, w: number, h: number, hasIcon: boolean, 
 }
 
 /** Index of the edge/step animating at `frame`; undefined during the intro and once all are done. */
-export function activeIndex(frame: number, n: number): number | undefined {
-  const i = Math.floor((frame - INTRO) / STEP);
+export function activeIndex(frame: number, n: number, step = STEP): number | undefined {
+  const i = Math.floor((frame - INTRO) / step);
   return i >= 0 && i < n ? i : undefined;
 }
 
