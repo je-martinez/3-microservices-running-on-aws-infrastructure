@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { edgePoints, layoutArchitecture, layoutFlow } from "../src/primitives/layout";
+import { edgePoints, layoutArchitecture, layoutDependency, layoutFlow } from "../src/primitives/layout";
 
 const d = {
   title: "T",
@@ -55,5 +55,26 @@ describe("layoutFlow", () => {
   it("fits 10 rows above the caption bar", () => {
     expect(l.rowY(9)).toBeLessThan(675 - 18 - 48 - 8);
     expect(l.rowY(1)).toBeGreaterThan(l.rowY(0));
+  });
+});
+
+describe("layoutDependency", () => {
+  const dep = {
+    title: "M",
+    phases: [{ id: "p1", label: "P1" }, { id: "p2", label: "P2" }],
+    tasks: [
+      { id: "JE-1", label: "A", phase: "p1" },
+      { id: "JE-2", label: "B", phase: "p2" },
+      { id: "JE-3", label: "C", phase: "p2" },
+    ],
+    deps: [{ from: "JE-1", to: "JE-2" }],
+  };
+  const l = layoutDependency(dep, 1200, 675);
+  it("puts each task inside its phase column", () => {
+    for (const t of dep.tasks) {
+      const r = l.tasks[t.id]!, p = l.phases[t.phase]!;
+      expect(r.x).toBeGreaterThanOrEqual(p.x);
+      expect(r.x + r.w).toBeLessThanOrEqual(p.x + p.w);
+    }
   });
 });

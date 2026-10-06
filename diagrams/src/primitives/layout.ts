@@ -1,4 +1,4 @@
-import type { ArchitectureData, FlowData } from "../schema";
+import type { ArchitectureData, DependencyData, FlowData } from "../schema";
 
 export type Rect = { x: number; y: number; w: number; h: number };
 
@@ -48,4 +48,14 @@ export function layoutFlow(d: FlowData, w: number, h: number) {
   const firstRow = LANE_TOP + HEADER_H + 30;
   const rowH = (h - CAPTION_SPACE - firstRow) / Math.max(d.steps.length, 1);
   return { lanes, rowY: (i: number) => firstRow + rowH * i + rowH / 2 };
+}
+
+export function layoutDependency(d: DependencyData, w: number, h: number) {
+  // WARNING: do NOT route this through ArchitectureData.parse; task labels allow 30 chars, node labels 22.
+  const { zones, nodes } = layoutArchitecture(
+    { title: d.title, zones: d.phases, nodes: d.tasks.map((t) => ({ id: t.id, label: t.label, kind: "compute" as const, zone: t.phase })), edges: [] },
+    w,
+    h,
+  );
+  return { phases: zones, tasks: nodes };
 }

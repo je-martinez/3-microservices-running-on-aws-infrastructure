@@ -1,6 +1,7 @@
 import { Composition } from "remotion";
 import { catalog, type CatalogEntry } from "./catalog";
 import { ArchitectureMap } from "./primitives/ArchitectureMap";
+import { DependencyGraph } from "./primitives/DependencyGraph";
 import { FlowSequence } from "./primitives/FlowSequence";
 import { durationFor, FPS, HEIGHT, WIDTH } from "./timing";
 
@@ -10,8 +11,10 @@ function view(e: CatalogEntry) {
       return { component: ArchitectureMap, units: e.data.edges.length };
     case "flow":
       return { component: FlowSequence, units: e.data.steps.length };
+    case "dependency":
+      return { component: DependencyGraph, units: 0 };
     default:
-      throw new Error(`primitive ${e.primitive} is not registered yet`);
+      throw new Error(`unregistered primitive ${(e as { primitive: string }).primitive}`);
   }
 }
 
