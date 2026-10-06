@@ -1,4 +1,5 @@
 import type { ArchitectureData, DependencyData, FlowData } from "../schema";
+import { INTRO, STEP } from "../timing";
 
 export type Rect = { x: number; y: number; w: number; h: number };
 
@@ -6,7 +7,9 @@ const PAD = 24;
 const TOP = 96; // title band
 const ZONE_HEADER = 32;
 const NODE_H = 56;
+const MIN_NODE_H = 44;
 const GAP = 14;
+const BRACKET_OUT = 12;
 
 export function layoutArchitecture(d: ArchitectureData, w: number, h: number) {
   const zones: Record<string, Rect> = {};
@@ -16,9 +19,15 @@ export function layoutArchitecture(d: ArchitectureData, w: number, h: number) {
     const zone = { x: PAD + i * (zw + PAD), y: TOP, w: zw, h: h - TOP - PAD };
     zones[z.id] = zone;
     const members = d.nodes.filter((n) => n.zone === z.id);
-    const nodeH = Math.min(NODE_H, (zone.h - ZONE_HEADER - GAP * (members.length + 1)) / members.length);
+    const fit = (rows: number) => Math.min(NODE_H, (zone.h - ZONE_HEADER - GAP * (rows + 1)) / rows);
+    // CONTRACT: a zone whose single column would drop nodes below MIN_NODE_H lays out in two sub-columns.
+    const cols = members.length > 1 && fit(members.length) < MIN_NODE_H ? 2 : 1;
+    const rows = Math.ceil(members.length / cols);
+    const nodeH = fit(Math.max(rows, 1));
+    const nodeW = (zone.w - GAP * (cols + 1)) / cols;
     members.forEach((n, j) => {
-      nodes[n.id] = { x: zone.x + GAP, y: zone.y + ZONE_HEADER + GAP + j * (nodeH + GAP), w: zone.w - 2 * GAP, h: nodeH };
+      const col = Math.floor(j / rows), row = j % rows;
+      nodes[n.id] = { x: zone.x + GAP + col * (nodeW + GAP), y: zone.y + ZONE_HEADER + GAP + row * (nodeH + GAP), w: nodeW, h: nodeH };
     });
   });
   return { zones, nodes };
@@ -32,6 +41,53 @@ export function edgePoints(a: Rect, b: Rect) {
   }
   const down = bcy > acy;
   return { x1: acx, y1: down ? a.y + a.h : a.y, x2: bcx, y2: down ? b.y : b.y + b.h };
+}
+
+/** True when two boxes are stacked in one column, where a straight edge would be ~GAP long. */
+export function isSameColumn(a: Rect, b: Rect): boolean {
+  return Math.abs(a.x - b.x) < 1 && Math.abs(a.w - b.w) < 1;
+}
+
+export type EdgePath = { d: string; len: number; label: { x: number; y: number; anchor: "middle" | "end" } };
+
+/** SVG path for an edge; same-column edges bracket out through the zone's right padding. */
+export function edgePath(a: Rect, b: Rect, sameColumn: boolean): EdgePath {
+  if (sameColumn) {
+    const ay = a.y + a.h / 2, by = b.y + b.h / 2;
+    const ax = a.x + a.w, bx = b.x + b.w;
+    const rx = Math.max(ax, bx) + BRACKET_OUT;
+    const len = rx - ax + Math.abs(by - ay) + (rx - bx);
+    return { d: `M ${ax} ${ay} H ${rx} V ${by} H ${bx}`, len, label: { x: rx - 4, y: (ay + by) / 2 + 5, anchor: "end" } };
+  }
+  const p = edgePoints(a, b);
+  return {
+    d: `M ${p.x1} ${p.y1} L ${p.x2} ${p.y2}`,
+    len: Math.hypot(p.x2 - p.x1, p.y2 - p.y1),
+    label: { x: (p.x1 + p.x2) / 2, y: (p.y1 + p.y2) / 2 - 8, anchor: "middle" },
+  };
+}
+
+/** Pick the label font size and line count that fit `label` in a box `w` x `h`; `clipped` when none does. */
+/** Boxes narrower than this drop their AWS icon so the label keeps the width. */
+export const ICON_MIN_W = 140;
+
+export function fitLabel(label: string, w: number, h: number, hasIcon: boolean) {
+  const pad = w < 120 ? 8 : 10;
+  const icon = hasIcon ? Math.max(20, Math.min(36, h - 16, w * 0.2)) : 0;
+  const avail = w - 4 - 2 * pad - (hasIcon ? icon + 10 : 0);
+  const width = (size: number) => label.length * size * 0.58;
+  const maxLines = h >= 52 ? 3 : h >= 36 ? 2 : 1;
+  for (let lines = 1; lines <= maxLines; lines++) {
+    const sizes = lines === 1 ? [18, 17, 16, 15] : [17, 16, 15, 14, 13];
+    for (const size of sizes) if (width(size) <= avail * lines * (lines === 1 ? 1 : 0.92)) return { size, lines, icon, pad, clipped: false };
+  }
+  return { size: 13, lines: maxLines, icon, pad, clipped: true };
+}
+
+/** Index of the edge/step animating at `frame`; undefined during the intro and once all are done. */
+export function activeIndex(frame: number, n: number): number | undefined {
+  const i = Math.floor((frame - INTRO) / STEP);
+  return i >= 0 && i < n ? i : undefined;
 }
 
 const LANE_TOP = 96;

@@ -1,7 +1,7 @@
 import { AbsoluteFill, useVideoConfig } from "remotion";
 import type { DependencyData } from "../schema";
 import { tokens } from "../theme/tokens";
-import { edgePoints, layoutDependency } from "./layout";
+import { edgePath, isSameColumn, layoutDependency } from "./layout";
 import { Arrow } from "./shared/Arrow";
 import { NodeBox } from "./shared/NodeBox";
 import { Title } from "./shared/Title";
@@ -22,7 +22,7 @@ export function DependencyGraph({ data }: { data: DependencyData }) {
         );
       })}
       <svg width={width} height={height} style={{ position: "absolute", inset: 0 }}>
-        {data.deps.map((e, i) => <Arrow key={i} id={`d${i}`} {...edgePoints(l.tasks[e.from]!, l.tasks[e.to]!)} progress={1} />)}
+        {data.deps.map((e, i) => <Arrow key={i} id={`d${i}`} path={edgePath(l.tasks[e.from]!, l.tasks[e.to]!, isSameColumn(l.tasks[e.from]!, l.tasks[e.to]!))} progress={1} />)}
       </svg>
       {data.tasks.map((t) => <NodeBox key={t.id} {...l.tasks[t.id]!} label={`${t.id} ${t.label}`} kind="compute" />)}
     </AbsoluteFill>
