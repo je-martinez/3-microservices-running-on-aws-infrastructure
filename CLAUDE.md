@@ -159,7 +159,7 @@ When `github-ops` is used, it coordinates with `linear-pm`: it needs milestone/i
 Two layers of agents (see `docs/superpowers/specs/2026-06-26-implementation-workflow-design.md`):
 
 - **Tool layer:** `obsidian-vault` (docs/) and `linear-pm` (Linear) are single writers. `github-ops` (git/GitHub) is **optional** — the main session may run git directly (see [[git-workflow]]).
-- **Domain layer:** `solutions-architect` (read-only planner — returns a **Coordination Plan**, writes nothing) and eight **code-only** implementers: `users-impl`, `orders-impl`, `tracking-impl`, `events-pipeline-impl`, `infra-impl`, `e2e-impl` (Playwright specs + Gatling load simulations; reads `e2e/CLAUDE.md`), `web-impl`, and `diagram-impl` (Angular screens and components; reads `apps/web/CLAUDE.md`).
+- **Domain layer:** `solutions-architect` (read-only planner — returns a **Coordination Plan**, writes nothing) and eight **code-only** implementers: `users-impl`, `orders-impl`, `tracking-impl`, `events-pipeline-impl`, `infra-impl`, `e2e-impl` (Playwright specs + Gatling load simulations; reads `e2e/CLAUDE.md`), `web-impl` (Angular screens and components; reads `apps/web/CLAUDE.md`), and `diagram-impl` (Remotion diagrams; reads `diagrams/CLAUDE.md`).
 
 **Invariant:** implementers write **only source code** — they never run git or touch Linear, and they leave work in the working tree for the **main session** to commit (which may optionally delegate a complex git batch to `github-ops`). The architect writes nothing. A subagent cannot spawn another subagent, so the **parent** routes the architect's Coordination Plan to each hand.
 
