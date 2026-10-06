@@ -23,7 +23,7 @@ export const systemContextL1: ArchitectureData = {
   edges: [
     { from: "customer", to: "app", label: "uses" },
     { from: "carrier", to: "app", label: "status" },
-    { from: "app", to: "stripe", label: "payments" },
+    { from: "app", to: "stripe", label: "pay+hooks" },
     { from: "app", to: "geoapify", label: "geocode" },
     { from: "app", to: "cognito", label: "auth" },
     { from: "app", to: "ses", label: "email" },
