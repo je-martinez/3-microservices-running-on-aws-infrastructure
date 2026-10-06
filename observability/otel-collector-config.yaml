@@ -518,6 +518,11 @@ processors:
           - set(attributes["service_name"], "web")
             where attributes["service_name"] == nil
               and attributes["fluent.tag"] == "web"
+          # Pre-prod ships the same output through awslogs to /ecs/<family>-web.
+          - set(attributes["service_name"], "web")
+            where attributes["service_name"] == nil
+              and resource.attributes["cloudwatch.log.group.name"] != nil
+              and IsMatch(resource.attributes["cloudwatch.log.group.name"], "^/ecs/.*-web$")
           - set(attributes["severity_text"], "INFO")
             where attributes["service_name"] == "web" and attributes["severity_text"] == nil
           - set(attributes["severity_number"], 9)
@@ -588,6 +593,23 @@ processors:
         statements:
           - set(attributes["telemetry.source"], "rum")
           - set(name, Concat(["RUM -", name], " ")) where not IsMatch(name, "^RUM - ")
+
+  # The platform's own logs. In pre-prod the receiver's autodiscovery also reads
+  # the log groups of OpenObserve, the collector and Mailpit
+  # (/ecs/<family>-openobserve, -otel-collector, -mailpit) and Floci's ECR
+  # registry (/aws/ecr/registry): their access and startup lines would be
+  # ingested back into the stack that wrote them, and none carry a service_name.
+  # CONTRACT: Listed in EVERY logs pipeline that receives aws_cloudwatch, right
+  # after transform/parse_body. A pipeline missing it still routes these records
+  # into its own stream (`unclassified` for the catch-all). The drop is global, so
+  # no complement exists. Nil guard FIRST: IsMatch on nil raises into a silently
+  # aborted statement. Group key: RESOURCE attribute, DOT-separated.
+  # See [[openobserve-cloudwatch]]
+  filter/drop_platform_logs:
+    error_mode: ignore
+    logs:
+      log_record:
+        - 'resource.attributes["cloudwatch.log.group.name"] != nil and (IsMatch(resource.attributes["cloudwatch.log.group.name"], "^/ecs/.*-(openobserve|otel-collector|mailpit)$") or IsMatch(resource.attributes["cloudwatch.log.group.name"], "^/aws/ecr/registry"))'
 
   # The nginx split — the gateway's access log gets its own stream, the same
   # shape as sql/redis/docdb. Routed rather than dropped: the gateway is the only
@@ -816,7 +838,7 @@ exporters:
   # OpenObserve OTLP-HTTP ingest (ADR-0018). Use otlp_http — the otlphttp alias
   # is deprecated. Basic auth + stream-name are what OpenObserve requires.
   otlp_http/openobserve:
-    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    endpoint: ${env:O2_ENDPOINT}/api/${env:O2_ORG}
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: logs
@@ -827,7 +849,7 @@ exporters:
   # to bury a flow log. They keep their shared-context fields (user_id,
   # order_id, trace_id…), so a query still traces back to its request.
   otlp_http/openobserve_sql:
-    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    endpoint: ${env:O2_ENDPOINT}/api/${env:O2_ORG}
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: sql
@@ -838,7 +860,7 @@ exporters:
   # background-save failure — rare and quiet, so they must neither be weighed
   # against expire-cycle noise in the main stream nor discarded.
   otlp_http/openobserve_redis:
-    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    endpoint: ${env:O2_ENDPOINT}/api/${env:O2_ORG}
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: redis
@@ -848,7 +870,7 @@ exporters:
   # is the ONLY place the storage layer reports a restart, an auth failure or an
   # index build. filter/drop_wiredtiger_noise strips checkpoint noise inside it.
   otlp_http/openobserve_docdb:
-    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    endpoint: ${env:O2_ENDPOINT}/api/${env:O2_ORG}
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: docdb
@@ -860,7 +882,7 @@ exporters:
   # Severity comes from the HTTP status in transform/parse_body, so this stream
   # filters by ERROR/WARN like any other.
   otlp_http/openobserve_nginx:
-    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    endpoint: ${env:O2_ENDPOINT}/api/${env:O2_ORG}
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: nginx
@@ -870,7 +892,7 @@ exporters:
   # start, a recovery or a connection problem — rare and quiet, so they must
   # neither be weighed against checkpoint chatter nor discarded.
   otlp_http/openobserve_rds:
-    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    endpoint: ${env:O2_ENDPOINT}/api/${env:O2_ORG}
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: rds
@@ -882,7 +904,7 @@ exporters:
   # service's lines go missing from a dashboard — the answer is usually here,
   # with the raw `body` intact so the unrecognized format can be read directly.
   otlp_http/openobserve_unclassified:
-    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    endpoint: ${env:O2_ENDPOINT}/api/${env:O2_ORG}
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: unclassified
@@ -900,7 +922,7 @@ exporters:
   # which observability-up runs; it is not a version bug.
   # See [[ADR-0019-distributed-tracing-opentelemetry]]
   otlp_http/openobserve_traces:
-    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    endpoint: ${env:O2_ENDPOINT}/api/${env:O2_ORG}
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       # Without this header OpenObserve files every span under `default`.
@@ -924,14 +946,14 @@ exporters:
   # queried as `dimensions_service`, and the metric name becomes the stream name
   # sanitized: amazonaws.com/3MRAI/orders_total -> amazonaws_com_3mrai_orders_total.
   otlp_http/openobserve_metrics:
-    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    endpoint: ${env:O2_ENDPOINT}/api/${env:O2_ORG}
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: metrics
 
   # RUM metrics (Web Vitals) — its own stream, same instance and auth.
   otlp_http/openobserve_rum_metrics:
-    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    endpoint: ${env:O2_ENDPOINT}/api/${env:O2_ORG}
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: rum_metrics
@@ -941,7 +963,7 @@ exporters:
   # existing OTLP-logs exporter to model this one on, since the services log
   # to OpenObserve over fluent_forward, not OTLP.
   otlp_http/openobserve_rum_logs:
-    endpoint: http://openobserve:5080/api/${env:O2_ORG}
+    endpoint: ${env:O2_ENDPOINT}/api/${env:O2_ORG}
     headers:
       Authorization: "Basic ${env:O2_BASIC_AUTH}"
       stream-name: rum_logs
@@ -972,7 +994,7 @@ service:
       # drop, then batch, so dropped records never reach the batcher.
       # filter/drop_wiredtiger_noise is absent: drop_docdb already diverts it.
       # See [[openobserve-runbook]]
-      processors: [transform/parse_body, filter/drop_nginx, filter/drop_redis, filter/drop_docdb, filter/drop_rds, filter/drop_sql, filter/drop_unclassified, batch]
+      processors: [transform/parse_body, filter/drop_platform_logs, filter/drop_nginx, filter/drop_redis, filter/drop_docdb, filter/drop_rds, filter/drop_sql, filter/drop_unclassified, batch]
       exporters: [otlp_http/openobserve]
 
     # SQL echo, same receivers, opposite filter, its own stream. Two pipelines
@@ -982,7 +1004,7 @@ service:
     # discard the copy that does not belong — hence the exact-complement rule.
     logs/sql:
       receivers: [fluent_forward, aws_cloudwatch]
-      processors: [transform/parse_body, filter/only_sql, batch]
+      processors: [transform/parse_body, filter/drop_platform_logs, filter/only_sql, batch]
       exporters: [otlp_http/openobserve_sql]
 
     # Cache engine log, its own stream: same receivers, complementary filter,
@@ -992,7 +1014,7 @@ service:
     # are exact complements, so every record lands in exactly one stream.
     logs/redis:
       receivers: [fluent_forward, aws_cloudwatch]
-      processors: [transform/parse_body, filter/only_redis, batch]
+      processors: [transform/parse_body, filter/drop_platform_logs, filter/only_redis, batch]
       exporters: [otlp_http/openobserve_redis]
 
     # DocumentDB engine/audit log, its own stream, structured like logs/redis.
@@ -1003,7 +1025,7 @@ service:
     # complements, so every record lands in exactly one stream.
     logs/docdb:
       receivers: [fluent_forward, aws_cloudwatch]
-      processors: [transform/parse_body, filter/only_docdb, filter/drop_wiredtiger_noise, batch]
+      processors: [transform/parse_body, filter/drop_platform_logs, filter/only_docdb, filter/drop_wiredtiger_noise, batch]
       exporters: [otlp_http/openobserve_docdb]
 
     # The gateway's access log, its own stream, structured like the splits above.
@@ -1014,7 +1036,7 @@ service:
     # are exact complements, so every record lands in exactly one stream.
     logs/nginx:
       receivers: [fluent_forward, aws_cloudwatch]
-      processors: [transform/parse_body, filter/only_nginx, batch]
+      processors: [transform/parse_body, filter/drop_platform_logs, filter/only_nginx, batch]
       exporters: [otlp_http/openobserve_nginx]
 
     # Database engine logs, their own stream. Same structure as logs/redis: same
@@ -1024,7 +1046,7 @@ service:
     # complements, so every record lands in exactly one of the two streams.
     logs/rds:
       receivers: [fluent_forward, aws_cloudwatch]
-      processors: [transform/parse_body, filter/only_rds, batch]
+      processors: [transform/parse_body, filter/drop_platform_logs, filter/only_rds, batch]
       exporters: [otlp_http/openobserve_rds]
 
     # CONTRACT: The catch-all MUST repeat EVERY drop_* filter before
@@ -1034,7 +1056,7 @@ service:
     # engine text has no service_name either and would be routed here.
     logs/unclassified:
       receivers: [fluent_forward, aws_cloudwatch]
-      processors: [transform/parse_body, filter/drop_nginx, filter/drop_redis, filter/drop_docdb, filter/drop_rds, filter/drop_sql, filter/only_unclassified, batch]
+      processors: [transform/parse_body, filter/drop_platform_logs, filter/drop_nginx, filter/drop_redis, filter/drop_docdb, filter/drop_rds, filter/drop_sql, filter/only_unclassified, batch]
       exporters: [otlp_http/openobserve_unclassified]
 
     # No transform/parse_body here: OTLP traces arrive already structured, so

@@ -35,6 +35,12 @@ METRICS_INTERVAL_SECONDS = "60"
 PROGRESSION_INTERVAL_SECONDS = "5"
 FLOCI_HOST = "floci"
 
+# CONTRACT: Must equal ZO_ROOT_USER_EMAIL / ZO_ROOT_USER_PASSWORD on the
+# `openobserve` service in docker-compose.yml. Dev's login is a fixed local
+# value, not a secret; .env.local.debug only repeats it for the developer.
+OPENOBSERVE_USER = "admin@3mrai.local"
+OPENOBSERVE_PASSWORD = "Complexpass#123"
+
 # CONTRACT: Do NOT point the browser at the gateway's own origin. No CORS
 # headers are sent anywhere in this repo, so a cross-origin call is blocked at
 # the preflight; both proxies below make /v1 same-origin instead. They differ
@@ -148,8 +154,8 @@ INTERNAL_API_KEY = "local-dev-internal-key"
 TRACKING_CARRIER_API_KEY = "local-dev-carrier-key"
 
 # WORKAROUND(local): Do NOT read this token through a Terraform output. Targeted
-# applies omit it, while a full Floci reapply fails UpdateTags and makes env-file
-# unusable. Keep this static literal synchronized with e2e_query_token.
+# applies omit it, and a full Floci reapply never converges, so env-file would
+# depend on an apply it must never trigger. Keep this static literal synchronized with e2e_query_token.
 # See [[floci-rds-apigw-limits]]
 E2E_QUERY_TOKEN = "local-e2e-query-token"
 
@@ -642,6 +648,9 @@ def build(repo_root: Path) -> dict[Path, dict]:
                 # Just the id: nginx builds the rest of the path itself, because
                 # it cannot express the `$default` stage segment as a literal.
                 "API_GATEWAY_API_ID": api_id,
+                # Container-side address of the collector's browser-RUM OTLP port,
+                # substituted into nginx's /otlp/ location.
+                "OTLP_RUM_UPSTREAM": "otel-collector:4319",
                 # CONTRACT: The HOST-facing url, read by a BROWSER — not
                 # WS_MANAGEMENT_ENDPOINT, whose in-network shape answers a
                 # handshake with an S3 XML body.
@@ -684,9 +693,15 @@ def build(repo_root: Path) -> dict[Path, dict]:
         # from outside Docker (a SQL client on macOS). Deliberately not loaded
         # by any service: a host URL inside a container would not resolve.
         repo_root / ".env.local.debug": dict(
-            header="HOST-reachable connection strings for a local SQL client. "
-            "Loaded by nothing — copy the value you need.",
+            header="HOST-reachable connection strings, browser URLs and the OpenObserve "
+            "login. Loaded by nothing — copy the value you need.",
+            mode=0o600,
             generated={
+                "WEB_URL": "http://localhost:3004",
+                "OPENOBSERVE_URL": "http://localhost:5080",
+                "OPENOBSERVE_USER": OPENOBSERVE_USER,
+                "OPENOBSERVE_PASSWORD": OPENOBSERVE_PASSWORD,
+                "MAILPIT_URL": "http://localhost:8025",
                 "USERS_DATABASE_URL": f"postgres://test:test@localhost:{pg_port}/users",
                 "ORDERS_DATABASE_URL": f"mysql://test:test@localhost:{my_port}/orders",
                 # Plain mysql:// (not mysql+pymysql://) — this file is for a GUI

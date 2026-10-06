@@ -44,17 +44,17 @@ Terraform would create nothing, leaving clusters with no backing container.
 `docker ps` and fails loudly if they drift.
 
 **`make bootstrap` is the single supported entry point.** It runs, in order:
-`floci` → `infra-init` → `infra-up` (phase-1 apply + regenerate `./.env` from
-outputs via `env-file`) → **`migrate`** (Prisma `migrate deploy`) → build/start
+`floci` → `infra-init` → `infra-up` (phase-1 apply + regenerate the
+`.env.local.*` files via `env-file`) → **`migrate`** (Prisma `migrate deploy`) → build/start
 `users` → `bootstrap.sh` (`nginx-stable` alias) → services (`orders`,
 `migrate-tracking`, `tracking`). It **stops there**: phase 2 is no longer part of
 `bootstrap`, and is run separately with **`make post-infra`** (see the two-phase
 section below). The order matters: `users` validates `COGNITO_*` with Zod at boot, and
 those IDs only exist after apply — and Floci mints new ones on every apply, so
-`.env` is generated, never hand-edited.
+the `.env.local.*` files are generated, never hand-edited.
 
 Other targets: `make infra-up|infra-down|infra-output`, `make env-file` (rewrites
-only the AUTO-GENERATED block in `./.env`, preserving manual vars), `make migrate`,
+only the AUTO-GENERATED block of each `.env.local.*` file, preserving its CUSTOM box), `make migrate`,
 `make clean` (teardown), `make observability-up|observability-down`.
 
 There are now **two RDS clusters** locally — Users **Postgres** and Orders
@@ -88,13 +88,13 @@ between 7001/7002 (verified). The single discovery mechanism is
 `aws rds describe-db-clusters --query "DBClusters[?Engine=='<engine>'].Port"`
 (the `Engine` field is stable); the Makefile (`env-file`, `migrate`,
 `infra-up-post`) and `bootstrap.py` all call it, and `env-file` writes the results
-to `.env` as `USERS_DB_PORT`/`ORDERS_DB_PORT` for docker-compose to interpolate.
+to the `.env.local.*` files as `USERS_DB_PORT`/`ORDERS_DB_PORT` for docker-compose to interpolate.
 Writer and reader endpoints are the same locally: Floci does not emulate an Aurora
 read replica.
 
-Known limitation: a **second** `terraform apply` fails (Floci's `UpdateTags` for
-API GW v2 / RDS). Re-apply by tearing down and rebuilding, not by re-running
-apply. See [../docs/lessons/floci-rds-apigw-limits.md](../docs/lessons/floci-rds-apigw-limits.md).
+Known limitation: a **second** phase-1 `terraform apply` never converges — on Floci
+2.1.0 it succeeds but always reports 8 in-place changes, never `No changes.`. Re-apply
+by tearing down and rebuilding, not by re-running apply. See [../docs/lessons/floci-rds-apigw-limits.md](../docs/lessons/floci-rds-apigw-limits.md).
 
 #### SQS / Lambda / DocumentDB (events-pipeline substrate)
 Probed empirically on 2026-08-03 against Floci v1.5.28 — full evidence and the
@@ -147,7 +147,7 @@ privileges the `mysql` provider needs (`CREATE USER ON *.*`, `SELECT ON mysql.*`
 moved here from phase 1's `create_mysql_database.py` because they are phase-2
 prerequisites. Phase 2 lives in `environments/local/post/` with
 its **own** (gitignored) state, so it never re-touches phase 1's resources
-(which would trip the second-apply `UpdateTags` limit above).
+(which would hit the non-converging second apply above).
 
 Phase 2 creates the least-privilege **DB app-users in Terraform** via the
 engine-parameterized `modules/db-app-user` — replacing the old bash
@@ -265,6 +265,12 @@ All five infra scripts are Python (`bootstrap.py`, `scripts/discover_db_port.py`
 - Leave finished work in the working tree for the **main session** to commit
   (`github-ops` is an optional helper for complex git batches — see [[git-workflow]]).
 - Stay within the single task handed to you (YAGNI).
+
+## Pre-prod
+`infra/environments/preprod/` is a second environment: Floci 2.1.0 only, every service an
+ECS task behind an ALB, config via SSM + Secrets Manager (no env files inside the
+workloads), local Terraform state. It cannot run beside dev. See [[preprod]],
+[[ADR-0022-preprod-ecs-on-floci]].
 
 ## 6. Design reference
 - Infra specs (vault): [../docs/infrastructure/specs/](../docs/infrastructure/specs/)

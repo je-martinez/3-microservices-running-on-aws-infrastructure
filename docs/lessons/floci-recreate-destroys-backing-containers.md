@@ -4,7 +4,7 @@ type: lesson
 area: infra
 status: active
 created: 2026-08-10
-updated: 2026-08-10
+updated: 2026-10-02
 tags:
   - type/lesson
   - area/infra
@@ -16,6 +16,8 @@ related:
   - "[[floci-sqs-lambda-docdb-support]]"
   - "[[floci-vs-ministack-spike-findings]]"
   - "[[env-files]]"
+  - "[[2026-10-02-floci-2-1-restart-and-gateway-findings]]"
+  - "[[local-dev-floci]]"
 ---
 
 # Floci's persisted state must be destroyed together with its backing containers
@@ -55,9 +57,39 @@ On the next bootstrap, Floci loaded that stale state and answered `available`. T
 Floci relaunches RDS containers from persisted state at boot — visible as
 `RdsContainerManager: Starting RDS backend container for instance: … engine=POSTGRES`. It has
 **no equivalent reconciler for DocumentDB or ElastiCache**: those load their state and launch
-nothing. A single teardown therefore left Postgres/MySQL healthy and the other two phantom,
-which is why the same command appeared to work some of the time — the failure depends on which
+nothing. A single teardown therefore leaves Postgres/MySQL healthy and the other two phantom,
+which is why the same command appears to work some of the time — the failure depends on which
 resource types Floci actually reconciles at boot, not on any randomness.
+
+## Every graceful stop deletes DocumentDB and ElastiCache (Floci 2.1.0)
+
+On Floci 2.1.0 the container loss is not tied to recreation: Floci's **graceful shutdown deletes
+its DocumentDB and ElastiCache containers on every stop** (log:
+`Stopping 1 DocumentDB container(s) on shutdown`), so a plain `docker compose stop`/`restart`
+already leaves phantoms whose API still answers `available`. Nothing relaunches them at boot.
+Neither control-plane calls, a data-plane ping, reboot/modify operations nor
+`FLOCI_SERVICES_ECS_RECONCILE_CONTAINERS_ON_STARTUP` bring them back. Deleting a phantom and
+recreating it with the same id works on 2.1.0 but yields an **empty** store (it wedged on 1.7.0).
+
+| Resource | Graceful stop (default) | With `stop_signal: SIGKILL` |
+|---|---|---|
+| RDS | Relaunched on its named volume, data intact | Same |
+| ECS service | Relaunched, but only after the first ECS API call (lazy reconciler) | Same |
+| DocumentDB | Phantom, data lost | Container survives with its data |
+| ElastiCache (Valkey) | Phantom, data lost | Container survives with its data |
+
+### The fix for restarts: `stop_signal: SIGKILL` and `make heal`
+
+- The `floci` compose service sets `stop_signal: SIGKILL`, so Floci never runs its shutdown
+  hook and the backing containers stay intact. This is safe only because
+  `FLOCI_STORAGE_MODE=persistent` flushes every write — see
+  [[floci-storage-modes-and-tmp-corruption]].
+- After a **Docker daemon restart** the DocumentDB/Valkey containers are `Exited` but intact.
+  `make heal` (`infra/scripts/floci_heal.py` plus `infra/environments/local/bootstrap.py`)
+  restarts them, wakes the lazy ECS reconciler (it does nothing until the first ECS API call),
+  removes orphan task containers and re-attaches the `nginx-stable` alias.
+- `make doctor` classifies each backing container as **running**, **exited** (fix:
+  `make heal`) or **missing** (fix: `make clean && make bootstrap`).
 
 ## Why compose could not fix it
 
@@ -107,6 +139,9 @@ unrelated service.
 
 ## Related
 
+- [[2026-10-02-floci-2-1-restart-and-gateway-findings]] — the dated record of the Floci 2.1.0
+  restart probes behind the SIGKILL and `make heal` section.
+- [[local-dev-floci]] — the runbook that documents `make heal` and `make doctor`.
 - [[floci-rds-apigw-limits]] — the earlier lesson on Floci's RDS reconciliation quirks
   (non-deterministic proxy ports); this note extends the same "verify Floci's actual behaviour,
   don't trust the API's word" discipline to full teardown/bootstrap cycles.

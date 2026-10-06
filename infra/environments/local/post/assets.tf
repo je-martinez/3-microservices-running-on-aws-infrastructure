@@ -1,10 +1,9 @@
 # Public asset hosting for the email templates: a bucket, plus the sync that
 # optimises assets/ into it and writes the manifest the templates read.
 #
-# CONTRACT: This belongs in phase 2, NOT phase 1. Phase 1 cannot be applied
-# twice at all (Floci's UpdateTags breaks for API GW v2 stages and RDS
-# clusters), so anything re-runnable placed there forces a full teardown to
-# change a logo. Phase 2 has its own state and re-applies cleanly. Day to day,
+# CONTRACT: This belongs in phase 2, NOT phase 1. A second phase-1 apply never
+# converges on Floci (8 perpetual in-place changes), so anything re-runnable
+# placed there forces a full teardown to change a logo. Phase 2 has its own state and re-applies cleanly. Day to day,
 # `make assets-sync` re-uploads without Terraform.
 # See [[floci-rds-apigw-limits]]
 

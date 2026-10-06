@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from lib3mrai.envfile import (
+    AUTO_BEGIN,
     MissingCustomBox,
     read_custom_block,
     set_custom_value,
@@ -214,3 +215,8 @@ class TestSetCustomValue:
 
         with pytest.raises(MissingCustomBox, match="make env-file"):
             set_custom_value(target, "STRIPE_WEBHOOK_SECRET", "whsec_new")
+
+
+def test_auto_marker_is_environment_neutral_and_keeps_the_prefix():
+    assert AUTO_BEGIN.startswith("# >>> AUTO-GENERATED")
+    assert "make env-file" not in AUTO_BEGIN

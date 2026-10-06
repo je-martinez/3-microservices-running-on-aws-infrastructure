@@ -43,7 +43,11 @@ These rules take precedence over default agent/skill behavior.
 - Each file has an **AUTO-GENERATED** box (rewritten every run) and a **CUSTOM** box (preserved). Put overrides and personal tokens in CUSTOM; never edit the AUTO box.
 - Services read their file via compose `env_file:` and declare **nothing** inline — `environment:` silently beats `env_file:`. Adding a service = adding a file + one `env_file:` line.
 - `.env.example` is the committed contract; `.env*` is otherwise git-ignored.
+- **Pre-prod is the exception.** `.env.preprod` (the Stripe/Geoapify decisions and test keys — the CUSTOM box is the user's; the AUTO box is minted only by `make preprod-up`) and `.env.preprod.debug` (browser URLs + OpenObserve login, loaded by nothing) are written by `infra/environments/preprod/scripts/`, not `make env-file`. Both are mode 600 and git-ignored. **An agent never reads, prints or writes a key from `.env.preprod`**; before `make preprod-up` it asks the user yes/no per integration (see [[preprod]]).
 - Full convention: `docs/shared/conventions/env-files.md` → [[env-files]].
+
+### Pre-prod — a second environment, never beside dev
+Pre-prod (`make preprod-up`, compose project `3mrai-preprod`, `infra/environments/preprod/`) runs every service as an ECS task on its own Floci and cannot run beside dev (shared port 4566 and ECR registry). `make clean`/`clean-state` refuse while it runs, `make preprod-down` refuses while dev runs. Runbook: [[preprod]]; rule: [[environment-exclusivity]]; decision: [[ADR-0022-preprod-ecs-on-floci]].
 
 ### Logging & tracing
 - Every log line carries a **shared cross-service context** (`trace_id`, `cognito_sub`, `user_id`, `email_hash`, `order_id`, `duration_ms`). Unknown fields are **omitted, never null**.

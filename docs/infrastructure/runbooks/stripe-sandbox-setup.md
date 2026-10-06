@@ -4,7 +4,7 @@ type: runbook
 area: infra
 status: active
 created: 2026-09-21
-updated: 2026-09-30
+updated: 2026-10-05
 integration-status: partially-verified
 verified-on: 2026-09-23
 verified-by: "Jose E. Martinez"
@@ -14,6 +14,8 @@ related:
   - "[[2026-09-19-stripe-payments]]"
   - "[[stripe-payments-milestone]]"
   - "[[env-files]]"
+  - "[[preprod]]"
+  - "[[2026-10-05-preprod-integrations-design]]"
   - "[[local-dev]]"
   - "[[secret-rotation]]"
   - "[[ADR-0009-apigw-alb-fargate]]"
@@ -276,6 +278,37 @@ runs.
   published list** (docs.stripe.com/ips) — it is not a one-time copy at deployment time. See
   Decision 27's warning in section 3b.
 
+## 8. Pre-prod
+
+The Floci pre-prod environment ([[preprod]]) can run Stripe on, as an opt-in recorded in
+`.env.preprod` ([[env-files]]); the flow is in the runbook's Integrations section and the design is
+[[2026-10-05-preprod-integrations-design]]. What differs from the local-dev sections above:
+
+- **Two restricted keys, one per service**, created as in section 2 (Users' key and Orders' key
+  with their different policies), plus the sandbox's publishable key. They go in `.env.preprod`'s
+  CUSTOM box, never in a `.env.local.*` file. Test keys only; any `*_live_` key is refused.
+- **Two forwarders started by `make preprod-up`** (`stripe listen`, one per service) to
+  `localhost:9101` (Users) and `localhost:9102` (Orders). They run under your **`stripe login`
+  session**, which must belong to the **same sandbox as the keys**: with a different sandbox,
+  payments succeed but webhooks never arrive. Re-run `stripe login` when the session expires
+  (about 90 days); `make preprod-up` then fails at `--print-secret` and says so.
+- **`STRIPE_CLI_API_KEY`** in the CUSTOM box is only for a machine without a login session; it
+  reaches the CLI through the `STRIPE_API_KEY` environment variable, never as an argument.
+- **One identity means one signing secret.** `--print-secret` and both forwarders run under the
+  same identity, so the `whsec_` value Terraform deploys to both services is the one every
+  forwarded event is signed with, and the dashboard's webhook secret is still not this one
+  (section 3). The URL tokens are minted per service by `make preprod-up`.
+- Restart the forwarders with `make preprod-stripe-listen`; `make preprod-doctor` reports a dead
+  one. Logs: `logs/preprod-stripe/` (they hold the `whsec_` signing secret in plaintext: local,
+  git-ignored, never paste them).
+- **A revoked or expired login** makes the listeners die with 403 "Permission denied": run
+  `stripe logout && stripe login` (`stripe login --complete-device` for a device flow started
+  through Claude Code's `!`), then `make preprod-stripe-listen`. The signing secret is unchanged,
+  so no redeploy is needed.
+- **Any Stripe toggle, on or off, is `make preprod-down && make preprod-up`**; only a changed
+  secret-key value with Stripe staying on is `make preprod-deploy S=users ENV_ONLY=1` and
+  `S=orders ENV_ONLY=1`. Detail: [[preprod]] (Later changes).
+
 ## Related
 
 - [[2026-09-19-stripe-payments-design]] — Decisions 10, 13, 15, 17, 26, and 27, which this
@@ -297,3 +330,5 @@ runs.
 - [[ADR-0016-local-apigw-nginx-ecs]] — the local API Gateway/nginx emulation this runbook's
   local-only sections (1–6) operate against, as distinct from the real-deployment notes in
   section 7.
+- [[preprod]] — section 8's pre-prod flow: `.env.preprod`, the forwarders and their doctor check.
+- [[2026-10-05-preprod-integrations-design]] — the design behind section 8.

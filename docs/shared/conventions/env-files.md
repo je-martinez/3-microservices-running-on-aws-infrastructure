@@ -4,16 +4,21 @@ type: convention
 area: infra
 status: active
 created: 2026-07-20
-updated: 2026-09-30
+updated: 2026-10-05
 tags:
   - type/convention
   - area/infra
   - status/active
 related:
+  - "[[preprod]]"
+  - "[[2026-10-05-preprod-integrations-design]]"
+  - "[[stripe-sandbox-setup]]"
+  - "[[ADR-0022-preprod-ecs-on-floci]]"
   - "[[2026-07-20-env-file-generation-design]]"
   - "[[scripting-language]]"
   - "[[local-dev]]"
   - "[[testing]]"
+  - "[[openobserve-runbook]]"
   - "[[events-pipeline-design]]"
   - "[[2026-08-03-events-pipeline-milestone-design]]"
   - "[[2026-08-25-response-caching-layer-design]]"
@@ -46,7 +51,7 @@ new API id, and reassigns RDS proxy ports by cluster creation order.
 | `.env.local.orders` | the Orders service environment | compose `env_file:` |
 | `.env.local.tracking` | the Tracking service environment (incl. `E2E_TESTING_ENABLED=true` in CUSTOM, `EVENTS_QUEUE_URL`) | compose `env_file:` |
 | `.env.local.events-pipeline` | the events-pipeline Lambda environment (DocumentDB connection, `EVENTS_QUEUE_URL`, SES sender) | the Lambda's environment variables, set via Terraform |
-| `.env.local.debug` | HOST-reachable connection strings | a SQL client; **loaded by nothing** |
+| `.env.local.debug` | HOST-reachable connection strings **plus browser URLs and the OpenObserve login** (`WEB_URL` `localhost:3004`, `OPENOBSERVE_URL` `localhost:5080`, `OPENOBSERVE_USER`, `OPENOBSERVE_PASSWORD`, `MAILPIT_URL` `localhost:8025`); written **mode 600** | a SQL client or a browser (copy the value you need); **loaded by nothing** |
 | `.env.local.web` | the web app's build-time env (the six `NG_APP_*`: `NG_APP_WS_URL` and `NG_APP_API_GATEWAY_URL` in the AUTO box, the four flags in the CUSTOM box) **plus the runtime `GEOAPIFY_API_KEY`** | compose `env_file:` for the `web` service, compose `${VAR}` interpolation of `web.build.args` (the Makefile passes `--env-file .env.local.web`), `pnpm dev` via `angular.json`'s `ngxEnv.files`, `@ngx-env/builder`, and `apps/web/nginx.conf`'s envsubst template |
 | `.env.example` | the committed contract | documentation only |
 
@@ -202,9 +207,63 @@ declared).
 - **A CUSTOM-box key is declared by showing it commented out** (`# GEOAPIFY_API_KEY=`). The check
   reads `KEY=` with or without a leading `#`, and the commented form is the correct style.
 - **Order each section's keys as the generated file has them**, so the two diff side by side.
+- **Pre-prod's files are outside the gate.** `.env.preprod` and `.env.preprod.debug` are written by the preprod scripts and are NOT checked by `check_example_covers()`; keep their `.env.example` blocks in sync by hand (tracked in [[2026-10-03-floci-preprod-follow-ups]]).
 
 The same family as [[2026-09-29-repo-wide-gates-must-exclude-generated-and-duplicated-trees]]: a
 file whose counterpart is git-ignored has no natural reviewer, so it needs a mechanical check.
+
+## Pre-prod workloads read no env file
+
+The pre-production environment ([[preprod]]) reads **no** `.env.local.*` file: every task gets
+its configuration from SSM `/3mrai-preprod/<svc>/<VAR>` and Secrets Manager
+`3mrai-preprod/<svc>/<VAR>`, written by Terraform. Two keys exist so the same image and
+config work in both environments, with dev's values as defaults:
+
+- `O2_ENDPOINT` — the OpenObserve base URL the collector exports to. Dev sets
+  `http://openobserve:5080` in `docker-compose.yml`; pre-prod sets it as an SSM parameter injected through the task's `secrets`, not a plain task variable.
+- `OTLP_RUM_UPSTREAM` — the collector host:port the web nginx proxies `/otlp/` to. Dev's
+  generated `.env.local.web` carries `otel-collector:4319`; pre-prod sets `floci:4319`, the ALB's RUM listener.
+
+A pre-prod config change is applied with `make preprod-deploy S=<svc> ENV_ONLY=1`: it applies
+`module.app_config` (writing the edited SSM and Secrets Manager values) and then forces a new
+deployment, because ECS reads both only at task start. Web build-time flags (a toggled
+integration) also need `S=web`: both `S=web ENV_ONLY=1` and `S=web`, see [[preprod]] (Later changes).
+
+## `.env.preprod` — the one pre-prod env file
+
+Pre-prod's integration choices live in `.env.preprod` at the repo root. It is **pre-prod only**
+(read by `make preprod-up` and `make preprod-deploy`, never by dev), git-ignored by the `.env*`
+rule, written with **mode 600**, and written by
+`infra/environments/preprod/scripts/preprod_integrations.py` — **not** by `make env-file`. It
+follows the same two-box shape: the CUSTOM box holds the user's decisions and test keys
+(`STRIPE_ENABLED`, `STRIPE_SECRET_KEY_USERS`, `STRIPE_SECRET_KEY_ORDERS`,
+`STRIPE_PUBLISHABLE_KEY`, `STRIPE_CLI_API_KEY`, `GEOAPIFY_ENABLED`, `GEOAPIFY_API_KEY`) and is
+preserved; the AUTO box (`STRIPE_WEBHOOK_SECRET`, one `STRIPE_WEBHOOK_URL_TOKEN_*` per service) is
+minted only by `make preprod-up`. `.env.example` carries a commented block as the contract. The
+workloads still read no env file: the script feeds Terraform through
+`integrations.auto.tfvars.json`. Flow and decision table: [[preprod]] (Integrations section) and
+[[2026-10-05-preprod-integrations-design]].
+
+## `.env.preprod.debug` — pre-prod URLs and OpenObserve login
+
+The pre-prod counterpart of `.env.local.debug`: **pre-prod only**, git-ignored by the `.env*` rule,
+**loaded by nothing**, written **mode 600** because it holds the OpenObserve login, and shaped
+like every other generated file (AUTO box rewritten each run, CUSTOM box preserved). Owner:
+`infra/environments/preprod/scripts/preprod_debug_env.py`, not `make env-file`.
+
+- **Keys:** `WEB_URL` (`localhost:9090`), `OPENOBSERVE_URL`, `OPENOBSERVE_USER`,
+  `OPENOBSERVE_PASSWORD` (the random password Terraform generates), `MAILPIT_URL`,
+  `USERS_URL` / `ORDERS_URL` / `TRACKING_URL` (the ALB listeners `:9101`-`:9103`),
+  `API_GATEWAY_URL` and `WS_URL`.
+- **No database URLs:** pre-prod does not publish the RDS proxy ports to the host.
+- **Lifecycle:** written by `make preprod-env-file` (reads Terraform outputs only, never applies;
+  fails with "run `make preprod-up` first" when they are missing) and at the end of
+  `make preprod-up`; deleted by `make preprod-down`.
+- `write_env_file` (`infra/scripts/lib3mrai/envfile.py`) gained an opt-in `mode` parameter that
+  sets the permissions **before** the content is written; callers that omit it behave as before.
+  `.env.local.debug` and `.env.preprod.debug` are the two callers that pass `0o600`.
+
+`.env.example` carries a commented block as the contract. Procedure: [[preprod]].
 
 ## Adding a service
 
@@ -304,3 +363,9 @@ When changing env plumbing, verify against a real bring-up, not by inspection:
   both the image build and `pnpm dev`.
 - [[2026-09-29-repo-wide-gates-must-exclude-generated-and-duplicated-trees]] — the same
   "no natural reviewer, so add a mechanical check" shape, applied to the comment linter.
+- [[preprod]] — the environment whose workloads read no env file (SSM and Secrets Manager); its two host-side files are `.env.preprod` and `.env.preprod.debug`.
+- [[ADR-0022-preprod-ecs-on-floci]]
+- [[2026-10-05-preprod-integrations-design]] — adds `.env.preprod`.
+- [[stripe-sandbox-setup]] — the Stripe keys and forwarders that `.env.preprod` feeds in pre-prod.
+- [[openobserve-runbook]] — where the OpenObserve login in the two debug files is used.
+- [[2026-10-03-floci-preprod-follow-ups]] — tracks the missing `.env.preprod*` coverage check.

@@ -15,6 +15,9 @@ rules:
   language-spanish-user-english-docs: universal
   scope-yagni: universal
   never-commit-without-confirmation: universal
+  # Added 2026-10-05.
+  preprod-exclusive-environment: universal
+  preprod-env-files-exception: universal
 
   # Added 2026-08-06, first end-to-end run. CLAUDE.md topics that the original
   # list did not name explicitly.

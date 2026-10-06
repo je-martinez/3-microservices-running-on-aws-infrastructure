@@ -13,6 +13,7 @@ import { NotificationConsumerService } from "./notifications/messaging/notificat
 import { BusinessMetricsPoller } from "#shared/metrics/business-metrics";
 import { type MicroserviceOptions } from "@nestjs/microservices";
 import { grpcMicroserviceOptions } from "./users/grpc/grpc-options.ts";
+import { registerEmptyBodyParser } from "./shared/http/empty-body-parser.ts";
 
 const env = envSchema.parse(process.env);
 
@@ -29,6 +30,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     // See [[logging-context]]
     disableRequestLogging: true,
   });
+  registerEmptyBodyParser(adapter.getInstance());
 
   // CONTRACT: `rawBody: true` only adds `req.rawBody`; every other route's
   // `@Body()` is unaffected. Proved by stripe-webhook.controller.test.ts's

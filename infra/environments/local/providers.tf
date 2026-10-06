@@ -23,9 +23,11 @@ provider "aws" {
     # undeclared service is sent to REAL AWS, which rejects the test credentials
     # with `UnrecognizedClientException` — a message that reads like a Floci auth
     # problem but means the request never reached Floci.
-    dynamodb = "http://localhost:4566"
-    ec2      = "http://localhost:4566"
-    ecs      = "http://localhost:4566"
+    dynamodb    = "http://localhost:4566"
+    ec2         = "http://localhost:4566"
+    ecr         = "http://localhost:4566"
+    ecs         = "http://localhost:4566"
+    elasticache = "http://localhost:4566"
     # CONTRACT: The provider's EventBridge service key is `events`, not
     # `eventbridge` — a wrong key is an undeclared service, see above.
     events           = "http://localhost:4566"
@@ -35,11 +37,13 @@ provider "aws" {
     logs             = "http://localhost:4566"
     rds              = "http://localhost:4566"
     route53          = "http://localhost:4566"
+    s3               = "http://localhost:4566"
     servicediscovery = "http://localhost:4566"
     secretsmanager   = "http://localhost:4566"
     ses              = "http://localhost:4566"
     sns              = "http://localhost:4566"
     sqs              = "http://localhost:4566"
+    ssm              = "http://localhost:4566"
     sts              = "http://localhost:4566"
   }
 }

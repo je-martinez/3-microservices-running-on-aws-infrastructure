@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-10-01
+updated: 2026-10-05
 tags:
   - type/spec
   - area/shared
@@ -100,6 +100,8 @@ related:
   - "[[2026-09-19-stripe-payments-design]]"
   - "[[2026-09-19-stripe-payments]]"
   - "[[2026-09-30-cart-add-quantity-morph-design]]"
+  - "[[2026-10-02-floci-preprod-environment-design]]"
+  - "[[2026-10-05-preprod-integrations-design]]"
   - "[[2026-09-30-cart-add-quantity-morph]]"
   - "[[stripe-payments-milestone]]"
   - "[[web-app-foundation-milestone]]"
@@ -187,6 +189,7 @@ Root Map of Content for the **3 Microservices Running on AWS Infrastructure (3MR
 ### Runbooks
 
 - [[local-dev-floci]] — Running the full stack locally with Floci (Docker Compose + Terraform), from `make bootstrap` through verification.
+- [[preprod]] — Runbook for the Floci pre-production environment: Make targets, ports, config layout, heal/doctor, redeploy, teardown, troubleshooting.
 - [[local-dev-ministack]] — Superseded by [[local-dev-floci]]; kept for historical reference.
 - [[secret-rotation]] — Rotating secrets in AWS Parameter Store without downtime.
 
@@ -238,6 +241,10 @@ All ADRs use continuous global numbering and live in `docs/shared/decisions/`.
 
 - [[ADR-0015-drawio-diagrams]] — draw.io (`.drawio.svg`) as the vault diagram format, replacing Mermaid.
 
+### Environments
+
+- [[ADR-0022-preprod-ecs-on-floci]] — Pre-production runs the services as ECS tasks inside Floci, behind API Gateway and per-service ALB listeners, configured from SSM and Secrets Manager, with no nginx; extracted from [[2026-10-02-floci-preprod-environment-design]].
+
 ### Runtimes & Languages
 
 - [[ADR-0021-tracking-go-gin-sqlc-stack]] — Tracking's Go port uses Gin (HTTP), sqlc +
@@ -262,6 +269,7 @@ Coding and data conventions defined once in `shared/` and referenced project-wid
 - [[local-dev]] — Running the stack locally (Makefile) and testing endpoints with `.http` files.
 - [[testing]] — Three-layer testing convention: unit/integration, internal E2E, and gateway E2E (real Cognito JWT) — an endpoint missing gateway E2E is an incomplete change.
 - [[scripting-language]] — Scripting-language decision tree for the repo: Python first, JavaScript second, Bash last with a documented reason.
+- [[environment-exclusivity]] — Dev and pre-prod never run together: both need `:4566` and the ECR registry; the guard prompts, and aborts without a TTY.
 - [[package-manager]] — pnpm as the default and only Node package manager for every package in the repo, including new sub-projects joining `pnpm-workspace.yaml`.
 - [[skills-catalog]] — Claude Code skills evaluated and approved for the 3MRAI agents (deliverable of [JE-23](https://linear.app/je-martinez/issue/JE-23)).
 - [[logging-context]] — Shared cross-service log context (trace/span id, hashed/masked email, domain ids), PII masking rules, flow-log pattern, and the OTel environment-variable configuration rules that fixed three silent exporter failures.
@@ -349,6 +357,8 @@ Specs produced through the planning phase, normalized to vault conventions.
 - [[2026-09-19-users-nestjs-migration-design]] — Design for migrating the Users service from Fastify+Awilix to NestJS, primarily to adopt `@nestjs/cqrs` now that the framework change removes [[2026-09-18-cqrs-dispatch-tracking-orders-design]]'s reason for rejecting it (booting a second DI container beside Awilix); builds Nest in parallel and deletes Fastify only once all 84 framework-agnostic E2E specs pass unmodified, rewrites the 663 unit/integration tests against `Test.createTestingModule()` with an explicit no-weakening rule, carries forward five measured findings from the reverted hand-rolled-bus work (routine-vs-thrown span status, specific-reason deferral against last-write-wins `setAttributes`, one-failure-one-log-line, direct-handler tests proving nothing about pipeline behavior, mutation-testing critical assertions), and resolves validation/OpenAPI generation onto a hand-rolled Zod pipe + `zod-to-json-schema` after finding both Zod↔Nest bridge libraries stop at Nest 11; per [[users-service-design]], [[cqrs]], [[dependency-injection]], [[testing]], [[logging-context]], [[ADR-0019-distributed-tracing-opentelemetry]].
 - [[2026-09-19-stripe-payments-design]] — Design turning `NG_APP_STRIPE_ENABLED` into a real Stripe integration: Users owns the Stripe Customer and its PaymentMethods (lazy customer creation, `stripe_payment_methods` local cache reconciled by a Users-side webhook), Orders owns the PaymentIntent (charges before persisting, with an automatic refund on **any** post-charge failure — stock conflict, removed product, price-mismatch guard, or persistence failure, not only a 409), client-supplied idempotency (`Idempotency-Key` header, replay/mismatch guards, an in-flight-duplicate wait-and-reuse path), restricted API keys one per service (never a shared secret key), local webhook delivery via two host-side `stripe listen` processes sharing one signing secret, and webhook defense in depth — a per-service URL token plus a Stripe source-IP allowlist, both enforced in the services themselves since AWS WAF does not attach to this repo's HTTP APIs; per [[users-service-design]], [[testing]], [[env-files]], [[money-representation]], [[local-dev]], [[logging-context]], [[browser-rum]], [[stripe-sandbox-setup]], [[ADR-0009-apigw-alb-fargate]], [[ADR-0016-local-apigw-nginx-ecs]]. Milestone plan: [[stripe-payments-milestone]].
 - [[2026-09-30-cart-add-quantity-morph-design]] — Design for morphing the product card's Add button into a quantity stepper shared with the cart line (`QtyStepper`, `a7S8KL`), an always-rendered "In cart" chip, CSS-first motion, and the rules propagated to [[angular-component-authoring]] and [[pencil-design-extraction]]. Plan: [[2026-09-30-cart-add-quantity-morph]].
+- [[2026-10-02-floci-preprod-environment-design]] — Design for a Floci pre-production environment: a second compose file whose only image is Floci, with `users`, `orders`, `tracking`, `web`, the observability stack and Mailpit running as ECS services pulling from Floci's ECR, configured through SSM Parameter Store and Secrets Manager, with API Gateway routing to an ALB instead of nginx. Per [[local-dev-floci]], [[ADR-0016-local-apigw-nginx-ecs]], [[floci-storage-modes-and-tmp-corruption]].
+- [[2026-10-05-preprod-integrations-design]] — Design for letting the user opt in to a fully functional Stripe flow and Geoapify autocomplete in pre-prod (or decline each): one owner script and a git-ignored `.env.preprod` with preserved CUSTOM inputs, secrets reaching ECS through an auto tfvars file, a config-hashed web image tag, host-side `stripe listen` forwarders per service, and an agent rule that never touches key values. Per [[2026-10-02-floci-preprod-environment-design]], [[2026-09-19-stripe-payments-design]], [[preprod]], [[env-files]].
 
 ---
 
@@ -586,3 +596,8 @@ Origin materials the project grew from — kept for reference only, not the sour
 - [[mocks-hide-schema-bugs]]
 - [[signoz-selfhost-migrator-blocker]]
 - [[tightened-schemas-need-producer-first-deploys]]
+- [[ADR-0022-preprod-ecs-on-floci]]
+- [[environment-exclusivity]]
+- [[preprod]]
+- [[2026-10-03-floci-preprod-alb-and-ecs-behaviours]]
+- [[2026-10-05-preprod-integrations-design]]

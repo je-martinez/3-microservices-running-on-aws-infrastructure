@@ -4,12 +4,12 @@ description: 'Use whenever the local 3MRAI stack needs to come up, go down, be r
 metadata:
   area: infra
   source: Makefile + docs/lessons/2026-09-09-makefile-orchestration-invariants.md
-  verified: 2026-09-22
+  verified: 2026-10-03
 ---
 
 # Local environment lifecycle
 
-The Makefile has ~47 targets. This skill covers the ones that create, destroy or
+The Makefile has ~69 targets. This skill covers the ones that create, destroy or
 repair local environment state, and exists because **the obvious choice is often
 the wrong one**: `bootstrap-provision` cannot be re-run, `clean` is not the
 cheapest reset, and a stack that looks broken is usually one missing step rather
@@ -27,15 +27,16 @@ Start from the situation, not the target:
 | Suspect corrupt state or a stale layer | `make clean && make bootstrap` | The full reset; also reclaims the build cache and dangling images |
 | A `bootstrap` died **at or after `migrate`** | `make doctor` → `make bootstrap-converge` → `make post-infra` | Phase 2 died; resume it. All three steps — converge does not call post-infra |
 | A `bootstrap` died **during `infra-up`** | `make clean && make bootstrap` | Phase 1 died, and it cannot be re-run. The one case the expensive reset is right |
+| Docker Desktop / Floci restarted, or services Exited | `make heal` | Starts Floci, restarts exited DocDB/Valkey with their data, wakes ECS, drops orphan tasks, restarts Exited services, re-attaches the nginx alias. Missing (not Exited) containers need `make clean && make bootstrap` |
 | Changed service source (Go, .NET, TS) | `docker compose up -d --build <svc>` | Rebuilds that one service; no teardown needed. Services are `users`, `orders`, `tracking`, `web` |
 | Changed a `.tf` file, stack running | `make infra-up` | Applies + regenerates every env file |
 | Changed a `.tf` file **and** doing a reset | `make clean-state && make bootstrap` | `bootstrap` runs `infra-up` itself — no separate apply |
-| Env files look stale or wrong | `make env-file` | Pure read of Terraform outputs; never applies |
+| Env files look stale or wrong | `make env-file` | Pure read of Terraform outputs; never applies. `.env.local.debug` holds the browser URLs and the OpenObserve login |
 | Changed Lambda source | `make redeploy-lambdas` | `compose` does NOT redeploy Lambdas |
 | Changed something under `assets/` | `make assets-sync` | Re-uploads only; touches no infrastructure |
 | Changed an `NG_APP_*` flag | `docker compose build web` | Inlined at build time; `restart` re-serves the old bundle |
 | Coming back after `make down` | `make up` | State survived; containers just restart |
-| "Nothing works" and you don't know why | `make doctor` | Read-only; tells you which step is missing |
+| "Nothing works" and you don't know why | `make doctor` | Read-only apart from one ECS list call that wakes Floci's lazy ECS reconciler; tells you which step is missing |
 | Just stopping for the day | `make down` | Containers only, state intact |
 
 **What each phase contains**, since the resume path depends on knowing where it
@@ -94,8 +95,10 @@ See [[2026-09-22-a-pruned-cache-that-came-over-the-network-is-not-free]].
 
 This is the case where the instinct — start over — is the expensive wrong answer.
 
-**Run `make doctor` first.** It is entirely read-only (every check is a SELECT, a
-SHOW, an HTTP GET or a `docker inspect`) and it reports the one thing nothing else
+**Run `make doctor` first.** It is read-only (every check is a SELECT, a
+SHOW, an HTTP GET or a `docker inspect`) with one exception: a single ECS list
+call that wakes Floci's lazy ECS reconciler, without which ECS reports
+`runningCount` 1 and no task container. It repairs nothing, and it reports the one thing nothing else
 surfaces: a database that exists while its tables do not, which is what a
 bootstrap that died before `migrate-tracking` leaves behind.
 
@@ -104,8 +107,9 @@ env files, migrations, service builds, the nginx alias. Every step in it is
 idempotent by design.
 
 **Do not run `make bootstrap-provision` to retry.** Phase 1 is *not re-runnable* —
-a second phase-1 apply fails against Floci on `UpdateTags` (JE-113). That split is
-the entire reason `bootstrap-converge` exists as a separate target.
+on 2.1.0 a second phase-1 apply succeeds but ends with 8 perpetual in-place
+changes (it never prints `No changes.`), so it is noise rather than a retry. That
+split is the reason `bootstrap-converge` exists as a separate target.
 
 After a resume, run **`make post-infra`** yourself. `bootstrap-converge`
 deliberately does not call it: post-infra reads phase-1 state through
@@ -153,6 +157,57 @@ compose rebuilds the services and does *not* redeploy the seven Lambda functions
 and the failure is silent: source correct, tests green, deployed function still
 running the old zip. That shipped a real bug once.
 
+## Pre-prod — the second local environment
+
+Pre-prod (`infra/environments/preprod/`) runs every service as an ECS task on its own Floci,
+behind an ALB, with images pushed to Floci's ECR. Its compose project is `3mrai-preprod`.
+Runbook: [[preprod]].
+
+| Need | Command |
+|---|---|
+| Bring it up from scratch (~3m40s); refuses if already up | `make preprod-up` |
+| Redeploy one service after a code change | `make preprod-deploy S=<users\|orders\|tracking\|web>` |
+| Apply changed config values (services.tf → SSM/Secrets) and restart that service's tasks — no rebuild | `make preprod-deploy S=<svc> ENV_ONLY=1` |
+| Health of every service through the ALB | `make preprod-smoke` |
+| "Something is off" (ECS vs containers, ALB targets, aliases, phantom stores) | `make preprod-doctor` |
+| Regenerate `.env.preprod.debug` (browser URLs + OpenObserve login), reading Terraform outputs only | `make preprod-env-file` |
+| After a Floci or Docker restart | `make preprod-heal` |
+| Playwright / Gatling against it | `make preprod-e2e ARGS="--project=…"`, `make preprod-load-test-smoke` |
+| Tear it all down (Floci, children, ECR registry, volumes, TF state, `.env.preprod.debug`); refuses while dev runs | `make preprod-down` |
+| Decide Stripe/Geoapify (prompts with a TTY; `STRIPE=off GEOAPIFY=off` declines) | `make preprod-integrations` |
+| Restart the two Stripe webhook forwarders (after a reboot or `preprod-heal`) | `make preprod-stripe-listen` |
+
+**Before `make preprod-up`, an agent asks the user — Stripe yes/no, Geoapify yes/no — with a
+menu.** "No" → pass `STRIPE=off` / `GEOAPIFY=off`. "Yes" → tell the user to fill the CUSTOM box
+of `.env.preprod` (run `make preprod-integrations` once without a TTY to create the skeleton),
+wait for confirmation, then run `make preprod-up`. Stripe on also needs `stripe login` against the
+keys' sandbox (or `STRIPE_CLI_API_KEY`). **Never read, print or write a key value**;
+trust only the script's `Stripe: on · Geoapify: off` line. A key pasted in chat lands in the
+transcript, and the `!` prefix has no TTY for hidden input.
+
+**Changing an integration after `make preprod-up`:**
+- Geoapify toggled, or a changed Stripe publishable key: needs BOTH
+  `make preprod-deploy S=web ENV_ONLY=1` (writes the `web/GEOAPIFY_API_KEY` secret) AND
+  `make preprod-deploy S=web` (rebuilds the bundle under a new `-cfg` tag).
+- ANY Stripe toggle, on or off: `make preprod-down && make preprod-up`. OFF→ON needs freshly
+  minted webhook values; ON→OFF via `ENV_ONLY` would delete secrets the running task
+  definitions still reference.
+- A changed Stripe secret-key value with Stripe staying on: `S=users ENV_ONLY=1` and
+  `S=orders ENV_ONLY=1`.
+- `make preprod-integrations` never regenerates the webhook values; with a TTY it may prompt,
+  and it rewrites `.env.preprod` and the tfvars file.
+
+**Dev and pre-prod are mutually exclusive.** Both need host port 4566 and the fixed-name
+`floci-ecr-registry`, and ECR URIs always carry `:4566`, so with both up Docker pulls images
+from the wrong Floci. `make up`, `make bootstrap` and `make bootstrap-provision` check for a
+running pre-prod (and `make preprod-up` for a running dev): with a TTY they offer to drop the
+other environment; **without a TTY — an agent, CI, a pipe — they ABORT** with exit 1. The fix
+is to tear the other one down first: `make preprod-down` before a dev target, `make clean`
+before `make preprod-up`. The teardowns are guarded too, with no prompt at all: `make clean`
+and `make clean-state` refuse while pre-prod runs, and `make preprod-down` while dev runs —
+their `floci-` sweeps would delete the other environment's containers and volumes.
+See [[environment-exclusivity]].
+
 ## Symptom → cause
 
 Environment-state failures that are already diagnosed, so they are worth
@@ -160,7 +215,7 @@ recognising rather than re-investigating:
 
 | Symptom | Cause | Action |
 |---|---|---|
-| `getaddrinfo ENOTFOUND floci-docdb-…` | A teardown kept Floci's state volume, so it reports phantom clusters as `available` and Terraform creates nothing | `make clean-state` is enough — it runs `down -v` and sweeps the `floci=true` volumes. `make doctor` detects the drift |
+| `getaddrinfo ENOTFOUND floci-docdb-…` | A teardown kept Floci's state volume, so it reports phantom clusters as `available` and Terraform creates nothing | `make heal` when the container is Exited (data intact); `make clean && make bootstrap` when it is missing (phantom cluster). `make doctor` says which |
 | Service 500s with `Table 'tracking.tracking' doesn't exist` | The version table says migrated, the tables are gone, so `migrate-tracking` no-ops | `DROP TABLE tracking.schema_migrations`, re-run `make migrate-tracking` |
 | `infra-up` takes ~93s and feels stuck | Six SQS operations at exactly 25s each — a **client-side** waiter in the AWS provider, not Floci | Expected, not a fault. See [[2026-09-21-a-round-invariant-delay-on-one-resource-type-is-the-client-not-the-server]] |
 | Bootstrap slower every time you run it | Repeated `clean` re-fetches base images and NuGet packages; registries throttle a repeat client | Prefer `clean-state` |

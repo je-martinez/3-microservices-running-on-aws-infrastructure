@@ -4,7 +4,7 @@ description: 'Use when working with Floci, the local AWS emulator (single port :
 metadata:
   area: infra
   source: docs/lessons/floci-vs-ministack-spike-findings.md
-  verified: 2026-06-29
+  verified: 2026-10-03
 ---
 
 # Floci — local AWS emulator (knowledge layer)
@@ -45,12 +45,13 @@ export AWS_ACCESS_KEY_ID=test
 export AWS_SECRET_ACCESS_KEY=test
 ```
 
-- Image: `floci/floci:latest` (Quarkus app; ships `curl`). `latest-compat` pre-wires
-  AWS CLI/boto3 creds + endpoint for init-hook scripts.
+- Image: pinned `floci/floci:2.1.0` (Quarkus app). The standard image has bash and
+  coreutils but **no `curl`** — a healthcheck must use bash `/dev/tcp` (see quirk 19).
+  `latest-compat` pre-wires AWS CLI/boto3 creds + endpoint for init-hook scripts.
 - In 3MRAI it runs as the `floci` service in the root `docker-compose.yml`. Bring the
-  whole local chain up with `make bootstrap` (floci → terraform apply → regenerate
-  `.env` → start `users` → `bootstrap.sh`); `docker compose up -d floci` starts the
-  emulator alone.
+  whole local chain up with `make bootstrap` (floci → terraform apply → regenerate the
+  `.env.local.*` files → migrations and service builds → `bootstrap.py` attaches the
+  nginx alias); `docker compose up -d floci` starts the emulator alone.
 
 ### Config env vars worth knowing
 
@@ -85,7 +86,7 @@ Source of truth with full evidence: [[floci-vs-ministack-spike-findings]]
    `issuer` must match this exactly or every token → 401.
 6. **Route53 / Cloud Map do NOT back DNS resolution.** Floci's Route53 is
    *management-plane only* ("actual DNS resolution is not provided"); ECS tasks are not
-   registered in Cloud Map. For container-to-container resolution use **Docker's native
+   registered in Cloud Map (re-verified on 2.1.0). For container-to-container resolution use **Docker's native
    networking** (resolve by `container_name`, or attach a constant network alias).
 7. **Cognito Lambda triggers: it depends WHICH trigger — the split is the whole point.**
    - **Sign-up/lifecycle triggers are stored but NEVER invoked** (PostConfirmation,
@@ -112,15 +113,19 @@ Source of truth with full evidence: [[floci-vs-ministack-spike-findings]]
 8. **ECS task is recreated on every `terraform apply`** (new container name + IP). Don't
    pin the integration to a discovered IP. Use a **stable Docker-DNS alias** (e.g.
    `nginx-stable`) attached after apply; the API GW integration stays fixed at
-   `http://nginx-stable/` — no `docker inspect`, no patch. See `bootstrap.sh`
+   `http://nginx-stable/` — no `docker inspect`, no patch. See `bootstrap.py`
    (`infra/environments/local/`).
-9. **A second `terraform apply` FAILS.** Floci's `UpdateTags` breaks for API GW v2 stages
-   (`NotFoundException: Invalid API id`) and RDS clusters (`DBInstanceNotFound`). Only a
-   from-scratch apply works. To re-apply: `make clean && make bootstrap` — `clean` runs
-   `docker compose down -v`, which destroys the `floci-state` volume along with the
-   containers (see quirk 17 for why the two must go together; the old `rm -rf data/floci`
-   no longer applies, that state is not a bind mount any more). See
-   [[floci-rds-apigw-limits]].
+9. **A second `terraform apply` SUCCEEDS on 2.1.0, but never prints `No changes.`** The
+   `UpdateTags` failures (`NotFoundException: Invalid API id` on API GW v2 stages,
+   `DBInstanceNotFound` on RDS clusters) do not reproduce: two consecutive applies on a
+   fresh stack both end `Apply complete! Resources: 0 added, 8 changed, 0 destroyed.`
+   The 8 are perpetual in-place drift that Floci's describe responses cause: the three WS
+   `aws_apigatewayv2_integration.fn` (`content_handling_strategy`), `aws_cognito_user_pool`
+   (reads back without `lambda_config`/`username_configuration`, yet the pool keeps its
+   triggers), the ECS service (`propagate_tags`) and task definition (tags), and both RDS
+   clusters. A from-scratch apply is still the reproducible path (`make clean && make
+   bootstrap`; `clean` runs `docker compose down -v`, destroying the `floci-state` volume
+   with the containers — see quirk 17). See [[floci-rds-apigw-limits]].
 10. **`FLOCI_STORAGE_MODE=persistent`, never `hybrid`.** Floci's README recommends `hybrid`
     for local dev, but its 5s async flush loses writes on an unclean stop (measured:
     write → SIGKILL@0.5s → restart; `persistent` and `wal` survive, `hybrid` does not).
@@ -163,7 +168,8 @@ Source of truth with full evidence: [[floci-vs-ministack-spike-findings]]
     *"Actual content delivery is not emulated — this is a management-plane-only
     implementation."* They also note there is **no local invoke URL** for a distribution
     (unlike API Gateway's `/restapis/...`), so there is nothing to point a template at.
-    See [[floci-vs-ministack-spike-findings]].
+    Still true on 2.1.0 (re-verified): delivery is absent, and Floci's docs describe a
+    nightly-build track for CloudFront rather than a release. See [[floci-vs-ministack-spike-findings]].
 
 14. **ElastiCache Redis works for real — but the Terraform provider crashes on it, and the
     endpoint it reports is a lie** (verified 2026-08-09). Unlike CloudFront and Route53, this
@@ -221,38 +227,37 @@ Source of truth with full evidence: [[floci-vs-ministack-spike-findings]]
     rather than inside it.
     **Nothing is actually wrong:** they still join `3mrai_3mrai-network` and resolve by name, which
     is what the stack depends on. Do not read the flat listing as a broken stack.
-    Two dead ends, both verified rather than assumed: Floci exposes **no env var for container
-    labels** (its environment-variables page documents `FLOCI_DOCKER_*` for socket, registry, log
-    rotation and a resource namespace, plus `FLOCI_SERVICES_*_DOCKER_NETWORK` — none for labels),
-    and **Docker labels are immutable after create** (`docker update` has no `--label`), so they
-    cannot be patched on afterwards. Recreating the containers to add labels would lose DB state
-    and detach them from the Floci that owns them — not worth a grouping box.
+    Patching labels on is a dead end: **Docker labels are immutable after create** (`docker
+    update` has no `--label`), and recreating the containers to add them would lose DB state and
+    detach them from the Floci that owns them — not worth a grouping box.
+    Floci 2.1.0's docs list **`FLOCI_DOCKER_EXTRA_LABELS_N__KEY` / `_VALUE`** for labelling the
+    containers it spawns. Untested in 3MRAI: setting them is the only candidate fix, and it
+    applies to containers created after the setting, not existing ones.
 
-16. **⚠️ RECREATING the floci container DESTROYS its backing containers, and the API keeps
-    reporting them `available`** (verified 2026-08-09). `docker compose up -d floci` — which
-    recreates the container after any compose edit — takes the RDS, DocumentDB and ElastiCache
-    containers down with it. `docker compose stop floci && docker compose start floci` does
-    **not**: the same three survived a stop/start intact. So the trigger is RECREATION, not
-    restart.
-    This is by design, not a bug: Floci documents `KEEP_RUNNING_ON_SHUTDOWN` for OpenSearch, ECR
-    and EKS — and **offers no such setting for RDS, DocumentDB or ElastiCache**.
-    **The dangerous part is the lying state.** `describe-replication-groups` /
-    `describe-db-clusters` still answer `Status: available` for a resource whose container no
-    longer exists; nothing surfaces the gap until a service dials it and gets
-    `getaddrinfo ENOTFOUND floci-docdb-…`. Never trust `available` after touching the floci
-    container — check `docker ps` for the backing container.
-    Recovery is uneven, so know which you are dealing with:
-    - **Lambdas** relaunch themselves on the next invocation. But they come back from the zip
-      Terraform deployed, silently discarding any later `update-function-code` — the symptom is
-      a handler reverting to `"reason":"Unknown event type"`.
-    - **ElastiCache** recovers by deleting and recreating the replication group with the SAME id
-      (the id is ours, so `REDIS_HOST` stays valid).
-    - **DocumentDB can WEDGE.** The cluster survives in state without a container, and
-      `delete-db-cluster` refuses with `InvalidDBClusterStateFault: it still has DB instances`
-      while those instances have no backing container either. At that point a from-scratch
-      `make clean && make bootstrap` is cheaper than unpicking it.
-    **Practical rule: after editing the `floci` service in docker-compose.yml, plan on a full
-    `make bootstrap`** — do not assume an `up -d` is a cheap in-place change.
+16. **⚠️ On 2.1.0 a SIGTERM stop (the compose default) DESTROYS DocumentDB and ElastiCache
+    containers (this repo sets `stop_signal: SIGKILL`, so its own `compose stop` is safe), and the API keeps reporting them `available`** (re-verified on 2.1.0).
+    Floci's graceful SIGTERM shutdown deletes its DocumentDB and Valkey containers and never
+    relaunches them, so under SIGTERM stop/start, a Docker restart and `up -d` recreation all end the same
+    way: a resource `Status: available` whose container is gone, noticed only when a service
+    dials it and gets `getaddrinfo ENOTFOUND floci-docdb-…`. Floci documents
+    `KEEP_RUNNING_ON_SHUTDOWN` for OpenSearch, ECR and EKS — **not for RDS, DocumentDB or
+    ElastiCache**. Never trust `available` after touching the floci container: check `docker ps`.
+    **The fix is two parts, both in the repo:**
+    - **`stop_signal: SIGKILL`** on the `floci` service. A killed Floci skips the shutdown that
+      deletes the containers, so they keep their data. Safe only with
+      `FLOCI_STORAGE_MODE=persistent` (quirk 10): SIGKILL gives no flush.
+    - **`make heal`** after any Floci or Docker restart (quirk 22).
+    Recovery is uneven by service:
+    - **Lambdas** relaunch on the next invocation, from the zip Terraform deployed, silently
+      discarding any later `update-function-code` — the symptom is a handler reverting to
+      `"reason":"Unknown event type"`.
+    - **RDS** containers are relaunched by Floci from persisted state at boot. DocumentDB and
+      ElastiCache have no such reconciler; `make heal` restarts the exited containers.
+    - **The ECS reconciler is lazy:** it relaunches the nginx task only once something touches
+      the ECS API, so a healed stack with no ECS call has no gateway. `make heal` makes that call.
+    - **Delete + recreate no longer wedges** on 2.1.0: deleting a DocumentDB cluster or a
+      replication group whose container is gone succeeds, so a phantom is recoverable without a
+      full rebuild (quirk 17 has the sequence).
 
 17. **⚠️ Floci's persisted state must die WITH its containers, or a from-scratch rebuild
     silently half-works** (verified 2026-08-10 — the general case behind quirk 16). Any
@@ -269,19 +274,72 @@ Source of truth with full evidence: [[floci-vs-ministack-spike-findings]]
     - **A bind mount cannot be cleared by compose.** `docker compose down -v` removes named
       volumes but never bind mounts, so state under `./data` outlives every teardown. 3MRAI
       moved Floci's state to the **`floci-state` named volume** for exactly this reason, and
-      `make clean` now runs `down -v` unconditionally (it used to prompt, defaulting to
-      KEEPING the state — that default is what made rebuilds non-deterministic).
+      `make clean` runs `down -v` unconditionally: a prompt that defaults to KEEPING the
+      state makes rebuilds non-deterministic.
     - **Recovery without a full rebuild**, if a phantom is already there: delete the resource
       through its own API (`aws docdb delete-db-cluster --skip-final-snapshot`,
       `aws elasticache delete-replication-group`), then `terraform taint` the module's
       `terraform_data.*_via_cli` resource and re-apply that target. A plain `-target` apply
       does **nothing** — the awscli-fallback resources only re-run when their trigger changes.
-    - **`make doctor` now cross-checks this**: every declared DocumentDB/ElastiCache resource
+    - **`make doctor` cross-checks this**, and classifies each backing container as running,
+      exited (healable by `make heal`) or missing (needs the recovery above): every declared DocumentDB/ElastiCache resource
       against `docker ps`, failing loudly instead of leaving it to surface at runtime.
     - **Do not read DocumentDB's cluster list from `aws docdb describe-db-clusters`** — it
       returns the RDS clusters (mysql, postgres) and omits the DocumentDB one entirely, so it
       yields both false phantoms and a missed real one. The generated `DOCDB_HOST` **is** the
       container name; check that instead.
+
+18. **API GW v2 `request_parameters` work on 2.1.0, and log/ECR details differ from AWS**
+    (verified 2.1.0).
+    - `overwrite:header.<h> = $context.authorizer.claims.sub` on an integration behind a JWT
+      authorizer injects the claim as a header, and `overwrite:path` rewrites the path.
+    - On a **public route (no authorizer)** the same `overwrite:header.x-user-id =
+      $context.authorizer.claims.sub` leaves a client-sent `x-user-id` INTACT — the context
+      value is empty, so nothing overwrites it. `remove:header.x-user-id` strips it. Public
+      routes must `remove:`, never rely on `overwrite:`, or a client can spoof the identity header.
+    - The ECS `awslogs-group` option is ignored: logs land in `/ecs/<task-family>`.
+    - ECR repository URIs always carry `:4566`, whatever port the registry is reached on.
+
+19. **The image answers `GET / HTTP/1.0` (no `Host`) with HTTP 500.** A healthcheck must send
+    HTTP/1.1 with a `Host` header against `/_floci/health`. The 2.x image has no `curl`, so the
+    compose healthcheck speaks HTTP over bash `/dev/tcp` (`docker-compose.yml`, `floci` service).
+
+20. **ECS rejects task-definition host volumes unless the parent dir is allowlisted.**
+    `volumes[].host.sourcePath is rejected by default` — set
+    `FLOCI_SERVICES_ECS_HOST_VOLUME_ROOTS` to the directory that contains the mounted path
+    (here the nginx config dir). Do NOT use `FLOCI_SERVICES_ECS_ALLOW_UNSAFE_HOST_VOLUMES`: it
+    disables the check for every path.
+
+21. **ElastiCache `CreateReplicationGroup` `Port` is the PROXY port, not the container's.** It
+    must lie inside the configured proxy range (quirk 14), while the backing valkey container
+    always listens on 6379 in-network. A `Port` outside the range fails; the repo's
+    `infra/modules/redis/` script omits `Port` and takes Floci's allocation.
+
+22. **`make heal` is the recovery path after a Floci or Docker restart.** It restarts exited
+    DocumentDB/Valkey containers, wakes the lazy ECS reconciler (quirk 16), removes orphaned
+    ECS task containers, and re-attaches the `nginx-stable` alias (quirk 8). Run it before
+    reaching for `make clean && make bootstrap`; `make doctor` says which case you are in.
+
+23. **ALB + ECS services behave differently from AWS** (verified on 2.1.0 by the pre-prod
+    environment, `infra/environments/preprod/`). Evidence: [[2026-10-03-floci-preprod-alb-and-ecs-behaviours]].
+    - **Container `healthCheck` is stored but never applied** — the Docker container's
+      `Healthcheck` is null — and the ALB never health-gates a target: it receives traffic as
+      soon as the task starts. A rolling replacement shows **~1-2 s of `503`** (1.8 s measured);
+      that window is the emulator, not a regression.
+    - **`list_tasks` returns STOPPED tasks; filtering for liveness depends on the use case.** `wait_services.py`
+      requires `lastStatus == "RUNNING"` to confirm readiness. `floci_heal.py` and `preprod_targets.py` treat
+      a task as dead only when `lastStatus == "STOPPED"` — PENDING/PROVISIONING and describe_tasks failures stay live.
+    - **A stopped task's ALB target is never deregistered**: the ALB sends traffic to a dead IP
+      (`503`s for 1-2 min) and the target stays unhealthy forever. `preprod_targets.py`
+      deregisters targets with no live task after every up, deploy and heal.
+    - **The ALB re-sends a body-less request as `transfer-encoding: chunked` with an empty body
+      and no `Content-Type`.** Fastify answers `415` unless it accepts an empty body without a
+      type (Users does: `services/users/src/shared/http/empty-body-parser.ts`).
+    - **The ALB does not carry gRPC** — an HTTP/2 listener answers `502` with a malformed
+      header. Reach gRPC through a Docker alias on the task (`users-grpc:50051`).
+    - **Fargate rejects 256 CPU / 256 MiB** ("no Fargate configuration"); use 512 MiB.
+    - **A `-target` apply still evaluates every service's image tag**, so every image must
+      already be pushed before deploying any single service.
 
 ## Per-service knowledge
 

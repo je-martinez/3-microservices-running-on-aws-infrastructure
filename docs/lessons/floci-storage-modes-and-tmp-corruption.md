@@ -4,7 +4,7 @@ type: lesson
 area: infra
 status: active
 created: 2026-07-09
-updated: 2026-07-09
+updated: 2026-10-02
 tags:
   - type/lesson
   - area/infra
@@ -15,6 +15,8 @@ related:
   - "[[ADR-0017-floci-local]]"
   - "[[local-dev]]"
   - "[[floci-rds-apigw-limits]]"
+  - "[[floci-recreate-destroys-backing-containers]]"
+  - "[[2026-10-02-floci-2-1-restart-and-gateway-findings]]"
 ---
 
 # Floci storage modes & the truncated-.tmp corruption
@@ -56,6 +58,13 @@ before the flush.
 > Terraform-applied state on an unclean container stop). No compose change was made as a result
 > of this finding; it is recorded so the setting isn't "optimized" to `hybrid` later based on the
 > README alone.
+
+> [!important] The `floci` compose service's `stop_signal: SIGKILL` depends on `persistent`
+> The service stops with `SIGKILL` so Floci's shutdown hook never deletes its DocumentDB and
+> ElastiCache containers (see [[floci-recreate-destroys-backing-containers]]). That is only safe
+> because `persistent` flushes on every write, as the SIGKILL trial above shows. Under `hybrid`
+> the same stop would lose up to five seconds of writes, so switching modes also requires
+> revisiting the stop signal.
 
 Also note, correcting an earlier misreading: `persistent` genuinely does flush immediately (the
 SIGKILL test proves it). The 89 files under `data/floci/` sharing an identical `Jul 4 00:15`
@@ -112,6 +121,8 @@ Finding 1.
 
 ## Related
 
+- [[floci-recreate-destroys-backing-containers]] — why the compose service stops with SIGKILL.
+- [[2026-10-02-floci-2-1-restart-and-gateway-findings]]
 - [[floci-vs-ministack-spike-findings]]
 - [[ADR-0017-floci-local]]
 - [[local-dev]]
