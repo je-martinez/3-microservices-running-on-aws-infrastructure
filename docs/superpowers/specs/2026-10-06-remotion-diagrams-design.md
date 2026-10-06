@@ -2,13 +2,13 @@
 title: "Remotion Diagrams — Animated Flow and Architecture Diagrams Design"
 type: spec
 area: shared
-status: draft
+status: accepted
 created: 2026-10-06
 updated: 2026-10-06
 tags:
   - type/spec
   - area/shared
-  - status/draft
+  - status/accepted
 propagates-to:
   - "[[git-workflow]]"
   - "[[milestone-plan]]"
@@ -35,6 +35,7 @@ propagates-to:
   - "[[users-service-milestone]]"
   - "[[services-infra-scaffold-milestone]]"
   - "[[documentation-vault-milestone]]"
+  - "[[stripe-payments-milestone]]"
 related:
   - "[[ADR-0015-drawio-diagrams]]"
   - "[[diagram-legibility]]"
@@ -111,7 +112,7 @@ diagrams/
 - **Make targets:** `diagrams-studio`, `diagrams-render [ID=...]`, `diagrams-check`.
 - **Browser.** Remotion needs Chrome Headless Shell, fetched on first render (`remotion browser ensure`). No Docker.
 - **Defaults.** GIF around 12 fps, at most about 1200px wide, target at most about 2 MB per GIF. AWS services use official AWS icons through the adapter; non-AWS nodes are labelled boxes coloured by node kind.
-- **Catalog size.** 26 diagrams (12 initial + 14 backfill). That is why `diagrams-render` renders by ID (`ID=...`) rather than all at once by default, and why the 2 MB budget applies per diagram: the committed binaries add up.
+- **Catalog size.** 26 diagrams (12 initial + 14 backfill). The 2 MB budget applies per diagram because the committed binaries add up. `diagrams-render` takes an optional `ID` and renders every diagram when it is omitted.
 
 ## AWS icons
 
@@ -219,6 +220,19 @@ Data files for these live under `src/data/flows/`. Each entry carries `watches` 
 ## Out of scope
 
 MP4 output, an embedded web player, and a blocking CI gate.
+
+## Implementation deviations
+
+The shipped implementation differs from the design above in these ways.
+
+- **Catalog split.** `catalog.ts` aggregates `src/data/<group>.catalog.ts` files, and every entry carries a required `source` field (its data module). This keeps each group reviewable and lets `diagrams-check` watch the data module implicitly.
+- **Node caps.** An `ArchitectureMap` holds at most 18 nodes, including `system-context`; every other diagram holds about 12.
+- **Edge reveal.** Architecture maps reveal their edges in 12 frames with no full-canvas fade, because GIF size is driven by changed pixels per frame, not frame count.
+- **Render scope.** `diagrams-render` renders every diagram when `ID` is omitted, and accepts a comma-separated list otherwise.
+- **Geocoding proxy.** The same-origin geocoding proxy lives in `apps/web/nginx.conf`, so that file is the watch for `checkout-address-geocoding-proxy`.
+- **Drift check.** `diagrams-check` always exits 0, including when its base ref cannot be resolved.
+- **Dependency arrows.** `DependencyGraph` draws arrows over the task boxes, so tasks are ordered within a phase to minimise crossings.
+- **Comment linter.** `make lint-comments` honours its path exclusions for explicit path arguments (how the pre-commit hook calls it) and excludes the lnai skill mirrors.
 
 ## Related
 

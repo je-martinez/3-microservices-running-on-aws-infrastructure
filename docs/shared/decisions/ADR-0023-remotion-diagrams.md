@@ -58,7 +58,7 @@ Rules and procedure live in [[diagrams]]; the generalized legibility lessons in 
 **Negative / risks:**
 
 - **Icon-package risk.** `@nxavis/aws-icons` is young (v0.0.5, a single maintainer, low download count). Mitigation: exact pin plus the single adapter, so replacing the source (for example vendoring the official asset zip) touches one file.
-- **Binary weight.** Committed GIFs and PNGs add up; each GIF targets at most about 2 MB, and `diagrams-render` renders by `ID` rather than everything by default.
+- **Binary weight.** Committed GIFs and PNGs add up; each GIF targets at most about 2 MB, and `diagrams-render` takes an optional `ID` (a comma-separated list); when it is omitted, every diagram is rendered.
 - **Render dependency.** Remotion needs Chrome Headless Shell, fetched on first render. No Docker is involved.
 - **Cannot be hand-edited.** GIF and PNG are generated artifacts; a change goes through the data file.
 

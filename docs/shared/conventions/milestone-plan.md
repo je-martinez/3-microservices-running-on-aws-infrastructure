@@ -61,7 +61,7 @@ A rendered PNG embedded with the standard Obsidian embed syntax:
 
 The diagram is placed immediately after the dependency table. It renders the same blocking relationships in directed acyclic graph (DAG) form, with edges pointing from blocker to blocked (e.g., JE-5 → JE-6). Node labels include the issue ID plus a short task name (e.g., "JE-5 / Skeleton").
 
-The file lives in `docs/plans/diagrams/` so it is co-located with the plans that reference it. It is a `DependencyGraph` entry in the diagram catalog, rendered to `docs/plans/diagrams/<slug>-deps.png` by `make diagrams-render ID=<slug>-deps` and never hand-edited. Governed by [[diagrams]] and [[ADR-0023-remotion-diagrams]].
+The file lives in `docs/plans/diagrams/` so it is co-located with the plans that reference it. It is a `DependencyGraph` entry in the diagram catalog, rendered to `docs/plans/diagrams/<slug>-deps.png` by `make diagrams-render ID=milestone-<slug>-deps` (the catalog id, defined in `diagrams/src/data/milestones.catalog.ts`; it differs from the output basename) and never hand-edited. Governed by [[diagrams]] and [[ADR-0023-remotion-diagrams]].
 
 ### d) Phase grouping
 

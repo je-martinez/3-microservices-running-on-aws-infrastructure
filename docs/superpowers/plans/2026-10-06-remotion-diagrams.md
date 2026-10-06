@@ -78,11 +78,14 @@ diagrams/
     primitives/layout.ts         pure layout functions for all primitives
     primitives/{ArchitectureMap,FlowSequence,DependencyGraph}.tsx
     data/architecture/*.ts, data/system-context/*.ts, data/flows/*.ts, data/milestones/*.ts
+    data/*.catalog.ts            per-group catalog entries, each with a `source` field
     scripts/drift.ts             pure: affectedDiagrams()
     scripts/check-drift.ts       CLI around drift.ts
     scripts/render.ts            CLI: bundle once, render GIF/PNG per entry
   test/{schema,catalog,drift,layout,aws-icons}.test.ts
 ```
+
+**Deviations.** The shipped implementation departs from this plan in a few places (catalog split, node caps, edge reveal, render scope, geocoding proxy location, drift-check exit code, dependency arrows, comment-linter exclusions). They are listed with reasons in the spec section [[2026-10-06-remotion-diagrams-design#Implementation deviations]].
 
 ---
 
@@ -95,7 +98,7 @@ diagrams/
 **Interfaces:**
 - Produces: `NodeKind`, `AwsService`, `ArchitectureData`, `FlowData`, `DependencyData` (zod schemas + `z.infer` types), `CatalogEntry`, `catalog: CatalogEntry[]`.
 
-- [ ] **Step 1: Create `diagrams/package.json`**
+- [x] **Step 1: Create `diagrams/package.json`**
 
 ```json
 {
@@ -115,7 +118,7 @@ diagrams/
 }
 ```
 
-- [ ] **Step 2: Register the workspace and install pinned dependencies**
+- [x] **Step 2: Register the workspace and install pinned dependencies**
 
 Add `  - "diagrams"` to `pnpm-workspace.yaml` `packages:`. Then:
 
@@ -127,7 +130,7 @@ pnpm --filter @3mrai/diagrams add -D -E typescript@6.0.3 vitest@4 tsx@4 @types/r
 
 Expected: `pnpm-lock.yaml` updated, no `package-lock.json` created. Verify every `remotion`/`@remotion/*` entry in `diagrams/package.json` reads exactly `4.0.533`.
 
-- [ ] **Step 3: Create `tsconfig.json`, `remotion.config.ts`, `vitest.config.ts`, `.gitignore`**
+- [x] **Step 3: Create `tsconfig.json`, `remotion.config.ts`, `vitest.config.ts`, `.gitignore`**
 
 ```json
 {
@@ -166,7 +169,7 @@ export default defineConfig({ test: { include: ["test/**/*.test.ts"] } });
 out/
 ```
 
-- [ ] **Step 4: Write the failing schema test** — `diagrams/test/schema.test.ts`
+- [x] **Step 4: Write the failing schema test** — `diagrams/test/schema.test.ts`
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -235,12 +238,12 @@ describe("DependencyData", () => {
 });
 ```
 
-- [ ] **Step 5: Run it to verify it fails**
+- [x] **Step 5: Run it to verify it fails**
 
 Run: `nvm use && pnpm --filter @3mrai/diagrams test`
 Expected: FAIL — `Cannot find module '../src/schema'`.
 
-- [ ] **Step 6: Implement `diagrams/src/schema.ts`**
+- [x] **Step 6: Implement `diagrams/src/schema.ts`**
 
 ```ts
 import { z } from "zod";
@@ -322,9 +325,9 @@ export type DependencyData = z.infer<typeof DependencyData>;
 
 WHY the 18-node cap on `ArchitectureData` (vs ~12 elsewhere): a whole-environment map groups services by zone and cannot stay legible below that; flows and context diagrams keep the ~12 guidance.
 
-- [ ] **Step 7: Run schema tests** — `pnpm --filter @3mrai/diagrams test` → PASS (8 tests).
+- [x] **Step 7: Run schema tests** — `pnpm --filter @3mrai/diagrams test` → PASS (8 tests).
 
-- [ ] **Step 8: Write the failing catalog test** — `diagrams/test/catalog.test.ts`
+- [x] **Step 8: Write the failing catalog test** — `diagrams/test/catalog.test.ts`
 
 ```ts
 import { execFileSync } from "node:child_process";
@@ -356,7 +359,7 @@ describe("catalog", () => {
 });
 ```
 
-- [ ] **Step 9: Implement `diagrams/src/catalog.ts` (empty, typed)**
+- [x] **Step 9: Implement `diagrams/src/catalog.ts` (empty, typed)**
 
 ```ts
 import type { ArchitectureData, DependencyData, FlowData } from "./schema";
@@ -378,12 +381,12 @@ export type CatalogEntry =
 export const catalog: CatalogEntry[] = [];
 ```
 
-- [ ] **Step 10: Run all tests + typecheck**
+- [x] **Step 10: Run all tests + typecheck**
 
 Run: `pnpm --filter @3mrai/diagrams test && pnpm --filter @3mrai/diagrams typecheck`
 Expected: PASS (catalog `it.each` over an empty array yields zero cases; the uniqueness test passes).
 
-- [ ] **Step 11: Root scripts** — add to root `package.json` `scripts`:
+- [x] **Step 11: Root scripts** — add to root `package.json` `scripts`:
 
 ```json
 "diagrams:studio": "pnpm --filter @3mrai/diagrams studio",
@@ -392,7 +395,7 @@ Expected: PASS (catalog `it.each` over an empty array yields zero cases; the uni
 "diagrams:test": "pnpm --filter @3mrai/diagrams test"
 ```
 
-- [ ] **Step 12: Commit** (main session, menu) — `build(diagrams): scaffold Remotion diagrams package with data schemas`
+- [x] **Step 12: Commit** (main session, menu) — `build(diagrams): scaffold Remotion diagrams package with data schemas`
 
 ---
 
@@ -406,7 +409,7 @@ Expected: PASS (catalog `it.each` over an empty array yields zero cases; the uni
 - Consumes: `CatalogEntry`, `catalog` (Task 1).
 - Produces: `affectedDiagrams(changed: string[], entries: Pick<CatalogEntry,"id"|"output"|"watches">[]): DriftResult[]` where `type DriftResult = { id: string; status: "stale" | "updated"; matches: string[] }`.
 
-- [ ] **Step 1: Write the failing test** — `diagrams/test/drift.test.ts`
+- [x] **Step 1: Write the failing test** — `diagrams/test/drift.test.ts`
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -437,9 +440,9 @@ describe("affectedDiagrams", () => {
 });
 ```
 
-- [ ] **Step 2: Run** `pnpm --filter @3mrai/diagrams test -- drift` → FAIL (module not found).
+- [x] **Step 2: Run** `pnpm --filter @3mrai/diagrams test -- drift` → FAIL (module not found).
 
-- [ ] **Step 3: Implement `diagrams/src/scripts/drift.ts`**
+- [x] **Step 3: Implement `diagrams/src/scripts/drift.ts`**
 
 ```ts
 import picomatch from "picomatch";
@@ -463,9 +466,9 @@ export function affectedDiagrams(
 }
 ```
 
-- [ ] **Step 4: Run** → PASS (4 tests).
+- [x] **Step 4: Run** → PASS (4 tests).
 
-- [ ] **Step 5: Implement the CLI** — `diagrams/src/scripts/check-drift.ts`
+- [x] **Step 5: Implement the CLI** — `diagrams/src/scripts/check-drift.ts`
 
 ```ts
 import { execFileSync } from "node:child_process";
@@ -502,16 +505,16 @@ if (results.length === 0) {
 
 CONTRACT: always exits 0 — the check warns, it never blocks (spec decision 5).
 
-- [ ] **Step 6: Makefile target** — add `diagrams-check` to `.PHONY` and, in a new `## --- Diagrams ---` section:
+- [x] **Step 6: Makefile target** — add `diagrams-check` to `.PHONY` and, in a new `## --- Diagrams ---` section:
 
 ```make
 diagrams-check: ## List diagrams whose watched sources changed vs main (warns, never fails; DIAGRAMS_BASE=main)
 	pnpm --filter @3mrai/diagrams check-drift
 ```
 
-- [ ] **Step 7: Verify** — `nvm use && make diagrams-check` → prints "no diagram watches a path changed" (catalog still empty). Run `python3 scripts/validate-comments.py diagrams/src/scripts/*.ts Makefile` → clean.
+- [x] **Step 7: Verify** — `nvm use && make diagrams-check` → prints "no diagram watches a path changed" (catalog still empty). Run `python3 scripts/validate-comments.py diagrams/src/scripts/*.ts Makefile` → clean.
 
-- [ ] **Step 8: Commit** (menu) — `feat(diagrams): add non-blocking drift check against catalog watches`
+- [x] **Step 8: Commit** (menu) — `feat(diagrams): add non-blocking drift check against catalog watches`
 
 ---
 
@@ -524,7 +527,7 @@ diagrams-check: ## List diagrams whose watched sources changed vs main (warns, n
 - Consumes: `NodeKind`, `AwsService` (Task 1).
 - Produces: `tokens` (`tokens.kind[k].{fill,stroke,text}`, `tokens.bg`, `tokens.ink`, `tokens.muted`, `tokens.accent`, `tokens.font`), `awsIcon(service: AwsService): ComponentType<{ size?: number }>`, `WIDTH=1200`, `HEIGHT=675`, `FPS=24`, `INTRO=18`, `STEP=36`, `HOLD=48`, `durationFor(units: number): number`.
 
-- [ ] **Step 1: Failing test** — `diagrams/test/aws-icons.test.ts`
+- [x] **Step 1: Failing test** — `diagrams/test/aws-icons.test.ts`
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -538,9 +541,9 @@ describe("awsIcon", () => {
 });
 ```
 
-- [ ] **Step 2: Run** → FAIL (module not found).
+- [x] **Step 2: Run** → FAIL (module not found).
 
-- [ ] **Step 3: Implement `diagrams/src/theme/aws-icons.ts`**
+- [x] **Step 3: Implement `diagrams/src/theme/aws-icons.ts`**
 
 ```ts
 // CONTRACT: the ONLY importer of @nxavis/aws-icons. Swapping the icon source touches this file alone. See [[diagrams]]
@@ -569,7 +572,7 @@ export function awsIcon(service: AwsService): ComponentType<{ size?: number }> {
 }
 ```
 
-- [ ] **Step 4: Implement `diagrams/src/theme/tokens.ts`** — light pastel fills with DARK text (the legibility rule from `[[diagram-legibility]]`):
+- [x] **Step 4: Implement `diagrams/src/theme/tokens.ts`** — light pastel fills with DARK text (the legibility rule from `[[diagram-legibility]]`):
 
 ```ts
 import { loadFont } from "@remotion/google-fonts/Inter";
@@ -595,7 +598,7 @@ export const tokens = {
 } as const;
 ```
 
-- [ ] **Step 5: Implement `diagrams/src/timing.ts`**
+- [x] **Step 5: Implement `diagrams/src/timing.ts`**
 
 ```ts
 export const WIDTH = 1200;
@@ -619,9 +622,9 @@ export function unitProgress(frame: number, i: number): number {
 }
 ```
 
-- [ ] **Step 6: Run** `pnpm --filter @3mrai/diagrams test && pnpm --filter @3mrai/diagrams typecheck` → PASS (22 icon cases). If the `@remotion/google-fonts/Inter` import breaks vitest in node, the test file does not import `tokens.ts`, so it is unaffected.
+- [x] **Step 6: Run** `pnpm --filter @3mrai/diagrams test && pnpm --filter @3mrai/diagrams typecheck` → PASS (22 icon cases). If the `@remotion/google-fonts/Inter` import breaks vitest in node, the test file does not import `tokens.ts`, so it is unaffected.
 
-- [ ] **Step 7: Commit** (menu) — `feat(diagrams): add theme tokens, timing and the AWS icon adapter`
+- [x] **Step 7: Commit** (menu) — `feat(diagrams): add theme tokens, timing and the AWS icon adapter`
 
 ---
 
@@ -635,7 +638,7 @@ export function unitProgress(frame: number, i: number): number {
 - Consumes: schemas, `tokens`, `awsIcon`, timing.
 - Produces: `type Rect = { x: number; y: number; w: number; h: number }`; `layoutArchitecture(d: ArchitectureData, w: number, h: number): { zones: Record<string, Rect>; nodes: Record<string, Rect> }`; `edgePoints(a: Rect, b: Rect): { x1: number; y1: number; x2: number; y2: number }`; components `NodeBox`, `Arrow`, `Title`, `Legend`, `Caption`, `ArchitectureMap`; `Root` registering compositions from `catalog`.
 
-- [ ] **Step 1: Failing layout test** — `diagrams/test/layout.test.ts`
+- [x] **Step 1: Failing layout test** — `diagrams/test/layout.test.ts`
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -682,9 +685,9 @@ describe("edgePoints", () => {
 });
 ```
 
-- [ ] **Step 2: Run** → FAIL.
+- [x] **Step 2: Run** → FAIL.
 
-- [ ] **Step 3: Implement `diagrams/src/primitives/layout.ts`** (architecture part; Tasks 5–6 append to it)
+- [x] **Step 3: Implement `diagrams/src/primitives/layout.ts`** (architecture part; Tasks 5–6 append to it)
 
 ```ts
 import type { ArchitectureData } from "../schema";
@@ -724,9 +727,9 @@ export function edgePoints(a: Rect, b: Rect) {
 }
 ```
 
-- [ ] **Step 4: Run** → PASS (5 layout tests).
+- [x] **Step 4: Run** → PASS (5 layout tests).
 
-- [ ] **Step 5: Shared components**
+- [x] **Step 5: Shared components**
 
 ```tsx
 // diagrams/src/primitives/shared/NodeBox.tsx
@@ -834,7 +837,7 @@ export function Legend({ kinds }: { kinds: NodeKind[] }) {
 }
 ```
 
-- [ ] **Step 6: `ArchitectureMap.tsx`** — zones fade in during INTRO, then edge `i` animates in its window; the edge currently animating and its two nodes are highlighted; the last frame shows everything un-highlighted.
+- [x] **Step 6: `ArchitectureMap.tsx`** — zones fade in during INTRO, then edge `i` animates in its window; the edge currently animating and its two nodes are highlighted; the last frame shows everything un-highlighted.
 
 ```tsx
 import { AbsoluteFill, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
@@ -883,7 +886,7 @@ export function ArchitectureMap({ data }: { data: ArchitectureData }) {
 }
 ```
 
-- [ ] **Step 7: `Root.tsx` and `index.ts`** — Root dispatches on `primitive`; FlowSequence/DependencyGraph cases are added in Tasks 5–6.
+- [x] **Step 7: `Root.tsx` and `index.ts`** — Root dispatches on `primitive`; FlowSequence/DependencyGraph cases are added in Tasks 5–6.
 
 ```tsx
 // diagrams/src/Root.tsx
@@ -924,7 +927,7 @@ import { Root } from "./Root";
 registerRoot(Root);
 ```
 
-- [ ] **Step 8: Studio target + smoke entry.** Makefile:
+- [x] **Step 8: Studio target + smoke entry.** Makefile:
 
 ```make
 diagrams-studio: ## Open Remotion Studio to browse/scrub every diagram interactively
@@ -933,9 +936,9 @@ diagrams-studio: ## Open Remotion Studio to browse/scrub every diagram interacti
 
 Temporarily add to `catalog` a `smoke-architecture` entry using the 3-node data from `layout.test.ts` with two edges, `output: "docs/00-overview/diagrams/smoke-architecture"`, `watches: ["diagrams/src/primitives/**"]`. Run `nvm use && pnpm --filter @3mrai/diagrams browser && pnpm --filter @3mrai/diagrams exec remotion still src/index.ts smoke-architecture out/smoke.png --frame=100`. Read `diagrams/out/smoke.png` with the Read tool and check: zones visible, icons rendered, arrows with heads, dark text on pastel. **Remove the smoke entry afterwards** (outputs are only produced via Task 7's renderer).
 
-- [ ] **Step 9: Run** `pnpm --filter @3mrai/diagrams test && pnpm --filter @3mrai/diagrams typecheck` and the comment validator on the new files → green.
+- [x] **Step 9: Run** `pnpm --filter @3mrai/diagrams test && pnpm --filter @3mrai/diagrams typecheck` and the comment validator on the new files → green.
 
-- [ ] **Step 10: Commit** (menu) — `feat(diagrams): add ArchitectureMap primitive and Studio entry point`
+- [x] **Step 10: Commit** (menu) — `feat(diagrams): add ArchitectureMap primitive and Studio entry point`
 
 ---
 
@@ -948,7 +951,7 @@ Temporarily add to `catalog` a `smoke-architecture` entry using the 3-node data 
 **Interfaces:**
 - Produces: `layoutFlow(d: FlowData, w: number, h: number): { lanes: Record<string, { x: number; header: Rect }>; rowY: (i: number) => number }`; `FlowSequence({ data }: { data: FlowData })`.
 
-- [ ] **Step 1: Append failing tests to `diagrams/test/layout.test.ts`**
+- [x] **Step 1: Append failing tests to `diagrams/test/layout.test.ts`**
 
 ```ts
 import { layoutFlow } from "../src/primitives/layout";
@@ -971,9 +974,9 @@ describe("layoutFlow", () => {
 });
 ```
 
-- [ ] **Step 2: Run** → FAIL (`layoutFlow` not exported).
+- [x] **Step 2: Run** → FAIL (`layoutFlow` not exported).
 
-- [ ] **Step 3: Append to `layout.ts`**
+- [x] **Step 3: Append to `layout.ts`**
 
 ```ts
 import type { FlowData } from "../schema";
@@ -997,9 +1000,9 @@ export function layoutFlow(d: FlowData, w: number, h: number) {
 
 (Merge the `import type` lines at the top of the file with the existing schema import.)
 
-- [ ] **Step 4: Run** → PASS.
+- [x] **Step 4: Run** → PASS.
 
-- [ ] **Step 5: `FlowSequence.tsx`** — lanes (header box + dashed lifeline) visible from the start; step `i` draws its arrow in its window with a numbered label; the caption bar shows the current step; on the final hold the caption shows the last step and every arrow stays drawn. A self-step (`from === to`) is drawn as a short loop to the right of the lane.
+- [x] **Step 5: `FlowSequence.tsx`** — lanes (header box + dashed lifeline) visible from the start; step `i` draws its arrow in its window with a numbered label; the caption bar shows the current step; on the final hold the caption shows the last step and every arrow stays drawn. A self-step (`from === to`) is drawn as a short loop to the right of the lane.
 
 ```tsx
 import { AbsoluteFill, useCurrentFrame, useVideoConfig } from "remotion";
@@ -1046,13 +1049,13 @@ export function FlowSequence({ data }: { data: FlowData }) {
 }
 ```
 
-- [ ] **Step 6: Register in `Root.tsx`** — add `case "flow": return { component: FlowSequence, units: e.data.steps.length };` and its import.
+- [x] **Step 6: Register in `Root.tsx`** — add `case "flow": return { component: FlowSequence, units: e.data.steps.length };` and its import.
 
-- [ ] **Step 7: Smoke-render** a temporary 3-actor/4-step flow entry (one async step, one self-step) as in Task 4 Step 8, inspect the PNG (`--frame=` last), then remove the temporary entry.
+- [x] **Step 7: Smoke-render** a temporary 3-actor/4-step flow entry (one async step, one self-step) as in Task 4 Step 8, inspect the PNG (`--frame=` last), then remove the temporary entry.
 
-- [ ] **Step 8: Tests + typecheck + comment validator** → green.
+- [x] **Step 8: Tests + typecheck + comment validator** → green.
 
-- [ ] **Step 9: Commit** (menu) — `feat(diagrams): add FlowSequence primitive`
+- [x] **Step 9: Commit** (menu) — `feat(diagrams): add FlowSequence primitive`
 
 ---
 
@@ -1065,7 +1068,7 @@ export function FlowSequence({ data }: { data: FlowData }) {
 **Interfaces:**
 - Produces: `layoutDependency(d: DependencyData, w: number, h: number): { phases: Record<string, Rect>; tasks: Record<string, Rect> }`; `DependencyGraph({ data })`. Duration: `units = 0` (INTRO + HOLD); its catalog entries are PNG-only (Task 7 `animated: false`).
 
-- [ ] **Step 1: Failing test** (append):
+- [x] **Step 1: Failing test** (append):
 
 ```ts
 import { layoutDependency } from "../src/primitives/layout";
@@ -1092,9 +1095,9 @@ describe("layoutDependency", () => {
 });
 ```
 
-- [ ] **Step 2: Run** → FAIL.
+- [x] **Step 2: Run** → FAIL.
 
-- [ ] **Step 3: Implement** — `layoutDependency` reuses `layoutArchitecture` (phases are zones, tasks are nodes):
+- [x] **Step 3: Implement** — `layoutDependency` reuses `layoutArchitecture` (phases are zones, tasks are nodes):
 
 ```ts
 import type { DependencyData } from "../schema";
@@ -1148,9 +1151,9 @@ export function DependencyGraph({ data }: { data: DependencyData }) {
 
 Register in `Root.tsx`: `case "dependency": return { component: DependencyGraph, units: 0 };`.
 
-- [ ] **Step 4: Run** tests → PASS; smoke still with a temporary entry; inspect; remove the entry.
+- [x] **Step 4: Run** tests → PASS; smoke still with a temporary entry; inspect; remove the entry.
 
-- [ ] **Step 5: Commit** (menu) — `feat(diagrams): add DependencyGraph primitive for milestone plans`
+- [x] **Step 5: Commit** (menu) — `feat(diagrams): add DependencyGraph primitive for milestone plans`
 
 ---
 
@@ -1164,9 +1167,9 @@ Register in `Root.tsx`: `case "dependency": return { component: DependencyGraph,
 - Consumes: `catalog`, `src/index.ts`.
 - Produces: CLI `pnpm --filter @3mrai/diagrams render [id ...]` (env `ID=a,b` via Make) writing `<output>.gif` (if animated) and `<output>.png` (last frame) relative to repo root, printing size per file and a WARNING line for any GIF > 2 MB.
 
-- [ ] **Step 1: Add `animated?: boolean` to `Base` in `catalog.ts`** with the doc comment `/** false → PNG only (DependencyGraph). Default true. */`.
+- [x] **Step 1: Add `animated?: boolean` to `Base` in `catalog.ts`** with the doc comment `/** false → PNG only (DependencyGraph). Default true. */`.
 
-- [ ] **Step 2: Implement `render.ts`**
+- [x] **Step 2: Implement `render.ts`**
 
 ```ts
 import { mkdirSync, statSync } from "node:fs";
@@ -1205,7 +1208,7 @@ for (const e of entries) {
 }
 ```
 
-- [ ] **Step 3: Makefile**
+- [x] **Step 3: Makefile**
 
 ```make
 diagrams-render: ## Render diagrams to the vault (all, or ID=a,b). GIF + last-frame PNG; warns over 2 MB
@@ -1215,9 +1218,9 @@ diagrams-render: ## Render diagrams to the vault (all, or ID=a,b). GIF + last-fr
 
 Define `comma := ,` near the Diagrams section if the Makefile does not already. Add `diagrams-render diagrams-studio` to `.PHONY`.
 
-- [ ] **Step 4: Verify** — `nvm use && make diagrams-render ID=does-not-exist` → exits 1 with "unknown diagram id(s)". With an empty catalog, `make diagrams-render` → completes with no output files.
+- [x] **Step 4: Verify** — `nvm use && make diagrams-render ID=does-not-exist` → exits 1 with "unknown diagram id(s)". With an empty catalog, `make diagrams-render` → completes with no output files.
 
-- [ ] **Step 5: Commit** (menu) — `feat(diagrams): add GIF/PNG renderer and make targets`
+- [x] **Step 5: Commit** (menu) — `feat(diagrams): add GIF/PNG renderer and make targets`
 
 ---
 
@@ -1227,11 +1230,11 @@ Define `comma := ,` near the Diagrams section if the Makefile does not already. 
 - Create: `.ai/skills/remotion-*/` (12 dirs, from the vendor), `.agents/skills/remotion-*` (symlinks), `.claude/agents/diagram-impl.md`, `diagrams/CLAUDE.md`
 - Modify: `skills-lock.json`, `.ai/skills/spec-implementation-audit/SKILL.md` (the real file; check `readlink -f .claude/skills/spec-implementation-audit` first), root `CLAUDE.md`
 
-- [ ] **Step 1: Install the skills.** `nvm use && pnpm dlx skills add remotion-dev/skills`. Choose the project scope. Confirm where the CLI wrote them; the target is `.ai/skills/<name>/` (move them there if it wrote elsewhere, keeping `skills-lock.json` entries). Then, per `[[skill-propagation]]`, for each `remotion-*` dir: `ln -s ../../.ai/skills/<name> .agents/skills/<name>` (symlink, never a copy). Make each available to Claude Code under `.claude/skills/` the same way existing propagated skills are (inspect `ls -la .claude/skills/floci` and mirror it).
+- [x] **Step 1: Install the skills.** `nvm use && pnpm dlx skills add remotion-dev/skills`. Choose the project scope. Confirm where the CLI wrote them; the target is `.ai/skills/<name>/` (move them there if it wrote elsewhere, keeping `skills-lock.json` entries). Then, per `[[skill-propagation]]`, for each `remotion-*` dir: `ln -s ../../.ai/skills/<name> .agents/skills/<name>` (symlink, never a copy). Make each available to Claude Code under `.claude/skills/` the same way existing propagated skills are (inspect `ls -la .claude/skills/floci` and mirror it).
 
-- [ ] **Step 2: `diagrams/CLAUDE.md`** — contents (English): stack + versions (Global Constraints), the three primitives and when to use each (architecture = static topology, flow = ordered interaction among ≤7 actors, dependency = milestone plans), detail level (≤ ~12 nodes; architecture maps ≤18 grouped by zone; ≤10 steps; captions one line ≤90 chars; names not endpoints/fields/payloads), "read the source before drawing" list (architecture → `infra/modules/**`, `infra/environments/{local,preprod}/**`, `docker-compose*.yml`; flows → handlers + `services/<svc>/openapi.yaml`), every new entry needs `watches` that match real files (the catalog test enforces it), the icon adapter rule, output location rule (`diagrams/` beside the owning vault section; `output` without extension), the verify loop (`make diagrams-render ID=<id>` → Read the PNG → check contrast/clipping → `make diagrams-check` → report GIF size), and the write boundary (only `diagrams/**` and `docs/**/diagrams/*.{gif,png}`; never `.md` under `docs/`; never git).
+- [x] **Step 2: `diagrams/CLAUDE.md`** — contents (English): stack + versions (Global Constraints), the three primitives and when to use each (architecture = static topology, flow = ordered interaction among ≤7 actors, dependency = milestone plans), detail level (≤ ~12 nodes; architecture maps ≤18 grouped by zone; ≤10 steps; captions one line ≤90 chars; names not endpoints/fields/payloads), "read the source before drawing" list (architecture → `infra/modules/**`, `infra/environments/{local,preprod}/**`, `docker-compose*.yml`; flows → handlers + `services/<svc>/openapi.yaml`), every new entry needs `watches` that match real files (the catalog test enforces it), the icon adapter rule, output location rule (`diagrams/` beside the owning vault section; `output` without extension), the verify loop (`make diagrams-render ID=<id>` → Read the PNG → check contrast/clipping → `make diagrams-check` → report GIF size), and the write boundary (only `diagrams/**` and `docs/**/diagrams/*.{gif,png}`; never `.md` under `docs/`; never git).
 
-- [ ] **Step 3: `.claude/agents/diagram-impl.md`** — frontmatter mirrors `e2e-impl.md`:
+- [x] **Step 3: `.claude/agents/diagram-impl.md`** — frontmatter mirrors `e2e-impl.md`:
 
 ```markdown
 ---
@@ -1257,13 +1260,13 @@ tools: [Read, Write, Edit, Bash, Glob, Grep, Skill]
 
 Body sections, following `e2e-impl.md`'s shape: *Hard rules* (no git writes, no Linear, no `.md` under `docs/` — report embed needs in the handoff, stay in task, comment rules with the validator command); *How to operate* (0 load skills; 1 read `diagrams/CLAUDE.md`; 2 read the sources the diagram depicts; 3 edit data/catalog; 4 `pnpm --filter @3mrai/diagrams test`; 5 render by ID and Read the PNG; 6 `make diagrams-check`); *Handoff* (files changed, GIF sizes, embed requests for `obsidian-vault`, lesson candidates).
 
-- [ ] **Step 4: Audit hook** — in `spec-implementation-audit/SKILL.md`, in the code → docs direction, add a step: "Run `make diagrams-check`. Every `STALE?` line is a code → docs gap: re-render via `diagram-impl`, or record a one-line justification for the PR's `## Diagrams` section."
+- [x] **Step 4: Audit hook** — in `spec-implementation-audit/SKILL.md`, in the code → docs direction, add a step: "Run `make diagrams-check`. Every `STALE?` line is a code → docs gap: re-render via `diagram-impl`, or record a one-line justification for the PR's `## Diagrams` section."
 
-- [ ] **Step 5: Root `CLAUDE.md`** — add under Working rules a `### Diagrams` subsection (≤5 lines): diagrams are Remotion renders from `diagrams/`; a change to a diagrammed flow or an AWS resource re-renders in the same PR; run `make diagrams-check` before a PR; attach the GIF under `## Diagrams` in the PR body when a flow is new/affected; full convention `docs/shared/conventions/diagrams.md` → `diagrams`. Add `diagram-impl` to the Subagents list and to the domain-layer implementer list (seven → eight).
+- [x] **Step 5: Root `CLAUDE.md`** — add under Working rules a `### Diagrams` subsection (≤5 lines): diagrams are Remotion renders from `diagrams/`; a change to a diagrammed flow or an AWS resource re-renders in the same PR; run `make diagrams-check` before a PR; attach the GIF under `## Diagrams` in the PR body when a flow is new/affected; full convention `docs/shared/conventions/diagrams.md` → `diagrams`. Add `diagram-impl` to the Subagents list and to the domain-layer implementer list (seven → eight).
 
-- [ ] **Step 6: Sync** — dispatch the `ai-config-sync` agent, then `nvm use && make ai-sync && make ai-sync-check` → "OK". Verify the remotion skills appear under `.cursor/`, `.gemini/` etc. with the direct comparison from `[[skill-propagation]]` § Checking what is missing.
+- [x] **Step 6: Sync** — dispatch the `ai-config-sync` agent, then `nvm use && make ai-sync && make ai-sync-check` → "OK". Verify the remotion skills appear under `.cursor/`, `.gemini/` etc. with the direct comparison from `[[skill-propagation]]` § Checking what is missing.
 
-- [ ] **Step 7: Commit** (menu) — `feat(agents): add diagram-impl agent and Remotion skills`
+- [x] **Step 7: Commit** (menu) — `feat(agents): add diagram-impl agent and Remotion skills`
 
 ---
 
@@ -1276,8 +1279,8 @@ Body sections, following `e2e-impl.md`'s shape: *Hard rules* (no git writes, no 
 - Modify: `diagrams/src/catalog.ts`
 - Renders: `docs/00-overview/diagrams/{architecture-dev-floci,architecture-preprod,system-context-l1,system-context-l2}.{gif,png}`
 
-- [ ] **Step 1:** Read `docs/00-overview/architecture.md`, `docs/00-overview/system-context.md`, the existing `.drawio.svg` files (for what they depicted), `infra/environments/local/**`, `infra/environments/preprod/**`, `infra/modules/**`, `docker-compose.yml`, `docker-compose.preprod.yml`.
-- [ ] **Step 2:** Write each data file exporting a typed constant, e.g.
+- [x] **Step 1:** Read `docs/00-overview/architecture.md`, `docs/00-overview/system-context.md`, the existing `.drawio.svg` files (for what they depicted), `infra/environments/local/**`, `infra/environments/preprod/**`, `infra/modules/**`, `docker-compose.yml`, `docker-compose.preprod.yml`.
+- [x] **Step 2:** Write each data file exporting a typed constant, e.g.
 
 ```ts
 import type { ArchitectureData } from "../../schema";
@@ -1292,9 +1295,9 @@ export const architectureDevFloci: ArchitectureData = {
 ```
 
 `architecture-preprod` differs where the real config differs (ECS tasks behind ALB on its own Floci, ECR) — derive it, do not copy dev.
-- [ ] **Step 3:** Catalog entries with watches: dev → `["infra/modules/**", "infra/environments/local/**", "docker-compose.yml"]`; preprod → `["infra/modules/**", "infra/environments/preprod/**", "docker-compose.preprod.yml"]`; system-context → `["infra/modules/api-gateway/**", "infra/modules/cognito/**", "services/*/openapi.yaml"]` (adjust only to globs that match tracked files).
-- [ ] **Step 4:** `pnpm --filter @3mrai/diagrams test` → PASS; `make diagrams-render ID=architecture-dev-floci,architecture-preprod,system-context-l1,system-context-l2`; Read each PNG; fix contrast/clipping; GIFs ≤ ~2 MB.
-- [ ] **Step 5: Commit** (menu) — `docs(infra): re-create architecture and system-context diagrams in Remotion`
+- [x] **Step 3:** Catalog entries with watches: dev → `["infra/modules/**", "infra/environments/local/**", "docker-compose.yml"]`; preprod → `["infra/modules/**", "infra/environments/preprod/**", "docker-compose.preprod.yml"]`; system-context → `["infra/modules/api-gateway/**", "infra/modules/cognito/**", "services/*/openapi.yaml"]` (adjust only to globs that match tracked files).
+- [x] **Step 4:** `pnpm --filter @3mrai/diagrams test` → PASS; `make diagrams-render ID=architecture-dev-floci,architecture-preprod,system-context-l1,system-context-l2`; Read each PNG; fix contrast/clipping; GIFs ≤ ~2 MB.
+- [x] **Step 5: Commit** (menu) — `docs(infra): re-create architecture and system-context diagrams in Remotion`
 
 ---
 
@@ -1302,10 +1305,10 @@ export const architectureDevFloci: ArchitectureData = {
 
 **Executor:** `diagram-impl`.
 
-- [ ] **Step 1:** Read `docs/plans/{users-service,services-infra-scaffold,documentation-vault}-milestone.md` and the matching `docs/plans/diagrams/*-deps.drawio.svg` (the `content` attribute holds the graph). For `users-service`, include the tasks the note's callout says the old diagram lacked.
-- [ ] **Step 2:** `diagrams/src/data/milestones/{users-service,services-infra-scaffold,documentation-vault}.ts` (`DependencyData`), catalog entries with `primitive: "dependency"`, `animated: false`, `output: "docs/plans/diagrams/<slug>-deps"`, `watches: ["docs/plans/<slug>-milestone.md"]`.
-- [ ] **Step 3:** Test, `make diagrams-render ID=<3 ids>`, Read each PNG.
-- [ ] **Step 4: Commit** (menu) — `docs(vault): re-create milestone dependency graphs in Remotion`
+- [x] **Step 1:** Read `docs/plans/{users-service,services-infra-scaffold,documentation-vault}-milestone.md` and the matching `docs/plans/diagrams/*-deps.drawio.svg` (the `content` attribute holds the graph). For `users-service`, include the tasks the note's callout says the old diagram lacked.
+- [x] **Step 2:** `diagrams/src/data/milestones/{users-service,services-infra-scaffold,documentation-vault}.ts` (`DependencyData`), catalog entries with `primitive: "dependency"`, `animated: false`, `output: "docs/plans/diagrams/<slug>-deps"`, `watches: ["docs/plans/<slug>-milestone.md"]`.
+- [x] **Step 3:** Test, `make diagrams-render ID=<3 ids>`, Read each PNG.
+- [x] **Step 4: Commit** (menu) — `docs(vault): re-create milestone dependency graphs in Remotion`
 
 ---
 
@@ -1326,7 +1329,7 @@ export const architectureDevFloci: ArchitectureData = {
 | 12 | `users-account-deletion-cascade` | spec 2026-08-25-account-deletion, users/orders/tracking delete handlers | `services/users/src/**`, `services/orders/**`, `services/tracking-go/**` | `docs/domains/users/specs/diagrams/` |
 | 13 | `orders-catalogue-cart` | `apps/web/src/app/features/{catalogue,cart}/**`, cart spec 2026-08-25, `services/orders/**` | `services/orders/**`, `apps/web/src/app/features/cart/**` | `docs/domains/orders/specs/diagrams/` |
 | 13 | `response-cache` | spec 2026-08-25-response-caching-layer, `services/users/src/shared/cache/**` | `services/*/src/shared/cache/**`, `infra/modules/**` (narrow to the cache module that exists) | `docs/shared/patterns/diagrams/` |
-| 13 | `checkout-address-geocoding-proxy` | spec 2026-09-06-address-geocoding-proxy, `infra/modules/compute/nginx/**` | `infra/modules/compute/nginx/**` | `docs/domains/orders/specs/diagrams/` |
+| 13 | `checkout-address-geocoding-proxy` | spec 2026-09-06-address-geocoding-proxy, `apps/web/nginx.conf` | `infra/modules/compute/nginx/**` | `docs/domains/orders/specs/diagrams/` |
 | 14 | `tracking-outbox-relay` | `services/tracking-go/internal/{outbox,bus}/**` | `services/tracking-go/internal/outbox/**`, `services/tracking-go/internal/bus/**` | `docs/domains/tracking/specs/diagrams/` |
 | 14 | `events-pipeline-fanout-dlq` | `functions/events-pipeline/src/{handlers,pipeline}/**`, `infra/modules/messaging/**` | `functions/events-pipeline/src/**`, `infra/modules/messaging/**` | `docs/domains/events-pipeline/specs/diagrams/` |
 | 14 | `websocket-lifecycle` | `functions/realtime-events/src/**`, `infra/modules/api-gateway-ws/**` | `functions/realtime-events/**`, `infra/modules/api-gateway-ws/**` | `docs/infrastructure/specs/diagrams/` |
@@ -1343,15 +1346,15 @@ export const architectureDevFloci: ArchitectureData = {
 
 **Executor:** `obsidian-vault` (sole writer of `docs/` `.md`). One brief, in English.
 
-- [ ] **Step 1:** Create `docs/shared/decisions/ADR-0023-remotion-diagrams.md` (accepted; supersedes ADR-0015; context = draw.io static and hard to keep current, decision = spec decisions 2/4/5/6, consequences incl. icon-package risk + adapter). Set ADR-0015 `status: superseded`, `superseded-by: ADR-0023-remotion-diagrams`, tags updated; its body untouched.
-- [ ] **Step 2:** Create `docs/shared/conventions/diagrams.md`: tool + package, outputs, location, catalog/`watches`, detail level, legibility rules, keep-current rule, `diagrams-check` usage and how to dismiss a warning, PR `## Diagrams` rule, `diagram-impl` write boundary, icon adapter rule.
-- [ ] **Step 3:** Rename `docs/lessons/drawio-diagram-legibility.md` → `docs/lessons/diagram-legibility.md`, generalized (dark text on pastel; layouts that fit; verify by reading the rendered PNG); update every inbound link.
-- [ ] **Step 4:** `docs/shared/conventions/git-workflow.md` — add the `## Diagrams` PR-body rule next to `## References`: mandatory when `diagrams-check` flagged something, optional otherwise; embed the GIF via the branch's raw URL `https://github.com/je-martinez/3-microservices-running-on-aws-infrastructure/raw/<branch>/<path>.gif` plus one line on what changed.
-- [ ] **Step 5:** Embeds: `architecture.md` → `![[architecture-dev-floci.gif]]` and `![[architecture-preprod.gif]]`; `system-context.md` → L1/L2 GIFs; each owning note from the Task 11–15 table embeds its flow GIF in the relevant section (users/orders/tracking/events-pipeline service specs, `docs/shared/observability/*`, `docs/shared/patterns/*`, `docs/infrastructure/specs|runbooks|decisions/*` — the owning note is the one in the same folder as the `diagrams/` subfolder); the 3 milestone plans → `![[<slug>-deps.png]]` (drop the users-service "still reflects only JE-25…JE-37" callout if the new graph covers all tasks); `stripe-payments-milestone.md` → remove its draw.io mention.
-- [ ] **Step 6:** `milestone-plan.md` — deps diagram is a `DependencyGraph` catalog entry rendered to `docs/plans/diagrams/<slug>-deps.png`; links `[[diagrams]]` and `[[ADR-0023-remotion-diagrams]]` instead of ADR-0015. `mcp-servers.md` → pencil only (title too). `scripting-language.md` → drop `drawio-to-svg.mjs`, mention `diagrams/src/scripts/*.ts` under the Node-ecosystem exception. `index.md` → ADR-0023, `[[diagrams]]`, `[[diagram-legibility]]` entries; ADR-0015 entry marked superseded.
-- [ ] **Step 7:** Spec `2026-10-06-remotion-diagrams-design.md` — move `diagrams`, `ADR-0023-remotion-diagrams`, `diagram-legibility` into `propagates-to:` as wikilinks, add the owning notes from Step 5, replace `[[drawio-diagram-legibility]]`, drop the "Targets not yet created" callout; bump `updated:`. Index this plan from `docs/plans/index.md`.
-- [ ] **Step 8:** `nvm use && node scripts/validate-vault.mjs` → green.
-- [ ] **Step 9: Commit** (menu) — `docs(vault): adopt Remotion diagrams convention and supersede ADR-0015`
+- [x] **Step 1:** Create `docs/shared/decisions/ADR-0023-remotion-diagrams.md` (accepted; supersedes ADR-0015; context = draw.io static and hard to keep current, decision = spec decisions 2/4/5/6, consequences incl. icon-package risk + adapter). Set ADR-0015 `status: superseded`, `superseded-by: ADR-0023-remotion-diagrams`, tags updated; its body untouched.
+- [x] **Step 2:** Create `docs/shared/conventions/diagrams.md`: tool + package, outputs, location, catalog/`watches`, detail level, legibility rules, keep-current rule, `diagrams-check` usage and how to dismiss a warning, PR `## Diagrams` rule, `diagram-impl` write boundary, icon adapter rule.
+- [x] **Step 3:** Rename `docs/lessons/drawio-diagram-legibility.md` → `docs/lessons/diagram-legibility.md`, generalized (dark text on pastel; layouts that fit; verify by reading the rendered PNG); update every inbound link.
+- [x] **Step 4:** `docs/shared/conventions/git-workflow.md` — add the `## Diagrams` PR-body rule next to `## References`: mandatory when `diagrams-check` flagged something, optional otherwise; embed the GIF via the branch's raw URL `https://github.com/je-martinez/3-microservices-running-on-aws-infrastructure/raw/<branch>/<path>.gif` plus one line on what changed.
+- [x] **Step 5:** Embeds: `architecture.md` → `![[architecture-dev-floci.gif]]` and `![[architecture-preprod.gif]]`; `system-context.md` → L1/L2 GIFs; each owning note from the Task 11–15 table embeds its flow GIF in the relevant section (users/orders/tracking/events-pipeline service specs, `docs/shared/observability/*`, `docs/shared/patterns/*`, `docs/infrastructure/specs|runbooks|decisions/*` — the owning note is the one in the same folder as the `diagrams/` subfolder); the 3 milestone plans → `![[<slug>-deps.png]]` (drop the users-service "still reflects only JE-25…JE-37" callout if the new graph covers all tasks); `stripe-payments-milestone.md` → remove its draw.io mention.
+- [x] **Step 6:** `milestone-plan.md` — deps diagram is a `DependencyGraph` catalog entry rendered to `docs/plans/diagrams/<slug>-deps.png`; links `[[diagrams]]` and `[[ADR-0023-remotion-diagrams]]` instead of ADR-0015. `mcp-servers.md` → pencil only (title too). `scripting-language.md` → drop `drawio-to-svg.mjs`, mention `diagrams/src/scripts/*.ts` under the Node-ecosystem exception. `index.md` → ADR-0023, `[[diagrams]]`, `[[diagram-legibility]]` entries; ADR-0015 entry marked superseded.
+- [x] **Step 7:** Spec `2026-10-06-remotion-diagrams-design.md` — move `diagrams`, `ADR-0023-remotion-diagrams`, `diagram-legibility` into `propagates-to:` as wikilinks, add the owning notes from Step 5, replace `[[drawio-diagram-legibility]]`, drop the "Targets not yet created" callout; bump `updated:`. Index this plan from `docs/plans/index.md`.
+- [x] **Step 8:** `nvm use && node scripts/validate-vault.mjs` → green.
+- [x] **Step 9: Commit** (menu) — `docs(vault): adopt Remotion diagrams convention and supersede ADR-0015`
 
 ---
 
@@ -1362,10 +1365,10 @@ export const architectureDevFloci: ArchitectureData = {
 - Modify: `.mcp.json` (remove `drawio`), `.claude/settings.local.json` (remove drawio permission entries), `scripts/validate-vault.mjs:125-127,167` (comment examples → `architecture-dev-floci.gif`)
 - Regenerate (never by hand): `.cursor/mcp.json`, `.gemini/settings.json`, `.codex/config.toml`, `opencode.json`, `.ai/settings.json`, `.vscode/mcp.json`
 
-- [ ] **Step 1:** Delete the files listed above (`git rm`).
-- [ ] **Step 2:** Edit `.mcp.json`, `.claude/settings.local.json`, `validate-vault.mjs` comments.
-- [ ] **Step 3:** `nvm use && make ai-sync && make ai-sync-check` → OK; confirm projections lost `drawio`.
-- [ ] **Step 4: Verify no live reference remains**
+- [x] **Step 1:** Delete the files listed above (`git rm`).
+- [x] **Step 2:** Edit `.mcp.json`, `.claude/settings.local.json`, `validate-vault.mjs` comments.
+- [x] **Step 3:** `nvm use && make ai-sync && make ai-sync-check` → OK; confirm projections lost `drawio`.
+- [x] **Step 4: Verify no live reference remains**
 
 Run:
 ```bash
@@ -1375,19 +1378,19 @@ grep -rIil 'drawio\|draw\.io' --exclude-dir=node_modules --exclude-dir=.git --ex
             -e '2026-10-06-remotion-diagrams' -e 'ADR-0023-remotion-diagrams.md' -e 'conventions/diagrams.md' -e 'lessons/diagram-legibility.md'
 ```
 Expected: no output. (The kept historical items, the spec/plan, and the new notes that explain the migration are excluded.)
-- [ ] **Step 5:** `node scripts/validate-vault.mjs` → green (no broken `.drawio.svg` embeds).
-- [ ] **Step 6: Commit** (menu) — `chore(vault)!: retire draw.io diagrams, script and MCP server`
+- [x] **Step 5:** `node scripts/validate-vault.mjs` → green (no broken `.drawio.svg` embeds).
+- [x] **Step 6: Commit** (menu) — `chore(vault)!: retire draw.io diagrams, script and MCP server`
 
 ---
 
 ### Task 18: Final verification and gap audit
 
-- [ ] **Step 1:** `nvm use && pnpm --filter @3mrai/diagrams test && pnpm --filter @3mrai/diagrams typecheck` → PASS (catalog test now runs 26 entries × 4 checks).
-- [ ] **Step 2:** `make diagrams-render` (all 26) — every GIF ≤ ~2 MB (no WARNING lines; if any, reduce steps/nodes or pass `scale: 0.8` for that entry and note it); Read every PNG.
-- [ ] **Step 3:** `make lint-comments`, `node scripts/validate-vault.mjs`, `make ai-sync-check` → green.
-- [ ] **Step 4:** `make diagrams-check` → every listed entry shows `updated`.
+- [x] **Step 1:** `nvm use && pnpm --filter @3mrai/diagrams test && pnpm --filter @3mrai/diagrams typecheck` → PASS (catalog test now runs 26 entries × 4 checks).
+- [x] **Step 2:** `make diagrams-render` (all 26) — every GIF ≤ ~2 MB (no WARNING lines; if any, reduce steps/nodes or pass `scale: 0.8` for that entry and note it); Read every PNG.
+- [x] **Step 3:** `make lint-comments`, `node scripts/validate-vault.mjs`, `make ai-sync-check` → green.
+- [x] **Step 4:** `make diagrams-check` → every listed entry shows `updated`.
 - [ ] **Step 5:** Run the `spec-implementation-audit` skill (spec → code, code → docs, plan → repo). Close gaps; re-run.
-- [ ] **Step 6:** Report total committed binary size (`du -ch docs/**/diagrams/*.{gif,png}`).
+- [x] **Step 6:** Report total committed binary size (`du -ch docs/**/diagrams/*.{gif,png}`).
 - [ ] **Step 7:** Main session proposes the PR `feature/remotion-diagrams` → `main` via the menu, with a `## Diagrams` section showing `architecture-dev-floci.gif` and one flow, and `## References` (spec, plan, ADR-0023, convention).
 
 ## Related
