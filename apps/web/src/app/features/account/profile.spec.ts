@@ -605,6 +605,85 @@ describe('ProfilePage', () => {
       expect(fieldValues()).toContain('Salem');
       expect(fieldValues()).not.toContain('salem');
     });
+
+    it('reseeds a pristine form from the fetch that lands after a cached first paint', async () => {
+      TestBed.inject(SessionStore).setUser(MORGAN);
+      create();
+      expect(fieldValues()).toContain('Portland');
+
+      (await awaitRequest(fixture, controller, ME)).flush({
+        ...MORGAN,
+        address: { ...MORGAN.address, city: 'Eugene' },
+      });
+      await settle(fixture);
+
+      expect(fieldValues()).toContain('Eugene');
+    });
+
+    /**
+     * CONTRACT: The page's own GET lands AFTER first paint from the cached
+     * user; a reseed then silently replaces what the user typed, and the next
+     * PATCH sends the server's value instead.
+     */
+    it('keeps an edit typed before the page fetch lands, and saves it', async () => {
+      TestBed.inject(SessionStore).setUser(MORGAN);
+      create();
+      fillField(fixture, 'Full name', 'Morgan Q. Reyes');
+
+      (await awaitRequest(fixture, controller, ME)).flush({
+        ...MORGAN,
+        phoneNumber: '+1-503-555-0199',
+      });
+      await settle(fixture);
+
+      expect(fieldValues()).toContain('Morgan Q. Reyes');
+      root().querySelector<HTMLButtonElement>('app-button-primary button')?.click();
+      await settle(fixture);
+      const patch = await awaitRequest(fixture, controller, ME);
+      expect(patch.request.method).toBe('PATCH');
+      expect(patch.request.body).toMatchObject({ fullName: 'Morgan Q. Reyes' });
+      patch.flush({ ...MORGAN, fullName: 'Morgan Q. Reyes' });
+      await settle(fixture);
+    });
+
+    it('keeps edits when a newer server user arrives later', async () => {
+      await loaded();
+      fillField(fixture, 'City', 'Salem');
+
+      TestBed.inject(SessionStore).setUser({ ...MORGAN, fullName: 'Morgan R. Reyes' });
+      await settle(fixture);
+
+      expect(fieldValues()).toContain('Salem');
+      expect(fieldValues()).toContain('Morgan Reyes');
+      expect(fieldValues()).not.toContain('Morgan R. Reyes');
+    });
+
+    it('restores the LATEST server user on Cancel after a deferred update', async () => {
+      await loaded();
+      fillField(fixture, 'City', 'Salem');
+      TestBed.inject(SessionStore).setUser({
+        ...MORGAN,
+        address: { ...MORGAN.address, city: 'Eugene' },
+      });
+      await settle(fixture);
+
+      Array.from(root().querySelectorAll('button'))
+        .find((b) => b.textContent?.trim() === 'Cancel')
+        ?.click();
+      await settle(fixture);
+
+      expect(fieldValues()).toContain('Eugene');
+      expect(fieldValues()).not.toContain('Salem');
+      expect(fieldValues()).not.toContain('Portland');
+
+      // Pristine again, so the next server user reseeds normally.
+      TestBed.inject(SessionStore).setUser({
+        ...MORGAN,
+        address: { ...MORGAN.address, city: 'Bend' },
+      });
+      await settle(fixture);
+      expect(fieldValues()).toContain('Bend');
+    });
   });
 
   describe('saved banner', () => {

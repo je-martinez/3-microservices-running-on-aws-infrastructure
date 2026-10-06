@@ -146,6 +146,13 @@ export class ProfilePage {
   protected readonly model = signal<ProfileForm>(EMPTY_PROFILE_FORM);
 
   /**
+   * The values the form was last seeded with from a server user. The model
+   * differing from them is what makes the form dirty — compared by value, so
+   * typing a field back to its saved value counts as pristine again.
+   */
+  private readonly seededForm = signal<ProfileForm>(EMPTY_PROFILE_FORM);
+
+  /**
    * CONTRACT: `required` alone accepts a value of spaces — it rejects only the
    * empty string — so the pattern is what keeps "   " from being saved as a
    * name. Dropping it re-enables saving a profile with a blank `fullName`.
@@ -166,12 +173,17 @@ export class ProfilePage {
     // CONTRACT: Seed the form from whatever the session already holds, then
     // again once the fetch lands. Seeding only on load leaves every field blank
     // for a user who arrives with a cached profile, which reads as data loss.
-    // CONTRACT: Track `user` ONLY — `saving` is read untracked. Tracking it
-    // reseeds when a FAILED save ends, discarding the edits and clearing the
-    // error the same tick it is set.
+    // CONTRACT: Track `user` ONLY. Tracking `saving` reseeds when a FAILED save
+    // ends, discarding the edits and clearing the error the same tick.
     effect(() => {
       const current = this.user();
-      if (current !== null && !untracked(this.saving)) this.resetForm();
+      if (current === null) return;
+      untracked(() => {
+        // CONTRACT: Reseed only a PRISTINE form, or the GET landing after a
+        // cached first paint overwrites what the user typed and the next PATCH
+        // sends the server's value. Cancel reads the latest user regardless.
+        if (!this.saving() && sameForm(this.model(), this.seededForm())) this.resetForm();
+      });
     });
     // CONTRACT: Clear on a value DIFFERENCE, never on any model write. The
     // reseed after a save writes an equal model, and clearing on the write
@@ -262,13 +274,18 @@ export class ProfilePage {
     }));
   }
 
-  /** Discards edits by re-seeding every field from the saved profile. */
+  /** Discards edits by re-seeding every field from the latest server user. */
   protected resetForm(): void {
     const current = this.user();
     if (!current) return;
 
     this.saveFailed.set(false);
-    this.model.set(formFromUser(current));
+    this.seed(formFromUser(current));
+  }
+
+  private seed(values: ProfileForm): void {
+    this.seededForm.set(values);
+    this.model.set(values);
   }
 
   /** Cancel: an equal reseed would leave the saved banner up, so it is dismissed explicitly. */
@@ -366,7 +383,7 @@ export class ProfilePage {
       // WHY: Reseed before recording the save, so the clearing effect compares
       // the banner's values against an equal model rather than the raw input.
       const savedForm = formFromUser(updated);
-      this.model.set(savedForm);
+      this.seed(savedForm);
       this.saveFailed.set(false);
       this.showSavedBanner(savedForm);
     } catch (error: unknown) {
