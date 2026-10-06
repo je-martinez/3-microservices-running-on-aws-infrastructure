@@ -72,10 +72,16 @@ describe('NewCardBlock', () => {
     TestBed.resetTestingModule();
   });
 
-  async function render(stub: StripeStub = fakeStripe()): Promise<HTMLElement> {
+  async function render(
+    stub: StripeStub = fakeStripe(),
+    inputs: { saveRequired?: boolean } = {},
+  ): Promise<HTMLElement> {
     configure(stub);
     await TestBed.compileComponents();
     fixture = TestBed.createComponent(NewCardBlock);
+    if (inputs.saveRequired !== undefined) {
+      fixture.componentRef.setInput('saveRequired', inputs.saveRequired);
+    }
     fixture.detectChanges();
     await settle(fixture);
     return fixture.nativeElement as HTMLElement;
@@ -113,6 +119,52 @@ describe('NewCardBlock', () => {
     const checkbox = query(root, 'save-card-checkbox');
 
     expect(checkbox?.getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('leaves the checkbox enabled and shows no required note when saving is opt-in', async () => {
+    const root = await render(fakeStripe(), { saveRequired: false });
+    const checkbox = query(root, 'save-card-checkbox') as HTMLButtonElement | null;
+
+    expect(checkbox?.disabled).toBe(false);
+    expect(checkbox?.getAttribute('aria-disabled')).toBe('false');
+    expect(query(root, 'save-card-required-note')).toBeNull();
+  });
+
+  /**
+   * CONTRACT: With no saved card, the first card is ALWAYS saved. Left opt-in,
+   * an unchecked first card confirms with no visible change on the checkout.
+   */
+  it('renders the checkbox checked, locked and annotated when saving is required', async () => {
+    const root = await render(fakeStripe(), { saveRequired: true });
+    const checkbox = query(root, 'save-card-checkbox') as HTMLButtonElement | null;
+
+    expect(checkbox?.getAttribute('aria-checked')).toBe('true');
+    expect(checkbox?.disabled).toBe(true);
+    expect(checkbox?.getAttribute('aria-disabled')).toBe('true');
+    expect(query(root, 'save-card-required-note')?.textContent).toContain(
+      'Your first card is saved as your default.',
+    );
+  });
+
+  it('does not toggle the required checkbox when clicked', async () => {
+    const root = await render(fakeStripe(), { saveRequired: true });
+
+    query(root, 'save-card-checkbox')?.click();
+    fixture.detectChanges();
+
+    expect(query(root, 'save-card-checkbox')?.getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('attaches and emits saved when saving is required, without a checkbox click', async () => {
+    const root = await render(fakeStripe(), { saveRequired: true });
+    const confirmed: { id: string; saved: boolean }[] = [];
+    fixture.componentInstance.confirmed.subscribe((event) => confirmed.push(event));
+
+    query(root, 'save-card-button')?.click();
+    await settle(fixture);
+
+    expect(attach).toHaveBeenCalledWith('pm_new');
+    expect(confirmed).toEqual([{ id: 'pm_new', saved: true }]);
   });
 
   it('emits cancel when the Cancel link is clicked', async () => {

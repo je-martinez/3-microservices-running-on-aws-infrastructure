@@ -25,25 +25,34 @@
     </p>
   }
 
-  <div class="flex h-fit w-full shrink-0 flex-row items-center justify-start gap-md pt-1">
-    <button
-      data-testid="default-card-checkbox"
-      type="button"
-      role="checkbox"
-      class="flex h-4.5 w-4.5 shrink-0 flex-row items-center justify-center rounded border"
-      [class.bg-brand-orange]="setAsDefault()"
-      [class.border-brand-orange]="setAsDefault()"
-      [class.border-line-strong]="!setAsDefault()"
-      [attr.aria-checked]="setAsDefault()"
-      (click)="toggleSetAsDefault()"
-    >
-      @if (setAsDefault()) {
-        <svg lucideCheck class="text-surface-white h-3 w-3"></svg>
-      }
-    </button>
-    <span class="text-ink-primary text-body leading-body flex-1 font-medium">
-      Set as my default card
-    </span>
+  <div class="flex h-fit w-full shrink-0 flex-col items-start justify-start gap-xs pt-1">
+    <div class="flex h-fit w-full shrink-0 flex-row items-center justify-start gap-md">
+      <button
+        data-testid="default-card-checkbox"
+        type="button"
+        role="checkbox"
+        class="flex h-4.5 w-4.5 shrink-0 flex-row items-center justify-center rounded border disabled:opacity-50"
+        [class.bg-brand-orange]="willBeDefault()"
+        [class.border-brand-orange]="willBeDefault()"
+        [class.border-line-strong]="!willBeDefault()"
+        [attr.aria-checked]="willBeDefault()"
+        [attr.aria-disabled]="defaultRequired()"
+        [disabled]="defaultRequired()"
+        (click)="toggleSetAsDefault()"
+      >
+        @if (willBeDefault()) {
+          <svg lucideCheck class="text-surface-white h-3 w-3"></svg>
+        }
+      </button>
+      <span class="text-ink-primary text-body leading-body flex-1 font-medium">
+        Set as my default card
+      </span>
+    </div>
+    @if (defaultRequired()) {
+      <p data-testid="default-card-required-note" class="text-ink-secondary text-body-sm w-full">
+        Your first card is saved as your default.
+      </p>
+    }
   </div>
 
   @if (cardError(); as message) {

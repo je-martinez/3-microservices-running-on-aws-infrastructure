@@ -9,18 +9,22 @@ import {
   signedEvent,
   webhookToken,
 } from "../support/stripe-webhook.js";
+import { customerIdForEmail, defaultPaymentMethodForCustomer } from "../support/stripe-charges.js";
+
+type PaymentMethodRow = { id: string; isDefault: boolean };
 
 // CONTRACT: Every request goes through apiClient(), which already sends
 // `X-E2E-Source: true` (see api-client.ts) — every user and Stripe customer
 // this file creates is tagged for e2e-cleanup, which also deletes the Stripe
 // customer (services/users/src/features/users/http/e2e-cleanup.ts).
 
-async function registerAndIdentify(): Promise<{ id: string }> {
+async function registerAndIdentify(): Promise<{ id: string; email: string }> {
   const api = await apiClient();
   const user = makeUser();
   const res = await api.post("/v1/users/register", { data: user });
   expect(res.status()).toBe(201);
-  return res.json();
+  const { id } = await res.json();
+  return { id, email: user.email };
 }
 
 async function attach(userId: string, paymentMethodId: string) {
@@ -81,7 +85,7 @@ test("attach a test card, list shows it with brand/last4, then detach removes it
   expect(afterAttach.status()).toBe(200);
   const rows = await afterAttach.json();
   const row = rows.find((r: { id: string }) => r.id === pmId);
-  expect(row).toMatchObject({ type: "card", brand: "visa", last4: "4242", isDefault: false });
+  expect(row).toMatchObject({ type: "card", brand: "visa", last4: "4242", isDefault: true });
 
   const api = await apiClient();
   const detached = await api.delete(`/v1/users/me/payment-methods/${pmId}`, {
@@ -101,6 +105,43 @@ test("attach a test card, list shows it with brand/last4, then detach removes it
   });
   expect(secondDetach.status()).toBe(404);
   expect(await secondDetach.json()).toEqual({ error: "not_found" });
+});
+
+test("the first attached card becomes the default, locally and in Stripe; a second attach leaves it so", async () => {
+  const { id, email } = await registerAndIdentify();
+
+  const first = await attach(id, "pm_card_visa");
+  expect(first.status(), `first attach failed: ${await first.text()}`).toBe(200);
+  const { id: firstId } = await first.json();
+
+  const afterFirst: PaymentMethodRow[] = await (await list(id)).json();
+  expect(afterFirst, `list after the first attach: ${JSON.stringify(afterFirst)}`).toEqual([
+    expect.objectContaining({ id: firstId, isDefault: true }),
+  ]);
+
+  const second = await attach(id, "pm_card_mastercard");
+  expect(second.status(), `second attach failed: ${await second.text()}`).toBe(200);
+  const { id: secondId } = await second.json();
+
+  const afterSecond: PaymentMethodRow[] = await (await list(id)).json();
+  const flags = Object.fromEntries(afterSecond.map((r) => [r.id, r.isDefault]));
+  expect(
+    flags,
+    `a second attach must neither promote itself nor demote the first: ${JSON.stringify(afterSecond)}`,
+  ).toEqual({ [firstId]: true, [secondId]: false });
+
+  // CONTRACT: Read Stripe's own default too. Users' reconcile webhook syncs `isDefault`
+  // FROM the customer's invoice_settings, so a local-only flag is reverted later.
+  if (!process.env.STRIPE_SECRET_KEY) {
+    test.info().annotations.push({ type: "stripe-unchecked", description: "STRIPE_SECRET_KEY not set" });
+    return;
+  }
+  const customerId = await customerIdForEmail(email);
+  expect(customerId, `no Stripe customer for ${email} — the attach never reached Stripe`).not.toBeNull();
+  expect(
+    await defaultPaymentMethodForCustomer(customerId!),
+    "the Stripe customer's invoice_settings.default_payment_method is not the first card",
+  ).toBe(firstId);
 });
 
 test("set-default: attaching a second card and setting it default leaves exactly one isDefault=true", async () => {

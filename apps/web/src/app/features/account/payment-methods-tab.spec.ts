@@ -2,6 +2,7 @@ import { ErrorHandler } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import {
   LucideApple,
   LucideCheck,
@@ -17,6 +18,7 @@ import { of, throwError } from 'rxjs';
 import type { Stripe, StripeElements } from '@stripe/stripe-js';
 
 import { PaymentMethodsTab } from './payment-methods-tab';
+import { ProfileAddCard } from './profile-add-card';
 import { PaymentMethodsApi } from '../../core/api/payment-methods-api';
 import { StripeLoader } from '../../core/payments/stripe-loader';
 import { ApiError } from '../../core/http/api-client';
@@ -109,6 +111,10 @@ describe('PaymentMethodsTab', () => {
 
   function rows(root: HTMLElement): HTMLElement[] {
     return Array.from(root.querySelectorAll('app-saved-card-row'));
+  }
+
+  function addCardForm(): ProfileAddCard | null {
+    return fixture.debugElement.query(By.directive(ProfileAddCard))?.componentInstance ?? null;
   }
 
   async function openPaymentMethods(root: HTMLElement): Promise<void> {
@@ -362,5 +368,39 @@ describe('PaymentMethodsTab', () => {
     expect(query(root, 'profile-add-card')).not.toBeNull();
     expect(query(root, 'add-card-button')).toBeNull();
     expect(rows(root)).toHaveLength(0);
+  });
+
+  /**
+   * CONTRACT: An empty list locks the form's default checkbox on — Users makes a
+   * first card the default inside the attach, so no separate setDefault runs.
+   */
+  it('requires the default on the first card and skips setDefault', async () => {
+    const root = await render([]);
+    await openPaymentMethods(root);
+
+    expect(addCardForm()?.defaultRequired()).toBe(true);
+    expect(query(root, 'default-card-checkbox')?.getAttribute('aria-disabled')).toBe('true');
+
+    query(root, 'add-card-button-submit')?.click();
+    await settle(fixture);
+
+    expect(paymentMethods.attach).toHaveBeenCalledWith('pm_new');
+    expect(paymentMethods.setDefault).not.toHaveBeenCalled();
+  });
+
+  it('leaves the default opt-out and promotes a checked later card', async () => {
+    const root = await render([card({ isDefault: true })]);
+    await openPaymentMethods(root);
+    query(root, 'add-card-button')?.querySelector('button')?.click();
+    fixture.detectChanges();
+    await settle(fixture);
+
+    expect(addCardForm()?.defaultRequired()).toBe(false);
+    expect(query(root, 'default-card-checkbox')?.getAttribute('aria-checked')).toBe('true');
+
+    query(root, 'add-card-button-submit')?.click();
+    await settle(fixture);
+
+    expect(paymentMethods.setDefault).toHaveBeenCalledWith('pm_new');
   });
 });

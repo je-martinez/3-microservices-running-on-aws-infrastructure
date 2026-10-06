@@ -64,9 +64,12 @@ describe('ProfileAddCard', () => {
     TestBed.resetTestingModule();
   });
 
-  async function render(): Promise<HTMLElement> {
+  async function render(inputs: { defaultRequired?: boolean } = {}): Promise<HTMLElement> {
     await TestBed.compileComponents();
     fixture = TestBed.createComponent(ProfileAddCard);
+    if (inputs.defaultRequired !== undefined) {
+      fixture.componentRef.setInput('defaultRequired', inputs.defaultRequired);
+    }
     fixture.detectChanges();
     await settle(fixture);
     return fixture.nativeElement as HTMLElement;
@@ -137,6 +140,44 @@ describe('ProfileAddCard', () => {
 
     expect(paymentMethods.attach).toHaveBeenCalledWith('pm_new');
     expect(paymentMethods.setDefault).not.toHaveBeenCalled();
+  });
+
+  it('leaves the default checkbox enabled and shows no required note for a later card', async () => {
+    const root = await render({ defaultRequired: false });
+    const checkbox = query(root, 'default-card-checkbox') as HTMLButtonElement | null;
+
+    expect(checkbox?.disabled).toBe(false);
+    expect(checkbox?.getAttribute('aria-disabled')).toBe('false');
+    expect(query(root, 'default-card-required-note')).toBeNull();
+  });
+
+  /**
+   * CONTRACT: A first card is the default — Users makes it so inside the attach —
+   * so the checkbox is checked, locked and annotated, and no separate PUT runs.
+   */
+  it('locks the default checkbox on for a first card and skips setDefault', async () => {
+    const added: string[] = [];
+    const root = await render({ defaultRequired: true });
+    fixture.componentInstance.added.subscribe((id) => added.push(id));
+    const checkbox = query(root, 'default-card-checkbox') as HTMLButtonElement | null;
+
+    expect(checkbox?.getAttribute('aria-checked')).toBe('true');
+    expect(checkbox?.disabled).toBe(true);
+    expect(checkbox?.getAttribute('aria-disabled')).toBe('true');
+    expect(query(root, 'default-card-required-note')?.textContent).toContain(
+      'Your first card is saved as your default.',
+    );
+
+    checkbox?.click();
+    fixture.detectChanges();
+    expect(query(root, 'default-card-checkbox')?.getAttribute('aria-checked')).toBe('true');
+
+    submit(root);
+    await settle(fixture);
+
+    expect(paymentMethods.attach).toHaveBeenCalledWith('pm_new');
+    expect(paymentMethods.setDefault).not.toHaveBeenCalled();
+    expect(added).toEqual(['pm_new']);
   });
 
   it('emits cancelled from the Cancel link', async () => {

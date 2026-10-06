@@ -11,6 +11,7 @@ import { runAsActor } from "#shared/audit/actor-context";
 import { AuditActor } from "#shared/audit/audit-actor";
 import { appLogger } from "#shared/logging/app-logger";
 import { NanoIdConfig } from "#shared/id/nano-id";
+import { lockUserRow, STRIPE_TIMEOUT_MS, TRANSACTION_TIMEOUT_MS } from "#shared/stripe/stripe-tx-lock";
 import { DB, STRIPE_CLIENT } from "#shared/tokens";
 import { ensureStripeCustomer } from "../ensure-stripe-customer.ts";
 import { mapStripePaymentMethodFields } from "../stripe-payment-method-mapper.ts";
@@ -122,24 +123,72 @@ export class AttachPaymentMethodHandler implements ICommandHandler<AttachPayment
       throw err;
     }
 
-    // CONTRACT: `upsert` keyed on stripePaymentMethodId — the reconciliation
-    // webhook may have already written this row; a plain `create` here would
-    // throw on the unique constraint. `id` has no DB default, so the generated
-    // create-input type requires it even though the extension would stamp one;
-    // pass it explicitly rather than widen the type, mirroring
-    // create-notification.command.ts. See [[nano-id]]
+    // CONTRACT: The caller's first active card becomes their default in BOTH
+    // Stripe and this table — reconcile's customer.updated handler syncs
+    // isDefault FROM Stripe, so a local-only flag is reverted by the next
+    // webhook. `lockUserRow` first, then the count, inside one interactive
+    // transaction: two concurrent first-card attaches would otherwise both
+    // count zero and both become default. The count excludes pm.id because
+    // the payment_method.attached webhook may already have written this row.
+    // `runAsActor` wraps the whole transaction. See [[2026-07-12-prisma-lazy-promise-als]]
     const row = await runAsActor(AuditActor.PaymentMethodAttached, () =>
-      this.db.stripePaymentMethod.upsert({
-        where: { stripePaymentMethodId: pm.id },
-        create: {
-          id: NanoIdConfig.newStripePaymentMethodId(),
-          stripePaymentMethodId: pm.id,
-          userId: input.userId,
-          isDefault: false,
-          ...mapStripePaymentMethodFields(pm),
+      this.db.$transaction(
+        async (tx) => {
+          await lockUserRow(tx, input.userId);
+
+          const otherActiveCards = await tx.stripePaymentMethod.count({
+            where: { userId: input.userId, deletedAt: null, NOT: { stripePaymentMethodId: pm.id } },
+          });
+          const isFirstCard = otherActiveCards === 0;
+
+          if (isFirstCard) {
+            try {
+              await withStripeSpan(
+                "stripe.customer.update",
+                { "stripe.resource_type": "customer", "stripe.customer_id": customerId },
+                () =>
+                  client.customers.update(
+                    customerId,
+                    { invoice_settings: { default_payment_method: pm.id } },
+                    { timeout: STRIPE_TIMEOUT_MS },
+                  ),
+              );
+            } catch (err) {
+              // CONTRACT: Propagate as an operational failure. The card stays
+              // attached in Stripe with no local row; the payment_method.attached
+              // webhook reconciles it. See [[logging-context]]
+              appLogger.error(
+                { err, app_event: "attach_payment_method_failed", reason: "stripe_error", user_id: input.userId },
+                "Stripe rejected setting the first payment method as the customer default",
+              );
+              trace.getActiveSpan()?.setAttributes({
+                app_event: "attach_payment_method_failed",
+                reason: "stripe_error",
+              });
+              throw err;
+            }
+          }
+
+          // CONTRACT: `upsert` keyed on stripePaymentMethodId — a plain `create`
+          // throws on the unique constraint when the webhook wrote the row first.
+          // `id` has no DB default, so the create-input type requires it; pass it
+          // explicitly, mirroring create-notification.command.ts. See [[nano-id]]
+          return tx.stripePaymentMethod.upsert({
+            where: { stripePaymentMethodId: pm.id },
+            create: {
+              id: NanoIdConfig.newStripePaymentMethodId(),
+              stripePaymentMethodId: pm.id,
+              userId: input.userId,
+              isDefault: isFirstCard,
+              ...mapStripePaymentMethodFields(pm),
+            },
+            update: isFirstCard
+              ? { ...mapStripePaymentMethodFields(pm), isDefault: true }
+              : mapStripePaymentMethodFields(pm),
+          });
         },
-        update: mapStripePaymentMethodFields(pm),
-      }),
+        { timeout: TRANSACTION_TIMEOUT_MS },
+      ),
     );
 
     appLogger.info(

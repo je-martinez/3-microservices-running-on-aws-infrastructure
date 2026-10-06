@@ -5,6 +5,7 @@ import {
   computed,
   effect,
   inject,
+  input,
   output,
   signal,
   viewChild,
@@ -53,9 +54,19 @@ export class ProfileAddCard {
   /** The attached card's id, so the owner re-reads its list. */
   readonly added = output<string>();
 
+  /**
+   * CONTRACT: True when the buyer has NO saved card — the checkbox then renders
+   * checked and locked, since Users makes a customer's first card the default
+   * inside the attach itself. Unlocked there, unchecking it promises a
+   * non-default card the server never produces.
+   */
+  readonly defaultRequired = input(false);
 
   /** Checked in the design frame: a card added deliberately is usually the one to use. */
   protected readonly setAsDefault = signal(true);
+  protected readonly willBeDefault = computed(
+    () => this.defaultRequired() || this.setAsDefault(),
+  );
   protected readonly submitting = signal(false);
   protected readonly cardError = signal<string | null>(null);
 
@@ -82,14 +93,16 @@ export class ProfileAddCard {
   }
 
   protected toggleSetAsDefault(): void {
+    if (this.defaultRequired()) return;
     this.setAsDefault.update((value) => !value);
   }
 
   /**
    * Confirms the SetupIntent, attaches the card, then promotes it if asked.
    *
-   * CONTRACT: `setDefault` runs only when the checkbox is checked. Calling it on
-   * every add silently demotes the card the buyer already chose as default.
+   * CONTRACT: `setDefault` runs only when the checkbox is checked AND the card
+   * is not the first. Calling it on every add silently demotes the card the
+   * buyer already chose as default; a first card is the default on attach.
    *
    * CONTRACT: Every failure path reports to ErrorHandler as well as rendering a
    * message. A caught-and-rendered error never reaches `RumErrorHandler`, so a
@@ -113,7 +126,7 @@ export class ProfileAddCard {
       const paymentMethodId = setup.paymentMethodId;
 
       await firstValueFrom(this.paymentMethods.attach(paymentMethodId));
-      if (this.setAsDefault()) {
+      if (!this.defaultRequired() && this.setAsDefault()) {
         await firstValueFrom(this.paymentMethods.setDefault(paymentMethodId));
       }
       this.added.emit(paymentMethodId);

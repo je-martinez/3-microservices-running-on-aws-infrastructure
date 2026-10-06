@@ -16,7 +16,6 @@ import { getGatewayToken } from "../../support/auth";
 import { gatewayClient } from "../../support/gateway-client";
 import {
   awaitConfirmOutcome,
-  clickBelowElement,
   confirmCard,
   enterTestCard,
   setupIntentConfirmable,
@@ -118,7 +117,7 @@ test.beforeAll(async () => {
   sandboxReason = await setupIntentConfirmable();
 });
 
-test("a card added through the Payment Element appears in the selector, gets picked, and pays", async ({
+test("a first card added through the Payment Element is saved as the default, replaces the form, gets picked, and pays", async ({
   page,
   baseURL,
 }) => {
@@ -137,16 +136,19 @@ test("a card added through the Payment Element appears in the selector, gets pic
 
   await enterTestCard(page);
 
-  // Decision 23: saving is OPT-IN here, and only a saved card can appear in the list.
+  // CONTRACT: A buyer with no card on file cannot opt out of saving. Saving is opt-in
+  // only once a card exists; an unsaved first card is used once and never reaches the
+  // list, so the selector stays on the form with nothing to pick.
   const saveCheckbox = page.getByTestId("save-card-checkbox");
-  await expect(saveCheckbox).toHaveAttribute("aria-checked", "false");
-  await clickBelowElement(saveCheckbox, "the save-card checkbox");
-  await saveCheckbox.click();
   await expect(
     saveCheckbox,
-    "clicking `Save this card for future purchases` did not check it, so the confirmed card is " +
-      "used once and never attached — it cannot then appear in the selector",
+    "a buyer with no saved card got the opt-in `Save this card` box UNCHECKED — the first card " +
+      "must be saved, or the selector has no row to switch to after confirm",
   ).toHaveAttribute("aria-checked", "true");
+  await expect(saveCheckbox, "the first-card save box can be toggled off").toBeDisabled();
+  await expect(page.getByTestId("save-card-required-note")).toHaveText(
+    /your first card is saved as your default\./i,
+  );
 
   await confirmCard(page.getByTestId("save-card-button"));
 
@@ -171,8 +173,18 @@ test("a card added through the Payment Element appears in the selector, gets pic
 
   // The saved card is now in the list AND is what `pay()` will charge: the selector
   // re-reads after an attach and `resolveSelection` picks the live default.
+  await expect(
+    page.getByTestId("new-card-block"),
+    "the card saved but the New card form is still rendered — the selector never left " +
+      "`showNewCardBlock()` for the saved-cards list",
+  ).toHaveCount(0);
   const row = page.getByTestId("saved-card-row");
   await expect(row, "the attached card is absent from the selector after the reload").toHaveCount(1);
+  await expect(
+    row.getByTestId("default-badge"),
+    "the buyer's first card carries no Default badge — Users' attach makes the first active card " +
+      "the default, and the list reads `isDefault` back from it",
+  ).toBeVisible();
   await expect(
     row.getByTestId("card-brand"),
     "the saved row does not read as the Visa that was entered — Users stores brand and last4 " +

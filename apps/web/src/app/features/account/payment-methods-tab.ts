@@ -69,9 +69,12 @@ export class PaymentMethodsTab {
     return `${total} ${total === 1 ? 'card' : 'cards'}`;
   });
 
+  /** Drives the add-card form's locked "default" checkbox: a first card is the default. */
+  protected readonly noSavedCards = computed(() => this.cards().length === 0);
+
   /** With no card on file the form IS the surface — there is nothing to manage. */
   protected readonly showAddCard = computed(
-    () => this.addingCard() || (!this.loading() && this.cards().length === 0),
+    () => this.addingCard() || (!this.loading() && this.noSavedCards()),
   );
 
   constructor() {

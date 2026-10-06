@@ -103,6 +103,7 @@ export class PaymentMethodsController {
   @ApiOperation({
     operationId: "attachPaymentMethod",
     summary: "Attach a tokenized payment method to the caller",
+    description: "The caller's first active payment method becomes their default.",
   })
   @ApiHeader(X_USER_ID)
   @ApiBody({ schema: { $ref: "#/components/schemas/AttachPaymentMethod" } })

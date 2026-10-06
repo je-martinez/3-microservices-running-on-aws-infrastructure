@@ -597,6 +597,7 @@ paths:
       tags:
         - payment-methods
     post:
+      description: "The caller's first active payment method becomes their default."
       operationId: attachPaymentMethod
       parameters:
         - name: x-user-id
