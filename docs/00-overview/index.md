@@ -383,6 +383,9 @@ what makes a lesson reusable is the shape of the mistake, not the service it hap
 - [[2026-08-14-counter-metrics-need-a-clock-and-a-window]] — a counter without a clock and a window is not a rate, and reads as one.
 - [[2026-08-25-reads-are-not-exempt-from-observability]] — read endpoints need the same instrumentation as writes, and an unchecked precedent carried a false claim through implementation.
 - [[2026-09-20-a-shared-stream-widens-every-scoped-count]] — an aggregate's scope living in a stream's name instead of its query passed until the stream gained a second producer, then silently widened a count 27x.
+- [[2026-10-06-test-skip-inside-test-step-aborts-the-whole-test]] — `test.skip` inside `test.step` ends the whole test body, so later steps never run and the test reads SKIPPED; use a conditional `return` plus an annotation.
+- [[2026-10-06-a-fake-transaction-must-hold-a-real-lock]] — a `$transaction` fake that only records call order passes with `lockUserRow` deleted; the fake must hold a real per-user mutex.
+- [[2026-10-06-curl-the-real-response-before-writing-a-stub]] — a stub with an invented status exercises an error path the app never sees; copy the real status and body from the running stack.
 
 ### Frameworks and libraries behaving unlike their documentation
 
