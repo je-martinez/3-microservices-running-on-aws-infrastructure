@@ -4,7 +4,7 @@ type: spec
 area: users
 status: active
 created: 2026-06-26
-updated: 2026-10-02
+updated: 2026-10-06
 tags: [type/spec, area/users, status/active]
 related:
   - "[[2026-09-19-users-nestjs-migration-design]]"
@@ -440,6 +440,14 @@ the user out, and signing out calls this path again. Sign-out lives in one Angul
 `discard()` is the failed-refresh path, which clears without calling the server at all: a
 token that could not be refreshed cannot authorize a revocation either, so the call would
 fail for certain and only delay the redirect.
+
+`discard()` clears the in-memory session and the persisted tokens, then calls
+`SessionRehydration.markRestored(false)` **before** navigating to `/login`.
+`SessionRehydration` memoises its boot read and `guestGuard` falls back to it whenever the
+in-memory session is empty; unless the rehydration state is settled as signed out, the guard
+still sees the boot-time session and bounces `/login` back to `/`, leaving a signed-in shell
+whose every call returns `401` until a manual reload. Covered by `sign-out.spec.ts` and
+`e2e/tests/web/stale-session.spec.ts`.
 
 ## Account deletion
 
