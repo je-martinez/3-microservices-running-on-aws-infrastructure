@@ -100,7 +100,7 @@ Domain events are published asynchronously via the **CQRS** pattern:
 2. A single **Lambda function** (Node.js) consumes the events queue, validates the message with Zod, and dispatches it to the appropriate handler.
 3. The Lambda persists the full event document — including a `status_history` audit trail — to **DocumentDB** (the event store).
 
-This pipeline is separate from the operational databases of each service. Services read and write their own domain state in their Aurora clusters (see [Persistence](#persistence--aurora-per-service--documentdb-event-store)); DocumentDB is the event store only.
+This pipeline is separate from the operational databases of each service. Services read and write their own domain state in their own database clusters (see [Persistence](#persistence--aurora-per-service--documentdb-event-store)); DocumentDB is the event store only.
 
 Relevant decisions: [[ADR-0002-cqrs]], [[ADR-0006-read-write-replicas]].
 Pattern reference: [[cqrs]].

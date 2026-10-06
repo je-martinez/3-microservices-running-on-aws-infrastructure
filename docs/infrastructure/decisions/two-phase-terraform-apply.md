@@ -30,7 +30,6 @@ related:
 
 ![[terraform-two-phase-apply.gif]]
 
-
 Local (and, prospectively, production) infrastructure is applied in **two independent
 Terraform roots with separate state**:
 
@@ -330,4 +329,4 @@ different problem.
 - [[2026-07-30-post-infra-root-design]]
 - [[scripting-language]]
 - [[execution-log-for-provisioning-scripts]]
-- [[2026-10-06-remotion-diagrams-design]]
+- [[2026-10-06-remotion-diagrams-design]] — design of the Remotion diagram pipeline that renders the embedded diagrams in this note

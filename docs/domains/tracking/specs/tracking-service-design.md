@@ -947,7 +947,6 @@ notifying Tracking of a delivery status change. It is subject to the following g
 
 ![[tracking-outbox-relay.gif]]
 
-
 > [!info] Reversal — Tracking now publishes (events-pipeline milestone, 2026-08-04)
 > This note previously stated Tracking emits no domain events and is a pure consumer/updater.
 > That was accurate before the events-pipeline milestone; it is no longer true. Tracking is now
@@ -1392,4 +1391,4 @@ the same way. See [gRPC — outbound client to Users](#grpc--outbound-client-to-
   absence.
 - [[friendly-order-number]] — the **order** number Orders mints and Tracking only mirrors,
   the counterpart to the tracking number this service owns.
-- [[2026-10-06-remotion-diagrams-design]]
+- [[2026-10-06-remotion-diagrams-design]] — design of the Remotion diagram pipeline that renders the embedded diagrams in this note

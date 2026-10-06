@@ -117,7 +117,6 @@ None. The pipeline is not a gRPC server or client.
 
 ![[events-pipeline-fanout-dlq.gif]]
 
-
 The Lambda applies the CQRS pattern (see [[cqrs]] and [[ADR-0002-cqrs]]) to route each incoming
 event to its dedicated handler. The dispatch map (`src/handlers/index.ts`) is a plain object keyed
 by `type`:
@@ -1245,4 +1244,4 @@ flushed are lost or arrive late on the next cold invocation, attributed to the w
 - [[friendly-order-number]] — the `order_number` object both `ORDER_CREATED` and
   `TRACKING_STATUS_CHANGED` carry, why it is optional on both, and why the producer owns
   the displayed form.
-- [[2026-10-06-remotion-diagrams-design]]
+- [[2026-10-06-remotion-diagrams-design]] — design of the Remotion diagram pipeline that renders the embedded diagrams in this note

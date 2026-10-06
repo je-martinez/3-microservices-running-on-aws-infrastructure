@@ -39,7 +39,6 @@ here: both the native path and a self-owned path were probed empirically before 
 
 ![[users-password-reset.gif]]
 
-
 **Cognito's own `ForgotPassword`/`ConfirmForgotPassword` is not used anywhere in this flow.**
 Three separate, measured findings rule it out — none of them assumed:
 
@@ -142,4 +141,4 @@ See [[testing]] for where these are exercised (unit + gateway E2E,
 - [[email-templates]] — the `forgot-password` template, the fifth.
 - [[logging-context]] — masked-email logging applied throughout this flow.
 - [[testing]] — the three-layer testing convention this flow's gateway E2E follows.
-- [[2026-10-06-remotion-diagrams-design]]
+- [[2026-10-06-remotion-diagrams-design]] — design of the Remotion diagram pipeline that renders the embedded diagrams in this note

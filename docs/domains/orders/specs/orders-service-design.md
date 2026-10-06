@@ -68,9 +68,6 @@ related:
 
 ## Summary
 
-![[orders-checkout-stripe.gif]]
-
-
 The Orders service is responsible for creating and managing orders submitted by users. It exposes a REST API built with .NET Core 10 Minimal APIs, persists data in Aurora MySQL using two replicas (one for reads, one for writes), and publishes an `ORDER_CREATED` event to SQS whenever a new order is placed. Inter-service data retrieval is handled via gRPC.
 
 ## Stack & Data Store
@@ -111,6 +108,18 @@ All routes are versioned under the `/v1` prefix. See [[versioning]] for the vers
 > orders is never leaked. This **supersedes** this spec's original `403 Forbidden` choice; see
 > [[2026-07-14-orders-service-milestone-design]].
 
+### Checkout
+
+`POST /v1/orders` is the single checkout call; there is no separate cart-checkout route (see [Cart](#cart)).
+
+![[orders-checkout-stripe.gif]]
+
+### Address entry at checkout
+
+The buyer's delivery address is entered in the web app through a same-origin street-autocomplete proxy and saved on the Users profile; Orders later snapshots it (see [Delivery address flow](#delivery-address-flow-users--orders--tracking)).
+
+![[checkout-address-geocoding-proxy.gif]]
+
 ## gRPC Methods
 
 Defined in the `OrdersService` proto. Used by other microservices to fetch order data without going through the public HTTP API. See [[ADR-0003-grpc-inter-service]].
@@ -125,9 +134,6 @@ Tracking serves no gRPC (see [[tracking-service-design]]). See
 [Delivery address flow](#delivery-address-flow-users--orders--tracking) below.
 
 ## Delivery address flow (Users → Orders → Tracking)
-
-![[checkout-address-geocoding-proxy.gif]]
-
 
 The delivery address originates in Users, flows through Orders at order-creation time, and ends up
 in Tracking — persisted as an independent **snapshot** at each stop, not as a shared reference.
@@ -165,7 +171,6 @@ Orders.CreateOrder
 ## Cart
 
 ![[orders-catalogue-cart.gif]]
-
 
 A user's in-progress selection of products, persisted server-side so the frontend does every
 calculation-free render and computes nothing itself. At most **one active cart per user**. Full
@@ -949,4 +954,4 @@ Full milestone design: [[2026-07-14-orders-service-milestone-design]].
 - [[2026-09-18-cqrs-dispatch-tracking-orders-design]] — planned CQRS command/query bus
   (Wolverine) and transactional outbox design for this service, migrated endpoint-by-endpoint;
   not yet implemented. See [Cross-cutting rules](#cross-cutting-rules) above.
-- [[2026-10-06-remotion-diagrams-design]]
+- [[2026-10-06-remotion-diagrams-design]] — design of the Remotion diagram pipeline that renders the embedded diagrams in this note

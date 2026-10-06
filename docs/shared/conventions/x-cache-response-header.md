@@ -65,7 +65,6 @@ hit-rate in the metrics — it is excluded from the hit-rate denominator
 
 ![[response-cache.gif]]
 
-
 The shared, already-deployed Redis/ElastiCache instance (`infra/modules/redis`) — the same
 one Users already uses for password-reset codes. Not in-memory (does not propagate across
 Fargate replicas) and not edge/nginx cache (no workable explicit-purge story in nginx OSS or
@@ -234,4 +233,4 @@ can silently strip an unknown response header).
 - [[2026-08-26-cache-keys-built-from-a-raw-identity-header]] — the raw-identity-header
   invalidation trap this cache design fell into; read before trusting a comment that claims a
   key is "keyed on X alone."
-- [[2026-10-06-remotion-diagrams-design]]
+- [[2026-10-06-remotion-diagrams-design]] — design of the Remotion diagram pipeline that renders the embedded diagrams in this note

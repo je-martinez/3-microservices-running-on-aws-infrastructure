@@ -46,8 +46,9 @@ Every animated flow, architecture map and milestone-dependency graph in the vaul
 ## Detail level
 
 - Service and resource names only, never endpoints, request fields or payloads. Content is read from real code and Terraform, never invented.
+- Any diagram: about 12 nodes at most; more than that is two diagrams.
 - At most 7 actors and 10 steps per flow, one-line captions of at most 90 characters.
-- Architecture maps: at most 18 nodes, grouped by zone (at most 5 zones).
+- Architecture maps are the exception: at most 18 nodes, grouped by zone (at most 5 zones).
 - Cross-zone edge labels: at most 10 characters.
 
 ## Authoring and legibility rules
@@ -89,5 +90,5 @@ Only `diagrams/src/theme/aws-icons.ts` imports `@nxavis/aws-icons`. Everything e
 - [[milestone-plan]]
 - [[package-manager]]
 - [[scripting-language]]
-- [[2026-10-06-remotion-diagrams-design]]
+- [[2026-10-06-remotion-diagrams-design]] — design of the Remotion diagram pipeline behind this note
 - [[2026-10-06-remotion-diagrams]]

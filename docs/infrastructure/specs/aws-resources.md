@@ -69,13 +69,16 @@ full account. The modules validate, but phase 2 has not yet been applied, so `or
 
 ### Messaging
 
-![[websocket-lifecycle.gif]]
-
-
 | Resource | Detail |
 |---|---|
 | SQS queues | One standard queue per domain event type; DLQ attached (max receives = 3) |
 | Lambda functions | One function per CQRS read-model handler; triggered by SQS |
+
+### Realtime (WebSocket)
+
+A WebSocket API gives the web app a server-to-client channel. A `$connect` REQUEST authorizer verifies the Cognito JWT, connect and disconnect Lambdas maintain a connections table keyed by `cognito_sub`, and the events pipeline pushes to every open socket of a user. See [[2026-08-05-realtime-tracking-events-websocket-design]] for the design.
+
+![[websocket-lifecycle.gif]]
 
 ### Document Store
 
@@ -145,4 +148,4 @@ ALB listeners instead of an nginx task. See [[ADR-0022-preprod-ecs-on-floci]] an
 - [[two-phase-terraform-apply]]
 - [[ADR-0022-preprod-ecs-on-floci]]
 - [[preprod]]
-- [[2026-10-06-remotion-diagrams-design]]
+- [[2026-10-06-remotion-diagrams-design]] — design of the Remotion diagram pipeline that renders the embedded diagrams in this note

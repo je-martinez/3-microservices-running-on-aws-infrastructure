@@ -214,7 +214,6 @@ project, not just observability.
 
 ![[observability-telemetry.gif]]
 
-
 Traces share the same OpenObserve instance and org as logs (org `3mrai`, stream `app_traces`,
 port `:5080`) — there is no separate tracing UI. See
 [[ADR-0019-distributed-tracing-opentelemetry]] (Amendment, 2026-08-21) for why: Jaeger was
@@ -279,7 +278,6 @@ removed and the collector's traces pipeline now exports to `otlp_http/openobserv
 ## Dashboards (as code)
 
 ![[business-metrics.gif]]
-
 
 Dashboards are version-controlled JSON, not click-ops in the UI. They live in
 `observability/dashboards/*.dashboard.json`:
@@ -423,4 +421,4 @@ against Floci.
 - [[scripting-language]] — why `scripts/seed_traces_schema.py` is Python, standard library only.
 - [[observability-telemetry-milestone]] — the milestone during which Jaeger was removed and the
   Traces section above was written.
-- [[2026-10-06-remotion-diagrams-design]]
+- [[2026-10-06-remotion-diagrams-design]] — design of the Remotion diagram pipeline that renders the embedded diagrams in this note

@@ -67,7 +67,7 @@ Rules and procedure live in [[diagrams]]; the generalized legibility lessons in 
 - [[ADR-0015-drawio-diagrams]] — superseded by this decision.
 - [[diagrams]]
 - [[diagram-legibility]]
-- [[2026-10-06-remotion-diagrams-design]]
+- [[2026-10-06-remotion-diagrams-design]] — design of the Remotion diagram pipeline behind this note
 - [[2026-10-06-remotion-diagrams]]
 - [[package-manager]]
 - [[scripting-language]]
