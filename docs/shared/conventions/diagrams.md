@@ -49,7 +49,7 @@ Every animated flow, architecture map and milestone-dependency graph in the vaul
 - Any diagram: about 12 nodes at most; more than that is two diagrams.
 - At most 7 actors and 10 steps per flow, one-line captions of at most 90 characters.
 - Architecture maps are the exception: at most 18 nodes, grouped by zone (at most 5 zones). The exception covers every `ArchitectureMap` entry, including `system-context`.
-- `DependencyGraph`: dependency arrows are drawn over the task boxes, so order tasks within each phase to minimise crossings.
+- `DependencyGraph`: dependency arrows are drawn above the task boxes and always run side to side between columns; an arrow detours through the nearest gap between rows around any task it does not connect, and task order inside a column minimises crossings.
 - Cross-zone edge labels: at most 10 characters.
 
 ## Authoring and legibility rules

@@ -231,7 +231,7 @@ The shipped implementation differs from the design above in these ways.
 - **Render scope.** `diagrams-render` renders every diagram when `ID` is omitted, and accepts a comma-separated list otherwise.
 - **Geocoding proxy.** The same-origin geocoding proxy lives in `apps/web/nginx.conf`, so that file is the watch for `checkout-address-geocoding-proxy`.
 - **Drift check.** `diagrams-check` always exits 0, including when its base ref cannot be resolved.
-- **Dependency arrows.** `DependencyGraph` draws arrows over the task boxes, so tasks are ordered within a phase to minimise crossings.
+- **Dependency arrows.** `DependencyGraph` draws arrows above the task boxes, always side to side between columns, and detours an arrow through the nearest gap between rows around any task it does not connect; task order inside a column minimises crossings.
 - **Comment linter.** `make lint-comments` honours its path exclusions for explicit path arguments (how the pre-commit hook calls it) and excludes the lnai skill mirrors.
 
 ## Related
