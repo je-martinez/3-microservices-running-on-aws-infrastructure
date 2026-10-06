@@ -60076,7 +60076,7 @@
                   "name": "Retry Button",
                   "fill": "$bg-white",
                   "cornerRadius": 8,
-                  "stroke": "#FECACA",
+                  "stroke": "$danger-border",
                   "strokeWidth": 1,
                   "gap": 6,
                   "padding": [
@@ -61446,6 +61446,10 @@
     "danger-text": {
       "type": "color",
       "value": "#B91C1C"
+    },
+    "danger-border": {
+      "type": "color",
+      "value": "#FECACA"
     }
   },
   "fileToken": "d47359f3-8968-480c-b671-faa693ea90b5"
