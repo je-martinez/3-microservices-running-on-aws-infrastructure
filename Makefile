@@ -1018,7 +1018,7 @@ preprod-env-file: scripts-setup ## Pre-prod: write .env.preprod.debug (URLs + Op
 preprod-stripe-listen: scripts-setup ## Pre-prod: (re)start the two stripe listen webhook forwarders
 	$(PY) $(PP_TF_DIR)/scripts/preprod_stripe_listen.py start
 
-preprod-deploy: scripts-setup ## Pre-prod: redeploy one service (S=users|orders|tracking|web; ENV_ONLY=1 = config only)
+preprod-deploy: scripts-setup ## Pre-prod: redeploy one service (S=users|orders|tracking|web|otel-collector|openobserve|mailpit; ENV_ONLY=1 = config only)
 	@test -n "$(S)" || { echo "usage: make preprod-deploy S=<service> [ENV_ONLY=1]"; exit 2; }
 	$(PY) $(PP_TF_DIR)/scripts/preprod_integrations.py --no-prompt
 ifeq ($(ENV_ONLY),1)
@@ -1071,6 +1071,8 @@ preprod-load-test-smoke: scripts-setup ## Pre-prod: short Gatling run (~20s)
 	cd e2e/load-tests && $(PY) ../../$(PP_TF_DIR)/scripts/e2e_env.py --tf-dir ../../$(PP_TF_DIR) -- pnpm run smoke
 
 preprod-observability: ## Pre-prod: seed the traces schema and import dashboards into pre-prod's OpenObserve
+	@# WHY: Plain python3, not .venv/bin/python — stdlib only and deliberately venv-free,
+	@# so it runs before scripts-setup has ever executed on a fresh clone.
 	@auth="$$(printf 'admin@3mrai.local:%s' "$$($(PP_TF) output -raw openobserve_root_password)" | base64 | tr -d '\n')"; \
 	O2_ORG=3mrai O2_URL=http://localhost:5080 O2_BASIC_AUTH="$$auth" python3 scripts/seed_traces_schema.py && \
 	O2_ORG=3mrai O2_URL=http://localhost:5080 O2_BASIC_AUTH="$$auth" node scripts/import-dashboards.mjs

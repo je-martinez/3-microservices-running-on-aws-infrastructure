@@ -160,3 +160,29 @@ def test_orphan_listing_is_scoped_to_the_stack_network(monkeypatch):
     monkeypatch.delenv("FLOCI_NETWORK", raising=False)
     assert heal.main([]) == 0
     assert ("ps", "--filter", "network=3mrai_3mrai-network", "--format", "{{.Names}}") in calls
+
+
+def test_heal_command_names_the_dev_target_on_the_default_network(monkeypatch):
+    monkeypatch.delenv("FLOCI_NETWORK", raising=False)
+    assert heal.heal_command() == "make heal"
+
+
+def test_heal_command_names_the_preprod_target_on_another_network(monkeypatch):
+    monkeypatch.setenv("FLOCI_NETWORK", "3mrai-preprod_preprod-network")
+    assert heal.heal_command() == "make preprod-heal"
+
+
+def test_floci_down_hint_names_the_preprod_target(monkeypatch, capsys):
+    monkeypatch.setenv("FLOCI_NETWORK", "3mrai-preprod_preprod-network")
+    monkeypatch.setattr(heal, "floci_answers", lambda: False)
+    assert heal.main([]) == 1
+    err = capsys.readouterr().err
+    assert "`make preprod-heal`" in err
+    assert "{heal_command()}" not in err
+
+
+def test_floci_down_hint_names_the_dev_target(monkeypatch, capsys):
+    monkeypatch.delenv("FLOCI_NETWORK", raising=False)
+    monkeypatch.setattr(heal, "floci_answers", lambda: False)
+    assert heal.main([]) == 1
+    assert "`make heal`" in capsys.readouterr().err
