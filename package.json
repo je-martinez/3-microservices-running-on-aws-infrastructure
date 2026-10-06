@@ -4,6 +4,10 @@
   "packageManager": "pnpm@9.15.0",
   "engines": { "node": "24.18.0" },
   "scripts": {
+    "diagrams:studio": "pnpm --filter @3mrai/diagrams studio",
+    "diagrams:render": "pnpm --filter @3mrai/diagrams render",
+    "diagrams:check": "pnpm --filter @3mrai/diagrams check-drift",
+    "diagrams:test": "pnpm --filter @3mrai/diagrams test",
     "users:dev": "pnpm --filter @3mrai/users dev",
     "users:test": "pnpm --filter @3mrai/users test",
     "orders:test": "dotnet test services/orders/Orders.sln",

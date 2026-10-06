@@ -1,0 +1,36 @@
+{
+  "name": "@3mrai/diagrams",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Remotion-rendered animated diagrams of 3MRAI flows and architecture",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "render": "tsx src/scripts/render.ts",
+    "check-drift": "tsx src/scripts/check-drift.ts",
+    "browser": "remotion browser ensure",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@nxavis/aws-icons": "0.0.5",
+    "@remotion/bundler": "4.0.533",
+    "@remotion/cli": "4.0.533",
+    "@remotion/google-fonts": "4.0.533",
+    "@remotion/renderer": "4.0.533",
+    "picomatch": "4",
+    "react": "19",
+    "react-dom": "19",
+    "remotion": "4.0.533",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "24",
+    "@types/picomatch": "4",
+    "@types/react": "19",
+    "@types/react-dom": "19",
+    "tsx": "4",
+    "typescript": "6.0.3",
+    "vitest": "4"
+  }
+}
