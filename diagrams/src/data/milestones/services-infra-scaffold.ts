@@ -3,7 +3,7 @@ import type { AwsDiagramData } from "../../aws/schema";
 
 export const servicesInfraScaffoldDeps: z.input<typeof AwsDiagramData> = {
   title: "Services and Infra Scaffold milestone: task dependencies",
-  direction: "RIGHT",
+  direction: "DOWN",
   groups: [
     { id: "scaffolds", kind: "phase", label: "Service scaffolds" },
     { id: "orchestration", kind: "phase", label: "Orchestration" },

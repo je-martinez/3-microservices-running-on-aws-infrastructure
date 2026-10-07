@@ -3,7 +3,7 @@ import type { AwsDiagramData } from "../../aws/schema";
 
 export const usersServiceDeps: z.input<typeof AwsDiagramData> = {
   title: "Users Service milestone: task dependencies",
-  direction: "RIGHT",
+  direction: "DOWN",
   groups: [
     { id: "start", kind: "phase", label: "pnpm and spike" },
     { id: "pkg", kind: "phase", label: "Packages, modules" },
