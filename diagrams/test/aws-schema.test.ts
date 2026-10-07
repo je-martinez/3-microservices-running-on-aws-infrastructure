@@ -1,0 +1,55 @@
+import { describe, expect, it } from "vitest";
+import { AwsDiagramData } from "../src/aws/schema";
+
+const ok = {
+  title: "Demo",
+  direction: "RIGHT",
+  groups: [
+    { id: "cloud", kind: "aws-cloud", label: "AWS Cloud" },
+    { id: "vpc", kind: "vpc", label: "VPC", parent: "cloud" },
+  ],
+  nodes: [
+    { id: "browser", label: "Browser", icon: "client" },
+    { id: "gw", label: "API Gateway", icon: "api-gateway", group: "cloud" },
+    { id: "users", label: "Users", sublabel: "ECS task", icon: "ecs", group: "vpc" },
+  ],
+  edges: [
+    { id: "e1", from: "browser", to: "gw", label: "HTTPS" },
+    { id: "e2", from: "gw", to: "users" },
+  ],
+  steps: [{ edges: ["e1"], caption: "The browser calls the gateway." }, { edges: ["e2"], caption: "The gateway proxies to Users." }],
+};
+
+const issues = (v: unknown) => {
+  const r = AwsDiagramData.safeParse(v);
+  expect(r.success).toBe(false);
+  return r.success ? [] : r.error.issues.map((i) => i.message);
+};
+
+describe("AwsDiagramData", () => {
+  it("accepts a valid diagram", () => {
+    expect(AwsDiagramData.parse(ok).nodes).toHaveLength(3);
+  });
+  it("rejects an edge to an unknown node", () => {
+    expect(issues({ ...ok, edges: [{ id: "e1", from: "browser", to: "ghost" }] })).toContain('unknown node "ghost"');
+  });
+  it("rejects a step referencing an unknown edge", () => {
+    expect(issues({ ...ok, steps: [{ edges: ["nope"], caption: "x" }] })).toContain('unknown edge "nope"');
+  });
+  it("rejects a node in an unknown group", () => {
+    expect(issues({ ...ok, nodes: [{ id: "x", label: "X", icon: "lambda", group: "nowhere" }] })).toContain('unknown group "nowhere"');
+  });
+  it("rejects a group cycle", () => {
+    const cyc = { ...ok, groups: [{ id: "a", kind: "generic", label: "A", parent: "b" }, { id: "b", kind: "generic", label: "B", parent: "a" }], nodes: [], edges: [], steps: [] };
+    expect(issues(cyc)).toContain('group cycle at "a"');
+  });
+  it("rejects duplicate ids across nodes and groups", () => {
+    expect(issues({ ...ok, nodes: [...ok.nodes, { id: "vpc", label: "Dup", icon: "lambda" }] })).toContain('duplicate id "vpc"');
+  });
+  it("caps nodes at 24, steps at 10, captions at 90 chars", () => {
+    const many = Array.from({ length: 25 }, (_, i) => ({ id: `n${i}`, label: `N${i}`, icon: "lambda" as const }));
+    expect(AwsDiagramData.safeParse({ ...ok, nodes: many, edges: [], steps: [] }).success).toBe(false);
+    expect(AwsDiagramData.safeParse({ ...ok, steps: Array.from({ length: 11 }, () => ok.steps[0]) }).success).toBe(false);
+    expect(AwsDiagramData.safeParse({ ...ok, steps: [{ edges: ["e1"], caption: "x".repeat(91) }] }).success).toBe(false);
+  });
+});
