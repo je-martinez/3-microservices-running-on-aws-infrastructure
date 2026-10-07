@@ -35,15 +35,27 @@ describe("affectedDiagrams implicit watches", () => {
     const r = affectedDiagrams(["diagrams/src/data/flows/otp.ts", "docs/domains/users/specs/diagrams/otp.gif"], entries);
     expect(r).toEqual([{ id: "otp", status: "updated", matches: ["diagrams/src/data/flows/otp.ts"] }]);
   });
-  it.each(["diagrams/src/primitives/layout.ts", "diagrams/src/theme/tokens.ts", "diagrams/src/schema.ts", "diagrams/src/timing.ts"])(
+  it.each([
+    "diagrams/src/aws/layout.ts",
+    "diagrams/src/aws/parts/Connector.tsx",
+    "diagrams/src/theme/aws-style.ts",
+    "diagrams/public/aws-icons/ecs.svg",
+    "diagrams/src/schema.ts",
+  ])(
     "flags every entry when shared rendering code %s changed",
     (f) => {
       expect(affectedDiagrams([f], entries).map((r) => [r.id, r.status])).toEqual([["arch", "stale"], ["otp", "stale"]]);
     },
   );
-  it("keeps only the re-rendered entries off the stale list after a primitives change", () => {
-    const r = affectedDiagrams(["diagrams/src/primitives/Arrow.tsx", "docs/00-overview/diagrams/arch.png"], entries);
+  it("keeps only the re-rendered entries off the stale list after a shared rendering change", () => {
+    const r = affectedDiagrams(["diagrams/src/aws/parts/Connector.tsx", "docs/00-overview/diagrams/arch.png"], entries);
     expect(r.map((x) => [x.id, x.status])).toEqual([["arch", "updated"], ["otp", "stale"]]);
+  });
+});
+
+describe("affectedDiagrams retired paths", () => {
+  it.each(["diagrams/src/primitives/layout.ts", "diagrams/src/timing.ts"])("does not treat the deleted %s as shared rendering code", (f) => {
+    expect(affectedDiagrams([f], entries)).toEqual([]);
   });
 });
 

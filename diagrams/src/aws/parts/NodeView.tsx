@@ -36,7 +36,7 @@ export function NodeView({ n, r }: { n: Node; r: Box }) {
       <div style={{ position: "absolute", left: r.x - 20, top: r.y + size + 6, width: r.w + 40, textAlign: "center",
         fontFamily: AWS.font, color: AWS.ink, fontSize: AWS.labelFont, lineHeight: `${LINE_H}px` }}>
         {r.labelLines.map((l, i) => <div key={i} style={{ whiteSpace: "nowrap" }}>{l}</div>)}
-        {n.sublabel ? <div style={{ fontStyle: "italic", fontSize: AWS.edgeLabelFont, color: AWS.muted, whiteSpace: "nowrap" }}>{n.sublabel}</div> : null}
+        {n.sublabel ? <div style={{ fontStyle: "italic", fontSize: AWS.sublabelFont, color: AWS.muted, whiteSpace: "nowrap" }}>{n.sublabel}</div> : null}
       </div>
     </>
   );

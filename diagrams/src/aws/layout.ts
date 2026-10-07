@@ -36,7 +36,7 @@ function nodeBox(n: AwsDiagramData["nodes"][number]): { w: number; h: number; la
   const maxW = Math.max(110, AWS.iconSize + 60);
   const labelLines = wrap(n.label, AWS.labelFont, maxW, 2);
   const lineWidths = labelLines.map((l) => textWidth(l, AWS.labelFont));
-  if (n.sublabel) lineWidths.push(Math.min(maxW, textWidth(n.sublabel, AWS.edgeLabelFont)));
+  if (n.sublabel) lineWidths.push(Math.min(maxW, textWidth(n.sublabel, AWS.sublabelFont)));
   const w = Math.max(AWS.iconSize + 24, Math.max(0, ...lineWidths) + 8);
   const h = AWS.iconSize + 6 + labelLines.length * LINE_H + (n.sublabel ? LINE_H : 0);
   return { w, h, labelLines };
@@ -180,6 +180,8 @@ async function place(d: AwsDiagramData, sides: EdgeSides, centres?: Centres): Pr
     const base = origin.get((e as ElkExtendedEdge & { container?: string }).container ?? ROOT);
     const section = e.sections?.[0];
     if (!base || !section) throw new Error(`ELK returned no route for edge "${e.id}"`);
+    // CONTRACT: one polyline per edge; a split route would silently drop every section after the first.
+    if ((e.sections?.length ?? 0) > 1) throw new Error(`ELK returned ${e.sections!.length} sections for edge "${e.id}"`);
     const shift = (p: Point) => ({ x: base.x + p.x, y: base.y + p.y });
     const routed = [section.startPoint, ...(section.bendPoints ?? []), section.endPoint].map(shift);
     const points = sides.get(e.id)!.back ? routed.reverse() : routed;

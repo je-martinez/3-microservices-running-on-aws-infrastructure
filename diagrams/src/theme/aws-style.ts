@@ -20,6 +20,7 @@ export const AWS = {
   groupHeader: 34,
   labelFont: 13,
   edgeLabelFont: 12,
+  sublabelFont: 12,
   titleH: 64,
   stepRowH: 22,
 } as const;

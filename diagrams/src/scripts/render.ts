@@ -36,7 +36,7 @@ for (const e of parsed) {
   const composition = await selectComposition({ serveUrl, id: e.id, inputProps: { data: e.data } });
   const base = join(repoRoot, e.output);
   mkdirSync(dirname(base), { recursive: true });
-  const animated = e.primitive === "aws" ? isAnimated(e.data as AwsDiagramData) : e.animated !== false;
+  const animated = isAnimated(e.data as AwsDiagramData);
   if (animated) {
     // WHY: 24 fps composition, every 2nd frame gives a ~12 fps GIF; gifScale caps it at 1200px wide, the PNG stays full size.
     await renderMedia({ serveUrl, composition, codec: "gif", everyNthFrame: 2, scale: gifScale(composition.width), outputLocation: `${base}.gif`, inputProps: { data: e.data } });

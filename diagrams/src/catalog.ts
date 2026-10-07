@@ -1,6 +1,5 @@
 import type { z } from "zod";
 import type { AwsDiagramData } from "./aws/schema";
-import type { ArchitectureData, DependencyData, FlowData } from "./schema";
 import { architectureEntries } from "./data/architecture.catalog";
 import { systemContextEntries } from "./data/system-context.catalog";
 import { milestoneEntries } from "./data/milestones.catalog";
@@ -19,16 +18,10 @@ type Base = {
   source: string;
   /** Repo-relative globs whose change may make this diagram stale. */
   watches: string[];
-  /** false → PNG only (DependencyGraph). Default true. */
-  animated?: boolean;
 };
 
-export type CatalogEntry =
-  | (Base & { primitive: "architecture"; data: ArchitectureData })
-  | (Base & { primitive: "flow"; data: FlowData })
-  | (Base & { primitive: "dependency"; data: DependencyData })
-  // CONTRACT: an aws entry never declares `animated`; render.ts derives it from its steps (isAnimated).
-  | (Omit<Base, "animated"> & { animated?: never; primitive: "aws"; data: z.input<typeof AwsDiagramData> });
+// CONTRACT: render.ts derives GIF-vs-PNG from the diagram's steps (isAnimated); an entry never declares it.
+export type CatalogEntry = Base & { primitive: "aws"; data: z.input<typeof AwsDiagramData> };
 
 // CONTRACT: entries live in src/data/*.catalog.ts, one file per group, so groups can be edited independently. Order here is the Studio sidebar order.
 export const catalog: CatalogEntry[] = [...architectureEntries, ...systemContextEntries, ...milestoneEntries, ...initialFlowEntries, ...authFlowEntries, ...shoppingFlowEntries, ...eventsFlowEntries, ...opsFlowEntries];

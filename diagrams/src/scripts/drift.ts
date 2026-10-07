@@ -5,10 +5,10 @@ export type DriftResult = { id: string; status: "stale" | "updated"; matches: st
 
 /** Rendering code every diagram depends on: a change here may alter any render. */
 export const SHARED_RENDER_GLOBS = [
-  "diagrams/src/primitives/**",
+  "diagrams/src/aws/**",
   "diagrams/src/theme/**",
+  "diagrams/public/aws-icons/**",
   "diagrams/src/schema.ts",
-  "diagrams/src/timing.ts",
 ];
 
 /** Tests never change what a diagram depicts, so they never make one stale. */

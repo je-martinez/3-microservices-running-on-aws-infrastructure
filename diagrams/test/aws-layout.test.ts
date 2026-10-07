@@ -142,6 +142,23 @@ describe("layoutDiagram absolute coordinates", async () => {
       }
     });
   }
+  it("nested sample: places each edge label beside its own route, not another edge's", async () => {
+    const l = await layoutDiagram(nested);
+    const dist = (pts: Point[], c: Point) => Math.min(...pts.slice(1).map((q, i) => {
+      const p = pts[i]!;
+      const x = Math.min(Math.max(c.x, Math.min(p.x, q.x)), Math.max(p.x, q.x));
+      const y = Math.min(Math.max(c.y, Math.min(p.y, q.y)), Math.max(p.y, q.y));
+      return Math.hypot(c.x - x, c.y - y);
+    }));
+    for (const e of nested.edges) {
+      const label = l.edges[e.id]!.label;
+      if (!label) continue;
+      const c = { x: label.x + label.w / 2, y: label.y + label.h / 2 };
+      const own = dist(l.edges[e.id]!.points, c);
+      expect(own, `${e.id} label is ${own}px from its route`).toBeLessThanOrEqual(label.w / 2 + label.h);
+      for (const o of nested.edges) if (o.id !== e.id) expect(own, `${e.id} label nearer ${o.id}`).toBeLessThanOrEqual(dist(l.edges[o.id]!.points, c) + 0.5);
+    }
+  });
   it("nested sample: keeps the deep groups nested and edges clear of other nodes", async () => {
     const l = await layoutDiagram(nested);
     for (const n of nested.nodes) if (n.group) expect(inside(l.nodes[n.id]!, l.groups[n.group]!)).toBe(true);
