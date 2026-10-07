@@ -110,12 +110,17 @@ const nested = AwsDiagramData.parse({
 describe("layoutDiagram absolute coordinates", async () => {
   for (const [name, d] of [["flat sample", data], ["nested sample", nested]] as const) {
     const l = await layoutDiagram(d);
-    it(`${name}: starts and ends every edge on its endpoints' borders`, () => {
+    it(`${name} (${d.direction}): starts and ends every edge on the icon (task card for tasks), never on the label`, () => {
+      const anchor = (id: string): Rect => {
+        const r = l.nodes[id]!;
+        const isTask = d.nodes.find((n) => n.id === id)!.icon === "task";
+        return isTask ? r : { x: r.x + (r.w - 48) / 2, y: r.y, w: 48, h: 48 };
+      };
       for (const e of d.edges) {
         const pts = l.edges[e.id]!.points;
         expect(pts.length).toBeGreaterThanOrEqual(2);
-        expect(onBorder(pts[0]!, l.nodes[e.from]!), `${e.id} start`).toBe(true);
-        expect(onBorder(pts[pts.length - 1]!, l.nodes[e.to]!), `${e.id} end`).toBe(true);
+        expect(onBorder(pts[0]!, anchor(e.from)), `${e.id} start`).toBe(true);
+        expect(onBorder(pts[pts.length - 1]!, anchor(e.to)), `${e.id} end`).toBe(true);
       }
     });
     it(`${name}: places the diagram below the title band`, () => {

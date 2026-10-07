@@ -1,5 +1,5 @@
 import ELK from "elkjs/lib/elk.bundled.js";
-import type { ElkExtendedEdge, ElkLabel, ElkNode } from "elkjs/lib/elk-api";
+import type { ElkExtendedEdge, ElkLabel, ElkNode, ElkPort } from "elkjs/lib/elk-api";
 import { AWS } from "../theme/aws-style";
 import { textWidth, wrap } from "./measure";
 import type { AwsDiagramData } from "./schema";
@@ -42,6 +42,22 @@ function nodeBox(n: AwsDiagramData["nodes"][number]): { w: number; h: number; la
   return { w, h, labelLines };
 }
 
+const PORT = { in: "__in", out: "__out" } as const;
+
+// CONTRACT: icon nodes take edges on the icon itself, never on the label below it: in on the icon's
+// leading side, out on its trailing side (DOWN: in at the icon's top, out at its right, mid-height).
+function iconPorts(id: string, w: number, direction: AwsDiagramData["direction"]): ElkPort[] {
+  const left = (w - AWS.iconSize) / 2;
+  const mid = AWS.iconSize / 2;
+  const port = (suffix: string, side: string, x: number, y: number): ElkPort => ({
+    id: `${id}${suffix}`, x, y, width: 0, height: 0,
+    layoutOptions: { "elk.port.side": side, "elk.port.borderOffset": String(side === "WEST" || side === "EAST" ? -left : 0) },
+  });
+  return direction === "RIGHT"
+    ? [port(PORT.in, "WEST", left, mid), port(PORT.out, "EAST", left + AWS.iconSize, mid)]
+    : [port(PORT.in, "NORTH", w / 2, 0), port(PORT.out, "EAST", left + AWS.iconSize, mid)];
+}
+
 function buildGraph(d: AwsDiagramData, labelLines: Map<string, string[]>): ElkNode {
   const root: ElkNode = { id: ROOT, layoutOptions: { ...ROOT_OPTIONS, "elk.direction": d.direction }, children: [], edges: [] };
   const elkGroups = new Map<string, ElkNode>();
@@ -60,16 +76,21 @@ function buildGraph(d: AwsDiagramData, labelLines: Map<string, string[]>): ElkNo
   }
   const childrenOf = (parent: string | undefined) => (parent ? elkGroups.get(parent)! : root).children!;
   for (const g of d.groups) childrenOf(g.parent).push(elkGroups.get(g.id)!);
+  const iconNodes = new Set<string>();
   for (const n of d.nodes) {
     const box = nodeBox(n);
     labelLines.set(n.id, box.labelLines);
-    childrenOf(n.group).push({ id: n.id, width: box.w, height: box.h });
+    if (n.icon === "task") { childrenOf(n.group).push({ id: n.id, width: box.w, height: box.h }); continue; }
+    iconNodes.add(n.id);
+    childrenOf(n.group).push({ id: n.id, width: box.w, height: box.h, ports: iconPorts(n.id, box.w, d.direction),
+      layoutOptions: { "elk.portConstraints": "FIXED_POS" } });
   }
+  const end = (id: string, side: "in" | "out") => (iconNodes.has(id) ? `${id}${PORT[side]}` : id);
   for (const e of d.edges) {
     const labels: ElkLabel[] = e.label
       ? [{ id: `${e.id}__label`, text: e.label, width: textWidth(e.label, AWS.edgeLabelFont) + 8, height: LINE_H, layoutOptions: { "elk.edgeLabels.placement": "CENTER" } }]
       : [];
-    root.edges!.push({ id: e.id, sources: [e.from], targets: [e.to], labels });
+    root.edges!.push({ id: e.id, sources: [end(e.from, "out")], targets: [end(e.to, "in")], labels });
   }
   return root;
 }
