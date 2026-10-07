@@ -9,6 +9,8 @@ export const SHARED_RENDER_GLOBS = [
   "diagrams/src/theme/**",
   "diagrams/public/aws-icons/**",
   "diagrams/src/schema.ts",
+  "diagrams/src/Root.tsx",
+  "diagrams/src/scripts/render.ts",
 ];
 
 /** Tests never change what a diagram depicts, so they never make one stale. */

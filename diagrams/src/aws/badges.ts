@@ -62,12 +62,11 @@ function* runStarts(points: Point[], k: number): Generator<number> {
 
 /**
  * Badge centre per step, on the step's first edge. Steps sharing an edge sit along it in step order from
- * the source end, BADGE_PITCH apart; every badge clears `avoid` and earlier badges by BADGE_GAP and keeps
- * off group borders when the route allows it, else the most clear run wins. Edge labels are placed after
- * the badges (see labels.ts), so they are not obstacles here.
+ * the source end, BADGE_PITCH apart. Every badge clears `avoid` and earlier badges by BADGE_GAP; it also clears
+ * other routes, `prefer` (spots best left free, such as ELK's label boxes) and group borders when the route
+ * allows it, dropping those in that order from last to first; else the most clear run wins.
  */
-export function badgeCentres(steps: { edges: string[] }[], edges: Edges, groups: Rect[], avoid: Rect[] = []): Point[] {
-  const labels = avoid;
+export function badgeCentres(steps: { edges: string[] }[], edges: Edges, groups: Rect[], avoid: Rect[] = [], prefer: Rect[] = []): Point[] {
   const lines = groups.flatMap(borders);
   const byEdge = new Map<string, number[]>();
   steps.forEach((s, i) => byEdge.set(s.edges[0]!, [...(byEdge.get(s.edges[0]!) ?? []), i]));
@@ -77,10 +76,14 @@ export function badgeCentres(steps: { edges: string[] }[], edges: Edges, groups:
     const points = edges[edge]!.points;
     const run = (s: number) => stepIdx.map((_, j) => along(points, s + j * BADGE_PITCH));
     const clearance = (ps: Point[], soft: Rect[]) =>
-      Math.min(Infinity, ...ps.flatMap((p) => [...labels, ...placed, ...soft].map((o) => gap(badgeRect(p, 0), o))));
+      Math.min(Infinity, ...ps.flatMap((p) => [...avoid, ...placed, ...soft].map((o) => gap(badgeRect(p, 0), o))));
     let best: { ps: Point[]; score: number } | undefined;
     let chosen: Point[] | undefined;
-    for (const soft of [lines, []]) {
+    const others = Object.entries(edges).filter(([id]) => id !== edge).flatMap(([, r]) => r.points.slice(1).map((b, i) => {
+      const a = r.points[i]!;
+      return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) };
+    }));
+    for (const soft of [[...others, ...prefer, ...lines], [...others, ...prefer], others, []]) {
       for (const s of runStarts(points, stepIdx.length)) {
         const ps = run(s);
         const score = clearance(ps, soft);

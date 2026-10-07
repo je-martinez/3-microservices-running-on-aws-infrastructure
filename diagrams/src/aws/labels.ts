@@ -53,10 +53,15 @@ function* candidates(pts: Point[], w: number, h: number, o: number): Generator<R
   }
 }
 
+/** Clearance a label keeps from every route but its own. */
+export const LABEL_ROUTE_CLEAR = 6;
+const OFFSETS = [LABEL_OFFSET, LABEL_OFFSET_FAR, 26];
+
 /**
- * Edge label boxes placed after the badges: beside their own line, clear of nodes, group headers, badges,
- * every route and every other label; a self-loop keeps its label outside the loop. ELK's spot is kept when
- * it already qualifies; when nothing qualifies, ELK's spot is the fallback.
+ * Edge label boxes placed after the badges: beside their own line and nearer it than any other route, at
+ * least LABEL_ROUTE_CLEAR from the others, clear of nodes, group headers, badges and other labels; a self-loop
+ * keeps its label outside the loop. ELK's spot is kept when it qualifies; when nothing qualifies, the
+ * candidate with the most clearance from other routes wins.
  */
 export function placeLabels(data: AwsDiagramData, layout: DiagramLayout, badges: Point[]): Record<string, Rect> {
   const nodes = Object.values(layout.nodes);
@@ -64,7 +69,6 @@ export function placeLabels(data: AwsDiagramData, layout: DiagramLayout, badges:
     const r = layout.groups[g.id]!;
     return { x: r.x, y: r.y, w: GROUP_ICON + 8 + textWidth(g.label, 14), h: GROUP_ICON };
   });
-  const lines = Object.values(layout.edges).flatMap((e) => segments(e.points).map((s) => segRect(s, 1)));
   const badgeBoxes = badges.map((p) => badgeRect(p, BADGE_GAP));
   const bounds = { x: 0, y: AWS.titleH, w: layout.width, h: layout.height - AWS.titleH };
   const placed: Rect[] = [];
@@ -74,21 +78,33 @@ export function placeLabels(data: AwsDiagramData, layout: DiagramLayout, badges:
     if (!e.label || !route.label) continue;
     const { w, h } = route.label;
     const loop = e.from === e.to ? bbox(route.points) : undefined;
-    const own = segments(route.points).map((s) => segRect(s, 1));
-    const ok = (r: Rect, crossRoutes: boolean) =>
+    const others = Object.entries(layout.edges).filter(([id]) => id !== e.id).map(([, r]) => r.points);
+    const fits = (r: Rect) =>
       r.x >= bounds.x && r.y >= bounds.y && r.x + r.w <= bounds.x + bounds.w && r.y + r.h <= bounds.y + bounds.h
       && !(loop && overlaps(r, loop))
-      && ![...nodes, ...headers, ...badgeBoxes, ...(crossRoutes ? own : lines)].some((o) => overlaps(r, o))
+      && ![...nodes, ...headers, ...badgeBoxes].some((o) => overlaps(r, o))
       && !placed.some((o) => gap(r, o) < 2);
+    // Margin by which a box beats the ownership rule; ≥ 0 qualifies.
+    const margin = (r: Rect) => {
+      const own = distanceToRoute(r, route.points);
+      const other = Math.min(Infinity, ...others.map((pts) => distanceToRoute(r, pts)));
+      return Math.min(other - LABEL_ROUTE_CLEAR, other - own - 1);
+    };
     let chosen: Rect | undefined;
-    if (distanceToRoute(route.label, route.points) <= NEAR && ok(route.label, false)) chosen = route.label;
-    // WHY: a label may cross another route (its halo keeps it readable) only when no clear spot exists.
-    for (const crossRoutes of [false, true]) {
-      for (const o of [LABEL_OFFSET, LABEL_OFFSET_FAR]) {
-        if (!chosen) for (const r of candidates(route.points, w, h, o)) if (ok(r, crossRoutes)) { chosen = r; break; }
-      }
+    let best: { r: Rect; m: number } | undefined;
+    const consider = (r: Rect) => {
+      if (!fits(r)) return false;
+      const m = margin(r);
+      if (m >= 0) { chosen = r; return true; }
+      if (!best || m > best.m) best = { r, m };
+      return false;
+    };
+    if (distanceToRoute(route.label, route.points) <= NEAR) consider(route.label);
+    for (const o of OFFSETS) {
+      if (chosen) break;
+      for (const r of candidates(route.points, w, h, o)) if (consider(r)) break;
     }
-    out[e.id] = chosen ?? route.label;
+    out[e.id] = chosen ?? best?.r ?? route.label;
     placed.push(out[e.id]!);
   }
   return out;

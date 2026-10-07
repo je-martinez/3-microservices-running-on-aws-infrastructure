@@ -41,6 +41,8 @@ describe("affectedDiagrams implicit watches", () => {
     "diagrams/src/theme/aws-style.ts",
     "diagrams/public/aws-icons/ecs.svg",
     "diagrams/src/schema.ts",
+    "diagrams/src/Root.tsx",
+    "diagrams/src/scripts/render.ts",
   ])(
     "flags every entry when shared rendering code %s changed",
     (f) => {

@@ -30,7 +30,9 @@ export function AwsDiagram({ data, layout }: AwsDiagramProps) {
   const holding = steps.length > 0 && frame >= holdStart(steps.length);
   const lit = new Set(active === undefined ? [] : steps[active]!.edges);
   const shown = holding ? steps.length : active === undefined ? 0 : active + 1;
-  const allBadges = badgeCentres(steps, layout.edges, Object.values(layout.groups), Object.values(layout.nodes));
+  // WHY: badges keep off ELK's reserved label spots, so most labels can stay where ELK made room for them.
+  const elkLabels = Object.values(layout.edges).flatMap((r) => (r.label ? [r.label] : []));
+  const allBadges = badgeCentres(steps, layout.edges, Object.values(layout.groups), Object.values(layout.nodes), elkLabels);
   const labels = placeLabels(data, layout, allBadges);
   const badges = allBadges.slice(0, shown);
   const groups = [...data.groups].sort((a, b) => depth(a.id, data.groups) - depth(b.id, data.groups));
