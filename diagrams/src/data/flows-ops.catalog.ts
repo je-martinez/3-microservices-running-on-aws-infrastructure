@@ -8,7 +8,7 @@ export const opsFlowEntries: CatalogEntry[] = [
   {
     id: "business-metrics",
     title: businessMetrics.title,
-    primitive: "flow",
+    primitive: "aws",
     output: "docs/shared/observability/diagrams/business-metrics",
     watches: [
       "services/*/src/shared/metrics/**",
@@ -23,7 +23,7 @@ export const opsFlowEntries: CatalogEntry[] = [
   {
     id: "browser-rum",
     title: browserRum.title,
-    primitive: "flow",
+    primitive: "aws",
     output: "docs/shared/observability/diagrams/browser-rum",
     watches: [
       "apps/web/src/app/core/observability/**",
@@ -37,7 +37,7 @@ export const opsFlowEntries: CatalogEntry[] = [
   {
     id: "preprod-deploy",
     title: preprodDeploy.title,
-    primitive: "flow",
+    primitive: "aws",
     output: "docs/infrastructure/runbooks/diagrams/preprod-deploy",
     // WHY Makefile stays: the preprod-up target is the only source of the step order this flow draws.
     watches: ["infra/environments/preprod/**", "docker-compose.preprod.yml", "Makefile"],
@@ -47,7 +47,7 @@ export const opsFlowEntries: CatalogEntry[] = [
   {
     id: "terraform-two-phase-apply",
     title: terraformTwoPhaseApply.title,
-    primitive: "flow",
+    primitive: "aws",
     output: "docs/infrastructure/decisions/diagrams/terraform-two-phase-apply",
     watches: [
       "infra/environments/local/backend/**",

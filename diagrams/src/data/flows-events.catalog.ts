@@ -7,7 +7,7 @@ export const eventsFlowEntries: CatalogEntry[] = [
   {
     id: "tracking-outbox-relay",
     title: trackingOutboxRelay.title,
-    primitive: "flow",
+    primitive: "aws",
     output: "docs/domains/tracking/specs/diagrams/tracking-outbox-relay",
     watches: ["services/tracking-go/internal/outbox/**", "services/tracking-go/internal/bus/**", "services/tracking-go/internal/app/update_status.go"],
     source: "diagrams/src/data/flows/tracking-outbox-relay.ts",
@@ -16,7 +16,7 @@ export const eventsFlowEntries: CatalogEntry[] = [
   {
     id: "events-pipeline-fanout-dlq",
     title: eventsPipelineFanoutDlq.title,
-    primitive: "flow",
+    primitive: "aws",
     output: "docs/domains/events-pipeline/specs/diagrams/events-pipeline-fanout-dlq",
     watches: ["functions/events-pipeline/src/**", "infra/modules/messaging/**", "infra/modules/lambda/**"],
     source: "diagrams/src/data/flows/events-pipeline-fanout-dlq.ts",
@@ -25,7 +25,7 @@ export const eventsFlowEntries: CatalogEntry[] = [
   {
     id: "websocket-lifecycle",
     title: websocketLifecycle.title,
-    primitive: "flow",
+    primitive: "aws",
     output: "docs/infrastructure/specs/diagrams/websocket-lifecycle",
     watches: [
       "functions/realtime-events/**",
