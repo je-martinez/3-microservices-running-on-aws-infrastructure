@@ -46,6 +46,13 @@ describe("AwsDiagramData", () => {
   it("rejects duplicate ids across nodes and groups", () => {
     expect(issues({ ...ok, nodes: [...ok.nodes, { id: "vpc", label: "Dup", icon: "lambda" }] })).toContain('duplicate id "vpc"');
   });
+  it("rejects duplicate edge ids", () => {
+    expect(issues({ ...ok, edges: [...ok.edges, { id: "e1", from: "gw", to: "users" }] })).toContain('duplicate edge id "e1"');
+  });
+  it("points issues at the failing entry", () => {
+    const r = AwsDiagramData.safeParse({ ...ok, edges: [ok.edges[0], { id: "e2", from: "gw", to: "ghost" }] });
+    expect(r.success ? [] : r.error.issues.map((i) => i.path.join("."))).toContain("edges.1");
+  });
   it("caps nodes at 24, steps at 10, captions at 90 chars", () => {
     const many = Array.from({ length: 25 }, (_, i) => ({ id: `n${i}`, label: `N${i}`, icon: "lambda" as const }));
     expect(AwsDiagramData.safeParse({ ...ok, nodes: many, edges: [], steps: [] }).success).toBe(false);

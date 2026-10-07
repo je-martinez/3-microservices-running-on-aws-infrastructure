@@ -28,25 +28,33 @@ export const AwsDiagramData = z
     steps: z.array(z.object({ edges: z.array(Id).min(1), caption: z.string().min(1).max(90) })).max(10).default([]),
   })
   .superRefine((d, ctx) => {
-    const fail = (message: string) => ctx.addIssue({ code: "custom", message });
+    const fail = (message: string, path: (string | number)[]) => ctx.addIssue({ code: "custom", message, path });
     const seen = new Set<string>();
-    for (const id of [...d.groups.map((g) => g.id), ...d.nodes.map((n) => n.id)]) {
-      if (seen.has(id)) fail(`duplicate id "${id}"`);
-      seen.add(id);
-    }
+    d.groups.forEach((g, i) => {
+      if (seen.has(g.id)) fail(`duplicate id "${g.id}"`, ["groups", i]);
+      seen.add(g.id);
+    });
+    d.nodes.forEach((n, i) => {
+      if (seen.has(n.id)) fail(`duplicate id "${n.id}"`, ["nodes", i]);
+      seen.add(n.id);
+    });
     const groups = new Map(d.groups.map((g) => [g.id, g]));
-    for (const g of d.groups) {
-      if (g.parent && !groups.has(g.parent)) fail(`unknown group "${g.parent}"`);
+    d.groups.forEach((g, i) => {
+      if (g.parent && !groups.has(g.parent)) fail(`unknown group "${g.parent}"`, ["groups", i]);
       const path = new Set<string>();
       for (let cur: string | undefined = g.id; cur; cur = groups.get(cur)?.parent) {
-        if (path.has(cur)) { fail(`group cycle at "${g.id}"`); break; }
+        if (path.has(cur)) { fail(`group cycle at "${g.id}"`, ["groups", i]); break; }
         path.add(cur);
       }
-    }
+    });
     const nodes = new Set(d.nodes.map((n) => n.id));
-    for (const n of d.nodes) if (n.group && !groups.has(n.group)) fail(`unknown group "${n.group}"`);
-    const edges = new Set(d.edges.map((e) => e.id));
-    for (const e of d.edges) for (const id of [e.from, e.to]) if (!nodes.has(id)) fail(`unknown node "${id}"`);
-    for (const s of d.steps) for (const id of s.edges) if (!edges.has(id)) fail(`unknown edge "${id}"`);
+    d.nodes.forEach((n, i) => { if (n.group && !groups.has(n.group)) fail(`unknown group "${n.group}"`, ["nodes", i]); });
+    const edges = new Set<string>();
+    d.edges.forEach((e, i) => {
+      if (edges.has(e.id)) fail(`duplicate edge id "${e.id}"`, ["edges", i]);
+      edges.add(e.id);
+      for (const id of [e.from, e.to]) if (!nodes.has(id)) fail(`unknown node "${id}"`, ["edges", i]);
+    });
+    d.steps.forEach((s, i) => { for (const id of s.edges) if (!edges.has(id)) fail(`unknown edge "${id}"`, ["steps", i]); });
   });
 export type AwsDiagramData = z.infer<typeof AwsDiagramData>;
