@@ -4,7 +4,7 @@ type: runbook
 area: infra
 status: active
 created: 2026-10-03
-updated: 2026-10-05
+updated: 2026-10-06
 integration-status: verified
 verified-on: 2026-10-05
 verified-by: Jose E. Martinez
@@ -37,6 +37,8 @@ nginx). Decision: [[ADR-0022-preprod-ecs-on-floci]]. It cannot run beside dev
 ([[environment-exclusivity]]).
 
 ## Start from scratch
+
+![[preprod-deploy.gif]]
 
 ```bash
 make preprod-up        # about 3m40s from scratch
@@ -330,3 +332,4 @@ Cause and evidence for each Floci behaviour: [[2026-10-03-floci-preprod-alb-and-
 - [[terraform-modules]]
 - [[env-files]]
 - [[testing]]
+- [[2026-10-06-remotion-diagrams-design]] — design of the Remotion diagram pipeline that renders the embedded diagrams in this note

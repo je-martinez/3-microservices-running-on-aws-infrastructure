@@ -1,0 +1,41 @@
+import type { DependencyData } from "../../schema";
+
+export const documentationVaultDeps: DependencyData = {
+  title: "Documentation Vault milestone: task dependencies",
+  phases: [
+    { id: "foundations", label: "Foundations" },
+    { id: "shared", label: "Shared base" },
+    { id: "specs", label: "Service specs" },
+    { id: "overview", label: "Overview" },
+    { id: "bases", label: "Bases" },
+  ],
+  tasks: [
+    { id: "JE-5", label: "folder skeleton + validator", phase: "foundations" },
+    { id: "JE-6", label: "note templates", phase: "foundations" },
+    { id: "JE-7", label: "conventions + patterns", phase: "shared" },
+    { id: "JE-8", label: "ADRs 0001-0015", phase: "shared" },
+    { id: "JE-9", label: "Users spec", phase: "specs" },
+    { id: "JE-10", label: "Orders spec", phase: "specs" },
+    { id: "JE-11", label: "Tracking spec", phase: "specs" },
+    { id: "JE-12", label: "Events pipeline spec", phase: "specs" },
+    { id: "JE-13", label: "infra specs + runbooks", phase: "specs" },
+    { id: "JE-14", label: "overview MOC", phase: "overview" },
+    { id: "JE-15", label: "Obsidian Bases", phase: "bases" },
+  ],
+  deps: [
+    { from: "JE-5", to: "JE-6" },
+    { from: "JE-6", to: "JE-7" },
+    { from: "JE-7", to: "JE-8" },
+    { from: "JE-6", to: "JE-9" },
+    { from: "JE-6", to: "JE-10" },
+    { from: "JE-6", to: "JE-11" },
+    { from: "JE-6", to: "JE-12" },
+    { from: "JE-6", to: "JE-13" },
+    { from: "JE-9", to: "JE-14" },
+    { from: "JE-10", to: "JE-14" },
+    { from: "JE-11", to: "JE-14" },
+    { from: "JE-12", to: "JE-14" },
+    { from: "JE-13", to: "JE-14" },
+    { from: "JE-14", to: "JE-15" },
+  ],
+};

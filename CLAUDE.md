@@ -80,6 +80,13 @@ Pre-prod (`make preprod-up`, compose project `3mrai-preprod`, `infra/environment
 - Notes predating 2026-07-28 are exempt and reported as a "Propagation debt" count; backfilling them is out of scope, so that line is the gate working, not failing.
 - Full convention (routing table by decision kind + mechanics): `docs/shared/conventions/doc-propagation.md` → [[doc-propagation]].
 
+### Diagrams
+- Diagrams are Remotion renders from `diagrams/` (GIF + PNG into the vault), not hand-drawn files.
+- A change to a diagrammed flow or an AWS resource re-renders the affected diagram in the same PR.
+- Run `make diagrams-check` before proposing a PR; every `STALE?` line is fixed or justified.
+- Attach the GIF under `## Diagrams` in the PR body when a flow is new or affected.
+- Full convention: `docs/shared/conventions/diagrams.md` → [[diagrams]]. Work goes through `diagram-impl`.
+
 ### Language
 - **Converse with the user in Spanish.**
 - **Vault / documentation content is written in English** (technical terms, filenames, frontmatter).
@@ -143,6 +150,7 @@ Custom subagents own their write domains. `linear-pm` (Linear) and `obsidian-vau
 - **`obsidian-vault`** (`.claude/agents/obsidian-vault.md`) — **sole writer of the `docs/` vault.** All note creation/edits go through it so structure, frontmatter, tags, and wikilinks stay consistent. Has the Obsidian skills preloaded. **No other agent (including the main session) writes to `docs/` — route vault writes here.**
 - **`e2e-impl`** (`.claude/agents/e2e-impl.md`) — the testing surface: Playwright specs (internal + gateway) and Gatling JS load simulations. Reads `e2e/CLAUDE.md`. Verifies endpoint contracts against each service's `openapi.yaml` instead of guessing them, and **never edits service source to make a test pass** — a green suite bought that way is worse than a red one.
 - **`web-impl`** (`.claude/agents/web-impl.md`) — the web app in `apps/web/` (Angular + NgRx + Tailwind). Reads `apps/web/CLAUDE.md` and `apps/web/DESIGN.md`, and translates Pencil frames through the `pencil-design-extraction` skill. **Never uses a Tailwind arbitrary value for a design colour** — a hard-coded hex is the detectable symptom of a skipped token step.
+- **`diagram-impl`** (`.claude/agents/diagram-impl.md`) — the Remotion diagrams package in `diagrams/`. Reads `diagrams/CLAUDE.md`, reads the real code and Terraform before drawing, writes only `diagrams/**` and `docs/**/diagrams/*.{gif,png}`, and **never touches `.md` notes under `docs/`** (embed needs go in its handoff for `obsidian-vault`).
 
 When `github-ops` is used, it coordinates with `linear-pm`: it needs milestone/issue IDs to name branches/PRs and reports merges back so `linear-pm` can update issue status. Route Linear↔GitHub work through the parent, which relays between them. (The main session, running git directly, does the same coordination inline.)
 
@@ -151,7 +159,7 @@ When `github-ops` is used, it coordinates with `linear-pm`: it needs milestone/i
 Two layers of agents (see `docs/superpowers/specs/2026-06-26-implementation-workflow-design.md`):
 
 - **Tool layer:** `obsidian-vault` (docs/) and `linear-pm` (Linear) are single writers. `github-ops` (git/GitHub) is **optional** — the main session may run git directly (see [[git-workflow]]).
-- **Domain layer:** `solutions-architect` (read-only planner — returns a **Coordination Plan**, writes nothing) and seven **code-only** implementers: `users-impl`, `orders-impl`, `tracking-impl`, `events-pipeline-impl`, `infra-impl`, `e2e-impl` (Playwright specs + Gatling load simulations; reads `e2e/CLAUDE.md`), and `web-impl` (Angular screens and components; reads `apps/web/CLAUDE.md`).
+- **Domain layer:** `solutions-architect` (read-only planner — returns a **Coordination Plan**, writes nothing) and eight **code-only** implementers: `users-impl`, `orders-impl`, `tracking-impl`, `events-pipeline-impl`, `infra-impl`, `e2e-impl` (Playwright specs + Gatling load simulations; reads `e2e/CLAUDE.md`), `web-impl` (Angular screens and components; reads `apps/web/CLAUDE.md`), and `diagram-impl` (Remotion diagrams; reads `diagrams/CLAUDE.md`).
 
 **Invariant:** implementers write **only source code** — they never run git or touch Linear, and they leave work in the working tree for the **main session** to commit (which may optionally delegate a complex git batch to `github-ops`). The architect writes nothing. A subagent cannot spawn another subagent, so the **parent** routes the architect's Coordination Plan to each hand.
 

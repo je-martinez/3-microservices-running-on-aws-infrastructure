@@ -109,8 +109,6 @@ rules:
 # Project-level servers from .mcp.json. Distinct from `plugin-mcp-servers`
 # above: those ship inside Claude Code plugins and have no config to project.
 mcp:
-  drawio: universal
-
   # pencil: stdio server behind scripts/pencil_mcp.py, which resolves the Pen
   # desktop binary per platform — no Claude Code dependency, so the config
   # projects. The pencil-design-extraction SKILL stays excluded (see below);
@@ -324,6 +322,23 @@ skills:
   # that a soft-deleted tracking row reads as missing and DELIVERED is terminal.
   advance-tracking: share
 
+  # ─── 2026-10-06: Remotion diagrams ─────────────────────────────────────────
+  # WHY: diagrams/ is a repo package any provider may render or edit, and the
+  # skills are vendor docs with no Claude Code dependency, so all twelve ship.
+  # The `diagrams` rule travels as an AGENTS.md section, not a rule file.
+  remotion-best-practices: share
+  remotion-captions: share
+  remotion-create: share
+  remotion-docs: share
+  remotion-interactivity: share
+  remotion-maps: share
+  remotion-markup: share
+  remotion-multimedia: share
+  remotion-render: share
+  remotion-saas: share
+  remotion-studio: share
+  remotion-upgrade: share
+
 subagents:
   # Implementers and the planner: safe to describe as roles.
   users-impl: role
@@ -341,6 +356,9 @@ subagents:
   # from this map until now, so lnai skipped it silently and every sync left the
   # providers with six implementers instead of seven.
   web-impl: role
+
+  # Added 2026-10-06. Eighth code-only implementer (diagrams/, Remotion).
+  diagram-impl: role
 
   # Single writers. Projecting these as "available roles" would invite an agent
   # to believe it may write to Linear or docs/ itself. They become prohibitions.

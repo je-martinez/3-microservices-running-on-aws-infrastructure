@@ -4,7 +4,7 @@ type: spec
 area: infra
 status: active
 created: 2026-06-26
-updated: 2026-10-03
+updated: 2026-10-06
 tags: [type/spec, area/infra, status/active]
 related:
   - "[[ADR-0022-preprod-ecs-on-floci]]"
@@ -74,6 +74,12 @@ full account. The modules validate, but phase 2 has not yet been applied, so `or
 | SQS queues | One standard queue per domain event type; DLQ attached (max receives = 3) |
 | Lambda functions | One function per CQRS read-model handler; triggered by SQS |
 
+### Realtime (WebSocket)
+
+A WebSocket API gives the web app a server-to-client channel. A `$connect` REQUEST authorizer verifies the Cognito JWT, connect and disconnect Lambdas maintain a connections table keyed by `cognito_sub`, and the events pipeline pushes to every open socket of a user. See [[2026-08-05-realtime-tracking-events-websocket-design]] for the design.
+
+![[websocket-lifecycle.gif]]
+
 ### Document Store
 
 | Resource | Detail |
@@ -142,3 +148,4 @@ ALB listeners instead of an nginx task. See [[ADR-0022-preprod-ecs-on-floci]] an
 - [[two-phase-terraform-apply]]
 - [[ADR-0022-preprod-ecs-on-floci]]
 - [[preprod]]
+- [[2026-10-06-remotion-diagrams-design]] — design of the Remotion diagram pipeline that renders the embedded diagrams in this note

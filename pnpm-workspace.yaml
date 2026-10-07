@@ -10,3 +10,4 @@ packages:
   - "e2e"
   - "e2e/load-tests"
   - "apps/web"
+  - "diagrams"

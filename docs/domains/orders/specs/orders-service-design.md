@@ -4,7 +4,7 @@ type: spec
 area: orders
 status: accepted
 created: 2026-06-26
-updated: 2026-09-19
+updated: 2026-10-06
 tags: [type/spec, area/orders, status/accepted]
 related:
   - "[[2026-09-18-cqrs-dispatch-tracking-orders-design]]"
@@ -108,6 +108,18 @@ All routes are versioned under the `/v1` prefix. See [[versioning]] for the vers
 > orders is never leaked. This **supersedes** this spec's original `403 Forbidden` choice; see
 > [[2026-07-14-orders-service-milestone-design]].
 
+### Checkout
+
+`POST /v1/orders` is the single checkout call; there is no separate cart-checkout route (see [Cart](#cart)).
+
+![[orders-checkout-stripe.gif]]
+
+### Address entry at checkout
+
+The buyer's delivery address is entered in the web app through a same-origin street-autocomplete proxy and saved on the Users profile; Orders later snapshots it (see [Delivery address flow](#delivery-address-flow-users--orders--tracking)).
+
+![[checkout-address-geocoding-proxy.gif]]
+
 ## gRPC Methods
 
 Defined in the `OrdersService` proto. Used by other microservices to fetch order data without going through the public HTTP API. See [[ADR-0003-grpc-inter-service]].
@@ -157,6 +169,8 @@ Orders.CreateOrder
 > edits their address.
 
 ## Cart
+
+![[orders-catalogue-cart.gif]]
 
 A user's in-progress selection of products, persisted server-side so the frontend does every
 calculation-free render and computes nothing itself. At most **one active cart per user**. Full
@@ -940,3 +954,4 @@ Full milestone design: [[2026-07-14-orders-service-milestone-design]].
 - [[2026-09-18-cqrs-dispatch-tracking-orders-design]] — planned CQRS command/query bus
   (Wolverine) and transactional outbox design for this service, migrated endpoint-by-endpoint;
   not yet implemented. See [Cross-cutting rules](#cross-cutting-rules) above.
+- [[2026-10-06-remotion-diagrams-design]] — design of the Remotion diagram pipeline that renders the embedded diagrams in this note

@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-08-27
+updated: 2026-10-06
 tags:
   - type/spec
   - area/shared
@@ -18,7 +18,8 @@ related:
   - "[[ADR-0009-apigw-alb-fargate]]"
   - "[[ADR-0010-cognito-auth]]"
   - "[[ADR-0018-observability-openobserve]]"
-  - "[[ADR-0015-drawio-diagrams]]"
+  - "[[ADR-0023-remotion-diagrams]]"
+  - "[[diagrams]]"
   - "[[2026-08-27-tracking-go-migration-design]]"
   - "[[ADR-0021-tracking-go-gin-sqlc-stack]]"
 ---
@@ -35,7 +36,7 @@ For the detailed runtime architecture (traffic flow, gRPC, SQS/Lambda, Aurora, D
 
 The system context diagram shows **3MRAI** as a black box and identifies its users and external systems.
 
-![[system-context-l1.drawio.svg]]
+![[system-context-l1.gif]]
 
 > [!note] External Systems
 > Amazon Cognito, Aurora, DocumentDB, SQS, Parameter Store, and CloudWatch are managed AWS services — they are **external** to the 3MRAI application code but **internal** to the AWS account boundary. Aurora (PostgreSQL/MySQL) is the operational database for each microservice; DocumentDB is the event store for the events pipeline only. OpenObserve may run as a container within the VPC or as a managed external service depending on deployment configuration.
@@ -46,7 +47,7 @@ The system context diagram shows **3MRAI** as a black box and identifies its use
 
 The container diagram zooms into the 3MRAI system and shows the independently deployable units.
 
-![[system-context-l2.drawio.svg]]
+![[system-context-l2.gif]]
 
 ---
 
@@ -96,7 +97,8 @@ The container diagram zooms into the 3MRAI system and shows the independently de
 - [[ADR-0006-read-write-replicas]]
 - [[ADR-0011-observability-signoz]]
 - [[ADR-0018-observability-openobserve]]
-- [[ADR-0015-drawio-diagrams]]
+- [[ADR-0023-remotion-diagrams]]
+- [[diagrams]]
 - [[2026-08-27-tracking-go-migration-design]] — the Python-to-Go migration behind the Tracking
   Service row's runtime change above.
 - [[ADR-0021-tracking-go-gin-sqlc-stack]] — the Go stack decision (Gin, sqlc, golang-migrate).

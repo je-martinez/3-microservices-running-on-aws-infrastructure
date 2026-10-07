@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-08-25
-updated: 2026-10-02
+updated: 2026-10-06
 tags:
   - type/convention
   - area/shared
@@ -62,6 +62,8 @@ hit-rate in the metrics — it is excluded from the hit-rate denominator
 > [[2026-08-26-cache-keys-built-from-a-raw-identity-header]].
 
 ## Backing store
+
+![[response-cache.gif]]
 
 The shared, already-deployed Redis/ElastiCache instance (`infra/modules/redis`) — the same
 one Users already uses for password-reset codes. Not in-memory (does not propagate across
@@ -231,3 +233,4 @@ can silently strip an unknown response header).
 - [[2026-08-26-cache-keys-built-from-a-raw-identity-header]] — the raw-identity-header
   invalidation trap this cache design fell into; read before trusting a comment that claims a
   key is "keyed on X alone."
+- [[2026-10-06-remotion-diagrams-design]] — design of the Remotion diagram pipeline that renders the embedded diagrams in this note

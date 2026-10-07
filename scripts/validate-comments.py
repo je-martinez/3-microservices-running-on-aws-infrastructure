@@ -46,11 +46,21 @@ EXCLUDE_DIR_NAMES = frozenset(
 # counts every violation once per worktree; `e2e/load-tests/target/` is Gatling
 # output, ~40 more per run. Both gitignored, so the gate otherwise reports
 # hundreds nobody wrote — and a gate that always fails stops being run.
+# Applies to `--all`, `--diff` AND explicit path arguments: the pre-commit hook
+# passes explicit paths, so skipping them nowhere but `--all` blocks commits on
+# vendored skill code. Do NOT bypass `should_skip` in any discovery branch.
 # Go is NOT excluded: services/tracking-go/ is linted like every language.
+# See [[code-comments]]
 EXCLUDE_PATH_PREFIXES = (
     "spike/",  # throwaway
     ".claude/skills/",  # vendored skill content, not our source
     ".agents/skills/",  # the mirror of the above
+    # WHY: the next five mirror vendored skill content (make ai-sync / lnai).
+    ".ai/skills/",
+    ".cursor/skills/",
+    ".gemini/skills/",
+    ".windsurf/skills/",
+    ".github/skills/",
     ".claude/worktrees/",  # git worktrees: a second copy of our own source
     "e2e/load-tests/target/",  # Gatling run output
 )
@@ -924,7 +934,11 @@ def main() -> int:
     stale_terms = load_stale_terms(args.stale_terms)
 
     if args.paths:
-        paths = [p.resolve() for p in args.paths if p.is_file() and classify(p)]
+        paths = [
+            p.resolve()
+            for p in args.paths
+            if p.is_file() and classify(p) and not should_skip(p, root)
+        ]
     elif args.all:
         paths = list(iter_source_files(root))
     elif args.diff:

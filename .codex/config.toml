@@ -1,7 +1,3 @@
-[mcp_servers.drawio]
-command = "pnpm"
-args = ["dlx", "@drawio/mcp"]
-
 [mcp_servers.pencil]
 command = "sh"
 args = ["-c", "set -a && [ -f .env ] && . ./.env; set +a; exec python3 scripts/pencil_mcp.py"]

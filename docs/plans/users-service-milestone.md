@@ -4,7 +4,7 @@ type: plan
 area: users
 status: active
 created: 2026-06-28
-updated: 2026-07-12
+updated: 2026-10-06
 tags:
   - type/plan
   - area/users
@@ -31,7 +31,7 @@ related:
   - "[[linear-references]]"
   - "[[2026-06-28-users-service-design]]"
   - "[[2026-06-28-users-service]]"
-  - "[[ADR-0015-drawio-diagrams]]"
+  - "[[ADR-0023-remotion-diagrams]]"
   - "[[2026-07-09-users-cognito-webhook-design]]"
   - "[[2026-07-10-users-openapi-autogen-design]]"
   - "[[2026-07-11-refresh-token-endpoint-design]]"
@@ -139,15 +139,9 @@ The following shipped after JE-40 without a tracked Linear issue. Each has its o
 
 ### Dependency diagram
 
-![[users-service-deps.drawio.svg]]
+![[users-service-deps.png]]
 
 JE-25 (originally the Ministack spike, later re-verified on Floci) is the hard escalation gate for the infra chain: JE-28 cannot start until the spike passes. The pnpm toolchain (JE-26 → JE-27) and the spike run in parallel. The domain logic chain (JE-27 → JE-29 → JE-31 → JE-33 → JE-35) feeds into JE-36 (apply), which also requires the infra modules chain (JE-28 → JE-30) and JE-29 (for the DB migration URL). The Playwright harness (JE-32) can start right after JE-26 is done and joins JE-37 only after JE-36 applies the full stack. JE-34 (vault tags sync) is an independent docs task that only needs JE-29 for the schema definition.
-
-> [!info] Diagram not updated for JE-38 onward
-> The `users-service-deps.drawio.svg` diagram above still reflects only JE-25…JE-37 (its original
-> scope). JE-38, JE-39, JE-40, and the 7 post-JE-40 tasks were delivered **sequentially, one after
-> another, on the same branch** — each depends on the previous one completing — so the dependency
-> table above is sufficient to describe them; the diagram was not regenerated for this sync pass.
 
 ## Related
 
@@ -155,7 +149,7 @@ JE-25 (originally the Ministack spike, later re-verified on Floci) is the hard e
 - [[linear-references]] — Linear reference convention.
 - [[2026-06-28-users-service-design]] — the design spec specifying each deliverable.
 - [[2026-06-28-users-service]] — the implementation plan with detailed task steps.
-- [[ADR-0015-drawio-diagrams]] — governs the `.drawio.svg` diagram format.
+- [[ADR-0023-remotion-diagrams]] — governs the diagram format; see [[diagrams]].
 - [[2026-07-09-users-cognito-webhook-design]] — JE-38 design spec.
 - [[2026-07-10-users-openapi-autogen-design]] — OpenAPI autogen design spec (post-JE-40).
 - [[2026-07-11-refresh-token-endpoint-design]] — refresh endpoint design spec (post-JE-40).
