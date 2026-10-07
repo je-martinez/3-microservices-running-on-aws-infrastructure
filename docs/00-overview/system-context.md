@@ -36,7 +36,7 @@ For the detailed runtime architecture (traffic flow, gRPC, SQS/Lambda, Aurora, D
 
 The system context diagram shows **3MRAI** as a black box and identifies its users and external systems.
 
-![[system-context-l1.gif]]
+![[system-context-l1.png]]
 
 > [!note] External Systems
 > Amazon Cognito, Aurora, DocumentDB, SQS, Parameter Store, and CloudWatch are managed AWS services — they are **external** to the 3MRAI application code but **internal** to the AWS account boundary. Aurora (PostgreSQL/MySQL) is the operational database for each microservice; DocumentDB is the event store for the events pipeline only. OpenObserve may run as a container within the VPC or as a managed external service depending on deployment configuration.
@@ -47,7 +47,7 @@ The system context diagram shows **3MRAI** as a black box and identifies its use
 
 The container diagram zooms into the 3MRAI system and shows the independently deployable units.
 
-![[system-context-l2.gif]]
+![[system-context-l2.png]]
 
 ---
 

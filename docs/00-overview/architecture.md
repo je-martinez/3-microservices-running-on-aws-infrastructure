@@ -42,9 +42,13 @@ This note describes the overall runtime architecture of **3MRAI**: how traffic f
 
 Local dev (Floci) and pre-prod (ECS on Floci) topologies:
 
-![[architecture-dev-floci.gif]]
+![[architecture-dev-floci.png]]
 
-![[architecture-preprod.gif]]
+*Wide map (about 1700 px): open the image full size to read it.*
+
+![[architecture-preprod.png]]
+
+*Wide map (about 1700 px): open the image full size to read it.*
 
 Aurora is the production target; local dev and pre-prod run plain RDS PostgreSQL/MySQL clusters without replicas. Diagram rules: [[diagrams]].
 

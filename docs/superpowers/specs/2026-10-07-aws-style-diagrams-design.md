@@ -2,13 +2,13 @@
 title: "AWS-Style Diagrams — Reference-Architecture Visual Language Design"
 type: spec
 area: shared
-status: draft
+status: accepted
 created: 2026-10-07
 updated: 2026-10-07
 tags:
   - type/spec
   - area/shared
-  - status/draft
+  - status/accepted
 propagates-to:
   - "[[diagrams]]"
   - "[[ADR-0023-remotion-diagrams]]"
@@ -79,7 +79,19 @@ The Remotion diagrams shipped by [[2026-10-06-remotion-diagrams-design]] work bu
 
 Package tests (incl. real-ELK layout tests) and typecheck; full re-render, every PNG visually inspected against the AWS reference style; GIFs ≤ ~2 MB; validate-vault, lint-comments, ai-sync-check, diagrams-check green.
 
+## Implementation deviations
+
+The shipped implementation differs from the design above in these ways.
+
+- **Per-edge ports.** Each edge leaves and enters on the side facing its other end (ELK `FREE` port sides) instead of fixed west/east ports.
+- **Canvas width.** The canvas is widened for the title and captions and rounded to whole 20 px multiples (non-integer sizes made GIF encoders store whole frames).
+- **Caption bar.** The step caption sits in a reserved band of the canvas rather than overlaying the drawing.
+- **Badge placement.** Step badges sit along the edge in step order, clear of edge labels.
+- **`AwsService` location.** The `AwsService` type lives in `diagrams/src/aws/schema.ts`, not in the theme adapter.
+- **Wide architecture PNGs.** The architecture maps render at about 1700 px wide and that is accepted; the vault notes tell the reader to open them full size.
+
 ## Related
+
 
 - [[2026-10-06-remotion-diagrams-design]]
 - [[ADR-0023-remotion-diagrams]]

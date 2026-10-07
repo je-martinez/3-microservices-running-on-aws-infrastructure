@@ -233,6 +233,7 @@ The shipped implementation differs from the design above in these ways.
 - **Drift check.** `diagrams-check` always exits 0, including when its base ref cannot be resolved.
 - **Dependency arrows.** `DependencyGraph` draws arrows above the task boxes, always side to side between columns, and detours an arrow through the nearest gap between rows around any task it does not connect; task order inside a column minimises crossings.
 - **Comment linter.** `make lint-comments` honours its path exclusions for explicit path arguments (how the pre-commit hook calls it) and excludes the lnai skill mirrors.
+- **Style superseded.** The visual style and the three primitives are superseded by [[2026-10-07-aws-style-diagrams-design]]; the pipeline, catalog and drift decisions stand.
 
 ## Related
 

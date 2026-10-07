@@ -5,7 +5,7 @@ area: shared
 status: accepted
 id: ADR-0023
 created: 2026-10-06
-updated: 2026-10-06
+updated: 2026-10-07
 deciders: [Jose E. Martinez]
 supersedes: "ADR-0015-drawio-diagrams"
 superseded-by: null
@@ -18,6 +18,7 @@ related:
   - "[[diagrams]]"
   - "[[diagram-legibility]]"
   - "[[2026-10-06-remotion-diagrams-design]]"
+  - "[[2026-10-07-aws-style-diagrams-design]]"
   - "[[2026-10-06-remotion-diagrams]]"
   - "[[package-manager]]"
   - "[[scripting-language]]"
@@ -47,7 +48,17 @@ Vault diagrams are rendered with **Remotion** from data, in a pnpm workspace pac
 
 Rules and procedure live in [[diagrams]]; the generalized legibility lessons in [[diagram-legibility]].
 
+## Style revision (2026-10-07)
+
+Same tool, no new ADR. Design: [[2026-10-07-aws-style-diagrams-design]].
+
+- **Visual style.** Every diagram follows the AWS reference-architecture style: nested group containers, official service icons with names below, thin orthogonal connectors (dashed for async), numbered step badges. This replaces decision 1's three primitives with a single primitive, `AwsDiagram`.
+- **Layout engine.** ELK (`elkjs`, layered, orthogonal routing, compound groups). elkjs is dual-licensed EPL-2.0 OR GPL-3.0-or-later; that is acceptable because it is used unmodified in a dev-only tool that never ships in a product.
+- **Icons.** Service icons stay on `@nxavis/aws-icons`; group and generic icons come from the official AWS Architecture Icons package, fetched by `make diagrams-icons` and committed. Both sit behind the single adapter, replacing decision 4's labelled boxes for non-AWS nodes.
+- **Outputs.** Step-less diagrams (architecture maps, milestone graphs) are PNG only; diagrams with steps keep GIF plus PNG.
+
 ## Consequences
+
 
 **Positive:**
 
@@ -67,6 +78,7 @@ Rules and procedure live in [[diagrams]]; the generalized legibility lessons in 
 - [[ADR-0015-drawio-diagrams]] — superseded by this decision.
 - [[diagrams]]
 - [[diagram-legibility]]
+- [[2026-10-07-aws-style-diagrams-design]] — AWS reference style revision
 - [[2026-10-06-remotion-diagrams-design]] — design of the Remotion diagram pipeline behind this note
 - [[2026-10-06-remotion-diagrams]]
 - [[package-manager]]
