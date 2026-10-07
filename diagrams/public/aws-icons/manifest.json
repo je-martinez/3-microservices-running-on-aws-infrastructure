@@ -1,0 +1,23 @@
+{
+  "package": "Icon-package_07312026.5846e92413caa21490223536cc97f1269e44fa92.zip",
+  "fetched": "2026-10-07",
+  "group": {
+    "aws-cloud": "group/aws-cloud.svg",
+    "region": "group/region.svg",
+    "vpc": "group/vpc.svg",
+    "public-subnet": "group/public-subnet.svg",
+    "private-subnet": "group/private-subnet.svg",
+    "account": "group/account.svg",
+    "corporate": "group/corporate.svg",
+    "server": "group/server.svg"
+  },
+  "generic": {
+    "users": "generic/users.svg",
+    "client": "generic/client.svg",
+    "internet": "generic/internet.svg",
+    "server": "generic/server.svg",
+    "office-building": "generic/office-building.svg",
+    "firewall": "generic/firewall.svg",
+    "data-table": "generic/data-table.svg"
+  }
+}

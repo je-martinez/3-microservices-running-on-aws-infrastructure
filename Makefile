@@ -67,7 +67,7 @@ _tf_plugin_cache := $(shell mkdir -p $(TF_PLUGIN_CACHE_DIR))
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down logs build ps test-unit test-e2e test-all load-test load-test-smoke cache-toggle load-test-cache-ab-on load-test-cache-ab-off backend-up infra-init infra-plan lambda-bundles infra-up post-infra infra-down infra-output env-file stripe-webhook-secret migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor heal clean clean-state warm-images warm-nuget observability-up observability-down observability-dashboards observability-traces-schema redeploy-lambdas scripts-setup watch watch-stop watch-status watch-logs lint-comments lint-secrets lint-comments-diff install-comment-hook ai-sync ai-sync-check diagrams-check diagrams-studio diagrams-render
+.PHONY: help up down logs build ps test-unit test-e2e test-all load-test load-test-smoke cache-toggle load-test-cache-ab-on load-test-cache-ab-off backend-up infra-init infra-plan lambda-bundles infra-up post-infra infra-down infra-output env-file stripe-webhook-secret migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor heal clean clean-state warm-images warm-nuget observability-up observability-down observability-dashboards observability-traces-schema redeploy-lambdas scripts-setup watch watch-stop watch-status watch-logs lint-comments lint-secrets lint-comments-diff install-comment-hook ai-sync ai-sync-check diagrams-check diagrams-studio diagrams-render diagrams-icons
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -943,6 +943,9 @@ diagrams-studio: ## Open Remotion Studio to browse/scrub every diagram interacti
 diagrams-render: ## Render diagrams to the vault (all, or ID=a,b). GIF + last-frame PNG; warns over 2 MB
 	pnpm --filter @3mrai/diagrams browser
 	pnpm --filter @3mrai/diagrams render $(subst $(comma), ,$(ID))
+
+diagrams-icons: scripts-setup ## Re-fetch the official AWS group/generic icons into diagrams/public/aws-icons
+	.venv/bin/python diagrams/scripts/fetch_aws_icons.py
 
 ## ── Pre-production (Floci-only, see docs/infrastructure/runbooks/preprod.md) ──
 PP_COMPOSE := docker compose -f docker-compose.preprod.yml
