@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { AwsService } from "../schema";
+
+export const AwsService = z.enum([
+  "api-gateway", "aurora", "rds", "cognito", "documentdb", "dynamodb", "elasticache",
+  "eventbridge", "sqs", "sns", "ses", "s3", "ecr", "ecs", "fargate", "elb", "lambda",
+  "cloudwatch", "secrets-manager", "ssm", "iam", "vpc",
+]);
+export type AwsService = z.infer<typeof AwsService>;
 
 export const GroupKind = z.enum([
   "aws-cloud", "region", "az", "vpc", "public-subnet", "private-subnet",

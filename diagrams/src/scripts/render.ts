@@ -3,6 +3,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundle } from "@remotion/bundler";
 import { renderMedia, renderStill, selectComposition } from "@remotion/renderer";
+import { gifScale, isAnimated } from "../aws/timing";
+import type { AwsDiagramData } from "../aws/schema";
 import { catalog } from "../catalog";
 import { parseEntry } from "./parse-entry";
 
@@ -34,9 +36,10 @@ for (const e of parsed) {
   const composition = await selectComposition({ serveUrl, id: e.id, inputProps: { data: e.data } });
   const base = join(repoRoot, e.output);
   mkdirSync(dirname(base), { recursive: true });
-  if (e.animated !== false) {
-    // WHY: 24 fps composition, every 2nd frame gives a ~12 fps GIF; scale 1 keeps it at 1200px wide.
-    await renderMedia({ serveUrl, composition, codec: "gif", everyNthFrame: 2, outputLocation: `${base}.gif`, inputProps: { data: e.data } });
+  const animated = e.primitive === "aws" ? isAnimated(e.data as AwsDiagramData) : e.animated !== false;
+  if (animated) {
+    // WHY: 24 fps composition, every 2nd frame gives a ~12 fps GIF; gifScale caps it at 1200px wide, the PNG stays full size.
+    await renderMedia({ serveUrl, composition, codec: "gif", everyNthFrame: 2, scale: gifScale(composition.width), outputLocation: `${base}.gif`, inputProps: { data: e.data } });
     const size = statSync(`${base}.gif`).size;
     console.log(`${e.id}.gif ${kb(`${base}.gif`)}${size > GIF_BUDGET ? "  WARNING: over the 2 MB budget" : ""}`);
   }

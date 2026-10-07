@@ -1,14 +1,11 @@
 import { z } from "zod";
+import { AwsDiagramData, AwsService } from "./aws/schema";
 
 export const NodeKind = z.enum(["compute", "data", "messaging", "edge", "external"]);
 export type NodeKind = z.infer<typeof NodeKind>;
 
-export const AwsService = z.enum([
-  "api-gateway", "aurora", "rds", "cognito", "documentdb", "dynamodb", "elasticache",
-  "eventbridge", "sqs", "sns", "ses", "s3", "ecr", "ecs", "fargate", "elb", "lambda",
-  "cloudwatch", "secrets-manager", "ssm", "iam", "vpc",
-]);
-export type AwsService = z.infer<typeof AwsService>;
+// CONTRACT: AwsService lives in aws/schema.ts; importing it from there keeps the two schemas acyclic.
+export { AwsService } from "./aws/schema";
 
 const Id = z.string().regex(/^[a-z0-9][a-z0-9-]*$|^JE-\d+$/);
 const Label = z.string().min(1).max(22);
@@ -81,4 +78,5 @@ export const PropsSchema = {
   architecture: z.object({ data: ArchitectureData }),
   flow: z.object({ data: FlowData }),
   dependency: z.object({ data: DependencyData }),
+  aws: z.object({ data: AwsDiagramData }),
 } as const;

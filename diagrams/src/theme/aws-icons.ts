@@ -7,7 +7,11 @@ import {
   AwsLambda, AwsSecretsManager, AwsSystemsManager, ElasticLoadBalancing,
 } from "@nxavis/aws-icons";
 import type { ComponentType } from "react";
+import { staticFile } from "remotion";
+import manifest from "../../public/aws-icons/manifest.json";
+import type { GenericIcon } from "../aws/schema";
 import type { AwsService } from "../schema";
+import type { GroupIcon } from "./aws-style";
 
 const ICONS: Record<AwsService, ComponentType<{ size?: number }>> = {
   "api-gateway": AmazonApiGateway, aurora: AmazonAurora, rds: AmazonRds, cognito: AmazonCognito,
@@ -21,4 +25,14 @@ const ICONS: Record<AwsService, ComponentType<{ size?: number }>> = {
 
 export function awsIcon(service: AwsService): ComponentType<{ size?: number }> {
   return ICONS[service];
+}
+
+/** URL of the official AWS group icon (fetched by `make diagrams-icons`). */
+export function groupIconSrc(kind: GroupIcon): string {
+  return staticFile(`aws-icons/${manifest.group[kind]}`);
+}
+
+/** URL of the official AWS generic resource icon (fetched by `make diagrams-icons`). */
+export function genericIconSrc(name: GenericIcon): string {
+  return staticFile(`aws-icons/${manifest.generic[name]}`);
 }

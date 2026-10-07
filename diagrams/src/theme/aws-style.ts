@@ -1,7 +1,9 @@
 import { loadFont } from "@remotion/google-fonts/Arimo";
 import type { GroupKind } from "../aws/schema";
 
-const { fontFamily } = loadFont("normal", { weights: ["400"], subsets: ["latin"] });
+// WHY: titles, task ids and badge numbers are bold and sublabels italic; a weight that is not loaded renders regular.
+const { fontFamily } = loadFont("normal", { weights: ["400", "700"], subsets: ["latin"] });
+loadFont("italic", { weights: ["400"], subsets: ["latin"] });
 
 export const AWS = {
   font: fontFamily,

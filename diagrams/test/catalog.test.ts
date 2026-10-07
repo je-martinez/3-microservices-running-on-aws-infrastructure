@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import picomatch from "picomatch";
 import { describe, expect, it } from "vitest";
+import { AwsDiagramData } from "../src/aws/schema";
 import { catalog } from "../src/catalog";
 import { depPath, layoutDependency, type Rect } from "../src/primitives/layout";
 import { ArchitectureData, DependencyData, FlowData } from "../src/schema";
@@ -10,7 +11,7 @@ import { HEIGHT, WIDTH } from "../src/timing";
 
 const repoRoot = new URL("../../", import.meta.url).pathname;
 const tracked = execFileSync("git", ["ls-files"], { cwd: repoRoot, encoding: "utf8" }).split("\n");
-const schemas = { architecture: ArchitectureData, flow: FlowData, dependency: DependencyData };
+const schemas = { architecture: ArchitectureData, flow: FlowData, dependency: DependencyData, aws: AwsDiagramData };
 
 describe("catalog", () => {
   it("has unique ids and outputs", () => {
