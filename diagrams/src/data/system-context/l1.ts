@@ -1,32 +1,36 @@
-import type { ArchitectureData } from "../../schema";
+import type { z } from "zod";
+import type { AwsDiagramData } from "../../aws/schema";
 
-// CONTRACT: zones are context boundaries; 3MRAI is one black-box node. Sources:
-// infra/modules/{api-gateway,cognito}, services/*/openapi.yaml (carrier and Stripe webhooks).
-export const systemContextL1: ArchitectureData = {
+// CONTRACT: 3MRAI is one black-box node; everything outside the AWS Cloud group is a person or
+// a third party. Sources: infra/modules/{api-gateway,cognito}, services/*/openapi.yaml
+// (carrier and Stripe webhooks).
+export const systemContextL1: z.input<typeof AwsDiagramData> = {
   title: "System context — Level 1",
   subtitle: "3MRAI as a black box: who uses it and which systems it depends on",
-  zones: [
-    { id: "outside", label: "People and partners" },
-    { id: "system", label: "3MRAI" },
-    { id: "platform", label: "Platform services" },
+  direction: "RIGHT",
+  groups: [
+    { id: "people", kind: "corporate", label: "People and partners" },
+    { id: "cloud", kind: "aws-cloud", label: "AWS Cloud (Floci locally)" },
+    { id: "third", kind: "generic", label: "Third-party services" },
   ],
   nodes: [
-    { id: "customer", label: "Customer", kind: "external", zone: "outside" },
-    { id: "carrier", label: "Carrier", kind: "external", zone: "outside" },
-    { id: "stripe", label: "Stripe (opt, +hooks)", kind: "external", zone: "outside" },
-    { id: "geoapify", label: "Geoapify (optional)", kind: "external", zone: "outside" },
-    { id: "app", label: "3MRAI platform", kind: "compute", zone: "system" },
-    { id: "cognito", label: "Cognito", kind: "edge", aws: "cognito", zone: "platform" },
-    { id: "ses", label: "SES", kind: "messaging", aws: "ses", zone: "platform" },
-    { id: "o2", label: "OpenObserve", kind: "external", zone: "platform" },
+    { id: "customer", label: "Customer", icon: "users", group: "people" },
+    { id: "carrier", label: "Carrier", icon: "office-building", group: "people" },
+    { id: "app", label: "3MRAI platform", icon: "server", group: "cloud" },
+    { id: "cognito", label: "Cognito", icon: "cognito", group: "cloud" },
+    { id: "ses", label: "SES", icon: "ses", group: "cloud" },
+    { id: "stripe", label: "Stripe", sublabel: "optional, webhooks", icon: "internet", group: "third" },
+    { id: "geoapify", label: "Geoapify", sublabel: "optional", icon: "internet", group: "third" },
+    { id: "o2", label: "OpenObserve", sublabel: "logs + traces", icon: "server", group: "third" },
   ],
   edges: [
-    { from: "customer", to: "app", label: "uses" },
-    { from: "carrier", to: "app", label: "status" },
-    { from: "app", to: "stripe", label: "payments" },
-    { from: "app", to: "geoapify", label: "geocode" },
-    { from: "app", to: "cognito", label: "auth" },
-    { from: "app", to: "ses", label: "email" },
-    { from: "app", to: "o2", label: "telemetry" },
+    { id: "customer-app", from: "customer", to: "app", label: "uses" },
+    { id: "carrier-app", from: "carrier", to: "app", label: "status" },
+    { id: "app-stripe", from: "app", to: "stripe", label: "payments" },
+    { id: "app-geoapify", from: "app", to: "geoapify", label: "geocode" },
+    { id: "app-cognito", from: "app", to: "cognito", label: "auth" },
+    { id: "app-ses", from: "app", to: "ses", label: "email" },
+    { id: "app-o2", from: "app", to: "o2", label: "telemetry" },
   ],
+  steps: [],
 };
