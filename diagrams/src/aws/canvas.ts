@@ -12,6 +12,10 @@ export const STEP_LIST_PX = 13;
 /** Step-list badge plus its gap to the caption. */
 export const STEP_LIST_BADGE = 18 + 8;
 const MAX_TITLE_W = 1200;
+// CONTRACT: canvas sides are multiples of 20 so every GIF scale (tenths, see gifScale) yields integer even
+// frame sizes; a fractional frame size stops the GIF encoder from storing frames as deltas (17 MB GIFs).
+export const CANVAS_GRID = 20;
+const toGrid = (v: number) => Math.ceil(v / CANVAS_GRID) * CANVAS_GRID;
 // WHY: textWidth estimates regular Arimo; the bold title runs about 10% wider.
 const BOLD = 1.1;
 
@@ -34,12 +38,12 @@ export function canvasSize(data: Pick<AwsDiagramData, "title" | "subtitle" | "st
     ...data.steps.map((s, i) => text(textWidth(`${i + 1}. ${s.caption}`, CAPTION_PX))),
     ...data.steps.map((s) => text(STEP_LIST_BADGE + textWidth(s.caption, STEP_LIST_PX))),
   ];
-  const width = Math.ceil(Math.max(...needs));
+  const width = toGrid(Math.max(...needs));
   const titleLines = wrap(data.title, TITLE_PX * BOLD, width - 2 * CANVAS_PAD, 2);
   const dy = (titleLines.length - 1) * TITLE_LINE_H;
   return {
     width,
-    height: Math.ceil(layout.height + dy + stepPanelHeight(data.steps.length)),
+    height: toGrid(layout.height + dy + stepPanelHeight(data.steps.length)),
     dx: Math.round((width - layout.width) / 2),
     dy,
     titleLines,

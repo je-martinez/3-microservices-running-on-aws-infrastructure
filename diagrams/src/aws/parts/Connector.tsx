@@ -1,5 +1,5 @@
 import { AWS } from "../../theme/aws-style";
-import type { DiagramLayout, Point } from "../layout";
+import type { DiagramLayout, Point, Rect } from "../layout";
 
 const HEAD = 8;
 
@@ -28,12 +28,10 @@ export function ConnectorHead({ route, active }: { route: Route; active: boolean
   );
 }
 
-/** Edge label centred in the box ELK reserved for it, haloed so a crossing line stays readable. */
-export function ConnectorLabel({ route, text }: { route: Route; text: string }) {
-  const l = route.label;
-  if (!l) return null;
+/** Edge label centred in its placed box, haloed so a crossing line stays readable. */
+export function ConnectorLabel({ box, text }: { box: Rect; text: string }) {
   return (
-    <text x={l.x + l.w / 2} y={l.y + l.h / 2} textAnchor="middle" dominantBaseline="central" fontFamily={AWS.font}
+    <text x={box.x + box.w / 2} y={box.y + box.h / 2} textAnchor="middle" dominantBaseline="central" fontFamily={AWS.font}
       fontSize={AWS.edgeLabelFont} fill={AWS.ink} stroke={AWS.canvasBg} strokeWidth={4} paintOrder="stroke" strokeLinejoin="round">
       {text}
     </text>

@@ -1,6 +1,7 @@
 import { AbsoluteFill, useCurrentFrame } from "remotion";
 import { AWS } from "../theme/aws-style";
 import { badgeCentres } from "./badges";
+import { placeLabels } from "./labels";
 import { CANVAS_PAD, canvasSize, SUBTITLE_PX, TITLE_LINE_H, TITLE_PX } from "./canvas";
 import type { DiagramLayout } from "./layout";
 import { CaptionBar } from "./parts/CaptionBar";
@@ -29,7 +30,9 @@ export function AwsDiagram({ data, layout }: AwsDiagramProps) {
   const holding = steps.length > 0 && frame >= holdStart(steps.length);
   const lit = new Set(active === undefined ? [] : steps[active]!.edges);
   const shown = holding ? steps.length : active === undefined ? 0 : active + 1;
-  const badges = badgeCentres(steps, layout.edges, Object.values(layout.groups)).slice(0, shown);
+  const allBadges = badgeCentres(steps, layout.edges, Object.values(layout.groups), Object.values(layout.nodes));
+  const labels = placeLabels(data, layout, allBadges);
+  const badges = allBadges.slice(0, shown);
   const groups = [...data.groups].sort((a, b) => depth(a.id, data.groups) - depth(b.id, data.groups));
   const svg = { position: "absolute", left: 0, top: 0, overflow: "visible" } as const;
   const below = layout.height + canvas.dy;
@@ -51,11 +54,11 @@ export function AwsDiagram({ data, layout }: AwsDiagramProps) {
           {data.edges.filter((e) => !lit.has(e.id)).map((e) => <ConnectorLine key={e.id} route={layout.edges[e.id]!} async={e.async} active={false} />)}
           {data.edges.filter((e) => lit.has(e.id)).map((e) => <ConnectorLine key={e.id} route={layout.edges[e.id]!} async={e.async} active />)}
           {data.edges.map((e) => <ConnectorHead key={e.id} route={layout.edges[e.id]!} active={lit.has(e.id)} />)}
-          {data.edges.map((e) => (e.label ? <ConnectorLabel key={e.id} route={layout.edges[e.id]!} text={e.label} /> : null))}
+          {data.edges.map((e) => (e.label && labels[e.id] ? <ConnectorLabel key={e.id} box={labels[e.id]!} text={e.label} /> : null))}
           {badges.map((at, i) => <StepBadge key={i} n={i + 1} at={at} />)}
         </svg>
       </div>
-      {active !== undefined ? <CaptionBar n={active + 1} caption={steps[active]!.caption} top={below} width={canvas.width} /> : null}
+      {active !== undefined ? <CaptionBar n={active + 1} caption={steps[active]!.caption} width={canvas.width} /> : null}
       {holding ? <StepList captions={steps.map((s) => s.caption)} top={below} width={canvas.width} /> : null}
     </AbsoluteFill>
   );

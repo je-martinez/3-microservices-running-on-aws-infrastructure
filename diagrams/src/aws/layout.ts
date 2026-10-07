@@ -42,23 +42,72 @@ function nodeBox(n: AwsDiagramData["nodes"][number]): { w: number; h: number; la
   return { w, h, labelLines };
 }
 
-const PORT = { in: "__in", out: "__out" } as const;
+type Side = "WEST" | "EAST" | "NORTH";
+type EdgeSides = Map<string, { from: Side; to: Side; back?: boolean }>;
+type Centres = Map<string, Point>;
 
-// CONTRACT: icon nodes take edges on the icon itself, never on the label below it: in on the icon's
-// leading side, out on its trailing side (DOWN: in at the icon's top, out at its right, mid-height).
-function iconPorts(id: string, w: number, direction: AwsDiagramData["direction"]): ElkPort[] {
-  const left = (w - AWS.iconSize) / 2;
-  const mid = AWS.iconSize / 2;
-  const port = (suffix: string, side: string, x: number, y: number): ElkPort => ({
-    id: `${id}${suffix}`, x, y, width: 0, height: 0,
-    layoutOptions: { "elk.port.side": side, "elk.port.borderOffset": String(side === "WEST" || side === "EAST" ? -left : 0) },
-  });
-  return direction === "RIGHT"
-    ? [port(PORT.in, "WEST", left, mid), port(PORT.out, "EAST", left + AWS.iconSize, mid)]
-    : [port(PORT.in, "NORTH", w / 2, 0), port(PORT.out, "EAST", left + AWS.iconSize, mid)];
+// WHY: endpoints closer than this along the flow axis share a layer/row and connect side by side.
+const SAME_LAYER = 30;
+
+/** Forward-flow sides, used for the first pass before node positions are known. */
+function flowSides(d: AwsDiagramData): EdgeSides {
+  const side = d.direction === "RIGHT" ? { from: "EAST", to: "WEST" } as const : { from: "EAST", to: "NORTH" } as const;
+  return new Map(d.edges.map((e) => [e.id, side]));
 }
 
-function buildGraph(d: AwsDiagramData, labelLines: Map<string, string[]>): ElkNode {
+// CONTRACT: no edge ends on a SOUTH side: below an icon sits its label. Back edges leave and enter on the
+// sides facing each other and reach ELK reversed (`back`), so they never loop around a group or the canvas.
+function facingSides(d: AwsDiagramData, c: Centres): EdgeSides {
+  const out: EdgeSides = new Map();
+  for (const e of d.edges) {
+    const a = c.get(e.from)!, b = c.get(e.to)!;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const across = (): { from: Side; to: Side } => (dx >= 0 ? { from: "EAST", to: "WEST" } : { from: "WEST", to: "EAST" });
+    if (d.direction === "RIGHT") {
+      if (Math.abs(dx) > SAME_LAYER) out.set(e.id, { ...across(), back: dx < 0 });
+      else out.set(e.id, dy >= 0 ? { from: "EAST", to: "NORTH" } : { from: "NORTH", to: "EAST" });
+    } else if (dy > SAME_LAYER) out.set(e.id, { from: dx < -SAME_LAYER ? "WEST" : "EAST", to: "NORTH" });
+    else if (dy < -SAME_LAYER) out.set(e.id, { from: "NORTH", to: dx >= 0 ? "WEST" : "EAST", back: true });
+    else out.set(e.id, across());
+  }
+  return out;
+}
+
+const portId = (edge: string, end: "from" | "to") => `${edge}__${end}`;
+
+// CONTRACT: one port per edge end, spread across the icon band of its side (never the label below), ordered
+// by the far endpoint so parallel edges neither share a trunk nor cross at the node.
+function iconPorts(d: AwsDiagramData, sides: EdgeSides, c: Centres | undefined, widths: Map<string, number>): Map<string, ElkPort[]> {
+  const bySide = new Map<string, { id: string; side: Side; key: number }[]>();
+  d.edges.forEach((e, i) => {
+    for (const end of ["from", "to"] as const) {
+      const node = e[end], far = e[end === "from" ? "to" : "from"];
+      if (!widths.has(node)) continue;
+      const side = sides.get(e.id)![end];
+      const fp = c?.get(far);
+      const key = fp ? (side === "NORTH" ? fp.x : fp.y) : i;
+      const k = `${node}|${side}`;
+      bySide.set(k, [...(bySide.get(k) ?? []), { id: portId(e.id, end), side, key }]);
+    }
+  });
+  const ports = new Map<string, ElkPort[]>();
+  for (const [k, list] of bySide) {
+    const node = k.slice(0, k.indexOf("|"));
+    const left = (widths.get(node)! - AWS.iconSize) / 2;
+    list.sort((p, q) => p.key - q.key);
+    list.forEach((p, i) => {
+      const t = (AWS.iconSize * (i + 1)) / (list.length + 1);
+      const x = p.side === "NORTH" ? left + t : p.side === "WEST" ? left : left + AWS.iconSize;
+      const y = p.side === "NORTH" ? 0 : t;
+      const port: ElkPort = { id: p.id, x, y, width: 0, height: 0,
+        layoutOptions: { "elk.port.side": p.side, "elk.port.borderOffset": String(p.side === "NORTH" ? 0 : -left) } };
+      ports.set(node, [...(ports.get(node) ?? []), port]);
+    });
+  }
+  return ports;
+}
+
+function buildGraph(d: AwsDiagramData, labelLines: Map<string, string[]>, sides: EdgeSides, centres?: Centres): ElkNode {
   const root: ElkNode = { id: ROOT, layoutOptions: { ...ROOT_OPTIONS, "elk.direction": d.direction }, children: [], edges: [] };
   const elkGroups = new Map<string, ElkNode>();
   for (const g of d.groups) {
@@ -76,28 +125,37 @@ function buildGraph(d: AwsDiagramData, labelLines: Map<string, string[]>): ElkNo
   }
   const childrenOf = (parent: string | undefined) => (parent ? elkGroups.get(parent)! : root).children!;
   for (const g of d.groups) childrenOf(g.parent).push(elkGroups.get(g.id)!);
-  const iconNodes = new Set<string>();
+  const widths = new Map(d.nodes.filter((n) => n.icon !== "task").map((n) => [n.id, nodeBox(n).w]));
+  const ports = iconPorts(d, sides, centres, widths);
   for (const n of d.nodes) {
     const box = nodeBox(n);
     labelLines.set(n.id, box.labelLines);
-    if (n.icon === "task") { childrenOf(n.group).push({ id: n.id, width: box.w, height: box.h }); continue; }
-    iconNodes.add(n.id);
-    childrenOf(n.group).push({ id: n.id, width: box.w, height: box.h, ports: iconPorts(n.id, box.w, d.direction),
+    if (!widths.has(n.id)) { childrenOf(n.group).push({ id: n.id, width: box.w, height: box.h }); continue; }
+    childrenOf(n.group).push({ id: n.id, width: box.w, height: box.h, ports: ports.get(n.id) ?? [],
       layoutOptions: { "elk.portConstraints": "FIXED_POS" } });
   }
-  const end = (id: string, side: "in" | "out") => (iconNodes.has(id) ? `${id}${PORT[side]}` : id);
+  const end = (e: AwsDiagramData["edges"][number], which: "from" | "to") => (widths.has(e[which]) ? portId(e.id, which) : e[which]);
   for (const e of d.edges) {
     const labels: ElkLabel[] = e.label
       ? [{ id: `${e.id}__label`, text: e.label, width: textWidth(e.label, AWS.edgeLabelFont) + 8, height: LINE_H, layoutOptions: { "elk.edgeLabels.placement": "CENTER" } }]
       : [];
-    root.edges!.push({ id: e.id, sources: [end(e.from, "out")], targets: [end(e.to, "in")], labels });
+    const [src, dst] = sides.get(e.id)!.back ? [end(e, "to"), end(e, "from")] : [end(e, "from"), end(e, "to")];
+    root.edges!.push({ id: e.id, sources: [src], targets: [dst], labels });
   }
   return root;
 }
 
+// WHY two passes: port sides depend on where ELK puts the endpoints, so a forward-flow pass places the
+// nodes and the final pass gives every edge the sides facing its far endpoint.
 export async function layoutDiagram(d: AwsDiagramData): Promise<DiagramLayout> {
+  const first = await place(d, flowSides(d));
+  const centres: Centres = new Map(Object.entries(first.nodes).map(([id, r]) => [id, { x: r.x + r.w / 2, y: r.y + r.h / 2 }]));
+  return place(d, facingSides(d, centres), centres);
+}
+
+async function place(d: AwsDiagramData, sides: EdgeSides, centres?: Centres): Promise<DiagramLayout> {
   const labelLines = new Map<string, string[]>();
-  const result = await elk.layout(buildGraph(d, labelLines));
+  const result = await elk.layout(buildGraph(d, labelLines, sides, centres));
   const groupIds = new Set(d.groups.map((g) => g.id));
   const out: DiagramLayout = { width: result.width ?? 0, height: (result.height ?? 0) + AWS.titleH, groups: {}, nodes: {}, edges: {} };
 
@@ -123,7 +181,8 @@ export async function layoutDiagram(d: AwsDiagramData): Promise<DiagramLayout> {
     const section = e.sections?.[0];
     if (!base || !section) throw new Error(`ELK returned no route for edge "${e.id}"`);
     const shift = (p: Point) => ({ x: base.x + p.x, y: base.y + p.y });
-    const points = [section.startPoint, ...(section.bendPoints ?? []), section.endPoint].map(shift);
+    const routed = [section.startPoint, ...(section.bendPoints ?? []), section.endPoint].map(shift);
+    const points = sides.get(e.id)!.back ? routed.reverse() : routed;
     const l = e.labels?.[0];
     out.edges[e.id] = l ? { points, label: { ...shift({ x: l.x ?? 0, y: l.y ?? 0 }), w: l.width ?? 0, h: l.height ?? 0 } } : { points };
   }

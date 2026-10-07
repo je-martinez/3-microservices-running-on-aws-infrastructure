@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { layoutDiagram, type Rect } from "../src/aws/layout";
+import { layoutDiagram, type Point, type Rect } from "../src/aws/layout";
 import { AwsDiagramData } from "../src/aws/schema";
 
 const inside = (a: Rect, b: Rect) => a.x >= b.x - 0.5 && a.y >= b.y - 0.5 && a.x + a.w <= b.x + b.w + 0.5 && a.y + a.h <= b.y + b.h + 0.5;
@@ -163,5 +163,80 @@ describe("node sizing", async () => {
     expect(l.nodes.svc!.w).toBeGreaterThanOrEqual(48 + 24);
     expect(l.nodes.svc!.h).toBe(48 + 6 + l.nodes.svc!.labelLines.length * 16 + 16);
     expect(l.nodes.user!.h).toBe(48 + 6 + l.nodes.user!.labelLines.length * 16);
+  });
+});
+
+describe("per-edge ports", async () => {
+  const fanIn = AwsDiagramData.parse({
+    title: "Fan-in",
+    groups: [{ id: "vpc", kind: "vpc", label: "VPC" }],
+    nodes: [
+      { id: "orders", label: "Orders", icon: "ecs", group: "vpc" },
+      { id: "tracking", label: "Tracking", icon: "ecs", group: "vpc" },
+      { id: "users", label: "Users", icon: "ecs", group: "vpc" },
+    ],
+    edges: [{ id: "o-u", from: "orders", to: "users", label: "gRPC" }, { id: "t-u", from: "tracking", to: "users", label: "gRPC" }],
+  });
+  it("never lets two edges into the same node share their final segment", async () => {
+    const l = await layoutDiagram(fanIn);
+    const last = (id: string) => l.edges[id]!.points.slice(-2) as [Point, Point];
+    const [[a1, a2], [b1, b2]] = [last("o-u"), last("t-u")];
+    expect(a2).not.toEqual(b2);
+    const collinear = (Math.abs(a1.y - a2.y) < 0.5 && Math.abs(b1.y - b2.y) < 0.5 && Math.abs(a1.y - b1.y) < 0.5)
+      || (Math.abs(a1.x - a2.x) < 0.5 && Math.abs(b1.x - b2.x) < 0.5 && Math.abs(a1.x - b1.x) < 0.5);
+    expect(collinear, "final segments run on the same line").toBe(false);
+  });
+
+  for (const direction of ["RIGHT", "DOWN"] as const) {
+    it(`${direction}: routes a back edge straight across, not around the group`, async () => {
+      const chain = AwsDiagramData.parse({
+        title: "Back edge",
+        direction,
+        groups: [{ id: "g", kind: "generic", label: "Group" }],
+        nodes: [
+          { id: "a", label: "Queue", icon: "sqs", group: "g" },
+          { id: "b", label: "Worker", icon: "lambda", group: "g" },
+          { id: "c", label: "Users", icon: "ecs", group: "g" },
+          { id: "x", label: "Store", icon: "rds", group: "g" },
+          { id: "y", label: "Cache", icon: "elasticache", group: "g" },
+        ],
+        edges: [
+          { id: "ab", from: "a", to: "b" }, { id: "bc", from: "b", to: "c" }, { id: "ca", from: "c", to: "a", async: true },
+          { id: "bx", from: "b", to: "x" }, { id: "by", from: "b", to: "y" },
+        ],
+      });
+      const l = await layoutDiagram(chain);
+      const centre = (r: Rect) => ({ x: r.x + r.w / 2, y: r.y + r.h / 2 });
+      const [a, c] = [centre(l.nodes.a!), centre(l.nodes.c!)];
+      const pts = l.edges.ca!.points;
+      const length = pts.slice(1).reduce((sum, p, i) => sum + Math.abs(p.x - pts[i]!.x) + Math.abs(p.y - pts[i]!.y), 0);
+      // One layer spacing (70px) of detour at most; a loop around the group is several times that.
+      expect(length).toBeLessThanOrEqual(Math.abs(a.x - c.x) + Math.abs(a.y - c.y) + 70);
+      const g = l.groups.g!;
+      for (const p of pts) expect(p.x >= g.x && p.x <= g.x + g.w && p.y >= g.y && p.y <= g.y + g.h).toBe(true);
+    });
+  }
+  it("routes a back edge into a group holding nodes on both sides of another group from the near side", async () => {
+    const d = AwsDiagramData.parse({
+      title: "Auth",
+      groups: [{ id: "compose", kind: "generic", label: "Docker Compose" }, { id: "floci", kind: "local-floci", label: "Floci (:4566)" }],
+      nodes: [
+        { id: "web", label: "Web app", sublabel: "browser", icon: "client" },
+        { id: "gw", label: "API Gateway", sublabel: "JWT authorizer", icon: "api-gateway", group: "floci" },
+        { id: "users", label: "Users service", icon: "server", group: "compose" },
+        { id: "cognito", label: "Cognito", icon: "cognito", group: "floci" },
+        { id: "trigger", label: "Pre-token trigger", icon: "lambda", group: "floci" },
+      ],
+      edges: [
+        { id: "call", from: "web", to: "gw", label: "sign in" }, { id: "proxy", from: "gw", to: "users", label: "proxy" },
+        { id: "auth", from: "users", to: "cognito", label: "password" }, { id: "claims", from: "cognito", to: "trigger" },
+      ],
+    });
+    const l = await layoutDiagram(d);
+    const pts = l.edges.auth!.points;
+    const centre = (r: Rect) => ({ x: r.x + r.w / 2, y: r.y + r.h / 2 });
+    const [u, c] = [centre(l.nodes.users!), centre(l.nodes.cognito!)];
+    const length = pts.slice(1).reduce((sum, p, i) => sum + Math.abs(p.x - pts[i]!.x) + Math.abs(p.y - pts[i]!.y), 0);
+    expect(length).toBeLessThanOrEqual(Math.abs(u.x - c.x) + Math.abs(u.y - c.y) + 140);
   });
 });
