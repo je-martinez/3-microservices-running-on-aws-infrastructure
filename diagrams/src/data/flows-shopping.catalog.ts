@@ -7,7 +7,7 @@ export const shoppingFlowEntries: CatalogEntry[] = [
   {
     id: "orders-catalogue-cart",
     title: ordersCatalogueCart.title,
-    primitive: "flow",
+    primitive: "aws",
     output: "docs/domains/orders/specs/diagrams/orders-catalogue-cart",
     watches: [
       "services/orders/src/Orders.Api/Endpoints/CartEndpoints.cs",
@@ -24,7 +24,7 @@ export const shoppingFlowEntries: CatalogEntry[] = [
   {
     id: "response-cache",
     title: responseCache.title,
-    primitive: "flow",
+    primitive: "aws",
     output: "docs/shared/patterns/diagrams/response-cache",
     watches: [
       "services/*/src/shared/cache/**",
@@ -37,7 +37,7 @@ export const shoppingFlowEntries: CatalogEntry[] = [
   {
     id: "checkout-address-geocoding-proxy",
     title: checkoutAddressGeocodingProxy.title,
-    primitive: "flow",
+    primitive: "aws",
     output: "docs/domains/orders/specs/diagrams/checkout-address-geocoding-proxy",
     watches: [
       "apps/web/nginx.conf",
