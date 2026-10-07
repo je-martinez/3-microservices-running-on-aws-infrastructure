@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { layoutDiagram, type Point, type Rect } from "../src/aws/layout";
+import { groupHeaderRect, layoutDiagram, type Point, type Rect } from "../src/aws/layout";
 import { AwsDiagramData } from "../src/aws/schema";
 
 const inside = (a: Rect, b: Rect) => a.x >= b.x - 0.5 && a.y >= b.y - 0.5 && a.x + a.w <= b.x + b.w + 0.5 && a.y + a.h <= b.y + b.h + 0.5;
@@ -255,5 +255,72 @@ describe("per-edge ports", async () => {
     const [u, c] = [centre(l.nodes.users!), centre(l.nodes.cognito!)];
     const length = pts.slice(1).reduce((sum, p, i) => sum + Math.abs(p.x - pts[i]!.x) + Math.abs(p.y - pts[i]!.y), 0);
     expect(length).toBeLessThanOrEqual(Math.abs(u.x - c.x) + Math.abs(u.y - c.y) + 140);
+  });
+});
+
+describe("group endpoints", () => {
+  const onFrame = (p: Point, r: Rect) => onBorder(p, r);
+  const icon = (r: Rect): Rect => ({ x: r.x + (r.w - 48) / 2, y: r.y, w: 48, h: 48 });
+  const header = (r: Rect, label: string) => groupHeaderRect(r, label);
+  const inBand = (p: Point, h: Rect) => p.x >= h.x - 1 && p.x <= h.x + h.w + 1 && p.y >= h.y - 1 && p.y <= h.y + h.h + 1;
+
+  for (const direction of ["RIGHT", "DOWN"] as const) {
+    const d = AwsDiagramData.parse({
+      title: "Groups",
+      direction,
+      groups: [
+        { id: "floci", kind: "local-floci", label: "Floci (:4566)" },
+        { id: "vpc", kind: "vpc", label: "VPC 10.0.0.0/16", parent: "floci" },
+        { id: "subnets", kind: "private-subnet", label: "Subnets a + b", parent: "vpc" },
+        { id: "compose", kind: "generic", label: "Docker Compose: services" },
+      ],
+      nodes: [
+        { id: "web", label: "Browser", icon: "client" },
+        { id: "orders", label: "Orders", icon: "server", group: "compose" },
+        { id: "users", label: "Users", icon: "server", group: "compose" },
+        { id: "cache", label: "ElastiCache", icon: "elasticache", group: "floci" },
+        { id: "db", label: "RDS", icon: "rds", group: "subnets" },
+        { id: "topic", label: "Events topic", icon: "sns", group: "floci" },
+      ],
+      edges: [
+        { id: "node-group", from: "web", to: "compose", label: "HTTP" },
+        { id: "group-node", from: "compose", to: "cache", label: "cache" },
+        { id: "group-nested", from: "compose", to: "subnets", label: "SQL" },
+        { id: "group-async", from: "compose", to: "topic", async: true },
+        { id: "inside", from: "orders", to: "users", label: "gRPC" },
+      ],
+    });
+    it(`${direction}: ends a group edge on the group's frame (outside its header) and a node edge on the icon`, async () => {
+      const l = await layoutDiagram(d);
+      const groupIds = new Set(d.groups.map((g) => g.id));
+      const anchor = (id: string) => (groupIds.has(id) ? l.groups[id]! : icon(l.nodes[id]!));
+      for (const e of d.edges) {
+        const pts = l.edges[e.id]!.points;
+        for (const [id, p] of [[e.from, pts[0]!], [e.to, pts[pts.length - 1]!]] as const) {
+          expect(onFrame(p, anchor(id)), `${e.id} end on ${id}`).toBe(true);
+          if (groupIds.has(id)) expect(inBand(p, header(l.groups[id]!, d.groups.find((g) => g.id === id)!.label)), `${e.id} in ${id} header`).toBe(false);
+        }
+      }
+    });
+    it(`${direction}: routes group edges clear of every node`, async () => {
+      const l = await layoutDiagram(d);
+      for (const e of d.edges) {
+        const pts = l.edges[e.id]!.points;
+        for (const n of d.nodes) {
+          if (n.id === e.from || n.id === e.to) continue;
+          for (let i = 1; i < pts.length; i++) expect(segHitsRect(pts[i - 1]!, pts[i]!, l.nodes[n.id]!), `${e.id} crosses ${n.id}`).toBe(false);
+        }
+      }
+    });
+  }
+  it("DOWN: makes every group frame at least as wide as its header", async () => {
+    const d = AwsDiagramData.parse({
+      title: "Down", direction: "DOWN",
+      groups: [{ id: "compose", kind: "generic", label: "Docker Compose: services" }, { id: "vpc", kind: "vpc", label: "VPC 10.0.0.0/16" }],
+      nodes: [{ id: "a", label: "A", icon: "server", group: "compose" }, { id: "b", label: "B", icon: "rds", group: "vpc" }],
+      edges: [{ id: "ab", from: "a", to: "b" }],
+    });
+    const l = await layoutDiagram(d);
+    for (const g of d.groups) expect(l.groups[g.id]!.w, g.id).toBeGreaterThanOrEqual(groupHeaderRect(l.groups[g.id]!, g.label).w);
   });
 });

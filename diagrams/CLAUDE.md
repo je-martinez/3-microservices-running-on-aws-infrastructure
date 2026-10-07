@@ -53,7 +53,7 @@ Serverless or regional services (SQS, SNS, Cognito, S3, SES, Lambda, API Gateway
 1. Add the data file under `src/data/<kind>/` and its entry in `src/data/<group>.catalog.ts` (never directly in `src/catalog.ts`), with `source` set to the data file's repo-relative path (e.g. `diagrams/src/data/flows/users-signup-otp.ts`). The catalog test requires it to exist and be tracked.
 2. Every entry declares `watches`: globs of the handlers/modules the diagram depicts, not whole service trees. `test/catalog.test.ts` fails when a glob matches nothing, and `make diagrams-check` relies on them. A typo silently disables drift detection, so keep them tight and real. `source`, `src/aws/**` and `src/theme/**` are implicit watches; test files never count as drift.
 3. `id`, `output` and the output **basename** must be unique across the catalog (Obsidian resolves an embed by basename). `output` has no extension; the renderer adds `.gif` and `.png`.
-4. Edges reference declared node ids and steps reference declared edge ids; the schema rejects unknown and duplicate ids.
+4. Edges reference declared node or group ids (never a group and its own content) and steps reference declared edge ids; the schema rejects unknown and duplicate ids.
 5. AWS icons: only `src/theme/aws-icons.ts` imports icon packages (`@nxavis/aws-icons` for services, the committed official SVGs for groups and generic icons). Everything else asks the adapter.
 
 ## Authoring rules
@@ -61,6 +61,7 @@ Serverless or regional services (SQS, SNS, Cognito, S3, SES, Lambda, API Gateway
 Full text: [[diagrams]]. In short:
 
 - Declare structure, not coordinates: groups, nodes, edges, `direction`. If a layout looks wrong, fix the data (grouping, direction, fewer edges), never add positions.
+- When several nodes of a group share a connection, draw ONE edge from (or to) the group: `from`/`to` accept a group id, and the edge meets the group's frame. Never repeat the same connection per member.
 - Keep names short; a single long word next to an icon wraps mid-word.
 - Never animate the whole canvas. GIF budget: changed pixels per frame drive the size; the renderer only lights the active step's edges, so keep steps few and focused.
 

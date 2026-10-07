@@ -30,8 +30,20 @@ describe("AwsDiagramData", () => {
   it("accepts a valid diagram", () => {
     expect(AwsDiagramData.parse(ok).nodes).toHaveLength(3);
   });
-  it("rejects an edge to an unknown node", () => {
-    expect(issues({ ...ok, edges: [{ id: "e1", from: "browser", to: "ghost" }] })).toContain('unknown node "ghost"');
+  it("rejects an edge to an unknown node or group", () => {
+    expect(issues({ ...ok, edges: [{ id: "e1", from: "browser", to: "ghost" }] })).toContain('unknown node or group "ghost"');
+  });
+  it("accepts a group as an edge endpoint", () => {
+    const d = AwsDiagramData.parse({ ...ok, edges: [{ id: "g1", from: "vpc", to: "browser" }, { id: "g2", from: "browser", to: "cloud" }], steps: [] });
+    expect(d.edges.map((e) => [e.from, e.to])).toEqual([["vpc", "browser"], ["browser", "cloud"]]);
+  });
+  it.each([
+    ["a group to its own node", "vpc", "users"],
+    ["a node to a group containing it", "users", "cloud"],
+    ["a group to its child group", "cloud", "vpc"],
+    ["a group to itself", "vpc", "vpc"],
+  ])("rejects an edge from %s", (_what, from, to) => {
+    expect(issues({ ...ok, edges: [{ id: "bad", from, to }], steps: [] })).toContain('edge "bad" connects a group to itself or its own content');
   });
   it("rejects a step referencing an unknown edge", () => {
     expect(issues({ ...ok, steps: [{ edges: ["nope"], caption: "x" }] })).toContain('unknown edge "nope"');
