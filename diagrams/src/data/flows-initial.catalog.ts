@@ -9,7 +9,7 @@ export const initialFlowEntries: CatalogEntry[] = [
   {
     id: "users-signup-otp",
     title: usersSignupOtp.title,
-    primitive: "flow",
+    primitive: "aws",
     output: "docs/domains/users/specs/diagrams/users-signup-otp",
     watches: [
       "services/users/src/users/commands/register-passwordless.command.ts",
@@ -24,7 +24,7 @@ export const initialFlowEntries: CatalogEntry[] = [
   {
     id: "users-password-reset",
     title: usersPasswordReset.title,
-    primitive: "flow",
+    primitive: "aws",
     output: "docs/domains/users/specs/diagrams/users-password-reset",
     watches: [
       "services/users/src/users/commands/forgot-password.command.ts",
@@ -39,7 +39,7 @@ export const initialFlowEntries: CatalogEntry[] = [
   {
     id: "orders-checkout-stripe",
     title: ordersCheckoutStripe.title,
-    primitive: "flow",
+    primitive: "aws",
     output: "docs/domains/orders/specs/diagrams/orders-checkout-stripe",
     watches: [
       "services/orders/src/Orders.Api/Endpoints/CreateOrderEndpoint.cs",
@@ -59,7 +59,7 @@ export const initialFlowEntries: CatalogEntry[] = [
   {
     id: "tracking-notification",
     title: trackingNotification.title,
-    primitive: "flow",
+    primitive: "aws",
     output: "docs/domains/tracking/specs/diagrams/tracking-notification",
     watches: [
       "services/tracking-go/internal/adapter/http/handler_carrier.go",
@@ -79,7 +79,7 @@ export const initialFlowEntries: CatalogEntry[] = [
   {
     id: "observability-telemetry",
     title: observabilityTelemetry.title,
-    primitive: "flow",
+    primitive: "aws",
     output: "docs/shared/observability/diagrams/observability-telemetry",
     watches: ["observability/**", "docker-compose.yml", "apps/web/nginx.conf"],
     source: "diagrams/src/data/flows/observability-telemetry.ts",
