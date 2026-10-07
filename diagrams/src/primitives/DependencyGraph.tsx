@@ -6,6 +6,21 @@ import { Arrow } from "./shared/Arrow";
 import { NodeBox } from "./shared/NodeBox";
 import { Title } from "./shared/Title";
 
+type DepPath = { d: string; len: number };
+
+/** CONTRACT: halos, then strokes, then heads; a later arrow's halo must never cover an earlier arrow's head. */
+export function DependencyArrows({ paths }: { paths: DepPath[] }) {
+  return (
+    <>
+      {(["halo", "stroke", "head"] as const).map((layer) => (
+        <g key={layer} data-layer={layer}>
+          {paths.map((path, i) => <Arrow key={i} id={`d${i}`} path={path} progress={1} halo layer={layer} />)}
+        </g>
+      ))}
+    </>
+  );
+}
+
 export function DependencyGraph({ data }: { data: DependencyData }) {
   const { width, height } = useVideoConfig();
   const l = layoutDependency(data, width, height);
@@ -25,7 +40,7 @@ export function DependencyGraph({ data }: { data: DependencyData }) {
       {data.tasks.map((t) => <NodeBox key={t.id} {...l.tasks[t.id]!} label={t.label} tag={t.id} kind="compute" />)}
       {/* CONTRACT: arrows render ABOVE the tasks; underneath, a skip-phase arrow vanishes behind an intermediate task and reads as starting there. */}
       <svg width={width} height={height} style={{ position: "absolute", inset: 0 }}>
-        {data.deps.map((e, i) => <Arrow key={i} id={`d${i}`} path={depPath(l.tasks[e.from]!, l.tasks[e.to]!, rects)} progress={1} halo />)}
+        <DependencyArrows paths={data.deps.map((e) => depPath(l.tasks[e.from]!, l.tasks[e.to]!, rects))} />
       </svg>
     </AbsoluteFill>
   );
