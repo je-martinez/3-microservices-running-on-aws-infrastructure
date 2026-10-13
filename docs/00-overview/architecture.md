@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-10-06
+updated: 2026-10-12
 tags:
   - type/spec
   - area/shared
@@ -44,11 +44,11 @@ Local dev (Floci) and pre-prod (ECS on Floci) topologies:
 
 ![[architecture-dev-floci.png]]
 
-*Wide map (about 1700 px): open the image full size to read it.*
+*Wide map (up to about 2000 px): open the image full size to read it.*
 
 ![[architecture-preprod.png]]
 
-*Wide map (about 1700 px): open the image full size to read it.*
+*Wide map (up to about 2000 px): open the image full size to read it.*
 
 Aurora is the production target; local dev and pre-prod run plain RDS PostgreSQL/MySQL clusters without replicas. Diagram rules: [[diagrams]].
 

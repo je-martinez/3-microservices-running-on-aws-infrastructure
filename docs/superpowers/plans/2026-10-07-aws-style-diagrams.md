@@ -4,7 +4,7 @@ type: plan
 area: shared
 status: active
 created: 2026-10-07
-updated: 2026-10-07
+updated: 2026-10-12
 tags:
   - type/plan
   - area/shared
@@ -28,7 +28,7 @@ propagates-to:
 
 # AWS-Style Diagrams Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Restyle all 26 Remotion diagrams to the AWS reference-architecture visual language with one ELK-laid-out primitive (`AwsDiagram`), official group/generic icons, numbered step badges, and update the `diagram-impl` agent so future diagrams follow it.
 
@@ -70,11 +70,15 @@ diagrams/
   src/aws/measure.ts                    deterministic text-size estimate shared by layout and tests
   src/aws/layout.ts                     toElkGraph + layoutDiagram (ELK) → DiagramLayout
   src/aws/timing.ts                     durations, active step, gifScale
+  src/aws/badges.ts                     step badge placement along edges
+  src/aws/canvas.ts                     canvas sizing (title, captions, 20 px multiples)
+  src/aws/labels.ts                     placeLabels post-pass: label nearest its own route
   src/aws/AwsDiagram.tsx                composition component
   src/aws/parts/{Group,NodeView,Connector,StepBadge,CaptionBar,StepList}.tsx
   src/theme/aws-style.ts                AWS colours, sizes, group styles
   src/theme/aws-icons.ts                (extended) service + group + generic icon lookup
   test/aws-schema.test.ts, test/aws-layout.test.ts, test/aws-timing.test.ts
+  test/aws-{badges,canvas,catalog-quality,measure}.test.ts
 ```
 Old `src/primitives/**`, `src/schema.ts` (old parts), `src/timing.ts` and their tests are deleted in Task 11.
 
@@ -92,7 +96,7 @@ Old `src/primitives/**`, `src/schema.ts` (old parts), `src/timing.ts` and their 
   - generic (from `Resource-Icons_*/Res_General-Icons/Res_48_Light/`): `users` ← `Res_Users_48_Light.svg`, `client` ← `Res_Client_48_Light.svg`, `internet` ← `Res_Internet_48_Light.svg`, `server` ← `Res_Server_48_Light.svg`, `office-building` ← `Res_Office-building_48_Light.svg`, `firewall` ← `Res_Firewall_48_Light.svg`, `data-table` ← `Res_Data-Table_48_Light.svg`
   - Availability Zone and generic group have no official icon (dashed border, label only).
 
-- [ ] **Step 1: Failing pytest** — `diagrams/scripts/test_fetch_aws_icons.py`
+- [x] **Step 1: Failing pytest** — `diagrams/scripts/test_fetch_aws_icons.py`
 
 ```python
 import importlib.util
@@ -131,9 +135,9 @@ def test_select_raises_when_a_wanted_icon_is_missing():
         fetch.select(NAMES, {"vpc": "Virtual-private-cloud-VPC_32.svg"}, {})
 ```
 
-- [ ] **Step 2: Run RED** — `make scripts-setup && .venv/bin/python -m pytest diagrams/scripts/test_fetch_aws_icons.py -q` → FAIL (module missing).
+- [x] **Step 2: Run RED** — `make scripts-setup && .venv/bin/python -m pytest diagrams/scripts/test_fetch_aws_icons.py -q` → FAIL (module missing).
 
-- [ ] **Step 3: Implement `diagrams/scripts/fetch_aws_icons.py`**
+- [x] **Step 3: Implement `diagrams/scripts/fetch_aws_icons.py`**
 
 ```python
 """Fetch the official AWS Architecture Icons package and extract the group/generic icons diagrams use."""
@@ -211,16 +215,16 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 4: GREEN** — pytest → 3 passed. If `pytest` is missing from the venv, add it the way `scripts/pyproject.toml` declares dev deps and report.
-- [ ] **Step 5: Makefile**
+- [x] **Step 4: GREEN** — pytest → 3 passed. If `pytest` is missing from the venv, add it the way `scripts/pyproject.toml` declares dev deps and report.
+- [x] **Step 5: Makefile**
 
 ```make
 diagrams-icons: scripts-setup ## Re-fetch the official AWS group/generic icons into diagrams/public/aws-icons
 	.venv/bin/python diagrams/scripts/fetch_aws_icons.py
 ```
 
-- [ ] **Step 6: Run it** — `make diagrams-icons` → 15 SVGs + manifest written. Open 2–3 SVGs with the Read tool (or render) to confirm they are the expected icons.
-- [ ] **Step 7:** `python3 scripts/validate-comments.py diagrams/scripts/*.py Makefile` clean. Commit: `feat(diagrams): fetch official AWS group and generic icons`.
+- [x] **Step 6: Run it** — `make diagrams-icons` → 15 SVGs + manifest written. Open 2–3 SVGs with the Read tool (or render) to confirm they are the expected icons.
+- [x] **Step 7:** `python3 scripts/validate-comments.py diagrams/scripts/*.py Makefile` clean. Commit: `feat(diagrams): fetch official AWS group and generic icons`.
 
 ---
 
@@ -233,7 +237,7 @@ diagrams-icons: scripts-setup ## Re-fetch the official AWS group/generic icons i
 - Consumes: `AwsService` from `diagrams/src/schema.ts`.
 - Produces: `GroupKind`, `GenericIcon`, `AwsDiagramData` (zod + inferred type).
 
-- [ ] **Step 1: Failing test** — `diagrams/test/aws-schema.test.ts`
+- [x] **Step 1: Failing test** — `diagrams/test/aws-schema.test.ts`
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -293,8 +297,8 @@ describe("AwsDiagramData", () => {
 });
 ```
 
-- [ ] **Step 2: RED** — `pnpm --filter @3mrai/diagrams test -- aws-schema` → FAIL.
-- [ ] **Step 3: Implement `diagrams/src/aws/schema.ts`**
+- [x] **Step 2: RED** — `pnpm --filter @3mrai/diagrams test -- aws-schema` → FAIL.
+- [x] **Step 3: Implement `diagrams/src/aws/schema.ts`**
 
 ```ts
 import { z } from "zod";
@@ -353,8 +357,8 @@ export type AwsDiagramData = z.infer<typeof AwsDiagramData>;
 
 WHY the hard cap is 24 nodes: milestone graphs hold up to 24 tasks; the ~12 (flows) / 18 (architecture) caps are authoring rules in `diagrams/CLAUDE.md`, not schema rules.
 
-- [ ] **Step 4: GREEN** — all aws-schema tests pass; typecheck clean.
-- [ ] **Step 5:** comment validator; commit `feat(diagrams): add the AwsDiagram data schema`.
+- [x] **Step 4: GREEN** — all aws-schema tests pass; typecheck clean.
+- [x] **Step 5:** comment validator; commit `feat(diagrams): add the AwsDiagram data schema`.
 
 ---
 
@@ -371,8 +375,8 @@ WHY the hard cap is 24 nodes: milestone graphs hold up to 24 tasks; the ~12 (flo
   - `measure.ts`: `textWidth(text: string, px: number): number` (Arimo ≈ 0.56em/char, bold not used), `wrap(text: string, px: number, maxW: number, maxLines: number): string[]`.
   - `layout.ts`: `type Rect={x,y,w,h}`; `type DiagramLayout = { width:number; height:number; groups: Record<string, Rect>; nodes: Record<string, Rect & { labelLines: string[] }>; edges: Record<string, { points: {x:number;y:number}[]; label?: Rect }> }`; `async function layoutDiagram(d: AwsDiagramData): Promise<DiagramLayout>` — coordinates absolute, diagram area offset by `AWS.titleH` from the top.
 
-- [ ] **Step 1:** `pnpm --filter @3mrai/diagrams add -E elkjs@0.12.0`.
-- [ ] **Step 2: Failing tests** — `diagrams/test/aws-layout.test.ts`
+- [x] **Step 1:** `pnpm --filter @3mrai/diagrams add -E elkjs@0.12.0`.
+- [x] **Step 2: Failing tests** — `diagrams/test/aws-layout.test.ts`
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -449,8 +453,8 @@ describe("layoutDiagram (real ELK)", async () => {
 });
 ```
 
-- [ ] **Step 3: RED.**
-- [ ] **Step 4: Implement** `measure.ts`, `aws-style.ts`, `layout.ts`. `layout.ts` requirements (the implementer writes the code; these are binding):
+- [x] **Step 3: RED.**
+- [x] **Step 4: Implement** `measure.ts`, `aws-style.ts`, `layout.ts`. `layout.ts` requirements (the implementer writes the code; these are binding):
   - `import ELK from "elkjs/lib/elk.bundled.js"` (works in Node/vitest and in the Remotion bundle; no web worker).
   - Root options: `elk.algorithm: "layered"`, `elk.direction: d.direction`, `elk.hierarchyHandling: "INCLUDE_CHILDREN"`, `elk.edgeRouting: "ORTHOGONAL"`, `elk.layered.spacing.nodeNodeBetweenLayers: "70"`, `elk.spacing.nodeNode: "40"`, `elk.spacing.edgeLabel: "6"`, `elk.layered.considerModelOrder.strategy: "NODES_AND_EDGES"` (data order is a layout hint), `elk.padding: "[top=20,left=20,bottom=20,right=20]"`.
   - Groups become compound ELK nodes nested by `parent`; padding `[top=groupHeader+groupPad, left=groupPad, bottom=groupPad, right=groupPad]`; nodes become children of their group (or root).
@@ -459,7 +463,7 @@ describe("layoutDiagram (real ELK)", async () => {
   - Convert ELK's container-relative coordinates to absolute (sum ancestor offsets for nodes, groups, edge sections and labels; edge sections are relative to the edge's container, per ELK docs), then shift everything down by `titleH`. `width/height` = root size; `height += titleH`.
   - Edge `points` = startPoint + bendPoints + endPoint of the (single) section.
   - If the "never crosses" test fails for valid inputs, tune options (e.g. `elk.layered.nodePlacement.strategy: "NETWORK_SIMPLEX"`, larger spacing) — do NOT weaken the test; report which options were needed.
-- [ ] **Step 5: GREEN** — tests + typecheck. Comment validator. Commit `feat(diagrams): lay out AWS diagrams with ELK`.
+- [x] **Step 5: GREEN** — tests + typecheck. Comment validator. Commit `feat(diagrams): lay out AWS diagrams with ELK`.
 
 ---
 
@@ -476,7 +480,7 @@ describe("layoutDiagram (real ELK)", async () => {
   - Catalog: `| (Base & { primitive: "aws"; data: AwsDiagramData })`; `animated` is derived for `aws` entries (`isAnimated`), not declared.
   - Composition props: `{ data: AwsDiagramData; layout?: DiagramLayout }`; `calculateMetadata` computes `layout`, `width = layout.width`, `height = layout.height + stepPanelHeight(steps)`, `durationInFrames = awsDuration(steps)`, `fps = AWS_FPS`.
 
-- [ ] **Step 1: Failing timing test** — `diagrams/test/aws-timing.test.ts`
+- [x] **Step 1: Failing timing test** — `diagrams/test/aws-timing.test.ts`
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -501,8 +505,8 @@ describe("aws timing", () => {
 });
 ```
 
-- [ ] **Step 2: RED → implement `timing.ts` → GREEN.**
-- [ ] **Step 3: Component (binding behaviour; implementer writes the JSX):**
+- [x] **Step 2: RED → implement `timing.ts` → GREEN.**
+- [x] **Step 3: Component (binding behaviour; implementer writes the JSX):**
   - White `AbsoluteFill`; title (bold 22px) + subtitle (14px muted) in the top `titleH` band.
   - Groups drawn outermost first: rectangle with `GROUP_STYLE` stroke (1.5px, dashed where set) and fill; official corner icon 32px at top-left (none for `az`, `generic`, `phase`), label 14px beside it.
   - Nodes: service icon via `awsIcon`, generic via `<Img src={genericIconSrc}>`, `task` as a white card with 1.5px `#7D8998` border, id (bold 12px) over label (13px); label lines centred under the icon, sublabel italic.
@@ -511,12 +515,12 @@ describe("aws timing", () => {
   - `CaptionBar` (only while a step is active): dark bar over the bottom of the diagram area: "n. caption".
   - `StepList` (frames ≥ hold start, and on the PNG): panel below the diagram, height `stepPanelHeight`, each row "badge n + caption" 13px.
   - No animation on groups/nodes (frame 0 shows the full diagram).
-- [ ] **Step 4: Root + catalog + renderer.**
+- [x] **Step 4: Root + catalog + renderer.**
   - Root: `aws` entries register `<Composition component={AwsDiagram} schema={PropsSchema.aws} calculateMetadata={…} />` per the interface above (add `aws: z.object({ data: AwsDiagramData })` to the existing `PropsSchema`).
   - `render.ts`: for `aws` entries, `animated = isAnimated(data)`; GIF via `renderMedia({ …, scale: gifScale(composition.width) })`; PNG via `renderStill` at full size; still `parseEntry` first.
   - `catalog.test.ts`: `aws` entries validated by `AwsDiagramData`.
-- [ ] **Step 5: Smoke render** — add a TEMPORARY `aws` entry (the Task 3 test data plus 3 steps, output under git-ignored `diagrams/out/`), `make diagrams-render ID=<id>`, Read the PNG and compare against the AWS reference style (groups with corner icons and colours, icons with labels below, orthogonal black connectors, blue numbered badges, step list). Fix until it reads like an AWS reference diagram. Remove the temporary entry.
-- [ ] **Step 6:** tests, typecheck, comment validator. Commit `feat(diagrams): render AWS-style diagrams with numbered steps`.
+- [x] **Step 5: Smoke render** — add a TEMPORARY `aws` entry (the Task 3 test data plus 3 steps, output under git-ignored `diagrams/out/`), `make diagrams-render ID=<id>`, Read the PNG and compare against the AWS reference style (groups with corner icons and colours, icons with labels below, orthogonal black connectors, blue numbered badges, step list). Fix until it reads like an AWS reference diagram. Remove the temporary entry.
+- [x] **Step 6:** tests, typecheck, comment validator. Commit `feat(diagrams): render AWS-style diagrams with numbered steps`.
 
 ---
 
@@ -549,10 +553,10 @@ Rules for every migration task:
 - Delete: `diagrams/src/primitives/**`, old `ArchitectureData`/`FlowData`/`DependencyData` and helpers in `diagrams/src/schema.ts` (keep `AwsService`, `NodeKind` only if still referenced), `diagrams/src/timing.ts`, `diagrams/test/layout.test.ts`, `diagrams/test/schema.test.ts` parts for old schemas, `diagrams/test/dependency-arrows.test.ts`
 - Modify: `diagrams/src/catalog.ts` (only the `aws` variant; drop `primitive` field or keep it fixed to `"aws"` — choose the smaller diff and report), `diagrams/src/Root.tsx`, `diagrams/src/scripts/render.ts`, `diagrams/src/scripts/drift.ts` (implicit watches now `diagrams/src/aws/**`, `diagrams/src/theme/**`, `diagrams/public/aws-icons/**`, `diagrams/src/schema.ts`), `diagrams/test/drift.test.ts`
 
-- [ ] **Step 1:** `grep -rn "primitives/\|ArchitectureData\|FlowData\|DependencyData\|from \"../timing\"\|from \"./timing\"" diagrams/src diagrams/test` → only files listed above.
-- [ ] **Step 2:** delete/modify; update drift implicit-watch tests first (RED → GREEN).
-- [ ] **Step 3:** tests, typecheck, `make diagrams-render` (all 26) — renders must be byte-identical to Tasks 5–10 output (old primitives no longer used); `make diagrams-check`.
-- [ ] **Step 4:** Commit `refactor(diagrams)!: drop the pre-AWS primitives`.
+- [x] **Step 1:** `grep -rn "primitives/\|ArchitectureData\|FlowData\|DependencyData\|from \"../timing\"\|from \"./timing\"" diagrams/src diagrams/test` → only files listed above.
+- [x] **Step 2:** delete/modify; update drift implicit-watch tests first (RED → GREEN).
+- [x] **Step 3:** tests, typecheck, `make diagrams-render` (all 26) — renders must be byte-identical to Tasks 5–10 output (old primitives no longer used); `make diagrams-check`.
+- [x] **Step 4:** Commit `refactor(diagrams)!: drop the pre-AWS primitives`.
 
 ---
 
@@ -560,30 +564,34 @@ Rules for every migration task:
 
 **Files:** `diagrams/CLAUDE.md`, `.claude/agents/diagram-impl.md` (then `make ai-sync`)
 
-- [ ] Replace the primitives section with the AwsDiagram model (groups/nodes/edges/steps, `direction`, ELK does layout — never hand-position), the group-kind decision table (from the migration rules above), icon sources (service = `AwsService`, generic = `GenericIcon`, `task` for milestones; Remotion `diagrams-icons` refresh), sync vs async edges, steps (reuse edges, ≤10, captions ≤90), PNG-only when no steps, the visual check against the AWS reference style, and remove the obsolete home-grown-layout authoring rules (≤10-char cross-zone labels, adjacent zones, sub-columns, self-step clipping, ARCH_STEP). Keep: detail level, read-sources-first, write boundary, verify loop, GIF budget, never animate the whole canvas.
-- [ ] `make ai-sync`; commit `docs(agents): teach diagram-impl the AWS reference style`.
+- [x] Replace the primitives section with the AwsDiagram model (groups/nodes/edges/steps, `direction`, ELK does layout — never hand-position), the group-kind decision table (from the migration rules above), icon sources (service = `AwsService`, generic = `GenericIcon`, `task` for milestones; Remotion `diagrams-icons` refresh), sync vs async edges, steps (reuse edges, ≤10, captions ≤90), PNG-only when no steps, the visual check against the AWS reference style, and remove the obsolete home-grown-layout authoring rules (≤10-char cross-zone labels, adjacent zones, sub-columns, self-step clipping, ARCH_STEP). Keep: detail level, read-sources-first, write boundary, verify loop, GIF budget, never animate the whole canvas.
+- [x] `make ai-sync`; commit `docs(agents): teach diagram-impl the AWS reference style`.
 
 ---
 
 ### Task 13: Vault
 
 **Executor:** `obsidian-vault`.
-- [ ] `docs/shared/conventions/diagrams.md`: AWS reference style, single primitive, ELK layout, group kinds, icons (official package + `@nxavis/aws-icons`, `make diagrams-icons`), steps + step list, PNG-only rule; remove the obsolete authoring rules.
-- [ ] `docs/shared/decisions/ADR-0023-remotion-diagrams.md`: add `## Style revision (2026-10-07)` (AWS reference style, ELK — EPL-2.0 OR GPL-3.0, acceptable for a dev-only tool; official icon package).
-- [ ] `docs/lessons/diagram-legibility.md`: home-grown layout lessons → "use a real layout engine"; keep the GIF-size lesson.
-- [ ] Switch embeds `.gif` → `.png` for every entry Tasks 5–10 reported as PNG-only.
-- [ ] Spec `2026-10-07-aws-style-diagrams-design.md`: `status`, `## Implementation deviations` if any were ruled, `updated:`; previous spec's deviations section: note it is superseded for style by the new spec.
-- [ ] `node scripts/validate-vault.mjs` green; commit `docs(vault): adopt the AWS reference style for diagrams`.
+- [x] `docs/shared/conventions/diagrams.md`: AWS reference style, single primitive, ELK layout, group kinds, icons (official package + `@nxavis/aws-icons`, `make diagrams-icons`), steps + step list, PNG-only rule; remove the obsolete authoring rules.
+- [x] `docs/shared/decisions/ADR-0023-remotion-diagrams.md`: add `## Style revision (2026-10-07)` (AWS reference style, ELK — EPL-2.0 OR GPL-3.0, acceptable for a dev-only tool; official icon package).
+- [x] `docs/lessons/diagram-legibility.md`: home-grown layout lessons → "use a real layout engine"; keep the GIF-size lesson.
+- [x] Switch embeds `.gif` → `.png` for every entry Tasks 5–10 reported as PNG-only.
+- [x] Spec `2026-10-07-aws-style-diagrams-design.md`: `status`, `## Implementation deviations` if any were ruled, `updated:`; previous spec's deviations section: note it is superseded for style by the new spec.
+- [x] `node scripts/validate-vault.mjs` green; commit `docs(vault): adopt the AWS reference style for diagrams`.
 
 ---
 
 ### Task 14: Final verification and gap audit
 
-- [ ] Tests, typecheck, `make lint-comments`, `node scripts/validate-vault.mjs`, `make ai-sync-check`, `make diagrams-check` (no `STALE?`).
-- [ ] `make diagrams-render` (all); Read every PNG; GIFs ≤ ~2 MB; report total binary size.
-- [ ] `grep -rn "ArchitectureMap\|FlowSequence\|DependencyGraph\|ARCH_STEP" --include=*.md --include=*.ts . | grep -v node_modules | grep -v superpowers/` → only historical mentions.
+- [x] Tests, typecheck, `make lint-comments`, `node scripts/validate-vault.mjs`, `make ai-sync-check`, `make diagrams-check` (no `STALE?`).
+- [x] `make diagrams-render` (all); Read every PNG; GIFs ≤ ~2 MB; report total binary size.
+- [x] `grep -rn "ArchitectureMap\|FlowSequence\|DependencyGraph\|ARCH_STEP" --include=*.md --include=*.ts . | grep -v node_modules | grep -v superpowers/` → only historical mentions.
 - [ ] Run `spec-implementation-audit` (spec → code, code → docs, plan → repo); close gaps; re-run.
 - [ ] Update PR #130's body `## Diagrams` (new architecture + one flow GIF) via `gh pr edit` after the user confirms the push (A/B/C/D/E menu).
+
+## Deviations
+
+The shipped code departs from this plan in port handling, label placement, group endpoints, the catalog quality gate, milestone direction and map widths. See the design spec's "Implementation deviations" section: [[2026-10-07-aws-style-diagrams-design]].
 
 ## Related
 

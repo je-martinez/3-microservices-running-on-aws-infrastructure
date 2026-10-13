@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-10-06
+updated: 2026-10-12
 tags:
   - type/spec
   - area/shared
@@ -48,6 +48,8 @@ The system context diagram shows **3MRAI** as a black box and identifies its use
 The container diagram zooms into the 3MRAI system and shows the independently deployable units.
 
 ![[system-context-l2.png]]
+
+*Wide map: open the image full size to read it.*
 
 ---
 

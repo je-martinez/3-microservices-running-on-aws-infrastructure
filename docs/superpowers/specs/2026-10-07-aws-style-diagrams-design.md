@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: accepted
 created: 2026-10-07
-updated: 2026-10-07
+updated: 2026-10-12
 tags:
   - type/spec
   - area/shared
@@ -52,11 +52,11 @@ The Remotion diagrams shipped by [[2026-10-06-remotion-diagrams-design]] work bu
 ## Data model and layout
 
 - One primitive `AwsDiagram` replaces `ArchitectureMap`, `FlowSequence` and `DependencyGraph`. Shared zod schema:
-  `{ title, subtitle?, direction: "RIGHT"|"DOWN", groups: [{ id, kind, label, parent? }], nodes: [{ id, label, sublabel?, icon, group? }], edges: [{ id, from, to, label?, async? }], steps?: [{ edges: [edgeId...], caption }] }` — group kind ∈ aws-cloud | region | az | vpc | public-subnet | private-subnet | account | generic | corporate | phase (+ local-floci); icon ∈ AwsService | GenericIcon | "task".
+  `{ title, subtitle?, direction: "RIGHT"|"DOWN", groups: [{ id, kind, label, parent? }], nodes: [{ id, label, sublabel?, icon, group? }], edges: [{ id, from, to, label?, async? }] (from/to may be a node id or a group id: a group endpoint is drawn to the group frame), steps?: [{ edges: [edgeId...], caption }] }` — group kind ∈ aws-cloud | region | az | vpc | public-subnet | private-subnet | account | generic | corporate | phase (+ local-floci); icon ∈ AwsService | GenericIcon | "task".
 - Flows: actors become nodes inside their groups; each connection drawn once; steps reference the edges they traverse with a caption (≤90 chars); a flow that repeats a connection shares the edge and shows two badges.
 - Architecture: same structure, usually without steps (may tell a request path with steps).
 - Milestones: phases are `phase` groups, tasks are `task` nodes, no steps.
-- Layout: Remotion `calculateMetadata` runs ELK (`elkjs`, EPL-2.0 OR GPL-3.0-or-later, used unmodified in dev-only tooling) (layered, orthogonal routing, compound groups) once per composition and passes positions, edge routes and canvas size as props. Canvas size follows the layout; if wider than 1200px the GIF is scaled to 1200, the PNG renders at full resolution. Edge labels are placed by ELK (reserved space) so they don't overlap boxes.
+- Layout: Remotion `calculateMetadata` runs ELK (`elkjs`, EPL-2.0 OR GPL-3.0-or-later, used unmodified in dev-only tooling) (layered, orthogonal routing, compound groups) once per composition and passes positions, edge routes and canvas size as props. Canvas size follows the layout; if wider than 1200px the GIF is scaled to 1200, the PNG renders at full resolution. ELK reserves space for edge labels, then a post-pass (`placeLabels`) moves a label nearer its own route when needed.
 - A layout test with real ELK (no mocks) asserts every node lies inside its group and no edge crosses a node it does not connect.
 - Removed: ArchitectureMap, FlowSequence, DependencyGraph, the home-grown `layout.ts`, and the authoring rules that compensated for it (≤10-char cross-zone labels, adjacent zones, left sub-column, self-step clipping, etc.).
 
@@ -77,18 +77,24 @@ The Remotion diagrams shipped by [[2026-10-06-remotion-diagrams-design]] work bu
 
 ## Verification
 
-Package tests (incl. real-ELK layout tests) and typecheck; full re-render, every PNG visually inspected against the AWS reference style; GIFs ≤ ~2 MB; validate-vault, lint-comments, ai-sync-check, diagrams-check green.
+Package tests (incl. real-ELK layout tests and the catalog quality gate `aws-catalog-quality.test.ts`) and typecheck; full re-render, every PNG visually inspected against the AWS reference style; GIFs ≤ ~2 MB; validate-vault, lint-comments, ai-sync-check, diagrams-check green.
 
 ## Implementation deviations
 
 The shipped implementation differs from the design above in these ways.
 
-- **Per-edge ports.** Each edge leaves and enters on the side facing its other end (ELK `FREE` port sides) instead of fixed west/east ports.
+- **Per-edge ports.** A first pass computes the side each port faces (the side toward the edge's other end) and the ports are pinned (`FIXED_SIDE`/`FIXED_POS`), not left to ELK `FREE`, instead of fixed west/east ports.
+- **Edge labels.** ELK reserves the space, then a post-pass (`placeLabels`, `src/aws/labels.ts`) moves a label nearer its own route when needed.
+- **Group endpoints.** An edge `from`/`to` may be a group id and is drawn to the group frame, so shared fan-out is drawn once.
+- **No resource drawn twice.** One real resource is one node.
+- **Catalog quality gate.** `diagrams/test/aws-catalog-quality.test.ts` lays out every catalog entry and fails on defects; fix data or layout, never weaken it.
+- **Milestones lay out DOWN.** Milestone graphs use `direction: "DOWN"`.
+- **Drift watches.** Implicit watches are the entry's source module, `diagrams/src/aws/**`, `diagrams/src/theme/**`, `diagrams/public/aws-icons/**`, `diagrams/src/schema.ts`, `diagrams/src/Root.tsx`, `diagrams/src/scripts/render.ts` and `diagrams/package.json`.
 - **Canvas width.** The canvas is widened for the title and captions and rounded to whole 20 px multiples (non-integer sizes made GIF encoders store whole frames).
 - **Caption bar.** The step caption sits in a reserved band of the canvas rather than overlaying the drawing.
 - **Badge placement.** Step badges sit along the edge in step order, clear of edge labels.
 - **`AwsService` location.** The `AwsService` type lives in `diagrams/src/aws/schema.ts`, not in the theme adapter.
-- **Wide architecture PNGs.** The architecture maps render at about 1700 px wide and that is accepted; the vault notes tell the reader to open them full size.
+- **Wide architecture PNGs.** The architecture maps render 1800 to 2020 px wide and that is accepted; the vault notes tell the reader to open them full size.
 
 ## Related
 

@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-10-06
-updated: 2026-10-07
+updated: 2026-10-12
 tags:
   - type/convention
   - area/shared
@@ -35,6 +35,7 @@ Every animated flow, architecture map and milestone-dependency graph in the vaul
 
 - Every diagram is one `AwsDiagramData` (`primitive: "aws"`): `groups[]` (`id`, `kind`, `label`, `parent?`), `nodes[]` (`id`, `label`, `sublabel?`, `icon`, `group?`), `edges[]` (`id`, `from`, `to`, `label?`, `async?`), optional `steps[]` (`edges`, `caption`) and `direction` (`RIGHT` default, or `DOWN`). The old `ArchitectureMap`, `FlowSequence` and `DependencyGraph` primitives are gone.
 - **ELK does the layout** (layered, orthogonal routing, compound groups). Authors declare structure, never coordinates: if a layout looks wrong, fix the data (grouping, direction, fewer edges), never add positions.
+- Group endpoints: an edge `from`/`to` may name a group id instead of a node; it is drawn to the group's frame.
 - Edges: solid is a synchronous call, dashed (`async: true`) is a queue, topic, EventBridge rule or webhook. Declare each connection once; labels are short.
 - Steps: each lists the edges it traverses, in order; a repeated connection reuses its edge and shows two badges. At most 10 steps, captions at most 90 characters. Numbered badges read 1 to n along the drawing, so order nodes so the path runs left to right.
 
@@ -64,7 +65,9 @@ Serverless or regional services (SQS, SNS, Cognito, S3, SES, Lambda, API Gateway
 
 - Rendered by Remotion and **never hand-edited**. A diagram **with steps** produces a GIF (24 fps, scaled to at most 1200 px wide, at most about 2 MB) plus a last-frame PNG at full size, with the numbered step list below the drawing. A diagram **without steps** (architecture maps, milestone graphs) is **PNG only**: embed `![[<basename>.png]]`, never `.gif`.
 - Committed in a `diagrams/` subfolder beside the vault section that owns the diagram (for example `docs/domains/orders/specs/diagrams/`, `docs/plans/diagrams/`). Embed by **output basename** (Obsidian resolves by basename). For most diagrams the basename equals the id; for milestone graphs it differs (id `milestone-<slug>-deps`, embed `![[<slug>-deps.png]]`).
-- The architecture maps are wide (about 1700 px); the note embedding one tells the reader to open the image full size. No MP4, no web player.
+- The architecture maps are wide (up to about 2000 px); the note embedding one tells the reader to open the image full size.
+- Milestone graphs lay out `DOWN` (phases stacked top to bottom).
+- The blank band under the caption in a mid-animation still is expected: it is the reserved caption area, not a rendering fault. No MP4, no web player.
 
 ## Catalog and `watches`
 
@@ -81,12 +84,14 @@ Serverless or regional services (SQS, SNS, Cognito, S3, SES, Lambda, API Gateway
 
 ## Layout lessons
 
-- **A group must be contiguous along the flow.** If a group has members on both sides of another group (for example Floci edge services left of the Compose services and Floci data stores right of them), ELK routes edges around the whole canvas. Split it into two adjacent groups of the same kind.
+- **Draw shared connections once, from the group frame.** When several members of a group share the same connection (a fan-out to or from the same peer), use a **group endpoint**: an edge `from` or `to` may be a group id, and the edge is drawn to the group frame. Never split a group in two to dodge the fan-out, and never draw one resource twice.
+- **No resource is drawn twice.** One real resource is one node; a second appearance to simplify routing is a data error.
 - Data order is a layout hint: list groups, nodes and edges in the visual flow order. Never reorder nodes just to dodge a crossing.
 - Back edges (right to left) are fine only when short; otherwise move the target next to its source.
 - Prefer one edge per node pair with a distinct label over two labelled parallel edges, which read as a bracket.
 - Prefer `direction: "RIGHT"` for flows. Keep names short; a single long word next to an icon wraps mid-word.
 - The renderer widens the canvas for long titles and captions and keeps badges off labels; do not shorten captions to fit.
+- **Catalog quality gate.** `diagrams/test/aws-catalog-quality.test.ts` lays out every catalog entry and fails on layout defects (edges crossing unrelated nodes, labels away from their route, resources drawn twice). Fix the data or the layout; never weaken the test.
 - Read the PNG **and** a mid-animation still, and reject the result if any edge circles the canvas or crosses a group it does not enter. Rules and history: [[diagram-legibility]].
 
 ## GIF budget
@@ -99,7 +104,7 @@ A change that alters a diagrammed flow (steps, actors, services) or adds or remo
 
 ### `diagrams-check`
 
-`make diagrams-check` lists diagrams whose watched sources changed against `main` (`DIAGRAMS_BASE` overrides the base) and prints `STALE?` for each. It warns and always exits 0, including when the base cannot be resolved. Each entry's `source` module plus `diagrams/src/aws/**` and `diagrams/src/theme/**` are implicit watches, and test files are ignored. On a task branch (task → feature flow, see [[git-workflow]]) set `DIAGRAMS_BASE=feature/<x>` so the diff is taken against the feature branch. The pre-PR gap audit runs it. Each warning is either **resolved** (re-render and commit the new output) or **dismissed** with a one-line justification in the PR (for example "Terraform tag change only; the flow is unchanged").
+`make diagrams-check` lists diagrams whose watched sources changed against `main` (`DIAGRAMS_BASE` overrides the base) and prints `STALE?` for each. It warns and always exits 0, including when the base cannot be resolved. Each entry's implicit watches are its `source` module, `diagrams/src/aws/**`, `diagrams/src/theme/**`, `diagrams/public/aws-icons/**`, `diagrams/src/schema.ts`, `diagrams/src/Root.tsx`, `diagrams/src/scripts/render.ts` and `diagrams/package.json`; test files are ignored. On a task branch (task → feature flow, see [[git-workflow]]) set `DIAGRAMS_BASE=feature/<x>` so the diff is taken against the feature branch. The pre-PR gap audit runs it. Each warning is either **resolved** (re-render and commit the new output) or **dismissed** with a one-line justification in the PR (for example "Terraform tag change only; the flow is unchanged").
 
 ## PR rule
 

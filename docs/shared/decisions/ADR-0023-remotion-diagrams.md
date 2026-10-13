@@ -5,7 +5,7 @@ area: shared
 status: accepted
 id: ADR-0023
 created: 2026-10-06
-updated: 2026-10-07
+updated: 2026-10-12
 deciders: [Jose E. Martinez]
 supersedes: "ADR-0015-drawio-diagrams"
 superseded-by: null
@@ -40,7 +40,7 @@ related:
 Vault diagrams are rendered with **Remotion** from data, in a pnpm workspace package `@3mrai/diagrams` (`diagrams/`).
 
 1. **Data-driven, three shared primitives.** `ArchitectureMap`, `FlowSequence` and `DependencyGraph`, fed by a catalog whose entries are validated with zod. A bespoke component per diagram and a textual DSL were both rejected.
-2. **Outputs.** An animated GIF plus a last-frame PNG, committed in a `diagrams/` subfolder beside the owning vault section and embedded with `![[<id>.gif]]`. Milestone `DependencyGraph` entries are PNG only. No MP4, no web player. "Interactive" means Remotion Studio locally (`make diagrams-studio`).
+2. **Outputs.** (Superseded for format by Style revision: PNG-only when a diagram has no steps.) An animated GIF plus a last-frame PNG, committed in a `diagrams/` subfolder beside the owning vault section and embedded with `![[<id>.gif]]`. Milestone `DependencyGraph` entries are PNG only. No MP4, no web player. "Interactive" means Remotion Studio locally (`make diagrams-studio`).
 3. **Drift detection.** Each catalog entry declares `watches` globs; `make diagrams-check` lists diagrams whose watched sources changed against `main`. It warns and never blocks.
 4. **AWS icons.** The npm package `@nxavis/aws-icons` (MIT, official AWS Architecture Icons), pinned to an exact version and imported by a single adapter, `diagrams/src/theme/aws-icons.ts`. Non-AWS nodes are labelled boxes coloured by node kind.
 5. **A dedicated implementer.** The `diagram-impl` agent writes `diagrams/**` and the rendered `docs/**/diagrams/*.{gif,png}` only.
@@ -55,6 +55,7 @@ Same tool, no new ADR. Design: [[2026-10-07-aws-style-diagrams-design]].
 - **Visual style.** Every diagram follows the AWS reference-architecture style: nested group containers, official service icons with names below, thin orthogonal connectors (dashed for async), numbered step badges. This replaces decision 1's three primitives with a single primitive, `AwsDiagram`.
 - **Layout engine.** ELK (`elkjs`, layered, orthogonal routing, compound groups). elkjs is dual-licensed EPL-2.0 OR GPL-3.0-or-later; that is acceptable because it is used unmodified in a dev-only tool that never ships in a product.
 - **Icons.** Service icons stay on `@nxavis/aws-icons`; group and generic icons come from the official AWS Architecture Icons package, fetched by `make diagrams-icons` and committed. Both sit behind the single adapter, replacing decision 4's labelled boxes for non-AWS nodes.
+- **Group endpoints.** An edge may start or end on a group id and is drawn to the group frame, so a shared fan-out is drawn once and no resource is drawn twice.
 - **Outputs.** Step-less diagrams (architecture maps, milestone graphs) are PNG only; diagrams with steps keep GIF plus PNG.
 
 ## Consequences

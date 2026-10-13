@@ -4,7 +4,7 @@ type: lesson
 area: shared
 status: active
 created: 2026-06-27
-updated: 2026-10-07
+updated: 2026-10-12
 tags: [type/lesson, area/shared, status/active, severity/medium]
 related:
   - "[[ADR-0023-remotion-diagrams]]"
@@ -30,12 +30,13 @@ Originally written for draw.io (`.drawio.svg`); the contrast and verify-the-imag
 ## Lesson
 
 1. **Explicit, verified contrast.** Dark text on light pastel fills, white text on dark saturated fills. Never rely on a default colour.
-2. **A layout that fits the canvas.** Prefer columns, zones or phase layouts over one long row. Keep edge labels short and order zones so edges join adjacent zones.
+2. **A layout that fits the canvas.** Prefer columns, zones or phase layouts over one long row. Keep edge labels short.
 3. **Verify by reading the rendered PNG.** Passing tests or valid data does not prove legibility; contrast, clipping and overlapping labels only show in the image. Mandatory, not optional.
 4. **Use a real layout engine (ELK) instead of a hand-rolled layout.** Declare groups, nodes and edges and let the engine route; do not patch a home-grown layout with authoring rules.
-5. **A group must be contiguous along the flow.** Members on both sides of another group send edges around the whole canvas; split it into two adjacent groups of the same kind.
-6. **Keep the canvas size an integer** (whole 20 px multiples) so the GIF encoder stores only changed pixels.
-7. **Budget by changed pixels, not frame count.** GIF size follows what changes per frame. Reveal elements incrementally (architecture maps reveal edges in 12 frames); never fade or animate the whole canvas. Do not delete real content to hit the size target.
+5. **Group endpoints solve shared fan-out.** When many members of a group share one connection, draw a single edge to the group frame instead of splitting the group or repeating edges. Never draw one resource twice.
+6. **ELK's reserved label spot is not enough.** ELK leaves room for a label but not always next to its own route; a post-pass keeps each label nearest its own route.
+7. **Keep the canvas size an integer** (whole 20 px multiples) so the GIF encoder stores only changed pixels.
+8. **Budget by changed pixels, not frame count.** GIF size follows what changes per frame. Reveal elements incrementally; never fade or animate the whole canvas. Do not delete real content to hit the size target.
 
 ## How to apply
 
