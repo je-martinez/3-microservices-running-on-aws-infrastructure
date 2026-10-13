@@ -81,7 +81,8 @@ Serverless or regional services (SQS, SNS, Cognito, S3, SES, Lambda, API Gateway
 ## Detail level
 
 - Service and resource names only, never endpoints, request fields or payloads. Content is read from real code and Terraform, never invented.
-- About 12 nodes per diagram at most (schema caps: 24 nodes, 16 groups, 30 edges). Never drop real services to fit: group them instead.
+- About 12 nodes per diagram at most (schema caps: 30 nodes, 16 groups, 40 edges). Never drop real services to fit: group them instead.
+- **Coverage rule.** Architecture maps and the L2 container view draw **every runtime AWS service the environment deploys** as its own node: one node per service, with its instances in the sublabel (for example "CloudWatch — Logs + Metrics", "WS Lambdas — 4 functions"), and its real connections. Only implicit pieces are omitted: IAM roles and policies, security groups, route tables, target groups, listeners and individual parameters. Never fold a service into another node's sublabel (Cognito into API Gateway, DynamoDB into the WebSocket API). Deploy-time resources (Terraform state S3 bucket, DynamoDB lock and execution-log tables) appear in the `terraform-two-phase-apply` flow, not on runtime maps. See [[diagram-legibility]].
 - At most 10 steps per diagram, one-line captions of at most 90 characters.
 - A flow usually has 3 to 7 actors; put the user or browser at the left edge.
 
@@ -104,7 +105,7 @@ GIF size is driven by **changed pixels per frame**, not by frame count. Frame 0 
 
 ## Keep-current rule
 
-A change that alters a diagrammed flow (steps, actors, services) or adds or removes an AWS resource (local Floci or pre-prod) updates the data file and re-renders **in the same PR**. A new significant flow gets a new catalog entry with `watches`.
+A change that alters a diagrammed flow (steps, actors, services) or adds or removes an AWS resource (local Floci or pre-prod) updates the data file and re-renders **in the same PR**. When Terraform adds or removes an AWS resource, the maps gain or lose its node in the same PR. A new significant flow gets a new catalog entry with `watches`.
 
 ### `diagrams-check`
 

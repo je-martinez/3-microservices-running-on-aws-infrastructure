@@ -28,6 +28,8 @@ Originally written for draw.io (`.drawio.svg`); the contrast and verify-the-imag
 6. **A full-canvas fade made GIFs huge.** The first Remotion architecture maps faded the whole map in, so every frame changed nearly every pixel and a GIF cost about 11 KB per frame. To fit the 2 MB budget, authors started dropping real services from the maps, which made the diagram less true.
 7. **Wide maps that would not narrow.** ELK's wrapping and per-group direction have no effect on hierarchical (INCLUDE_CHILDREN) layouts and are ignored silently, so the pre-prod map stayed about 3200 px wide whatever was configured.
 
+8. **Merged services hid real resources.** Folding a service into another node's sublabel (Cognito into API Gateway, DynamoDB into the WebSocket API) to save nodes hid resources Terraform deploys. Raising the caps to 30 nodes and 40 edges fixed the budget, not the diagram.
+
 ## Lesson
 
 1. **Explicit, verified contrast.** Dark text on light pastel fills, white text on dark saturated fills. Never rely on a default colour.
@@ -39,6 +41,7 @@ Originally written for draw.io (`.drawio.svg`); the contrast and verify-the-imag
 7. **Keep the canvas size an integer** (whole 20 px multiples) so the GIF encoder stores only changed pixels.
 8. **Budget by changed pixels, not frame count.** GIF size follows what changes per frame. Reveal elements incrementally; never fade or animate the whole canvas. Do not delete real content to hit the size target.
 9. **Do not rely on ELK wrapping or per-group direction with INCLUDE_CHILDREN; they are silently ignored.** Drive the flow with declaration order (`compact: true`: entry -> compute -> data -> events/externals, back edges add no column) and keep maps at most 2000 px wide.
+10. **One node per runtime service; audit Terraform against the maps.** Draw every runtime AWS service as its own node (instances in the sublabel) and compare the Terraform modules with each map before proposing a PR. Deploy-time resources belong in the `terraform-two-phase-apply` flow. Rule: [[diagrams]].
 
 ## How to apply
 
