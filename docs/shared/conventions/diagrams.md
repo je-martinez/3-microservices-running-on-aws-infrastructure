@@ -84,14 +84,14 @@ Serverless or regional services (SQS, SNS, Cognito, S3, SES, Lambda, API Gateway
 
 ## Layout lessons
 
-- **Draw shared connections once, from the group frame.** When several members of a group share the same connection (a fan-out to or from the same peer), use a **group endpoint**: an edge `from` or `to` may be a group id, and the edge is drawn to the group frame. Never split a group in two to dodge the fan-out, and never draw one resource twice.
+- **Draw shared connections once, from the group frame.** When several members of a group share the same connection (a fan-out to or from the same peer), use a **group endpoint**: an edge `from` or `to` may be a group id, and the edge is drawn to the group frame. Never split a group in two to dodge the fan-out, and never draw one resource twice. A group whose members sit on both sides of another group along the flow may be drawn as two adjacent frames of the same kind, each holding different resources and labelled distinctly (e.g. orders-checkout-stripe's "Floci — data" / "Floci — events"); that is not drawing a resource twice. Shared fan-out still uses a group endpoint.
 - **No resource is drawn twice.** One real resource is one node; a second appearance to simplify routing is a data error.
 - Data order is a layout hint: list groups, nodes and edges in the visual flow order. Never reorder nodes just to dodge a crossing.
 - Back edges (right to left) are fine only when short; otherwise move the target next to its source.
 - Prefer one edge per node pair with a distinct label over two labelled parallel edges, which read as a bracket.
 - Prefer `direction: "RIGHT"` for flows. Keep names short; a single long word next to an icon wraps mid-word.
 - The renderer widens the canvas for long titles and captions and keeps badges off labels; do not shorten captions to fit.
-- **Catalog quality gate.** `diagrams/test/aws-catalog-quality.test.ts` lays out every catalog entry and fails on layout defects (edges crossing unrelated nodes, labels away from their route, resources drawn twice). Fix the data or the layout; never weaken the test.
+- **Catalog quality gate.** `diagrams/test/aws-catalog-quality.test.ts` lays out every catalog entry and fails on layout defects: labels nearer their own route and at least 6px from others, off nodes, headers and other labels and inside the canvas; badges off nodes, headers, labels and other badges, and outside their own self-loop; nodes inside their groups; routes inside the canvas and off non-endpoint nodes; frame ports not level with member icons; resources drawn twice; layout and annotation deterministic; badge and label placement throws "no room for …" (with the diagram id) instead of degrading. Fix the data or the layout; never weaken the test.
 - Read the PNG **and** a mid-animation still, and reject the result if any edge circles the canvas or crosses a group it does not enter. Rules and history: [[diagram-legibility]].
 
 ## GIF budget

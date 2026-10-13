@@ -83,7 +83,7 @@ Package tests (incl. real-ELK layout tests and the catalog quality gate `aws-cat
 
 The shipped implementation differs from the design above in these ways.
 
-- **Per-edge ports.** A first pass computes the side each port faces (the side toward the edge's other end) and the ports are pinned (`FIXED_SIDE`/`FIXED_POS`), not left to ELK `FREE`, instead of fixed west/east ports.
+- **Per-edge ports.** A first pass computes the side each port faces (the side toward the edge's other end) and the ports are pinned (`FIXED_SIDE`/`FIXED_POS`), not left to ELK `FREE`, instead of fixed west/east ports. ELK ignores `FIXED_POS` on ports of nested compound groups, so a post-layout pass (`settleFramePorts`) slides group-frame ports into the gaps between member icons.
 - **Edge labels.** ELK reserves the space, then a post-pass (`placeLabels`, `src/aws/labels.ts`) moves a label nearer its own route when needed.
 - **Group endpoints.** An edge `from`/`to` may be a group id and is drawn to the group frame, so shared fan-out is drawn once.
 - **No resource drawn twice.** One real resource is one node.
