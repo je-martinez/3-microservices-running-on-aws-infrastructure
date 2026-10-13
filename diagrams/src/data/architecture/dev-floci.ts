@@ -1,10 +1,10 @@
 import type { z } from "zod";
 import type { AwsDiagramData } from "../../aws/schema";
 
-// CONTRACT: only what Terraform attaches to module.networking's subnets sits in the subnet (nginx ECS
-// task, RDS, DocDB); ElastiCache has no subnet group locally, Lambda no vpc_config. Sources:
-// infra/environments/local/main.tf, infra/modules/{networking,compute,messaging,redis},
-// docker-compose.yml.
+// CONTRACT: only what Terraform attaches to module.networking's subnets sits in the subnet (the
+// nginx ECS task in its cluster, RDS, DocDB); ElastiCache has no subnet group locally, Lambda no
+// vpc_config. Sources: infra/environments/local/main.tf, infra/modules/{networking,compute,
+// messaging,redis}, docker-compose.yml.
 export const architectureDevFloci: z.input<typeof AwsDiagramData> = {
   title: "Architecture — local dev (Floci)",
   subtitle: "Services run in Docker Compose, AWS on Floci; nginx routes by path to all three services",
@@ -15,12 +15,13 @@ export const architectureDevFloci: z.input<typeof AwsDiagramData> = {
     { id: "floci", kind: "local-floci", label: "Floci — local AWS (:4566)" },
     { id: "vpc", kind: "vpc", label: "VPC 10.0.0.0/16", parent: "floci" },
     { id: "subnets", kind: "public-subnet", label: "Subnets a + b", parent: "vpc" },
+    { id: "cluster", kind: "ecs-cluster", label: "ECS cluster", parent: "subnets" },
   ],
   nodes: [
     { id: "browser", label: "Browser (SPA)", icon: "client" },
     { id: "web", label: "Web app", sublabel: "nginx", icon: "server", group: "compose-web" },
     { id: "apigw", label: "API Gateway", sublabel: "Cognito JWT", icon: "api-gateway", group: "floci" },
-    { id: "nginx", label: "nginx task", sublabel: "ECS", icon: "ecs", group: "subnets" },
+    { id: "nginx", label: "nginx", sublabel: "Fargate · 1 task", icon: "ecs-task", group: "cluster" },
     { id: "orders", label: "Orders", icon: "server", group: "compose" },
     { id: "tracking", label: "Tracking", icon: "server", group: "compose" },
     { id: "users", label: "Users", icon: "server", group: "compose" },

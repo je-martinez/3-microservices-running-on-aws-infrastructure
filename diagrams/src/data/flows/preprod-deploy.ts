@@ -2,8 +2,8 @@ import type { z } from "zod";
 import type { AwsDiagramData } from "../../aws/schema";
 
 // WHY: pre-prod — the Makefile and Terraform run on the host; pre-prod's own Floci is the cloud.
-// ALB, ECS services and RDS take module.networking's subnets; ECR is regional
-// (infra/environments/preprod/{main,services}.tf).
+// ALB, the ECS services of aws_ecs_cluster.this and RDS take module.networking's subnets; ECR is
+// regional (infra/environments/preprod/{main,services}.tf).
 export const preprodDeploy: z.input<typeof AwsDiagramData> = {
   title: "How make preprod-up deploys pre-prod on Floci",
   subtitle: "Pre-prod: every service runs as an ECS task; never beside the dev environment",
@@ -13,6 +13,7 @@ export const preprodDeploy: z.input<typeof AwsDiagramData> = {
     { id: "cloud", kind: "aws-cloud", label: "AWS Cloud (pre-prod Floci)" },
     { id: "vpc", kind: "vpc", label: "VPC", parent: "cloud" },
     { id: "subnets", kind: "public-subnet", label: "Subnets a + b", parent: "vpc" },
+    { id: "cluster", kind: "ecs-cluster", label: "ECS cluster", parent: "subnets" },
   ],
   nodes: [
     { id: "op", label: "Makefile", sublabel: "make preprod-up", icon: "server", group: "host" },
@@ -20,8 +21,8 @@ export const preprodDeploy: z.input<typeof AwsDiagramData> = {
     { id: "floci", label: "Floci", sublabel: "pre-prod container", icon: "server", group: "cloud" },
     { id: "ecr", label: "ECR", icon: "ecr", group: "cloud" },
     { id: "rds", label: "RDS", icon: "rds", group: "subnets" },
-    { id: "ecs", label: "ECS", sublabel: "one service each", icon: "ecs", group: "subnets" },
-    { id: "alb", label: "ALB", icon: "elb", group: "subnets" },
+    { id: "ecs", label: "ECS services", sublabel: "one per image", icon: "ecs-service", group: "cluster" },
+    { id: "alb", label: "ALB", sublabel: "internal", icon: "alb", group: "subnets" },
   ],
   edges: [
     { id: "op-floci", from: "op", to: "floci", label: "guard + start" },

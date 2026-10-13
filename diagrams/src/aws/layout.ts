@@ -322,48 +322,62 @@ export async function layoutDiagram(d: AwsDiagramData): Promise<DiagramLayout> {
 // end slides along its frame side to the nearest free spot and the route's first leg follows it orthogonally.
 function settleFramePorts(d: AwsDiagramData, l: DiagramLayout): void {
   const taken = new Map<string, number[]>();
-  for (const e of d.edges) {
-    for (const which of ["from", "to"] as const) {
-      const gid = e[which];
-      const frame = l.groups[gid];
-      if (!frame) continue;
-      const route = l.edges[e.id]!;
-      const pts = which === "from" ? route.points : [...route.points].reverse();
-      const [p, q] = [pts[0]!, pts[1]!];
-      const side = Math.abs(p.x - frame.x) < 1 ? "WEST" : Math.abs(p.x - frame.x - frame.w) < 1 ? "EAST" : Math.abs(p.y - frame.y) < 1 ? "NORTH" : "SOUTH";
-      const vertical = side === "WEST" || side === "EAST";
-      const grp = d.groups.find((g) => g.id === gid)!;
-      const [start, end] = vertical ? [frame.y, frame.y + frame.h] : [frame.x, frame.x + frame.w];
-      const lo = start + (side === "NORTH" ? groupHeader(grp.kind, grp.label).width : vertical ? GROUP_ICON : 0) + GROUP_PORT_MARGIN;
-      const hi = end - GROUP_PORT_MARGIN;
-      const bands = membersOf(d, gid).map((id) => {
-        const r = l.nodes[id]!;
-        return vertical ? [r.y, r.y + AWS.iconSize] : [r.x + (r.w - AWS.iconSize) / 2, r.x + (r.w + AWS.iconSize) / 2];
+  const parent = new Map(d.groups.map((g) => [g.id, g.parent]));
+  const depth = (g: string | undefined): number => (g ? 1 + depth(parent.get(g)) : 0);
+  // WHY: nested frames settle first, so an outer frame's ports can avoid the routes leaving them.
+  const ends = d.edges.flatMap((e) => (["from", "to"] as const).filter((w) => l.groups[e[w]]).map((which) => ({ e, which })))
+    .sort((a, b) => depth(b.e[b.which]) - depth(a.e[a.which]));
+  for (const { e, which } of ends) {
+    const gid = e[which];
+    const frame = l.groups[gid]!;
+    const route = l.edges[e.id]!;
+    const pts = which === "from" ? route.points : [...route.points].reverse();
+    const [p, q] = [pts[0]!, pts[1]!];
+    const side = Math.abs(p.x - frame.x) < 1 ? "WEST" : Math.abs(p.x - frame.x - frame.w) < 1 ? "EAST" : Math.abs(p.y - frame.y) < 1 ? "NORTH" : "SOUTH";
+    const vertical = side === "WEST" || side === "EAST";
+    const grp = d.groups.find((g) => g.id === gid)!;
+    const [start, end] = vertical ? [frame.y, frame.y + frame.h] : [frame.x, frame.x + frame.w];
+    const lo = start + (side === "NORTH" ? groupHeader(grp.kind, grp.label).width : vertical ? GROUP_ICON : 0) + GROUP_PORT_MARGIN;
+    const hi = end - GROUP_PORT_MARGIN;
+    const bands = membersOf(d, gid).map((id) => {
+      const r = l.nodes[id]!;
+      return vertical ? [r.y, r.y + AWS.iconSize] : [r.x + (r.w - AWS.iconSize) / 2, r.x + (r.w + AWS.iconSize) / 2];
+    });
+    const key = `${gid}|${side}`;
+    // WHY: a route leaving nested content crosses this side too; a port level with it would run on top of it.
+    const line = vertical ? (side === "WEST" ? frame.x : frame.x + frame.w) : (side === "NORTH" ? frame.y : frame.y + frame.h);
+    const crossings = d.edges.filter((o) => o.id !== e.id).flatMap((o) => {
+      const pts2 = l.edges[o.id]!.points;
+      return pts2.slice(1).flatMap((b, i) => {
+        const a = pts2[i]!;
+        const [u0, u1, w0] = vertical ? [a.x, b.x, a.y] : [a.y, b.y, a.x];
+        const along2 = vertical ? b.y : b.x;
+        const crosses = Math.abs(along2 - w0) < 0.5 && Math.min(u0, u1) < line - 0.5 && Math.max(u0, u1) > line + 0.5;
+        return crosses && w0 > start && w0 < end ? [w0] : [];
       });
-      const key = `${gid}|${side}`;
-      const others = taken.get(key) ?? [];
-      const ok = (v: number) => v >= lo && v <= hi && !bands.some(([a, b]) => v > a! - MEMBER_CLEAR && v < b! + MEMBER_CLEAR)
-        && others.every((o) => Math.abs(o - v) >= PORT_PITCH);
-      const cur = vertical ? p.y : p.x;
-      let v = cur;
-      if (!ok(cur)) for (let off = 2; off <= end - start; off += 2) {
-        if (ok(cur + off)) { v = cur + off; break; }
-        if (ok(cur - off)) { v = cur - off; break; }
-      }
-      taken.set(key, [...others, v]);
-      if (v === cur) continue;
-      const moved = vertical ? { x: p.x, y: v } : { x: v, y: p.y };
-      const perpendicular = vertical ? Math.abs(q.y - p.y) < 0.5 : Math.abs(q.x - p.x) < 0.5;
-      // The first leg leaves the frame perpendicular to it; it keeps that direction at the new offset.
-      const out = perpendicular && pts.length > 2
-        ? [moved, vertical ? { x: q.x, y: v } : { x: v, y: q.y }, ...pts.slice(2)]
-        : (() => {
-          const mid = vertical ? { x: (p.x + q.x) / 2, y: v } : { x: v, y: (p.y + q.y) / 2 };
-          const back = vertical ? { x: mid.x, y: p.y } : { x: p.x, y: mid.y };
-          return [moved, mid, back, ...pts.slice(1)];
-        })();
-      route.points = which === "from" ? out : out.reverse();
+    });
+    const others = [...(taken.get(key) ?? []), ...crossings];
+    const ok = (v: number) => v >= lo && v <= hi && !bands.some(([a, b]) => v > a! - MEMBER_CLEAR && v < b! + MEMBER_CLEAR)
+      && others.every((o) => Math.abs(o - v) >= PORT_PITCH);
+    const cur = vertical ? p.y : p.x;
+    let v = cur;
+    if (!ok(cur)) for (let off = 2; off <= end - start; off += 2) {
+      if (ok(cur + off)) { v = cur + off; break; }
+      if (ok(cur - off)) { v = cur - off; break; }
     }
+    taken.set(key, [...(taken.get(key) ?? []), v]);
+    if (v === cur) continue;
+    const moved = vertical ? { x: p.x, y: v } : { x: v, y: p.y };
+    const perpendicular = vertical ? Math.abs(q.y - p.y) < 0.5 : Math.abs(q.x - p.x) < 0.5;
+    // The first leg leaves the frame perpendicular to it; it keeps that direction at the new offset.
+    const out = perpendicular && pts.length > 2
+      ? [moved, vertical ? { x: q.x, y: v } : { x: v, y: q.y }, ...pts.slice(2)]
+      : (() => {
+        const mid = vertical ? { x: (p.x + q.x) / 2, y: v } : { x: v, y: (p.y + q.y) / 2 };
+        const back = vertical ? { x: mid.x, y: p.y } : { x: p.x, y: mid.y };
+        return [moved, mid, back, ...pts.slice(1)];
+      })();
+    route.points = which === "from" ? out : out.reverse();
   }
 }
 

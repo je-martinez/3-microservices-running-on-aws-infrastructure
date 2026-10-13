@@ -1,44 +1,54 @@
 import type { z } from "zod";
 import type { AwsDiagramData } from "../../aws/schema";
 
-// CONTRACT: drawn as deployed on AWS (pre-prod): the subnet holds the ECS containers and the
-// stores Terraform attaches to module.networking's subnets; ElastiCache, messaging, Lambda and
-// the APIs stay regional. Sources: infra/modules/{api-gateway,api-gateway-ws,cognito,messaging,
-// lambda,networking}, infra/environments/preprod/services.tf, services/*/openapi.yaml.
+// CONTRACT: drawn as deployed on AWS (pre-prod): the VPC holds the ALB, the ECS cluster's
+// containers and the stores Terraform attaches to module.networking's subnets; ElastiCache,
+// messaging, Lambda and the APIs stay regional. Sources: infra/modules/{api-gateway,
+// api-gateway-ws,cognito,messaging,lambda,networking}, infra/environments/preprod/services.tf,
+// services/*/openapi.yaml.
 export const systemContextL2: z.input<typeof AwsDiagramData> = {
   title: "System context — Level 2 (containers)",
-  subtitle: "API Gateway reaches the services through nginx (dev) or the ALB (pre-prod)",
+  subtitle: "Pre-prod: ECS places each container in either AZ; API Gateway reaches them through the ALB (nginx in dev)",
   direction: "RIGHT",
   groups: [
     { id: "cloud", kind: "aws-cloud", label: "AWS Cloud (as deployed in pre-prod)" },
-    { id: "vpc", kind: "vpc", label: "VPC", parent: "cloud" },
-    { id: "subnets", kind: "public-subnet", label: "Subnets a + b", parent: "vpc" },
-    { id: "services", kind: "generic", label: "Services", parent: "subnets" },
+    {
+      id: "vpc", kind: "vpc", label: "VPC 10.1.0.0/16", parent: "cloud",
+      lanes: [
+        { label: "us-east-1a", sublabel: "Public subnet 10.1.1.0/24" },
+        { label: "us-east-1b", sublabel: "Public subnet 10.1.2.0/24" },
+      ],
+    },
+    { id: "cluster", kind: "ecs-cluster", label: "ECS cluster", parent: "vpc" },
+    { id: "services", kind: "generic", label: "Services", parent: "cluster" },
+    { id: "events-pipeline", kind: "generic", label: "Event pipeline", parent: "cloud" },
   ],
   nodes: [
     { id: "customer", label: "Customer", icon: "users" },
-    { id: "web", label: "Web app", sublabel: "Angular", icon: "ecs", group: "subnets" },
+    { id: "alb", label: "ALB", sublabel: "internal", icon: "alb", group: "vpc" },
+    { id: "web", label: "Web app", sublabel: "Angular", icon: "ecs-task", group: "cluster" },
     { id: "apigw", label: "API Gateway", icon: "api-gateway", group: "cloud" },
     { id: "cognito", label: "Cognito", icon: "cognito", group: "cloud" },
     { id: "ws", label: "WebSocket API", sublabel: "connections table", icon: "api-gateway", group: "cloud" },
-    { id: "orders", label: "Orders", sublabel: ".NET", icon: "ecs", group: "services" },
-    { id: "users", label: "Users", sublabel: "Node.js", icon: "ecs", group: "services" },
-    { id: "tracking", label: "Tracking", sublabel: "Go", icon: "ecs", group: "services" },
-    { id: "pg", label: "Users DB", sublabel: "RDS Postgres", icon: "rds", group: "subnets" },
-    { id: "mysql", label: "Orders + Tracking DB", sublabel: "RDS MySQL", icon: "rds", group: "subnets" },
-    { id: "docdb", label: "Event store", sublabel: "DocumentDB", icon: "documentdb", group: "subnets" },
+    { id: "orders", label: "Orders", sublabel: ".NET", icon: "ecs-task", group: "services" },
+    { id: "users", label: "Users", sublabel: "Node.js", icon: "ecs-task", group: "services" },
+    { id: "tracking", label: "Tracking", sublabel: "Go", icon: "ecs-task", group: "services" },
+    { id: "pg", label: "Users DB", sublabel: "RDS Postgres", icon: "rds", group: "vpc" },
+    { id: "mysql", label: "Orders + Tracking DB", sublabel: "RDS MySQL", icon: "rds", group: "vpc" },
+    { id: "docdb", label: "Event store", sublabel: "DocumentDB", icon: "documentdb", group: "vpc" },
     { id: "redis", label: "ElastiCache", icon: "elasticache", group: "cloud" },
-    { id: "sns", label: "Events topic", icon: "sns", group: "cloud" },
-    { id: "notif", label: "Notifications queue", icon: "sqs", group: "cloud" },
-    { id: "events", label: "Events queue", icon: "sqs", group: "cloud" },
-    { id: "lambda", label: "events-pipeline", icon: "lambda", group: "cloud" },
+    { id: "sns", label: "Events topic", icon: "sns", group: "events-pipeline" },
+    { id: "notif", label: "Notifications queue", icon: "sqs", group: "events-pipeline" },
+    { id: "events", label: "Events queue", icon: "sqs", group: "events-pipeline" },
+    { id: "lambda", label: "events-pipeline", icon: "lambda", group: "events-pipeline" },
   ],
   edges: [
-    { id: "customer-web", from: "customer", to: "web", label: "HTTP" },
+    { id: "customer-alb", from: "customer", to: "alb", label: "HTTP" },
+    { id: "alb-cluster", from: "alb", to: "cluster", label: "listener per service" },
     { id: "customer-ws", from: "customer", to: "ws", label: "socket" },
     { id: "web-apigw", from: "web", to: "apigw", label: "proxy" },
     { id: "apigw-cognito", from: "apigw", to: "cognito", label: "JWT" },
-    { id: "apigw-services", from: "apigw", to: "services", label: "routes" },
+    { id: "apigw-alb", from: "apigw", to: "alb", label: "routes" },
     { id: "orders-users", from: "orders", to: "users", label: "gRPC" },
     { id: "tracking-users", from: "tracking", to: "users", label: "gRPC" },
     { id: "users-pg", from: "users", to: "pg" },
