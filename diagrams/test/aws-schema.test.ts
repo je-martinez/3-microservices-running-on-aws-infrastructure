@@ -35,7 +35,7 @@ describe("AwsDiagramData", () => {
   });
   it("accepts a group as an edge endpoint", () => {
     const d = AwsDiagramData.parse({ ...ok, edges: [{ id: "g1", from: "vpc", to: "browser" }, { id: "g2", from: "browser", to: "cloud" }], steps: [] });
-    expect(d.edges.map((e) => [e.from, e.to])).toEqual([["vpc", "browser"], ["browser", "cloud"]]);
+    expect(d.edges.map((e) => [e.from, e.to])).toEqual([ ["vpc", "browser"], ["browser", "cloud"] ]);
   });
   it.each([
     ["a group to its own node", "vpc", "users"],
@@ -89,7 +89,9 @@ describe("ECS clusters, VPC lanes and resource icons", () => {
     expect(AwsDiagramData.parse(vpcWith({ lanes })).groups[1]!.lanes).toEqual(lanes);
     expect(() => AwsDiagramData.parse(vpcWith({ lanes: [...lanes, { label: "us-east-1c" }] }))).not.toThrow();
   });
-  it.each([[[lanes[0]]], [[...lanes, { label: "c" }, { label: "d" }]]])("rejects %j lanes (2 to 3 only)", (l) => {
+  const tooFew = [lanes[0]];
+  const tooMany = [...lanes, { label: "c" }, { label: "d" }];
+  it.each([ [tooFew], [tooMany] ])("rejects %j lanes (2 to 3 only)", (l) => {
     expect(AwsDiagramData.safeParse(vpcWith({ lanes: l })).success).toBe(false);
   });
   it("rejects lanes on a group that is not a vpc", () => {
