@@ -102,7 +102,7 @@ describe("placeLabels", () => {
     });
     const everywhere = { x: 0, y: 0, w: 1000, h: 1000, labelLines: ["A"] };
     const layout = {
-      width: 1000, height: 1000, groups: {},
+      width: 1000, height: 1000, groups: {}, lanes: {},
       nodes: { a: everywhere, b: { ...everywhere, labelLines: ["B"] } },
       edges: { ab: { points: [{ x: 100, y: 500 }, { x: 900, y: 500 }], label: { x: 480, y: 503, w: 40, h: 16 } } },
     };

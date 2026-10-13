@@ -31,6 +31,11 @@ GENERIC = {
     "office-building": "Res_Office-building_48_Light.svg",
     "firewall": "Res_Firewall_48_Light.svg",
     "data-table": "Res_Data-Table_48_Light.svg",
+    # Service resource icons: an ECS task or service and an ALB drawn as the deployed resource. Fargate is not
+    # fetched; the AwsService `fargate` icon already covers it.
+    "ecs-task": "Res_Amazon-Elastic-Container-Service_Task_48.svg",
+    "ecs-service": "Res_Amazon-Elastic-Container-Service_Service_48.svg",
+    "alb": "Res_Elastic-Load-Balancing_Application-Load-Balancer_48.svg",
 }
 
 

@@ -1,5 +1,5 @@
 import { loadFont } from "@remotion/google-fonts/Arimo";
-import type { GroupKind } from "../aws/schema";
+import type { AwsService, GroupKind } from "../aws/schema";
 
 // WHY: titles, task ids and badge numbers are bold and sublabels italic; a weight that is not loaded renders regular.
 const { fontFamily } = loadFont("normal", { weights: ["400", "700"], subsets: ["latin"] });
@@ -28,7 +28,8 @@ export const AWS = {
 export type GroupIcon = "aws-cloud" | "region" | "vpc" | "public-subnet" | "private-subnet" | "account" | "corporate" | "server";
 
 // CONTRACT: Colours follow the AWS Architecture Icons group guidelines; renderers read them from here only.
-export const GROUP_STYLE: Record<GroupKind, { stroke: string; fill: string; dashed: boolean; icon?: GroupIcon }> = {
+// A group's corner icon is an official group icon (`icon`) or, for a cluster, the service's own icon (`serviceIcon`).
+export const GROUP_STYLE: Record<GroupKind, { stroke: string; fill: string; dashed: boolean; icon?: GroupIcon; serviceIcon?: AwsService }> = {
   "aws-cloud": { stroke: "#242F3E", fill: "none", dashed: false, icon: "aws-cloud" },
   region: { stroke: "#00A4A6", fill: "none", dashed: true, icon: "region" },
   az: { stroke: "#00A4A6", fill: "none", dashed: true },
@@ -40,4 +41,8 @@ export const GROUP_STYLE: Record<GroupKind, { stroke: string; fill: string; dash
   corporate: { stroke: "#7D8998", fill: "none", dashed: false, icon: "corporate" },
   "local-floci": { stroke: "#7D8998", fill: "none", dashed: false, icon: "server" },
   phase: { stroke: "#7D8998", fill: "#FAFAFA", dashed: true },
+  "ecs-cluster": { stroke: "#ED7100", fill: "#FDF4EC", dashed: false, serviceIcon: "ecs" },
 };
+
+/** A vpc's Availability Zone lanes: dashed teal AZ outline over a public-subnet green fill. */
+export const LANE_STYLE = { stroke: "#00A4A6", fill: "#F2F6E8", dashed: true, labelFont: 13, sublabelFont: 12 } as const;

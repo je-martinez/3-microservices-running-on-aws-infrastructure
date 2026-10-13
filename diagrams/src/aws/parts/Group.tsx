@@ -1,6 +1,6 @@
 import { Img } from "remotion";
 import { GROUP_STYLE, AWS } from "../../theme/aws-style";
-import { groupIconSrc } from "../../theme/aws-icons";
+import { awsIcon, groupIconSrc } from "../../theme/aws-icons";
 import { GROUP_LABEL_PX, groupHeader } from "../header";
 import type { Rect } from "../layout";
 import type { GroupKind } from "../schema";
@@ -19,9 +19,11 @@ export function GroupFrame({ kind, r }: { kind: GroupKind; r: Rect }) {
 export function GroupHeader({ kind, label, r }: { kind: GroupKind; label: string; r: Rect }) {
   const s = GROUP_STYLE[kind];
   const h = groupHeader(kind, label);
+  const Service = s.serviceIcon ? awsIcon(s.serviceIcon) : undefined;
   return (
     <>
       {s.icon ? <Img src={groupIconSrc(s.icon)} style={{ position: "absolute", left: r.x, top: r.y, width: h.iconSize, height: h.iconSize }} /> : null}
+      {Service ? <div style={{ position: "absolute", left: r.x, top: r.y, width: h.iconSize, height: h.iconSize }}><Service size={h.iconSize} /></div> : null}
       <div style={{ position: "absolute", left: r.x + h.textLeft, top: r.y, height: h.height, display: "flex", alignItems: "center",
         fontFamily: AWS.font, fontSize: GROUP_LABEL_PX, color: AWS.ink, whiteSpace: "nowrap" }}>
         {label}

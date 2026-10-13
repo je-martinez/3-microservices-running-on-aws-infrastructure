@@ -13,9 +13,9 @@ Remotion package `@3mrai/diagrams`: every animated flow, architecture and milest
 
 Every diagram is one `AwsDiagramData` (`primitive: "aws"`, schema in `src/aws/schema.ts`) drawn in the AWS reference-architecture style. The pre-AWS primitives (`ArchitectureMap`, `FlowSequence`, `DependencyGraph`) are removed.
 
-- `groups[]` `{ id, kind, label, parent? }` nest into containers; `nodes[]` `{ id, label, sublabel?, icon, group? }`; `edges[]` `{ id, from, to, label?, async? }`; `steps[]` `{ edges: [edgeId...], caption }`; `direction` is `RIGHT` (default) or `DOWN`.
+- `groups[]` `{ id, kind, label, parent?, lanes? }` nest into containers; `nodes[]` `{ id, label, sublabel?, icon, group? }`; `edges[]` `{ id, from, to, label?, async? }`; `steps[]` `{ edges: [edgeId...], caption }`; `direction` is `RIGHT` (default) or `DOWN`.
 - **ELK does the layout.** Never hand-position anything, never reorder nodes to dodge a crossing: declare groups, nodes and edges, pick `direction`, render.
-- **Icons:** a service node uses an `AwsService` value (e.g. `sqs`, `lambda`); a non-AWS thing (browser, users, Stripe, OpenObserve, Geoapify) uses a `GenericIcon` (`users`, `client`, `internet`, `server`, `office-building`, `firewall`, `data-table`); a milestone task uses `task`. Only `src/theme/aws-icons.ts` imports icon packages; the official group and generic SVGs live in `public/aws-icons/` and `make diagrams-icons` re-fetches them.
+- **Icons:** a service node uses an `AwsService` value (e.g. `sqs`, `lambda`); a non-AWS thing (browser, users, Stripe, OpenObserve, Geoapify) uses a `GenericIcon` (`users`, `client`, `internet`, `server`, `office-building`, `firewall`, `data-table`); a deployed ECS task, ECS service or Application Load Balancer uses the resource icons `ecs-task`, `ecs-service`, `alb`; a milestone task uses `task`. An ECS task node takes the sublabel `Fargate · 1 task`. Only `src/theme/aws-icons.ts` imports icon packages; the official group and generic SVGs live in `public/aws-icons/` and `make diagrams-icons` re-fetches them.
 - **Edges:** solid = synchronous call; `async: true` = dashed, for queues, topics, EventBridge and webhooks. Each connection is declared once; edge labels are short (schema cap 24).
 - **Steps:** each step lists the edges it traverses, in order; a repeated connection reuses its edge (two badges). At most 10 steps, caption at most 90 characters. A diagram with no steps is PNG only (no GIF).
 
@@ -26,7 +26,8 @@ Every diagram is one `AwsDiagramData` (`primitive: "aws"`, schema in `src/aws/sc
 | `aws-cloud` | pre-prod: everything AWS-hosted. Parent of the rest |
 | `local-floci` | local dev: the Floci emulator stands in for the cloud |
 | `region` / `az` | only when the Terraform or the point of the diagram is regional or per-AZ |
-| `vpc` | resources Terraform places in the VPC (ECS tasks, databases, caches) |
+| `vpc` | resources Terraform places in the VPC (ECS tasks, databases, caches). For Availability Zones give it `lanes` (2–3, `{ label: "us-east-1a", sublabel?: "Public subnet 10.1.1.0/24" }`): dashed AZ columns behind its contents, outside the layout |
+| `ecs-cluster` | an ECS cluster inside the `vpc`; its `ecs-task` nodes are the services running on it |
 | `private-subnet` / `public-subnet` | inside the `vpc`, where Terraform places them (public: load balancer) |
 | `corporate` | what runs outside AWS: browser and users, Stripe, Geoapify, OpenObserve outside AWS (or no group) |
 | `account` | an AWS account boundary, only when accounts matter |
@@ -62,6 +63,7 @@ Full text: [[diagrams]]. In short:
 
 - Declare structure, not coordinates: groups, nodes, edges, `direction`. If a layout looks wrong, fix the data (grouping, direction, fewer edges), never add positions.
 - When several nodes of a group share a connection, draw ONE edge from (or to) the group: `from`/`to` accept a group id, and the edge meets the group's frame. Never repeat the same connection per member.
+- Draw each ECS task once inside its `ecs-cluster`, never one copy per AZ lane: ECS places the tasks across the zones, and the lanes only show that the VPC spans them.
 - Keep names short; a single long word next to an icon wraps mid-word.
 - Never animate the whole canvas. GIF budget: changed pixels per frame drive the size; the renderer only lights the active step's edges, so keep steps few and focused.
 

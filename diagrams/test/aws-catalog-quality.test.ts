@@ -28,7 +28,10 @@ const bbox = (pts: Point[]): Rect => {
   const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
   return { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) };
 };
-const headers = (x: (typeof entries)[number]) => x.data.groups.map((g) => ({ id: g.id, r: groupHeaderRect(x.layout.groups[g.id]!, g.kind, g.label) }));
+const headers = (x: (typeof entries)[number]) => [
+  ...x.data.groups.map((g) => ({ id: g.id, r: groupHeaderRect(x.layout.groups[g.id]!, g.kind, g.label) })),
+  ...Object.entries(x.layout.lanes).flatMap(([gid, ls]) => ls.map((lane) => ({ id: `${gid} lane ${lane.label}`, r: lane.header }))),
+];
 
 // Rendered-quality rules every catalog diagram must satisfy with real ELK.
 describe("catalog render quality", () => {
@@ -110,9 +113,8 @@ describe("catalog render quality", () => {
     }
   });
   it.each(rows)("%s: no route crosses a group's header (corner icon and label)", (_id, x) => {
-    for (const g of x.data.groups) {
-      const band = groupHeaderRect(x.layout.groups[g.id]!, g.kind, g.label);
-      for (const [id, route] of Object.entries(x.layout.edges)) for (const s of segs(route.points)) expect(crosses(s, band), `${id} through ${g.id} header`).toBe(false);
+    for (const h of headers(x)) {
+      for (const [id, route] of Object.entries(x.layout.edges)) for (const s of segs(route.points)) expect(crosses(s, h.r), `${id} through ${h.id} header`).toBe(false);
     }
   });
   it.each(rows)("%s: parallel routes run ≥12px apart and badges sit clear of neighbouring lines", (_id, x) => {

@@ -6,6 +6,7 @@ import type { DiagramLayout } from "./layout";
 import { CaptionBar } from "./parts/CaptionBar";
 import { ConnectorHead, ConnectorLabel, ConnectorLine } from "./parts/Connector";
 import { GroupFrame, GroupHeader } from "./parts/Group";
+import { LaneFrames, LaneHeaders } from "./parts/Lanes";
 import { NodeView } from "./parts/NodeView";
 import { StepBadge } from "./parts/StepBadge";
 import { StepList } from "./parts/StepList";
@@ -44,9 +45,15 @@ export function AwsDiagram({ data, layout, annotations }: AwsDiagramProps) {
       </div>
       <div style={{ position: "absolute", left: canvas.dx, top: canvas.dy, width: layout.width, height: layout.height }}>
         <svg width={layout.width} height={layout.height} style={svg}>
-          {groups.map((g) => <GroupFrame key={g.id} kind={g.kind} r={layout.groups[g.id]!} />)}
+          {groups.map((g) => (
+            <g key={g.id}>
+              <GroupFrame kind={g.kind} r={layout.groups[g.id]!} />
+              {layout.lanes[g.id] ? <LaneFrames lanes={layout.lanes[g.id]!} /> : null}
+            </g>
+          ))}
         </svg>
         {groups.map((g) => <GroupHeader key={g.id} kind={g.kind} label={g.label} r={layout.groups[g.id]!} />)}
+        {Object.entries(layout.lanes).map(([id, lanes]) => <LaneHeaders key={id} lanes={lanes} />)}
         {data.nodes.map((n) => <NodeView key={n.id} n={n} r={layout.nodes[n.id]!} />)}
         <svg width={layout.width} height={layout.height} style={svg}>
           {data.edges.filter((e) => !lit.has(e.id)).map((e) => <ConnectorLine key={e.id} route={layout.edges[e.id]!} async={e.async} active={false} />)}

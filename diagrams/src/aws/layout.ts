@@ -13,7 +13,33 @@ export type DiagramLayout = {
   groups: Record<string, Rect>;
   nodes: Record<string, Rect & { labelLines: string[] }>;
   edges: Record<string, { points: Point[]; label?: Rect }>;
+  /** A vpc's Availability Zone lanes, in declared order; drawn behind its contents. */
+  lanes: Record<string, Lane[]>;
 };
+export type Lane = { label: string; sublabel?: string; rect: Rect; header: Rect };
+
+/** Height of a lane's header (AZ label plus subnet sublabel); a vpc with lanes reserves it above its contents. */
+export const LANE_HEADER_H = 40;
+const LANE_INSET = 10;
+const LANE_GAP = 8;
+const LANE_TEXT_PAD = 6;
+
+/** The area a vpc's lanes split between them: below its header, inset from its frame. */
+export function vpcLaneArea(vpc: Rect): Rect {
+  const top = vpc.y + AWS.groupHeader;
+  return { x: vpc.x + LANE_INSET, y: top, w: vpc.w - 2 * LANE_INSET, h: vpc.y + vpc.h - LANE_INSET - top };
+}
+
+function laneRects(g: AwsDiagramData["groups"][number], vpc: Rect): Lane[] {
+  const area = vpcLaneArea(vpc);
+  const n = g.lanes!.length;
+  const w = (area.w - (n - 1) * LANE_GAP) / n;
+  return g.lanes!.map((lane, i) => {
+    const rect = { x: area.x + i * (w + LANE_GAP), y: area.y, w, h: area.h };
+    const textW = Math.max(textWidth(lane.label, 13), lane.sublabel ? textWidth(lane.sublabel, 12) : 0);
+    return { ...lane, rect, header: { x: rect.x, y: rect.y, w: Math.min(w, textW + 2 * LANE_TEXT_PAD), h: LANE_HEADER_H } };
+  });
+}
 
 const ROOT = "__root__";
 // WHY: each route jogging round a group's header needs its own 16px lane under the header.
@@ -221,7 +247,7 @@ function buildGraph(
       children: [],
       layoutOptions: {
         ...EDGE_SPACING,
-        "elk.padding": `[top=${AWS.groupHeader + AWS.groupPad + HEADER_LANE * (lanes.get(g.id) ?? 0)},left=${AWS.groupPad},bottom=${AWS.groupPad},right=${AWS.groupPad}]`,
+        "elk.padding": `[top=${AWS.groupHeader + AWS.groupPad + (g.lanes ? LANE_HEADER_H : 0) + HEADER_LANE * (lanes.get(g.id) ?? 0)},left=${AWS.groupPad},bottom=${AWS.groupPad},right=${AWS.groupPad}]`,
         "elk.nodeSize.constraints": "MINIMUM_SIZE",
         // WORKAROUND(provider): Do NOT pass the minimum as (w,h) in a DOWN layout: elkjs 0.12 reads a compound
         // node's minimum transposed there, and the frame comes out narrower than its header label.
@@ -347,7 +373,7 @@ async function place(
   const labelLines = new Map<string, string[]>();
   const result = await elk.layout(buildGraph(d, labelLines, sides, centres, lanes, frames, nodesPrev));
   const groupIds = new Set(d.groups.map((g) => g.id));
-  const out: DiagramLayout = { width: result.width ?? 0, height: (result.height ?? 0) + AWS.titleH, groups: {}, nodes: {}, edges: {} };
+  const out: DiagramLayout = { width: result.width ?? 0, height: (result.height ?? 0) + AWS.titleH, groups: {}, nodes: {}, edges: {}, lanes: {} };
 
   // CONTRACT: ELK shapes are relative to their parent; edge sections and labels are relative to the edge's
   // `container` (the lowest common ancestor of its endpoints), whatever level declared the edge.
@@ -378,8 +404,12 @@ async function place(
     const l = e.labels?.[0];
     out.edges[e.id] = l ? { points, label: { ...shift({ x: l.x ?? 0, y: l.y ?? 0 }), w: l.width ?? 0, h: l.height ?? 0 } } : { points };
   }
+  for (const g of d.groups) if (g.lanes) out.lanes[g.id] = laneRects(g, out.groups[g.id]!);
   settleFramePorts(d, out);
-  const headers = d.groups.map((g) => groupHeaderRect(out.groups[g.id]!, g.kind, g.label));
+  const headers = [
+    ...d.groups.map((g) => groupHeaderRect(out.groups[g.id]!, g.kind, g.label)),
+    ...Object.values(out.lanes).flat().map((lane) => lane.header),
+  ];
   const headerCrossings = new Map(d.groups.map((g, i) => [g.id, Object.values(out.edges).filter((r) => crossesHeader(r.points, headers[i]!)).length]));
   for (const [id, route] of Object.entries(out.edges)) {
     const others = Object.entries(out.edges).filter(([o]) => o !== id).map(([, r]) => r.points);

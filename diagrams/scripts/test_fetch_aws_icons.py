@@ -32,3 +32,15 @@ def test_select_raises_when_a_wanted_icon_is_missing():
 
     with pytest.raises(SystemExit, match="vpc"):
         fetch.select(NAMES, {"vpc": "Virtual-private-cloud-VPC_32.svg"}, {})
+
+
+def test_fetches_the_ecs_and_load_balancer_resource_icons():
+    assert fetch.GENERIC["ecs-task"] == "Res_Amazon-Elastic-Container-Service_Task_48.svg"
+    assert fetch.GENERIC["ecs-service"] == "Res_Amazon-Elastic-Container-Service_Service_48.svg"
+    assert fetch.GENERIC["alb"] == "Res_Elastic-Load-Balancing_Application-Load-Balancer_48.svg"
+
+
+def test_select_finds_a_service_resource_icon_in_its_category_folder():
+    names = ["Resource-Icons_07312026/Res_Containers/Res_Amazon-Elastic-Container-Service_Task_48.svg"]
+    picked = fetch.select(names, {}, {"ecs-task": "Res_Amazon-Elastic-Container-Service_Task_48.svg"})
+    assert picked == {("generic", "ecs-task"): names[0]}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { groupHeaderRect } from "../src/aws/header";
-import { layoutDiagram, type Point, type Rect } from "../src/aws/layout";
+import { type DiagramLayout, LANE_HEADER_H, layoutDiagram, type Point, type Rect, vpcLaneArea } from "../src/aws/layout";
 import { AwsDiagramData, type GroupKind } from "../src/aws/schema";
 
 const inside = (a: Rect, b: Rect) => a.x >= b.x - 0.5 && a.y >= b.y - 0.5 && a.x + a.w <= b.x + b.w + 0.5 && a.y + a.h <= b.y + b.h + 0.5;
@@ -323,5 +323,55 @@ describe("group endpoints", () => {
     });
     const l = await layoutDiagram(d);
     for (const g of d.groups) expect(l.groups[g.id]!.w, g.id).toBeGreaterThanOrEqual(groupHeaderRect(l.groups[g.id]!, g.kind, g.label).w);
+  });
+});
+
+describe("vpc lanes", async () => {
+  const d = AwsDiagramData.parse({
+    title: "Multi-AZ",
+    groups: [
+      { id: "region", kind: "region", label: "us-east-1" },
+      { id: "vpc", kind: "vpc", label: "VPC 10.1.0.0/16", parent: "region",
+        lanes: [{ label: "us-east-1a", sublabel: "Public subnet 10.1.1.0/24" }, { label: "us-east-1b", sublabel: "Public subnet 10.1.2.0/24" }] },
+      { id: "cluster", kind: "ecs-cluster", label: "ECS cluster", parent: "vpc" },
+    ],
+    nodes: [
+      { id: "web", label: "Browser", icon: "client" },
+      { id: "alb", label: "ALB", icon: "alb", group: "vpc" },
+      { id: "orders", label: "Orders", sublabel: "Fargate · 1 task", icon: "ecs-task", group: "cluster" },
+      { id: "users", label: "Users", sublabel: "Fargate · 1 task", icon: "ecs-task", group: "cluster" },
+      { id: "db", label: "RDS", icon: "rds", group: "vpc" },
+    ],
+    edges: [
+      { id: "in", from: "web", to: "alb", label: "HTTPS" }, { id: "lb", from: "alb", to: "cluster" },
+      { id: "sql", from: "cluster", to: "db" },
+    ],
+  });
+  const l = await layoutDiagram(d);
+  const vpc = l.groups.vpc!;
+  const lanes = l.lanes.vpc!;
+  it("splits the vpc's inner area into equal lanes, in declared order, covering it from edge to edge", () => {
+    expect(lanes).toHaveLength(2);
+    const inner = vpcLaneArea(vpc);
+    expect(lanes[0]!.rect.x).toBeCloseTo(inner.x);
+    expect(lanes[1]!.rect.x + lanes[1]!.rect.w).toBeCloseTo(inner.x + inner.w);
+    expect(lanes[0]!.rect.w).toBeCloseTo(lanes[1]!.rect.w);
+    expect(lanes[0]!.rect.x).toBeLessThan(lanes[1]!.rect.x);
+    for (const lane of lanes) expect([lane.rect.y, lane.rect.h]).toEqual([inner.y, inner.h]);
+    expect(lanes.map((x) => x.label)).toEqual(["us-east-1a", "us-east-1b"]);
+  });
+  it("keeps the vpc's contents below the lane headers", () => {
+    const below = Math.max(...lanes.map((x) => x.header.y + x.header.h));
+    for (const id of ["alb", "db"]) expect(l.nodes[id]!.y, id).toBeGreaterThanOrEqual(below);
+    expect(l.groups.cluster!.y).toBeGreaterThanOrEqual(below);
+  });
+  it("reserves the lane header band only on a vpc with lanes", async () => {
+    const plain = await layoutDiagram({ ...d, groups: d.groups.map((g) => ({ ...g, lanes: undefined })) });
+    expect(plain.lanes).toEqual({});
+    const top = (x: DiagramLayout) => Math.min(...["alb", "db"].map((id) => x.nodes[id]!.y)) - x.groups.vpc!.y;
+    expect(top(l) - top(plain)).toBeGreaterThanOrEqual(LANE_HEADER_H);
+  });
+  it("is deterministic", async () => {
+    expect(await layoutDiagram(d)).toEqual(l);
   });
 });

@@ -1,5 +1,5 @@
 import { badgeCentres } from "./badges";
-import { groupHeaderRect } from "./header";
+import { headerBands } from "./header";
 import { placeLabels } from "./labels";
 import type { DiagramLayout, Point, Rect } from "./layout";
 import type { AwsDiagramData } from "./schema";
@@ -11,7 +11,7 @@ export type Annotations = { badges: Point[]; labels: Record<string, Rect> };
  * off nodes, group headers and each other): when no spot qualifies it throws, naming the diagram.
  */
 export function annotate(id: string, data: AwsDiagramData, layout: DiagramLayout): Annotations {
-  const headers = data.groups.map((g) => groupHeaderRect(layout.groups[g.id]!, g.kind, g.label));
+  const headers = headerBands(data, layout);
   // WHY: badges keep off ELK's reserved label spots, so most labels can stay where ELK made room for them.
   const elkLabels = Object.values(layout.edges).flatMap((r) => (r.label ? [r.label] : []));
   try {

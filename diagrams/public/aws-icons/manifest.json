@@ -1,6 +1,6 @@
 {
   "package": "Icon-package_07312026.5846e92413caa21490223536cc97f1269e44fa92.zip",
-  "fetched": "2026-10-07",
+  "fetched": "2026-10-12",
   "group": {
     "aws-cloud": "group/aws-cloud.svg",
     "region": "group/region.svg",
@@ -18,6 +18,9 @@
     "server": "generic/server.svg",
     "office-building": "generic/office-building.svg",
     "firewall": "generic/firewall.svg",
-    "data-table": "generic/data-table.svg"
+    "data-table": "generic/data-table.svg",
+    "ecs-task": "generic/ecs-task.svg",
+    "ecs-service": "generic/ecs-service.svg",
+    "alb": "generic/alb.svg"
   }
 }

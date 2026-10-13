@@ -1,7 +1,7 @@
 import { AWS } from "../theme/aws-style";
 import { BADGE_GAP, badgeRect, gap } from "./badges";
 import type { DiagramLayout, Point, Rect } from "./layout";
-import { groupHeaderRect } from "./header";
+import { headerBands } from "./header";
 import type { AwsDiagramData } from "./schema";
 
 /** Distance between an edge label and the line it labels; the far offset clears a badge sitting on the line. */
@@ -64,7 +64,7 @@ const OFFSETS = [LABEL_OFFSET, LABEL_OFFSET_FAR, 26, 36, 48, 64];
  */
 export function placeLabels(data: AwsDiagramData, layout: DiagramLayout, badges: Point[]): Record<string, Rect> {
   const nodes = Object.values(layout.nodes);
-  const headers = data.groups.map((g) => groupHeaderRect(layout.groups[g.id]!, g.kind, g.label));
+  const headers = headerBands(data, layout);
   const badgeBoxes = badges.map((p) => badgeRect(p, BADGE_GAP));
   const bounds = { x: 0, y: AWS.titleH, w: layout.width, h: layout.height - AWS.titleH };
   const placed: Rect[] = [];

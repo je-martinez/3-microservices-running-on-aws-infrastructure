@@ -9,11 +9,13 @@ export type AwsService = z.infer<typeof AwsService>;
 
 export const GroupKind = z.enum([
   "aws-cloud", "region", "az", "vpc", "public-subnet", "private-subnet",
-  "account", "generic", "corporate", "local-floci", "phase",
+  "account", "generic", "corporate", "local-floci", "phase", "ecs-cluster",
 ]);
 export type GroupKind = z.infer<typeof GroupKind>;
 
-export const GenericIcon = z.enum(["users", "client", "internet", "server", "office-building", "firewall", "data-table"]);
+export const GenericIcon = z.enum([
+  "users", "client", "internet", "server", "office-building", "firewall", "data-table", "ecs-task", "ecs-service", "alb",
+]);
 export type GenericIcon = z.infer<typeof GenericIcon>;
 
 const Id = z.string().regex(/^[a-z0-9][a-z0-9-]*$|^JE-\d+$/);
@@ -26,7 +28,11 @@ export const AwsDiagramData = z
     title: z.string().min(1).max(70),
     subtitle: z.string().max(110).optional(),
     direction: z.enum(["RIGHT", "DOWN"]).default("RIGHT"),
-    groups: z.array(z.object({ id: Id, kind: GroupKind, label: z.string().min(1).max(40), parent: Id.optional() })).max(16),
+    groups: z.array(z.object({
+      id: Id, kind: GroupKind, label: z.string().min(1).max(40), parent: Id.optional(),
+      // CONTRACT: lanes are a vpc's Availability Zone columns, drawn behind its contents; they take no part in layout.
+      lanes: z.array(z.object({ label: z.string().min(1).max(40), sublabel: z.string().max(40).optional() })).min(2).max(3).optional(),
+    })).max(16),
     nodes: z
       .array(z.object({ id: Id, label: z.string().min(1).max(32), sublabel: z.string().max(32).optional(), icon: NodeIcon, group: Id.optional() }))
       .max(24),
@@ -38,6 +44,7 @@ export const AwsDiagramData = z
     const fail = (message: string, path: (string | number)[]) => ctx.addIssue({ code: "custom", message, path });
     const seen = new Set<string>();
     d.groups.forEach((g, i) => {
+      if (g.lanes && g.kind !== "vpc") fail(`group "${g.id}" has lanes, but only a vpc may`, ["groups", i, "lanes"]);
       if (seen.has(g.id)) fail(`duplicate id "${g.id}"`, ["groups", i]);
       seen.add(g.id);
     });

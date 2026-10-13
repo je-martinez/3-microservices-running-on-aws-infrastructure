@@ -72,3 +72,30 @@ describe("AwsDiagramData", () => {
     expect(AwsDiagramData.safeParse({ ...ok, steps: [{ edges: ["e1"], caption: "x".repeat(91) }] }).success).toBe(false);
   });
 });
+
+describe("ECS clusters, VPC lanes and resource icons", () => {
+  const lanes = [{ label: "us-east-1a", sublabel: "Public subnet 10.1.1.0/24" }, { label: "us-east-1b" }];
+  const vpcWith = (extra: object) => ({ ...ok, groups: [ok.groups[0], { ...ok.groups[1], ...extra }] });
+  it("accepts an ecs-cluster group and the ECS task, ECS service and ALB resource icons", () => {
+    const d = AwsDiagramData.parse({
+      ...ok,
+      groups: [...ok.groups, { id: "cluster", kind: "ecs-cluster", label: "ECS cluster", parent: "vpc" }],
+      nodes: [...ok.nodes, { id: "t", label: "Orders", sublabel: "Fargate · 1 task", icon: "ecs-task", group: "cluster" },
+        { id: "s", label: "Svc", icon: "ecs-service", group: "cluster" }, { id: "lb", label: "ALB", icon: "alb", group: "vpc" }],
+    });
+    expect(d.groups.map((g) => g.kind)).toContain("ecs-cluster");
+  });
+  it("accepts 2 or 3 lanes on a vpc", () => {
+    expect(AwsDiagramData.parse(vpcWith({ lanes })).groups[1]!.lanes).toEqual(lanes);
+    expect(() => AwsDiagramData.parse(vpcWith({ lanes: [...lanes, { label: "us-east-1c" }] }))).not.toThrow();
+  });
+  it.each([[[lanes[0]]], [[...lanes, { label: "c" }, { label: "d" }]]])("rejects %j lanes (2 to 3 only)", (l) => {
+    expect(AwsDiagramData.safeParse(vpcWith({ lanes: l })).success).toBe(false);
+  });
+  it("rejects lanes on a group that is not a vpc", () => {
+    expect(issues({ ...ok, groups: [{ ...ok.groups[0], lanes }, ok.groups[1]] })).toContain('group "cloud" has lanes, but only a vpc may');
+  });
+  it("rejects a lane label over 40 characters", () => {
+    expect(AwsDiagramData.safeParse(vpcWith({ lanes: [{ label: "x".repeat(41) }, { label: "b" }] })).success).toBe(false);
+  });
+});
