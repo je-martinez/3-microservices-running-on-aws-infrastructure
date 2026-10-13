@@ -4,13 +4,15 @@ import type { AwsDiagramData } from "../../aws/schema";
 // CONTRACT: local dev. Orders, Users and Tracking run in Docker Compose; SNS, SQS, the pipeline
 // Lambda and SES run on Floci outside the VPC; the Orders DB (the RDS MySQL cluster) sits in
 // module.networking's subnets; Stripe is outside AWS. Source: infra/environments/local/main.tf.
+// WHY: the two Floci frames are one emulator, split so the event chain keeps clear of Compose's frame.
 export const ordersCheckoutStripe: z.input<typeof AwsDiagramData> = {
   title: "Checkout with a Stripe charge",
   subtitle: "Local dev on Floci: charge first, persist in one transaction, reconcile through Stripe's webhook",
   direction: "RIGHT",
   groups: [
     { id: "compose", kind: "generic", label: "Docker Compose" },
-    { id: "floci", kind: "local-floci", label: "Floci (:4566)" },
+    { id: "floci", kind: "local-floci", label: "Floci (:4566) — data" },
+    { id: "floci-events", kind: "local-floci", label: "Floci (:4566) — events" },
     { id: "vpc", kind: "vpc", label: "VPC 10.0.0.0/16", parent: "floci" },
     { id: "subnets", kind: "public-subnet", label: "Subnets a + b", parent: "vpc" },
   ],
@@ -21,10 +23,10 @@ export const ordersCheckoutStripe: z.input<typeof AwsDiagramData> = {
     { id: "tracking", label: "Tracking service", icon: "server", group: "compose" },
     { id: "stripe", label: "Stripe", icon: "internet" },
     { id: "db", label: "Orders DB", sublabel: "RDS MySQL", icon: "rds", group: "subnets" },
-    { id: "sns", label: "Events topic", icon: "sns", group: "floci" },
-    { id: "sqs", label: "Events queue", icon: "sqs", group: "floci" },
-    { id: "pipeline", label: "Events pipeline", icon: "lambda", group: "floci" },
-    { id: "ses", label: "SES", sublabel: "Mailpit", icon: "ses", group: "floci" },
+    { id: "sns", label: "Events topic", icon: "sns", group: "floci-events" },
+    { id: "sqs", label: "Events queue", icon: "sqs", group: "floci-events" },
+    { id: "pipeline", label: "Events pipeline", icon: "lambda", group: "floci-events" },
+    { id: "ses", label: "SES", sublabel: "Mailpit", icon: "ses", group: "floci-events" },
   ],
   edges: [
     { id: "web-orders", from: "web", to: "orders", label: "REST" },

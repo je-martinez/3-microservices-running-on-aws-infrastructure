@@ -3,7 +3,7 @@ import type { AwsDiagramData } from "../../aws/schema";
 
 export const documentationVaultDeps: z.input<typeof AwsDiagramData> = {
   title: "Documentation Vault milestone: task dependencies",
-  direction: "RIGHT",
+  direction: "DOWN",
   groups: [
     { id: "foundations", kind: "phase", label: "Foundations" },
     { id: "shared", kind: "phase", label: "Shared base" },

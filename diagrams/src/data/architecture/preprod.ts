@@ -15,6 +15,7 @@ export const architecturePreprod: z.input<typeof AwsDiagramData> = {
     { id: "vpc", kind: "vpc", label: "VPC", parent: "region" },
     { id: "subnets", kind: "public-subnet", label: "Subnets a + b (us-east-1a/b)", parent: "vpc" },
     { id: "services", kind: "generic", label: "Service tasks", parent: "subnets" },
+    { id: "events", kind: "generic", label: "Event pipeline", parent: "region" },
   ],
   nodes: [
     { id: "browser", label: "Browser (SPA)", icon: "client" },
@@ -30,10 +31,10 @@ export const architecturePreprod: z.input<typeof AwsDiagramData> = {
     { id: "docdb", label: "Event store", sublabel: "DocumentDB", icon: "documentdb", group: "subnets" },
     { id: "ws", label: "WebSocket API", sublabel: "connections table", icon: "api-gateway", group: "region" },
     { id: "redis", label: "ElastiCache", icon: "elasticache", group: "region" },
-    { id: "sns", label: "Events topic", icon: "sns", group: "region" },
-    { id: "sqs", label: "Events + notif queues", icon: "sqs", group: "region" },
-    { id: "lambda", label: "events-pipeline", icon: "lambda", group: "region" },
-    { id: "ses", label: "SES", sublabel: "to Mailpit", icon: "ses", group: "region" },
+    { id: "sns", label: "Events topic", icon: "sns", group: "events" },
+    { id: "sqs", label: "Events + notif queues", icon: "sqs", group: "events" },
+    { id: "lambda", label: "events-pipeline", icon: "lambda", group: "events" },
+    { id: "ses", label: "SES", sublabel: "to Mailpit", icon: "ses", group: "events" },
   ],
   edges: [
     { id: "browser-alb", from: "browser", to: "alb", label: "HTTP" },
