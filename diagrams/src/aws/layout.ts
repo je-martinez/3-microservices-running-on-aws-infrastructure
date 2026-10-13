@@ -95,7 +95,11 @@ const SAME_LAYER = 30;
 /** Forward-flow sides, used for the first pass before node positions are known. */
 function flowSides(d: AwsDiagramData): EdgeSides {
   const side = d.direction === "RIGHT" ? { from: "EAST", to: "WEST" } as const : { from: "EAST", to: "NORTH" } as const;
-  return new Map(d.edges.map((e) => [e.id, side]));
+  const back = d.direction === "RIGHT" ? { from: "WEST", to: "EAST", back: true } as const : { from: "NORTH", to: "EAST", back: true } as const;
+  // WHY: a compact map's declaration order is its flow order; a group ranks as its first-declared member.
+  const index = new Map(d.nodes.map((n, i) => [n.id, i]));
+  const rank = (id: string) => index.get(id) ?? Math.min(...membersOf(d, id).map((m) => index.get(m)!));
+  return new Map(d.edges.map((e) => [e.id, d.compact && e.from !== e.to && rank(e.to) < rank(e.from) ? back : side]));
 }
 
 // CONTRACT: no edge ends on a SOUTH side: below an icon sits its label. Back edges leave and enter on the
@@ -295,7 +299,7 @@ function buildGraph(
   const end = (e: AwsDiagramData["edges"][number], which: "from" | "to") =>
     (widths.has(e[which]) || groupIds.has(e[which]) ? portId(e.id, which) : e[which]);
   for (const e of d.edges) {
-    const labels: ElkLabel[] = e.label
+    const labels: ElkLabel[] = e.label && !d.compact
       ? [{ id: `${e.id}__label`, text: e.label, width: textWidth(e.label, AWS.edgeLabelFont) + 8, height: LINE_H, layoutOptions: { "elk.edgeLabels.placement": "CENTER" } }]
       : [];
     const [src, dst] = sides.get(e.id)!.back ? [end(e, "to"), end(e, "from")] : [end(e, "from"), end(e, "to")];
@@ -418,6 +422,7 @@ async function place(
     const l = e.labels?.[0];
     out.edges[e.id] = l ? { points, label: { ...shift({ x: l.x ?? 0, y: l.y ?? 0 }), w: l.width ?? 0, h: l.height ?? 0 } } : { points };
   }
+  for (const e of d.edges) if (d.compact && e.label) out.edges[e.id]!.label = besideLongest(out.edges[e.id]!.points, e.label);
   for (const g of d.groups) if (g.lanes) out.lanes[g.id] = laneRects(g, out.groups[g.id]!);
   settleFramePorts(d, out);
   const headers = [
@@ -430,6 +435,16 @@ async function place(
     route.points = clearHeaders(route.points, headers, others);
   }
   return { ...out, headerCrossings };
+}
+
+/** A label box just beside the middle of a route's longest segment; placeLabels moves it when it does not fit. */
+function besideLongest(points: Point[], text: string): Rect {
+  const w = textWidth(text, AWS.edgeLabelFont) + 8;
+  const len = (a: Point, b: Point) => Math.abs(b.x - a.x) + Math.abs(b.y - a.y);
+  const i = points.slice(1).reduce((best, q, k) => (len(points[k]!, q) > len(points[best]!, points[best + 1]!) ? k : best), 0);
+  const [a, b] = [points[i]!, points[i + 1]!];
+  const c = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  return Math.abs(a.y - b.y) < 0.5 ? { x: c.x - w / 2, y: c.y + 3, w, h: LINE_H } : { x: c.x + 3, y: c.y - LINE_H / 2, w, h: LINE_H };
 }
 
 function crossesHeader(points: Point[], h: Rect): boolean {

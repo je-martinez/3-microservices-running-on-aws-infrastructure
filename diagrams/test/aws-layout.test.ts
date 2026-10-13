@@ -375,3 +375,66 @@ describe("vpc lanes", async () => {
     expect(await layoutDiagram(d)).toEqual(l);
   });
 });
+
+// A long hierarchical chain with an edge back into the VPC: ELK's own wrapping ignores INCLUDE_CHILDREN graphs.
+const chain = (compact: boolean) => AwsDiagramData.parse({
+  title: "Chain",
+  compact,
+  groups: [
+    { id: "cloud", kind: "aws-cloud", label: "AWS Cloud" },
+    { id: "vpc", kind: "vpc", label: "VPC", parent: "cloud" },
+    { id: "svcs", kind: "generic", label: "Services", parent: "vpc" },
+  ],
+  nodes: [
+    { id: "entry", label: "Browser", icon: "client" },
+    { id: "gw", label: "API Gateway", icon: "api-gateway", group: "cloud" },
+    { id: "alb", label: "ALB", icon: "alb", group: "vpc" },
+    { id: "orders", label: "orders", icon: "ecs-task", group: "svcs" },
+    { id: "users", label: "users", icon: "ecs-task", group: "svcs" },
+    { id: "db", label: "RDS", icon: "rds", group: "vpc" },
+    { id: "store", label: "Event store", icon: "documentdb", group: "vpc" },
+    { id: "topic", label: "Events topic", icon: "sns", group: "cloud" },
+    { id: "queue", label: "Events queue", icon: "sqs", group: "cloud" },
+    { id: "fn", label: "events-pipeline", icon: "lambda", group: "cloud" },
+  ],
+  edges: [
+    { id: "entry-gw", from: "entry", to: "gw", label: "/v1 API" },
+    { id: "gw-alb", from: "gw", to: "alb", label: "routes" },
+    { id: "alb-svcs", from: "alb", to: "svcs", label: "listener per service" },
+    { id: "orders-users", from: "orders", to: "users", label: "gRPC" },
+    { id: "svcs-db", from: "svcs", to: "db", label: "SQL" },
+    { id: "svcs-topic", from: "svcs", to: "topic", label: "publish", async: true },
+    { id: "topic-queue", from: "topic", to: "queue", async: true },
+    { id: "queue-fn", from: "queue", to: "fn", label: "events", async: true },
+    { id: "queue-users", from: "queue", to: "users", label: "notify", async: true },
+    { id: "fn-store", from: "fn", to: "store" },
+  ],
+});
+
+describe("compact layout", async () => {
+  const [wide, compact] = [await layoutDiagram(chain(false)), await layoutDiagram(chain(true))];
+  const d = chain(true);
+  const cx = (id: string) => compact.nodes[id]!.x + compact.nodes[id]!.w / 2;
+  it("runs the flow in declaration order: entry at the left, an edge to an earlier node points back", () => {
+    expect(Math.min(...Object.values(compact.nodes).map((n) => n.x))).toBe(compact.nodes.entry!.x);
+    for (const [a, b] of [["entry", "gw"], ["gw", "alb"], ["alb", "orders"], ["users", "db"], ["db", "topic"], ["topic", "queue"], ["queue", "fn"]] as const) {
+      expect(cx(a), `${a} left of ${b}`).toBeLessThan(cx(b));
+    }
+    expect(cx("store")).toBeLessThan(cx("fn"));
+    expect(cx("users")).toBeLessThan(cx("queue"));
+  });
+  it("is narrower than the default layout, at a lower aspect ratio", () => {
+    expect(compact.width).toBeLessThan(wide.width * 0.8);
+    expect(compact.width / compact.height).toBeLessThan((wide.width / wide.height) * 0.8);
+  });
+  it("keeps every node inside its group and every group inside its parent", () => {
+    for (const n of d.nodes) if (n.group) expect(inside(compact.nodes[n.id]!, compact.groups[n.group]!), n.id).toBe(true);
+    for (const g of d.groups) if (g.parent) expect(inside(compact.groups[g.id]!, compact.groups[g.parent]!), g.id).toBe(true);
+  });
+  it("gives every labelled edge a label box and no unlabelled edge one", () => {
+    for (const e of d.edges) expect(Boolean(compact.edges[e.id]!.label), e.id).toBe(Boolean(e.label));
+  });
+  it("is deterministic", async () => {
+    expect(await layoutDiagram(d)).toEqual(compact);
+  });
+});

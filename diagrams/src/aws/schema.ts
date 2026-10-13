@@ -28,6 +28,9 @@ export const AwsDiagramData = z
     title: z.string().min(1).max(70),
     subtitle: z.string().max(110).optional(),
     direction: z.enum(["RIGHT", "DOWN"]).default("RIGHT"),
+    // CONTRACT: compact keeps a wide map short along the flow: an edge to a node declared before its source
+    // is laid out as a back edge (it adds no layer), and edge labels take no room between layers.
+    compact: z.boolean().optional(),
     groups: z.array(z.object({
       id: Id, kind: GroupKind, label: z.string().min(1).max(40), parent: Id.optional(),
       // CONTRACT: lanes are a vpc's Availability Zone columns, drawn behind its contents; they take no part in layout.

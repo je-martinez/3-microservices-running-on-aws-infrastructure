@@ -80,6 +80,10 @@ describe("catalog render quality", () => {
       }
     }
   });
+  it.each(rows.filter(([, x]) => x.data.compact))("%s: a compact map stays within 2000px wide and a 2:1 aspect", (_id, x) => {
+    expect(x.layout.width).toBeLessThanOrEqual(2000);
+    expect(x.layout.width / x.layout.height).toBeLessThanOrEqual(2);
+  });
   it.each(rows)("%s: lays out and annotates deterministically", async (id, x) => {
     const again = await layoutDiagram(x.data);
     expect(again).toEqual(x.layout);
