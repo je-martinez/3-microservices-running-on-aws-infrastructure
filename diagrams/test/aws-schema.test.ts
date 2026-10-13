@@ -65,9 +65,12 @@ describe("AwsDiagramData", () => {
     const r = AwsDiagramData.safeParse({ ...ok, edges: [ok.edges[0], { id: "e2", from: "gw", to: "ghost" }] });
     expect(r.success ? [] : r.error.issues.map((i) => i.path.join("."))).toContain("edges.1");
   });
-  it("caps nodes at 24, steps at 10, captions at 90 chars", () => {
-    const many = Array.from({ length: 25 }, (_, i) => ({ id: `n${i}`, label: `N${i}`, icon: "lambda" as const }));
+  it("caps nodes at 30, edges at 40, steps at 10, captions at 90 chars", () => {
+    const many = Array.from({ length: 31 }, (_, i) => ({ id: `n${i}`, label: `N${i}`, icon: "lambda" as const }));
     expect(AwsDiagramData.safeParse({ ...ok, nodes: many, edges: [], steps: [] }).success).toBe(false);
+    expect(AwsDiagramData.safeParse({ ...ok, nodes: many.slice(1), edges: [], steps: [] }).success).toBe(true);
+    const loops = Array.from({ length: 41 }, (_, i) => ({ id: `l${i}`, from: "n1", to: "n2" }));
+    expect(AwsDiagramData.safeParse({ ...ok, nodes: many.slice(1), edges: loops, steps: [] }).success).toBe(false);
     expect(AwsDiagramData.safeParse({ ...ok, steps: Array.from({ length: 11 }, () => ok.steps[0]) }).success).toBe(false);
     expect(AwsDiagramData.safeParse({ ...ok, steps: [{ edges: ["e1"], caption: "x".repeat(91) }] }).success).toBe(false);
   });

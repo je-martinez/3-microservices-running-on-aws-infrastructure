@@ -38,7 +38,7 @@ Serverless or regional services (SQS, SNS, Cognito, S3, SES, Lambda, API Gateway
 
 ## Detail level
 
-- At most ~12 nodes per diagram; schema caps are 24 nodes, 16 groups, 30 edges. Never drop real services to fit: group them instead.
+- At most ~12 nodes per flow; schema caps are 30 nodes, 16 groups, 40 edges, sized for the architecture maps, which draw every runtime AWS service as its own node. Never drop real services to fit: group them instead.
 - At most 10 steps. One-line caption per step, at most 90 characters (the schema enforces label, sublabel and caption lengths).
 - Show service and resource names only. Never endpoints, request fields or payloads.
 - Content is read from real sources, never invented.

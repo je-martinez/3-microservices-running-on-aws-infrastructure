@@ -21,7 +21,12 @@ export const systemContextEntries: CatalogEntry[] = [
     id: "system-context-l2",
     title: systemContextL2.title,
     output: "docs/00-overview/diagrams/system-context-l2",
-    watches: [...watches, "infra/modules/messaging/**", "infra/modules/lambda/**", "infra/modules/api-gateway-ws/**", "infra/modules/dynamodb/**"],
+    watches: [
+      ...watches, "infra/modules/messaging/**", "infra/modules/lambda/**", "infra/modules/api-gateway-ws/**", "infra/modules/dynamodb/**",
+      "infra/modules/ecr/**", "infra/modules/app-config/**", "infra/modules/ecs-service/**", "infra/modules/assets-bucket/**",
+      "infra/modules/rds-aurora/**", "infra/environments/preprod/*.tf", "observability/otel-collector-config.yaml",
+      "services/users/src/shared/realtime/**",
+    ],
     primitive: "aws",
     source: "diagrams/src/data/system-context/l2.ts",
     data: systemContextL2,

@@ -38,9 +38,10 @@ export const AwsDiagramData = z
     })).max(16),
     nodes: z
       .array(z.object({ id: Id, label: z.string().min(1).max(32), sublabel: z.string().max(32).optional(), icon: NodeIcon, group: Id.optional() }))
-      .max(24),
+      // WHY: an architecture map draws every runtime AWS service as its own node; a flow stays near 12.
+      .max(30),
     // CONTRACT: `from`/`to` name a node or a group; a group endpoint draws one connection from its frame.
-    edges: z.array(z.object({ id: Id, from: Id, to: Id, label: z.string().max(24).optional(), async: z.boolean().optional() })).max(30),
+    edges: z.array(z.object({ id: Id, from: Id, to: Id, label: z.string().max(24).optional(), async: z.boolean().optional() })).max(40),
     steps: z.array(z.object({ edges: z.array(Id).min(1), caption: z.string().min(1).max(90) })).max(10).default([]),
   })
   .superRefine((d, ctx) => {
