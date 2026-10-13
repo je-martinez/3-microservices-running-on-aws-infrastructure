@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-10-06
-updated: 2026-10-12
+updated: 2026-10-13
 tags:
   - type/convention
   - area/shared
@@ -102,6 +102,10 @@ Serverless or regional services (SQS, SNS, Cognito, S3, SES, Lambda, API Gateway
 ## GIF budget
 
 GIF size is driven by **changed pixels per frame**, not by frame count. Frame 0 is the complete diagram with neutral edges; only the active step's edges highlight. Never fade or animate the whole canvas, and keep the canvas size an integer (whole 20 px multiples), otherwise the encoder stores whole frames. Dropping real services to fit the budget is the wrong fix; reduce what changes per frame instead.
+
+## Split views
+
+Dense maps are split into a **request path** view and an **events & observability** view (`*-events.png`). The union of a pair must cover every runtime AWS service; `diagrams/test/split-views.test.ts` enforces it. Anchor nodes (the Browser, the services/cluster group) may appear in both views.
 
 ## Keep-current rule
 

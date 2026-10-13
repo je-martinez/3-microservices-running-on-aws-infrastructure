@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: accepted
 created: 2026-10-07
-updated: 2026-10-12
+updated: 2026-10-13
 tags:
   - type/spec
   - area/shared
@@ -91,6 +91,7 @@ The shipped implementation differs from the design above in these ways.
 - **Milestones lay out DOWN.** Milestone graphs use `direction: "DOWN"`.
 - **Drift watches.** Implicit watches are the entry's source module, `diagrams/src/aws/**`, `diagrams/src/theme/**`, `diagrams/public/aws-icons/**`, `diagrams/src/schema.ts`, `diagrams/src/Root.tsx`, `diagrams/src/scripts/render.ts` and `diagrams/package.json`.
 - **Canvas width.** The canvas is widened for the title and captions and rounded to whole 20 px multiples (non-integer sizes made GIF encoders store whole frames).
+- **Split views.** The architecture maps and the L2 container map are each rendered as two views, request path and events & observability. The union must cover every runtime AWS service (`diagrams/test/split-views.test.ts`); anchor nodes may appear in both. See [[diagrams]].
 - **Caption bar.** The step caption sits in a reserved band of the canvas rather than overlaying the drawing.
 - **Badge placement.** Step badges sit along the edge in step order, clear of edge labels.
 - **`AwsService` location.** The `AwsService` type lives in `diagrams/src/aws/schema.ts`, not in the theme adapter.

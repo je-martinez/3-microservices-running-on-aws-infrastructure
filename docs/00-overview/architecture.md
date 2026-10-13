@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-10-12
+updated: 2026-10-13
 tags:
   - type/spec
   - area/shared
@@ -42,11 +42,23 @@ This note describes the overall runtime architecture of **3MRAI**: how traffic f
 
 Local dev (Floci) and pre-prod (ECS on Floci) topologies:
 
+**Request path**
+
 ![[architecture-dev-floci.png]]
+
+**Events & observability**
+
+![[architecture-dev-floci-events.png]]
 
 *Wide map (up to about 2000 px): open the image full size to read it.*
 
+**Request path**
+
 ![[architecture-preprod.png]]
+
+**Events & observability**
+
+![[architecture-preprod-events.png]]
 
 *Wide map (up to about 2000 px): open the image full size to read it.*
 
