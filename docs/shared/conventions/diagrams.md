@@ -68,7 +68,7 @@ Serverless or regional services (SQS, SNS, Cognito, S3, SES, Lambda, API Gateway
 
 - Rendered by Remotion and **never hand-edited**. A diagram **with steps** produces a GIF (24 fps, scaled to at most 1200 px wide, at most about 2 MB) plus a last-frame PNG at full size, with the numbered step list below the drawing. A diagram **without steps** (architecture maps, milestone graphs) is **PNG only**: embed `![[<basename>.png]]`, never `.gif`.
 - Committed in a `diagrams/` subfolder beside the vault section that owns the diagram (for example `docs/domains/orders/specs/diagrams/`, `docs/plans/diagrams/`). Embed by **output basename** (Obsidian resolves by basename). For most diagrams the basename equals the id; for milestone graphs it differs (id `milestone-<slug>-deps`, embed `![[<slug>-deps.png]]`).
-- The architecture maps are wide (up to about 2000 px; the pre-prod map about 3200 px); the note embedding one tells the reader to open the image full size.
+- The architecture maps are wide (at most 2000 px: pre-prod 2000x1080, L2 1560x900, dev 1360x1000); the note embedding one tells the reader to open the image full size.
 - Milestone graphs lay out `DOWN` (phases stacked top to bottom).
 - The blank band under the caption in a mid-animation still is expected: it is the reserved caption area, not a rendering fault. No MP4, no web player.
 
@@ -89,6 +89,7 @@ Serverless or regional services (SQS, SNS, Cognito, S3, SES, Lambda, API Gateway
 
 - **Draw shared connections once, from the group frame.** When several members of a group share the same connection (a fan-out to or from the same peer), use a **group endpoint**: an edge `from` or `to` may be a group id, and the edge is drawn to the group frame. Never split a group in two to dodge the fan-out, and never draw one resource twice. A group whose members sit on both sides of another group along the flow may be drawn as two adjacent frames of the same kind, each holding different resources and labelled distinctly (e.g. orders-checkout-stripe's "Floci — data" / "Floci — events"); that is not drawing a resource twice. Shared fan-out still uses a group endpoint.
 - **No resource is drawn twice.** One real resource is one node; a second appearance to simplify routing is a data error.
+- **`compact: true`** (optional data field, `diagrams/src/aws/schema.ts`, `layout.ts`): declaration order defines the left-to-right flow. An edge to an earlier-declared node is a back edge and adds no column; edge labels take no space between layers (the post-pass places them). Declare in flow order: entry -> compute -> data -> events/externals. The architecture and L2 maps use it, with the entry on the left (Browser -> API Gateway -> ALB -> ECS cluster -> data -> events) and a width of at most 2000 px. Pre-prod has no separate "Event pipeline" group, and Browser -> API Gateway is labelled "/v1 via web" because the web task's nginx proxies /v1 to API Gateway.
 - Data order is a layout hint: list groups, nodes and edges in the visual flow order. Never reorder nodes just to dodge a crossing.
 - Back edges (right to left) are fine only when short; otherwise move the target next to its source.
 - Prefer one edge per node pair with a distinct label over two labelled parallel edges, which read as a bracket.

@@ -26,6 +26,7 @@ Originally written for draw.io (`.drawio.svg`); the contrast and verify-the-imag
 4. **A hand-rolled layout kept failing.** The home-grown layout needed a growing list of authoring rules (adjacent zones, short cross-zone labels, avoiding sub-columns, self-step clipping) and edges still crossed boxes.
 5. **Non-integer canvas sizes made GIFs huge.** With fractional canvas dimensions the GIF encoder stored whole frames, giving 17 to 25 MB GIFs.
 6. **A full-canvas fade made GIFs huge.** The first Remotion architecture maps faded the whole map in, so every frame changed nearly every pixel and a GIF cost about 11 KB per frame. To fit the 2 MB budget, authors started dropping real services from the maps, which made the diagram less true.
+7. **Wide maps that would not narrow.** ELK's wrapping and per-group direction have no effect on hierarchical (INCLUDE_CHILDREN) layouts and are ignored silently, so the pre-prod map stayed about 3200 px wide whatever was configured.
 
 ## Lesson
 
@@ -37,6 +38,7 @@ Originally written for draw.io (`.drawio.svg`); the contrast and verify-the-imag
 6. **ELK's reserved label spot is not enough.** ELK leaves room for a label but not always next to its own route; a post-pass keeps each label nearest its own route.
 7. **Keep the canvas size an integer** (whole 20 px multiples) so the GIF encoder stores only changed pixels.
 8. **Budget by changed pixels, not frame count.** GIF size follows what changes per frame. Reveal elements incrementally; never fade or animate the whole canvas. Do not delete real content to hit the size target.
+9. **Do not rely on ELK wrapping or per-group direction with INCLUDE_CHILDREN; they are silently ignored.** Drive the flow with declaration order (`compact: true`: entry -> compute -> data -> events/externals, back edges add no column) and keep maps at most 2000 px wide.
 
 ## How to apply
 
