@@ -76,4 +76,36 @@ describe("badgeCentres", () => {
     const dir = { x: Math.sign(pts[pts.length - 1]!.x - pts[0]!.x), y: Math.sign(pts[pts.length - 1]!.y - pts[0]!.y) };
     for (let i = 1; i < onA.length; i++) expect((onA[i]!.x - onA[i - 1]!.x) * dir.x + (onA[i]!.y - onA[i - 1]!.y) * dir.y).toBeGreaterThan(0);
   });
+  it("places a self-loop's badges in a row outside the loop and off its node", () => {
+    const node = { x: 80, y: 60, w: 72, h: 70 };
+    const loop = { points: [{ x: 96, y: 60 }, { x: 96, y: 32 }, { x: 136, y: 32 }, { x: 136, y: 60 }] };
+    const [a, b] = badgeCentres([{ edges: ["loop"] }, { edges: ["loop"] }], { loop }, [], [node], [], new Set(["loop"]));
+    const loopBox = { x: 96, y: 32, w: 40, h: 28 };
+    for (const p of [a!, b!]) {
+      expect(gap(box(p), loopBox)).toBeGreaterThanOrEqual(BADGE_GAP - 1e-6);
+      expect(gap(box(p), node)).toBeGreaterThanOrEqual(BADGE_GAP - 1e-6);
+    }
+    expect(b!.x - a!.x).toBeCloseTo(BADGE_PITCH);
+  });
+  it("throws instead of placing a badge where a hard rule forbids it", () => {
+    const wall = { x: -50, y: -50, w: 400, h: 100 };
+    expect(() => badgeCentres([{ edges: ["a"] }], { a: line(0, 200) }, [], [wall])).toThrow('no room for the badge of step 1 on edge "a"');
+  });
+});
+
+describe("placeLabels", () => {
+  it("throws instead of placing a label on a node, header, badge or label", () => {
+    const d = AwsDiagramData.parse({
+      title: "T", groups: [], steps: [],
+      nodes: [{ id: "a", label: "A", icon: "lambda" }, { id: "b", label: "B", icon: "lambda" }],
+      edges: [{ id: "ab", from: "a", to: "b", label: "call" }],
+    });
+    const everywhere = { x: 0, y: 0, w: 1000, h: 1000, labelLines: ["A"] };
+    const layout = {
+      width: 1000, height: 1000, groups: {},
+      nodes: { a: everywhere, b: { ...everywhere, labelLines: ["B"] } },
+      edges: { ab: { points: [{ x: 100, y: 500 }, { x: 900, y: 500 }], label: { x: 480, y: 503, w: 40, h: 16 } } },
+    };
+    expect(() => placeLabels(d, layout, [])).toThrow('no room for the label of edge "ab"');
+  });
 });

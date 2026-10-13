@@ -3,6 +3,7 @@ import { z } from "zod";
 import { AwsDiagram, type AwsDiagramProps } from "./aws/AwsDiagram";
 import { layoutDiagram } from "./aws/layout";
 import { AwsDiagramData } from "./aws/schema";
+import { annotate } from "./aws/annotate";
 import { canvasSize } from "./aws/canvas";
 import { AWS_FPS, awsDuration } from "./aws/timing";
 import { catalog } from "./catalog";
@@ -14,8 +15,10 @@ const awsMetadata: CalculateMetadataFunction<AwsDiagramProps> = async ({ props, 
   if (!parsed.success) throw new Error(`diagram "${compositionId}" has invalid aws data:\n${z.prettifyError(parsed.error)}`);
   const data = parsed.data;
   const layout = await layoutDiagram(data);
+  // WHY: badges and labels are placed once here, so a placement error names the composition and frames stay cheap.
+  const annotations = annotate(compositionId, data, layout);
   const canvas = canvasSize(data, layout);
-  return { props: { data, layout }, width: canvas.width, height: canvas.height, durationInFrames: awsDuration(data.steps.length), fps: AWS_FPS };
+  return { props: { data, layout, annotations }, width: canvas.width, height: canvas.height, durationInFrames: awsDuration(data.steps.length), fps: AWS_FPS };
 };
 
 // WHY width/height/duration are placeholders: calculateMetadata replaces all three once ELK has laid the diagram out.

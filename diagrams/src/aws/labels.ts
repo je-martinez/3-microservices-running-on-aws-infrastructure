@@ -1,7 +1,7 @@
 import { AWS } from "../theme/aws-style";
 import { BADGE_GAP, badgeRect, gap } from "./badges";
 import type { DiagramLayout, Point, Rect } from "./layout";
-import { textWidth } from "./measure";
+import { groupHeaderRect } from "./header";
 import type { AwsDiagramData } from "./schema";
 
 /** Distance between an edge label and the line it labels; the far offset clears a badge sitting on the line. */
@@ -10,7 +10,6 @@ export const LABEL_OFFSET_FAR = 16;
 const NEAR = 6;
 const END_CLEAR = 12;
 const STEP = 2;
-const GROUP_ICON = 32;
 
 type Seg = { a: Point; b: Point };
 
@@ -55,20 +54,17 @@ function* candidates(pts: Point[], w: number, h: number, o: number): Generator<R
 
 /** Clearance a label keeps from every route but its own. */
 export const LABEL_ROUTE_CLEAR = 6;
-const OFFSETS = [LABEL_OFFSET, LABEL_OFFSET_FAR, 26];
+const OFFSETS = [LABEL_OFFSET, LABEL_OFFSET_FAR, 26, 36, 48, 64];
 
 /**
  * Edge label boxes placed after the badges: beside their own line and nearer it than any other route, at
  * least LABEL_ROUTE_CLEAR from the others, clear of nodes, group headers, badges and other labels; a self-loop
- * keeps its label outside the loop. ELK's spot is kept when it qualifies; when nothing qualifies, the
- * candidate with the most clearance from other routes wins.
+ * keeps its label outside the loop. ELK's spot is kept when it qualifies. When no spot meets the ownership rule,
+ * the one with the best margin wins; when no spot clears nodes, headers, badges and labels at all, it throws.
  */
 export function placeLabels(data: AwsDiagramData, layout: DiagramLayout, badges: Point[]): Record<string, Rect> {
   const nodes = Object.values(layout.nodes);
-  const headers = data.groups.map((g) => {
-    const r = layout.groups[g.id]!;
-    return { x: r.x, y: r.y, w: GROUP_ICON + 8 + textWidth(g.label, 14), h: GROUP_ICON };
-  });
+  const headers = data.groups.map((g) => groupHeaderRect(layout.groups[g.id]!, g.kind, g.label));
   const badgeBoxes = badges.map((p) => badgeRect(p, BADGE_GAP));
   const bounds = { x: 0, y: AWS.titleH, w: layout.width, h: layout.height - AWS.titleH };
   const placed: Rect[] = [];
@@ -104,7 +100,9 @@ export function placeLabels(data: AwsDiagramData, layout: DiagramLayout, badges:
       if (chosen) break;
       for (const r of candidates(route.points, w, h, o)) if (consider(r)) break;
     }
-    out[e.id] = chosen ?? best?.r ?? route.label;
+    const at = chosen ?? best?.r;
+    if (!at) throw new Error(`no room for the label of edge "${e.id}"`);
+    out[e.id] = at;
     placed.push(out[e.id]!);
   }
   return out;

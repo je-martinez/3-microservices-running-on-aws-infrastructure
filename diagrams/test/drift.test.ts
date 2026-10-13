@@ -43,6 +43,7 @@ describe("affectedDiagrams implicit watches", () => {
     "diagrams/src/schema.ts",
     "diagrams/src/Root.tsx",
     "diagrams/src/scripts/render.ts",
+    "diagrams/package.json",
   ])(
     "flags every entry when shared rendering code %s changed",
     (f) => {
@@ -75,5 +76,17 @@ describe("affectedDiagrams ignores test files", () => {
   it("still flags the non-test files of the same diff", () => {
     const r = affectedDiagrams(["services/users/src/a.test.ts", "services/users/src/a.ts"], entries);
     expect(r).toEqual([{ id: "otp", status: "stale", matches: ["services/users/src/a.ts"] }]);
+  });
+});
+
+describe("affectedDiagrams expected outputs", () => {
+  const stepless = { id: "map", output: "docs/00-overview/diagrams/map", source: "diagrams/src/data/architecture/map.ts", watches: ["infra/**"], data: { steps: [] } };
+  const animated = { ...stepless, id: "flow", output: "docs/x/diagrams/flow", source: "diagrams/src/data/flows/flow.ts", data: { steps: [{}] } };
+  it("counts only the PNG as the render of a step-less entry", () => {
+    expect(affectedDiagrams(["infra/main.tf", "docs/00-overview/diagrams/map.gif"], [stepless])[0]!.status).toBe("stale");
+    expect(affectedDiagrams(["infra/main.tf", "docs/00-overview/diagrams/map.png"], [stepless])[0]!.status).toBe("updated");
+  });
+  it("counts the GIF or the PNG as the render of an entry with steps", () => {
+    expect(affectedDiagrams(["infra/main.tf", "docs/x/diagrams/flow.gif"], [animated])[0]!.status).toBe("updated");
   });
 });

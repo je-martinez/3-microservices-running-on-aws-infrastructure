@@ -11,6 +11,7 @@ export const SHARED_RENDER_GLOBS = [
   "diagrams/src/schema.ts",
   "diagrams/src/Root.tsx",
   "diagrams/src/scripts/render.ts",
+  "diagrams/package.json",
 ];
 
 /** Tests never change what a diagram depicts, so they never make one stale. */
@@ -20,7 +21,7 @@ const isTest = picomatch(TEST_GLOBS);
 
 export function affectedDiagrams(
   changed: string[],
-  entries: Pick<CatalogEntry, "id" | "output" | "watches" | "source">[],
+  entries: (Pick<CatalogEntry, "id" | "output" | "watches" | "source"> & { data?: { steps?: unknown[] } })[],
 ): DriftResult[] {
   const relevant = changed.filter((f) => !isTest(f));
   const results: DriftResult[] = [];
@@ -29,7 +30,9 @@ export function affectedDiagrams(
     const isWatched = picomatch([...e.watches, e.source, ...SHARED_RENDER_GLOBS]);
     const matches = relevant.filter((f) => isWatched(f));
     if (matches.length === 0) continue;
-    const rendered = changed.some((f) => f === `${e.output}.gif` || f === `${e.output}.png`);
+    // CONTRACT: only an expected output counts as a re-render; a step-less entry renders a PNG and no GIF.
+    const expected = e.data && !(e.data.steps ?? []).length ? [`${e.output}.png`] : [`${e.output}.gif`, `${e.output}.png`];
+    const rendered = changed.some((f) => expected.includes(f));
     results.push({ id: e.id, status: rendered ? "updated" : "stale", matches });
   }
   return results;

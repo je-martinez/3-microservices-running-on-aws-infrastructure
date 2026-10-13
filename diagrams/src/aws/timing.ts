@@ -30,9 +30,14 @@ export function holdStart(steps: number): number {
   return AWS_INTRO + steps * AWS_STEP;
 }
 
-/** Render scale that keeps a GIF at most 1200px wide, in tenths so a 20px-grid canvas scales to whole pixels; never upscales. */
+/**
+ * Render scale that keeps a GIF at most 1200px wide and never upscales. The output width is rounded to a whole
+ * pixel explicitly: a fractional frame size stops the GIF encoder from storing frames as deltas.
+ */
 export function gifScale(width: number): number {
-  return width <= GIF_MAX_W ? 1 : Math.floor((GIF_MAX_W / width) * 10) / 10;
+  if (width <= GIF_MAX_W) return 1;
+  const tenths = Math.floor((GIF_MAX_W / width) * 10) / 10;
+  return Math.round(width * tenths) / width;
 }
 
 /** Only diagrams with steps render a GIF; the rest are PNG only. */

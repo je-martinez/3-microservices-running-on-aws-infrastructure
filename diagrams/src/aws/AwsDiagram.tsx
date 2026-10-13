@@ -1,7 +1,6 @@
 import { AbsoluteFill, useCurrentFrame } from "remotion";
 import { AWS } from "../theme/aws-style";
-import { badgeCentres } from "./badges";
-import { placeLabels } from "./labels";
+import { annotate, type Annotations } from "./annotate";
 import { CANVAS_PAD, canvasSize, SUBTITLE_PX, TITLE_LINE_H, TITLE_PX } from "./canvas";
 import type { DiagramLayout } from "./layout";
 import { CaptionBar } from "./parts/CaptionBar";
@@ -13,7 +12,7 @@ import { StepList } from "./parts/StepList";
 import type { AwsDiagramData } from "./schema";
 import { activeStep, holdStart } from "./timing";
 
-export type AwsDiagramProps = { data: AwsDiagramData; layout?: DiagramLayout };
+export type AwsDiagramProps = { data: AwsDiagramData; layout?: DiagramLayout; annotations?: Annotations };
 
 function depth(id: string, groups: AwsDiagramData["groups"]): number {
   const g = groups.find((x) => x.id === id);
@@ -21,7 +20,7 @@ function depth(id: string, groups: AwsDiagramData["groups"]): number {
 }
 
 // CONTRACT: groups and nodes are static from frame 0; only connector colour, badges and captions change per frame.
-export function AwsDiagram({ data, layout }: AwsDiagramProps) {
+export function AwsDiagram({ data, layout, annotations }: AwsDiagramProps) {
   const frame = useCurrentFrame();
   if (!layout) throw new Error("AwsDiagram needs the layout computed by calculateMetadata");
   const canvas = canvasSize(data, layout);
@@ -30,10 +29,7 @@ export function AwsDiagram({ data, layout }: AwsDiagramProps) {
   const holding = steps.length > 0 && frame >= holdStart(steps.length);
   const lit = new Set(active === undefined ? [] : steps[active]!.edges);
   const shown = holding ? steps.length : active === undefined ? 0 : active + 1;
-  // WHY: badges keep off ELK's reserved label spots, so most labels can stay where ELK made room for them.
-  const elkLabels = Object.values(layout.edges).flatMap((r) => (r.label ? [r.label] : []));
-  const allBadges = badgeCentres(steps, layout.edges, Object.values(layout.groups), Object.values(layout.nodes), elkLabels);
-  const labels = placeLabels(data, layout, allBadges);
+  const { badges: allBadges, labels } = annotations ?? annotate(data.title, data, layout);
   const badges = allBadges.slice(0, shown);
   const groups = [...data.groups].sort((a, b) => depth(a.id, data.groups) - depth(b.id, data.groups));
   const svg = { position: "absolute", left: 0, top: 0, overflow: "visible" } as const;

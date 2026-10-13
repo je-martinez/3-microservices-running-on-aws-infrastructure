@@ -57,9 +57,9 @@ specialist: stack, the AwsDiagram model, detail limits and the verify loop live 
    `infra/environments/**`, `docker-compose*.yml`, handlers and
    `services/<svc>/openapi.yaml`.
 3. **Author an `AwsDiagramData`** (`primitive: "aws"`; groups, nodes, edges, steps,
-   `direction`) in the AWS reference style. ELK lays it out; never hand-position
-   or use the old `ArchitectureMap`/`FlowSequence`/`DependencyGraph` primitives
-   (being removed). Pick each group kind by where the resource really runs
+   `direction`) in the AWS reference style. ELK lays it out; never hand-position.
+   The old `ArchitectureMap`/`FlowSequence`/`DependencyGraph` primitives are
+   removed. Pick each group kind by where the resource really runs
    (`aws-cloud`/`local-floci` > `vpc` > subnets; `corporate` for what is outside
    AWS), `AwsService`/`GenericIcon`/`task` icons, dashed `async` edges for
    queues/topics/webhooks, steps reuse edges (at most 10, captions at most 90).

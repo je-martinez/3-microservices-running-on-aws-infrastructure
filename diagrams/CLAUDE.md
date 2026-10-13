@@ -11,7 +11,7 @@ Remotion package `@3mrai/diagrams`: every animated flow, architecture and milest
 
 ## The AwsDiagram model — the only way to author a diagram
 
-Every diagram is one `AwsDiagramData` (`primitive: "aws"`, schema in `src/aws/schema.ts`) drawn in the AWS reference-architecture style. `ArchitectureMap`, `FlowSequence` and `DependencyGraph` are being removed: never author with them.
+Every diagram is one `AwsDiagramData` (`primitive: "aws"`, schema in `src/aws/schema.ts`) drawn in the AWS reference-architecture style. The pre-AWS primitives (`ArchitectureMap`, `FlowSequence`, `DependencyGraph`) are removed.
 
 - `groups[]` `{ id, kind, label, parent? }` nest into containers; `nodes[]` `{ id, label, sublabel?, icon, group? }`; `edges[]` `{ id, from, to, label?, async? }`; `steps[]` `{ edges: [edgeId...], caption }`; `direction` is `RIGHT` (default) or `DOWN`.
 - **ELK does the layout.** Never hand-position anything, never reorder nodes to dodge a crossing: declare groups, nodes and edges, pick `direction`, render.
@@ -51,7 +51,7 @@ Serverless or regional services (SQS, SNS, Cognito, S3, SES, Lambda, API Gateway
 ## Adding or changing an entry
 
 1. Add the data file under `src/data/<kind>/` and its entry in `src/data/<group>.catalog.ts` (never directly in `src/catalog.ts`), with `source` set to the data file's repo-relative path (e.g. `diagrams/src/data/flows/users-signup-otp.ts`). The catalog test requires it to exist and be tracked.
-2. Every entry declares `watches`: globs of the handlers/modules the diagram depicts, not whole service trees. `test/catalog.test.ts` fails when a glob matches nothing, and `make diagrams-check` relies on them. A typo silently disables drift detection, so keep them tight and real. `source`, `src/aws/**` and `src/theme/**` are implicit watches; test files never count as drift.
+2. Every entry declares `watches`: globs of the handlers/modules the diagram depicts, not whole service trees. `test/catalog.test.ts` fails when a glob matches nothing, and `make diagrams-check` relies on them. A typo silently disables drift detection, so keep them tight and real. Implicit watches (shared render code every diagram depends on): the entry's `source`, `src/aws/**`, `src/theme/**`, `public/aws-icons/**`, `src/schema.ts`, `src/Root.tsx`, `src/scripts/render.ts` and `diagrams/package.json`. Test files never count as drift.
 3. `id`, `output` and the output **basename** must be unique across the catalog (Obsidian resolves an embed by basename). `output` has no extension; the renderer adds `.gif` and `.png`.
 4. Edges reference declared node or group ids (never a group and its own content) and steps reference declared edge ids; the schema rejects unknown and duplicate ids.
 5. AWS icons: only `src/theme/aws-icons.ts` imports icon packages (`@nxavis/aws-icons` for services, the committed official SVGs for groups and generic icons). Everything else asks the adapter.

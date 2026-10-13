@@ -1,6 +1,7 @@
 import ELK from "elkjs/lib/elk.bundled.js";
 import type { ElkExtendedEdge, ElkLabel, ElkNode, ElkPort } from "elkjs/lib/elk-api";
 import { AWS } from "../theme/aws-style";
+import { GROUP_ICON, groupHeader, groupHeaderRect } from "./header";
 import { textWidth, wrap } from "./measure";
 import type { AwsDiagramData } from "./schema";
 
@@ -15,7 +16,6 @@ export type DiagramLayout = {
 };
 
 const ROOT = "__root__";
-const GROUP_ICON = 32;
 // WHY: each route jogging round a group's header needs its own 16px lane under the header.
 const HEADER_LANE = 16;
 type Lanes = Map<string, number>;
@@ -31,6 +31,8 @@ const EDGE_SPACING = {
   "elk.spacing.edgeNode": "20",
   "elk.layered.spacing.edgeNodeBetweenLayers": "20",
   "elk.spacing.portPort": "16",
+  // WHY: a self-loop taller than a badge stays visible beside the badge that numbers it.
+  "elk.spacing.nodeSelfLoop": "28",
 };
 
 const ROOT_OPTIONS = {
@@ -45,10 +47,6 @@ const ROOT_OPTIONS = {
   "elk.padding": "[top=20,left=20,bottom=20,right=20]",
 };
 
-/** Band a group's corner icon and label occupy; routes keep out of it. */
-export function groupHeaderRect(g: Rect, label: string): Rect {
-  return { x: g.x, y: g.y, w: GROUP_ICON + 8 + textWidth(label, 14) + 4, h: GROUP_ICON };
-}
 
 function nodeBox(n: AwsDiagramData["nodes"][number]): { w: number; h: number; labelLines: string[] } {
   if (n.icon === "task") return { w: AWS.taskW, h: AWS.taskH, labelLines: wrap(n.label, AWS.labelFont, AWS.taskW - 16, 2) };
@@ -100,9 +98,9 @@ function facingSides(d: AwsDiagramData, c: Centres, frames: Record<string, Rect>
       const [dx, dy] = [b.x - a.x, b.y - a.y];
       const side: Side = Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? "EAST" : "WEST") : (dy >= 0 ? "SOUTH" : "NORTH");
       const frame = frames[self]!;
-      const label = d.groups.find((g) => g.id === self)!.label;
+      const g = d.groups.find((x) => x.id === self)!;
       // WHY: a header spanning the top leaves no room for a port there; the side facing the far end takes it.
-      const roomy = frame.w - groupHeaderRect(frame, label).w - 2 * GROUP_PORT_MARGIN >= 0;
+      const roomy = frame.w - groupHeader(g.kind, g.label).width - 2 * GROUP_PORT_MARGIN >= 0;
       return side === "NORTH" && !roomy ? (dx >= 0 ? "EAST" : "WEST") : side;
     };
     if (groupIds.has(e.from)) s.from = facing(e.from, e.to);
@@ -175,6 +173,14 @@ function iconPorts(d: AwsDiagramData, sides: EdgeSides, c: Centres | undefined, 
 }
 
 const GROUP_PORT_MARGIN = 12;
+const MEMBER_CLEAR = 10;
+
+/** Every node inside group `gid`, at any depth. */
+function membersOf(d: AwsDiagramData, gid: string): string[] {
+  const parent = new Map(d.groups.map((g) => [g.id, g.parent]));
+  const inside = (g: string | undefined): boolean => g !== undefined && (g === gid || inside(parent.get(g)));
+  return d.nodes.filter((n) => inside(n.group)).map((n) => n.id);
+}
 
 /** Group-frame ports per group, ranked along each side by the far endpoint so their routes do not cross. */
 function groupPortsBySide(d: AwsDiagramData, sides: EdgeSides, c: Centres | undefined) {
@@ -201,12 +207,15 @@ function groupPortsBySide(d: AwsDiagramData, sides: EdgeSides, c: Centres | unde
   return out;
 }
 
-function buildGraph(d: AwsDiagramData, labelLines: Map<string, string[]>, sides: EdgeSides, centres: Centres | undefined, lanes: Lanes, frames?: Record<string, Rect>): ElkNode {
+function buildGraph(
+  d: AwsDiagramData, labelLines: Map<string, string[]>, sides: EdgeSides, centres: Centres | undefined, lanes: Lanes,
+  frames?: Record<string, Rect>, nodesPrev?: Record<string, Rect>,
+): ElkNode {
   const root: ElkNode = { id: ROOT, layoutOptions: { ...ROOT_OPTIONS, "elk.direction": d.direction }, children: [], edges: [] };
   const elkGroups = new Map<string, ElkNode>();
   for (const g of d.groups) {
     // WHY: The minimum width keeps the corner icon and group label inside the container border.
-    const minW = AWS.groupPad * 2 + GROUP_ICON + 8 + textWidth(g.label, AWS.labelFont);
+    const minW = groupHeader(g.kind, g.label).width + AWS.groupPad;
     elkGroups.set(g.id, {
       id: g.id,
       children: [],
@@ -226,15 +235,22 @@ function buildGraph(d: AwsDiagramData, labelLines: Map<string, string[]>, sides:
   for (const [gid, list] of groupPortsBySide(d, sides, centres)) {
     const g = elkGroups.get(gid)!;
     const frame = frames?.[gid];
-    const label = d.groups.find((x) => x.id === gid)!.label;
+    const grp = d.groups.find((x) => x.id === gid)!;
+    const members = frame && nodesPrev ? membersOf(d, gid).map((id) => nodesPrev[id]!) : [];
     g.ports = list.map((p) => {
       const port: ElkPort = { id: p.id, width: 0, height: 0, layoutOptions: { "elk.port.side": p.side } };
       if (!frame) return port;
-      const along = p.side === "NORTH" || p.side === "SOUTH" ? frame.w : frame.h;
-      const lo = p.side === "NORTH" ? groupHeaderRect({ x: 0, y: 0, w: 0, h: 0 }, label).w + GROUP_PORT_MARGIN
+      const horizontal = p.side === "NORTH" || p.side === "SOUTH";
+      const along = horizontal ? frame.w : frame.h;
+      const lo = p.side === "NORTH" ? groupHeader(grp.kind, grp.label).width + GROUP_PORT_MARGIN
         : p.side === "SOUTH" ? GROUP_PORT_MARGIN : GROUP_ICON + GROUP_PORT_MARGIN;
       const hi = along - GROUP_PORT_MARGIN;
-      const t = hi > lo ? lo + ((hi - lo) * (p.rank + 1)) / (p.count + 1) : along / 2;
+      // WHY: a frame port level with a member icon reads as that member's own edge; ports use the gaps between members.
+      const blocked: [number, number][] = members.map((n) => (horizontal ? [n.x - frame.x, n.x - frame.x + n.w] : [n.y - frame.y, n.y - frame.y + AWS.iconSize]));
+      const free: number[] = [];
+      for (let v = lo; v <= hi; v += 2) if (!blocked.some(([a, b]) => v > a - MEMBER_CLEAR && v < b + MEMBER_CLEAR)) free.push(v);
+      const t = free.length ? free[Math.round(((p.rank + 0.5) / p.count) * (free.length - 1))]!
+        : hi > lo ? lo + ((hi - lo) * (p.rank + 1)) / (p.count + 1) : along / 2;
       return { ...port, ...(p.side === "NORTH" ? { x: t, y: 0 } : p.side === "SOUTH" ? { x: t, y: frame.h } : p.side === "WEST" ? { x: 0, y: t } : { x: frame.w, y: t }) };
     });
     Object.assign(g.layoutOptions!, { "elk.portConstraints": frame ? "FIXED_POS" : "FIXED_SIDE" });
@@ -268,15 +284,68 @@ export async function layoutDiagram(d: AwsDiagramData): Promise<DiagramLayout> {
   const first = await place(d, flowSides(d), undefined, new Map());
   const centres: Centres = new Map(Object.entries({ ...first.groups, ...first.nodes }).map(([id, r]) => [id, { x: r.x + r.w / 2, y: r.y + r.h / 2 }]));
   const sides = facingSides(d, centres, first.groups);
-  const out = await place(d, sides, centres, new Map(), first.groups);
+  let out = await place(d, sides, centres, new Map(), first.groups, first.nodes);
   // WHY: a group whose header several routes cross is laid out again with one lane per extra route.
   const lanes: Lanes = new Map([...out.headerCrossings].filter(([, n]) => n > 1).map(([g, n]) => [g, n - 1]));
-  return lanes.size ? place(d, sides, centres, lanes, out.groups) : out;
+  if (lanes.size) out = await place(d, sides, centres, lanes, out.groups, out.nodes);
+  return out;
 }
 
-async function place(d: AwsDiagramData, sides: EdgeSides, centres: Centres | undefined, lanes: Lanes, frames?: Record<string, Rect>): Promise<DiagramLayout & { headerCrossings: Map<string, number> }> {
+// CONTRACT: a group-frame edge end never sits level with a member icon (it would read as that member's own
+// edge) nor in the header band. ELK places ports of a nested compound node itself, ignoring FIXED_POS, so the
+// end slides along its frame side to the nearest free spot and the route's first leg follows it orthogonally.
+function settleFramePorts(d: AwsDiagramData, l: DiagramLayout): void {
+  const taken = new Map<string, number[]>();
+  for (const e of d.edges) {
+    for (const which of ["from", "to"] as const) {
+      const gid = e[which];
+      const frame = l.groups[gid];
+      if (!frame) continue;
+      const route = l.edges[e.id]!;
+      const pts = which === "from" ? route.points : [...route.points].reverse();
+      const [p, q] = [pts[0]!, pts[1]!];
+      const side = Math.abs(p.x - frame.x) < 1 ? "WEST" : Math.abs(p.x - frame.x - frame.w) < 1 ? "EAST" : Math.abs(p.y - frame.y) < 1 ? "NORTH" : "SOUTH";
+      const vertical = side === "WEST" || side === "EAST";
+      const grp = d.groups.find((g) => g.id === gid)!;
+      const [start, end] = vertical ? [frame.y, frame.y + frame.h] : [frame.x, frame.x + frame.w];
+      const lo = start + (side === "NORTH" ? groupHeader(grp.kind, grp.label).width : vertical ? GROUP_ICON : 0) + GROUP_PORT_MARGIN;
+      const hi = end - GROUP_PORT_MARGIN;
+      const bands = membersOf(d, gid).map((id) => {
+        const r = l.nodes[id]!;
+        return vertical ? [r.y, r.y + AWS.iconSize] : [r.x + (r.w - AWS.iconSize) / 2, r.x + (r.w + AWS.iconSize) / 2];
+      });
+      const key = `${gid}|${side}`;
+      const others = taken.get(key) ?? [];
+      const ok = (v: number) => v >= lo && v <= hi && !bands.some(([a, b]) => v > a! - MEMBER_CLEAR && v < b! + MEMBER_CLEAR)
+        && others.every((o) => Math.abs(o - v) >= PORT_PITCH);
+      const cur = vertical ? p.y : p.x;
+      let v = cur;
+      if (!ok(cur)) for (let off = 2; off <= end - start; off += 2) {
+        if (ok(cur + off)) { v = cur + off; break; }
+        if (ok(cur - off)) { v = cur - off; break; }
+      }
+      taken.set(key, [...others, v]);
+      if (v === cur) continue;
+      const moved = vertical ? { x: p.x, y: v } : { x: v, y: p.y };
+      const perpendicular = vertical ? Math.abs(q.y - p.y) < 0.5 : Math.abs(q.x - p.x) < 0.5;
+      // The first leg leaves the frame perpendicular to it; it keeps that direction at the new offset.
+      const out = perpendicular && pts.length > 2
+        ? [moved, vertical ? { x: q.x, y: v } : { x: v, y: q.y }, ...pts.slice(2)]
+        : (() => {
+          const mid = vertical ? { x: (p.x + q.x) / 2, y: v } : { x: v, y: (p.y + q.y) / 2 };
+          const back = vertical ? { x: mid.x, y: p.y } : { x: p.x, y: mid.y };
+          return [moved, mid, back, ...pts.slice(1)];
+        })();
+      route.points = which === "from" ? out : out.reverse();
+    }
+  }
+}
+
+async function place(
+  d: AwsDiagramData, sides: EdgeSides, centres: Centres | undefined, lanes: Lanes, frames?: Record<string, Rect>, nodesPrev?: Record<string, Rect>,
+): Promise<DiagramLayout & { headerCrossings: Map<string, number> }> {
   const labelLines = new Map<string, string[]>();
-  const result = await elk.layout(buildGraph(d, labelLines, sides, centres, lanes, frames));
+  const result = await elk.layout(buildGraph(d, labelLines, sides, centres, lanes, frames, nodesPrev));
   const groupIds = new Set(d.groups.map((g) => g.id));
   const out: DiagramLayout = { width: result.width ?? 0, height: (result.height ?? 0) + AWS.titleH, groups: {}, nodes: {}, edges: {} };
 
@@ -309,7 +378,8 @@ async function place(d: AwsDiagramData, sides: EdgeSides, centres: Centres | und
     const l = e.labels?.[0];
     out.edges[e.id] = l ? { points, label: { ...shift({ x: l.x ?? 0, y: l.y ?? 0 }), w: l.width ?? 0, h: l.height ?? 0 } } : { points };
   }
-  const headers = d.groups.map((g) => groupHeaderRect(out.groups[g.id]!, g.label));
+  settleFramePorts(d, out);
+  const headers = d.groups.map((g) => groupHeaderRect(out.groups[g.id]!, g.kind, g.label));
   const headerCrossings = new Map(d.groups.map((g, i) => [g.id, Object.values(out.edges).filter((r) => crossesHeader(r.points, headers[i]!)).length]));
   for (const [id, route] of Object.entries(out.edges)) {
     const others = Object.entries(out.edges).filter(([o]) => o !== id).map(([, r]) => r.points);

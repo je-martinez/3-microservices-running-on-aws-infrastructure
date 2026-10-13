@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { groupHeaderRect, layoutDiagram, type Point, type Rect } from "../src/aws/layout";
-import { AwsDiagramData } from "../src/aws/schema";
+import { groupHeaderRect } from "../src/aws/header";
+import { layoutDiagram, type Point, type Rect } from "../src/aws/layout";
+import { AwsDiagramData, type GroupKind } from "../src/aws/schema";
 
 const inside = (a: Rect, b: Rect) => a.x >= b.x - 0.5 && a.y >= b.y - 0.5 && a.x + a.w <= b.x + b.w + 0.5 && a.y + a.h <= b.y + b.h + 0.5;
 const segHitsRect = (p: { x: number; y: number }, q: { x: number; y: number }, r: Rect) => {
@@ -261,7 +262,7 @@ describe("per-edge ports", async () => {
 describe("group endpoints", () => {
   const onFrame = (p: Point, r: Rect) => onBorder(p, r);
   const icon = (r: Rect): Rect => ({ x: r.x + (r.w - 48) / 2, y: r.y, w: 48, h: 48 });
-  const header = (r: Rect, label: string) => groupHeaderRect(r, label);
+  const header = (r: Rect, kind: GroupKind, label: string) => groupHeaderRect(r, kind, label);
   const inBand = (p: Point, h: Rect) => p.x >= h.x - 1 && p.x <= h.x + h.w + 1 && p.y >= h.y - 1 && p.y <= h.y + h.h + 1;
 
   for (const direction of ["RIGHT", "DOWN"] as const) {
@@ -298,7 +299,7 @@ describe("group endpoints", () => {
         const pts = l.edges[e.id]!.points;
         for (const [id, p] of [[e.from, pts[0]!], [e.to, pts[pts.length - 1]!]] as const) {
           expect(onFrame(p, anchor(id)), `${e.id} end on ${id}`).toBe(true);
-          if (groupIds.has(id)) expect(inBand(p, header(l.groups[id]!, d.groups.find((g) => g.id === id)!.label)), `${e.id} in ${id} header`).toBe(false);
+          if (groupIds.has(id)) expect(inBand(p, header(l.groups[id]!, d.groups.find((g) => g.id === id)!.kind, d.groups.find((g) => g.id === id)!.label)), `${e.id} in ${id} header`).toBe(false);
         }
       }
     });
@@ -321,6 +322,6 @@ describe("group endpoints", () => {
       edges: [{ id: "ab", from: "a", to: "b" }],
     });
     const l = await layoutDiagram(d);
-    for (const g of d.groups) expect(l.groups[g.id]!.w, g.id).toBeGreaterThanOrEqual(groupHeaderRect(l.groups[g.id]!, g.label).w);
+    for (const g of d.groups) expect(l.groups[g.id]!.w, g.id).toBeGreaterThanOrEqual(groupHeaderRect(l.groups[g.id]!, g.kind, g.label).w);
   });
 });

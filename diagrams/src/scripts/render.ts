@@ -1,4 +1,4 @@
-import { mkdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundle } from "@remotion/bundler";
@@ -42,6 +42,10 @@ for (const e of parsed) {
     await renderMedia({ serveUrl, composition, codec: "gif", everyNthFrame: 2, scale: gifScale(composition.width), outputLocation: `${base}.gif`, inputProps: { data: e.data } });
     const size = statSync(`${base}.gif`).size;
     console.log(`${e.id}.gif ${kb(`${base}.gif`)}${size > GIF_BUDGET ? "  WARNING: over the 2 MB budget" : ""}`);
+  } else if (existsSync(`${base}.gif`)) {
+    // CONTRACT: a step-less diagram is PNG only; a GIF left from when it had steps would be embedded stale.
+    rmSync(`${base}.gif`);
+    console.log(`${e.id}.gif removed (no steps)`);
   }
   await renderStill({ serveUrl, composition, frame: composition.durationInFrames - 1, output: `${base}.png`, inputProps: { data: e.data } });
   console.log(`${e.id}.png ${kb(`${base}.png`)}`);

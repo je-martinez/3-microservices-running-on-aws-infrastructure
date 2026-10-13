@@ -940,7 +940,7 @@ diagrams-check: ## List diagrams whose watched sources changed vs main (warns, n
 diagrams-studio: ## Open Remotion Studio to browse/scrub every diagram interactively
 	pnpm --filter @3mrai/diagrams studio
 
-diagrams-render: ## Render diagrams to the vault (all, or ID=a,b). GIF + last-frame PNG; warns over 2 MB
+diagrams-render: ## Render diagrams to the vault (all, or ID=a,b). GIF + last-frame PNG, PNG only when no steps; warns over 2 MB
 	pnpm --filter @3mrai/diagrams browser
 	pnpm --filter @3mrai/diagrams render $(subst $(comma), ,$(ID))
 

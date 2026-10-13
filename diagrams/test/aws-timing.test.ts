@@ -18,3 +18,11 @@ describe("aws timing", () => {
     expect(gifScale(900)).toBe(1);
   });
 });
+
+describe("gifScale output width", () => {
+  it.each([1201, 1371, 1999, 2160, 2843, 4001])("scales %ipx to a whole-pixel width of at most 1200px", (w) => {
+    const out = w * gifScale(w);
+    expect(Math.abs(out - Math.round(out))).toBeLessThan(1e-9);
+    expect(Math.round(out)).toBeLessThanOrEqual(1200);
+  });
+});
