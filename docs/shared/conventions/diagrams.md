@@ -46,12 +46,15 @@ Every animated flow, architecture map and milestone-dependency graph in the vaul
 | `aws-cloud` | pre-prod: everything AWS-hosted; parent of the rest |
 | `local-floci` | local dev: the Floci emulator stands in for the cloud |
 | `region` / `az` | only when Terraform or the point of the diagram is regional or per-AZ |
-| `vpc` | resources Terraform places in the VPC (ECS tasks, databases, caches) |
+| `ecs-cluster` | an ECS cluster: an ECS-orange frame with the ECS icon, holding the tasks it runs |
+| `vpc` | resources Terraform places in the VPC (ECS tasks, databases, caches); optional `lanes` split it into 2 or 3 Availability Zone columns |
 | `private-subnet` / `public-subnet` | inside the `vpc`, where Terraform places them |
 | `corporate` | what runs outside AWS: browser and users, Stripe, Geoapify, external OpenObserve |
 | `account` | an AWS account boundary, only when accounts matter |
 | `generic` | a plain dashed grouping with no AWS meaning |
 | `phase` | a milestone phase; tasks are `task` nodes, edges are dependencies |
+
+`lanes` on a `vpc` are background columns (AZ label plus subnet sublabel) that are not part of the layout: the contents span them. Draw infrastructure as deployed: cluster, then tasks, ALB and AZ lanes. An ECS service runs one task (`desired_count` 1) and is drawn once with the official `ecs-task` icon, never duplicated per AZ; ECS places the task. The `ecs-task`, `ecs-service` and `alb` icons are the official resource icons fetched by `make diagrams-icons`.
 
 Serverless or regional services (SQS, SNS, Cognito, S3, SES, Lambda, API Gateway, DynamoDB) sit inside the cloud group but outside the `vpc`, unless Terraform puts them in it. A flow states its environment in the subtitle; local dev unless the flow is pre-prod-specific.
 
@@ -65,7 +68,7 @@ Serverless or regional services (SQS, SNS, Cognito, S3, SES, Lambda, API Gateway
 
 - Rendered by Remotion and **never hand-edited**. A diagram **with steps** produces a GIF (24 fps, scaled to at most 1200 px wide, at most about 2 MB) plus a last-frame PNG at full size, with the numbered step list below the drawing. A diagram **without steps** (architecture maps, milestone graphs) is **PNG only**: embed `![[<basename>.png]]`, never `.gif`.
 - Committed in a `diagrams/` subfolder beside the vault section that owns the diagram (for example `docs/domains/orders/specs/diagrams/`, `docs/plans/diagrams/`). Embed by **output basename** (Obsidian resolves by basename). For most diagrams the basename equals the id; for milestone graphs it differs (id `milestone-<slug>-deps`, embed `![[<slug>-deps.png]]`).
-- The architecture maps are wide (up to about 2000 px); the note embedding one tells the reader to open the image full size.
+- The architecture maps are wide (up to about 2000 px; the pre-prod map about 3200 px); the note embedding one tells the reader to open the image full size.
 - Milestone graphs lay out `DOWN` (phases stacked top to bottom).
 - The blank band under the caption in a mid-animation still is expected: it is the reserved caption area, not a rendering fault. No MP4, no web player.
 

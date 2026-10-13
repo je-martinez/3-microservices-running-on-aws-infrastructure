@@ -56,6 +56,7 @@ Same tool, no new ADR. Design: [[2026-10-07-aws-style-diagrams-design]].
 - **Layout engine.** ELK (`elkjs`, layered, orthogonal routing, compound groups). elkjs is dual-licensed EPL-2.0 OR GPL-3.0-or-later; that is acceptable because it is used unmodified in a dev-only tool that never ships in a product.
 - **Icons.** Service icons stay on `@nxavis/aws-icons`; group and generic icons come from the official AWS Architecture Icons package, fetched by `make diagrams-icons` and committed. Both sit behind the single adapter, replacing decision 4's labelled boxes for non-AWS nodes.
 - **Group endpoints.** An edge may start or end on a group id and is drawn to the group frame, so a shared fan-out is drawn once and no resource is drawn twice.
+- **Infra as deployed.** Group kind `ecs-cluster`, Availability Zone `lanes` on a `vpc` group and official `ecs-task`/`ecs-service`/`alb` icons let pre-prod draw its cluster, tasks and AZ placement.
 - **Outputs.** Step-less diagrams (architecture maps, milestone graphs) are PNG only; diagrams with steps keep GIF plus PNG.
 
 ## Consequences

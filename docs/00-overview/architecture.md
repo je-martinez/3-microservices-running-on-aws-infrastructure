@@ -48,7 +48,7 @@ Local dev (Floci) and pre-prod (ECS on Floci) topologies:
 
 ![[architecture-preprod.png]]
 
-*Wide map (up to about 2000 px): open the image full size to read it.*
+*Wide map (about 3200 px): open the image full size to read it.*
 
 Aurora is the production target; local dev and pre-prod run plain RDS PostgreSQL/MySQL clusters without replicas. Diagram rules: [[diagrams]].
 

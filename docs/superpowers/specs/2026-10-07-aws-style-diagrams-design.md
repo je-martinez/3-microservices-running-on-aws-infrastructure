@@ -94,7 +94,8 @@ The shipped implementation differs from the design above in these ways.
 - **Caption bar.** The step caption sits in a reserved band of the canvas rather than overlaying the drawing.
 - **Badge placement.** Step badges sit along the edge in step order, clear of edge labels.
 - **`AwsService` location.** The `AwsService` type lives in `diagrams/src/aws/schema.ts`, not in the theme adapter.
-- **Wide architecture PNGs.** The architecture maps render 1800 to 2020 px wide and that is accepted; the vault notes tell the reader to open them full size.
+- **ECS cluster, AZ lanes, resource icons.** Group kind `ecs-cluster` (ECS-orange frame with the ECS icon); optional `lanes` on a `vpc` group draw 2 or 3 Availability Zone columns (AZ label, subnet sublabel) behind the layout, which they do not affect; official resource icons `ecs-task`, `ecs-service` and `alb` are fetched by `make diagrams-icons`. Pre-prod draws one cluster with the 7 Fargate tasks (desired_count 1, never per AZ) in a VPC split into us-east-1a/b lanes.
+- **Wide architecture PNGs.** The architecture maps render 1800 to 3200 px wide (the pre-prod map is about 3200 px) and that is accepted; the vault notes tell the reader to open them full size.
 
 ## Related
 
