@@ -49,7 +49,7 @@ Current catalog node counts: flows 4-12, request-path architecture views 12-14, 
 
 1. **Style.** The skill's own default style wins over the AWS reference-architecture look. A committed repo-root `.diagram-design` marker containing exactly `profile: default` keeps any session from hitting the skill's first-run brand gate.
 2. **Icons.** Official AWS Architecture Icons loaded from jsDelivr, package `aws-icons@3.2.0` (MIT; folders `icons/architecture-service/` 307, `icons/resource/` 477, `icons/architecture-group/` 15, `icons/category/` 25), via `<image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/<folder>/<Name>.svg">`. The version is always pinned to 3.2.0. `diagrams/icons.yaml` is the single allowlist mapping a logical key (`ecs`, `lambda`, `sqs`, ...) to its CDN path. This is an accepted deviation from the skill's "no external images" rule.
-3. **Dropped from the AWS look.** The official coloured group frames (Cloud/Region/VPC/AZ/subnet) go away. Boundaries become skill zones (max 3 per diagram), for example the VPC as a zone with AZ/subnets named in its label. Kept: icon + label nodes, orthogonal connectors, dashed for async, entry on the left, at most 2000 px wide.
+3. **Dropped from the AWS look.** The official coloured group frames (Cloud/Region/VPC/AZ/subnet) go away. Zones (max 3 per diagram) are the boundaries that edges point at, for example `Docker Compose · services`, `Floci — local AWS :4566`, `Realtime`, or an ECS cluster when edges target it. The VPC, subnets and (otherwise) the ECS cluster are not zones: the node carries a `VPC` tag and the legend names the CIDR, subnets and cluster. Kept: icon + label nodes, orthogonal connectors, dashed for async, entry on the left, at most 2000 px wide.
 4. **Flows.** HTML in `step` motion mode (interactive, browser-only) plus a static PNG of the complete frame with numbered step badges inside the SVG. No GIF. The 19 existing `.gif` files are deleted and their embeds switched to `.png`.
 5. **Branch.** The migration lands on `feature/remotion-diagrams` and replaces Remotion before PR #130 merges.
 6. **Tooling: approach A**, a slim Python `diagrams/` package. Rejected:
@@ -68,17 +68,19 @@ diagrams/
   src/<group>/<id>.html         diagram-design sources (architecture, system-context, flows, milestones)
   diagrams3mrai/
     render.py                   HTML -> PNG (Playwright, ?motion=static, await document.fonts.ready, scale 2)
-    gate.py                     filtered self_check + icon allowlist + catalog<->files + viewBox width <=2000
+    gate.py                     filtered self_check + verify-geometry + verify-motion (motion roots) + icon allowlist + viewBox width <=2000 + catalog<->src<->PNG parity
     drift.py                    port of check-drift (watches + src vs DIAGRAMS_BASE)
   tests/                        pytest: catalog, gate allowlist, drift
 ```
 
 - **Catalog.** `catalog.yaml` is ported 1:1 from the 29 `diagrams/src/data/*.catalog.ts` entries, keeping `id`, `output` and `watches`. `source` becomes `src` (the HTML file, an implicit watch).
 - **Gate.**
-  - Runs the skill's `self_check.py`, located in the installed plugin path; if absent, it fails with a clear install message.
+  - Runs the plugin's `self_check.py`, located in the installed plugin path; if absent, it fails with a clear install message.
+  - Runs `verify-geometry.py` (fails on a label mask clipped by a later node) and, for a flow with a motion root, `verify-motion.py`.
   - Filters only "remote reference" errors whose URL starts exactly with `https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/` and appears in `icons.yaml`. Any other error still fails.
   - Checks every manifest URL answers HTTP 200 (skippable offline).
-  - Checks catalog, `src/*.html` and output PNG correspond 1:1, and that viewBox width is at most 2000.
+  - Checks that viewBox width is at most 2000.
+  - When called without ids, checks catalog, `src/*.html` and output PNG correspond 1:1 (`orphans`, `missing_renders`).
 - **Setup.** `make diagrams-setup` runs `pip install -e diagrams` into the repo `.venv` plus `playwright install chromium`. It is idempotent and not a dependency of `scripts-setup`, so apply never needs Chromium.
 - **Make targets.**
   - `diagrams-render [ID=...]` — gate, then render.
@@ -94,6 +96,7 @@ diagrams/
 - **`diagram-impl`** is rewritten around the `diagram-design` skill. It reads `diagrams/CLAUDE.md`, `icons.yaml` and `catalog.yaml`; writes only `diagrams/**` and `docs/**/diagrams/*.png`; still never touches `.md`, git or Linear; still reads real code and Terraform before drawing.
 - **Skills.** The 12 Remotion skills are deleted from `.claude/skills/` and `.ai/skills/`; `make ai-sync` retires them from the other providers.
 - **Plugin.** `diagram-design` is a user-level plugin (manifests for Claude Code and Codex), documented as a prerequisite (v2.6.6) in `diagrams/CLAUDE.md` and the convention. It is not vendored.
+- **Plugin declaration.** The plugin is declared in `.claude/settings.json` (`enabledPlugins` `diagram-design@diagram-design` plus `extraKnownMarketplaces` pointing at `cathrynlavery/diagram-design`). The installed version is 2.6.6; upstream is newer and the setting does not pin a version. The gate resolves the 2.6.6 install path; `DIAGRAM_DESIGN_SELF_CHECK` overrides it.
 - **Vault** (via `obsidian-vault`):
   - New ADR-0024 `diagram-design-diagrams` superseding ADR-0023 (style, pinned jsDelivr icons, no GIF, dropped AWS frames).
   - Rewrite the `diagrams` convention, keeping the keep-current rule, the coverage rule (every runtime AWS service gets a node, now within 24 faithful nodes or split into views) and the PR `## Diagrams` rule (now attaches the PNG).
@@ -116,7 +119,7 @@ Same branch, one commit per block, each through the git confirmation menu ([[git
 ## Verification
 
 - **pytest:** catalog, `src/*.html` and outputs correspond 1:1; the gate tolerates only manifest jsDelivr URLs (any other remote URL fails); drift detects a `watches` change and a `src` change.
-- **Per-diagram gate:** filtered `self_check` plus viewBox width at most 2000.
+- **Per-diagram gate:** filtered `self_check` (allow-listed jsDelivr icons only), `verify-geometry.py`, `verify-motion.py` for a flow with a motion root, the icon allowlist and viewBox width at most 2000; without ids it also checks catalog, `src/*.html` and PNG parity.
 - **Visual review** of the pilot with the user. Passing the gate is not "looks right".
 - **Coverage parity:** before deleting each Remotion view, compare its AWS nodes with the new view; no runtime service disappears without an explicit decision.
 
