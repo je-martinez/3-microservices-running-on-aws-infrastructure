@@ -31,15 +31,28 @@ Every architecture, flow and milestone-dependency diagram in the vault is a hand
 
 ## Budget and coverage
 
-- Default ≤9 nodes and ≤12 arrows. Architecture and system-context views use `faithful` detail: ≤24 nodes, grouped in zones above 9. At most 3 zones per diagram.
+- Default ≤9 nodes and ≤12 arrows. Architecture and system-context views use `faithful` detail: ≤24 nodes, grouped in zones above 9. At most 3 zones per diagram. Milestone graphs use the same ceiling.
 - Every runtime AWS service gets a node; no service is drawn twice. Over 24 nodes, split into views (request path / events) instead of dropping one.
-- Zones replace AWS group frames: e.g. one `VPC` zone whose label names its AZs and subnets; Floci stands in for the cloud in local-dev views.
+- Zones replace AWS group frames (see Approved pilot conventions for which boundaries become zones); Floci stands in for the cloud in local-dev views.
 - Solid connector = synchronous call; dashed = async (queues, topics, EventBridge, webhooks).
 
 ## Flows
 
 - Numbered step badges live inside the SVG, so the static PNG carries the whole meaning.
 - `step` mode drives the interactive HTML: ≤8 motion steps, ≤12 marked items. Merge adjacent steps rather than exceed it.
+
+## Approved pilot conventions
+
+The four pilots are the reference implementation; open the one of the same kind before drawing:
+`src/architecture/architecture-dev-floci-events.html`, `src/flows/orders-checkout-stripe.html`, `src/system-context/system-context-l1.html`, `src/milestones/milestone-users-service-deps.html`.
+
+- **Title stays out of the PNG.** The render captures only the `<svg>`; eyebrow, h1 and subtitle live in the HTML page, and the owning note supplies the heading.
+- **Architecture zones are the boundaries edges point at** (e.g. `Docker Compose · services`, `Floci — local AWS :4566`, `Realtime`). VPC, subnets and the ECS cluster are not zones: tag the node (`VPC`, `COMPOSE`) and name the VPC CIDR, subnets and cluster in the legend. A node may sit outside every zone.
+- **Coverage beats the budget.** A view keeps every runtime AWS service even past 9 nodes (≤24, `faithful`); a flow keeps every service it touches.
+- **Flows** use the flowchart type laid out left → right: numbered badges on the connectors, a numbered caption list inside the SVG below the drawing, accent on the step's current badge only under `[data-frame="step"]` so the static PNG stays neutral. One focal node (the service that owns the flow) and at most one accent connector.
+- **Milestone graphs** keep every task: phases merge into ≤3 zones whose labels name the original phases, ranks run left → right, a `N IN` chip counts blockers, `GATE` marks a hard gate.
+- **External SaaS** (Stripe, Geoapify) uses the `internet` icon; optional integrations take the skill's dashed Optional treatment.
+- **Trim the viewBox** to the content so the PNG has no empty band at the top.
 
 ## Read the source before drawing
 
@@ -51,7 +64,7 @@ Every architecture, flow and milestone-dependency diagram in the vault is a hand
 
 | Command | What it does |
 |---|---|
-| `make diagrams-gate [ID=a,b]` | Skill self_check (filtered to allow-listed icons), icon allowlist, width cap; without `ID`, also catalog ↔ sources ↔ PNG parity. Fails. |
+| `make diagrams-gate [ID=a,b]` | Skill self_check (filtered to allow-listed icons) and verify-geometry (label masks clipped by a later node), icon allowlist, width cap; without `ID`, also catalog ↔ sources ↔ PNG parity. Fails. |
 | `make diagrams-render [ID=a,b]` | Gate, then PNG to `<output>.png` (static frame, opaque paper, viewBox × 2). Warns over 2 MB. |
 | `make diagrams-check` | Lists diagrams whose `watches`, `src` or shared render inputs changed vs `DIAGRAMS_BASE` (default `main`) without a re-render. Never fails. |
 | `make diagrams-studio ID=<id>` | Opens the interactive HTML in the browser. |

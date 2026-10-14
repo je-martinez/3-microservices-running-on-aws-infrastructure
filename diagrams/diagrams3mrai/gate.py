@@ -93,11 +93,22 @@ def self_check_available() -> bool:
         return False
 
 
-def load_verify() -> Callable[[Path], list[str]]:
-    spec = importlib.util.spec_from_file_location("diagram_design_self_check", locate_self_check())
+def _load(path: Path, name: str):
+    spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.verify
+    return module
+
+
+def load_verify() -> Callable[[Path], list[str]]:
+    self_check = locate_self_check()
+    # CONTRACT: verify-geometry ships at the plugin root, three levels above skills/diagram-design/scripts/.
+    geometry_path = self_check.parents[3] / "scripts" / "verify-geometry.py"
+    if not geometry_path.is_file():
+        raise GateSetupError(f"diagram-design verify-geometry.py not found at {geometry_path}")
+    verify = _load(self_check, "diagram_design_self_check").verify
+    geometry = _load(geometry_path, "diagram_design_verify_geometry").check
+    return lambda path: [*verify(path), *geometry(path)]
 
 
 def check_entry(entry: Entry, allowed: set[str], verify: Callable[[Path], list[str]], root: Path = REPO_ROOT) -> list[str]:

@@ -128,3 +128,22 @@ def test_missing_png_fails(tmp_path):
 def test_missing_png_is_not_reported_before_the_source_exists(tmp_path):
     from diagrams3mrai.gate import missing_renders
     assert missing_renders([entry(tmp_path, None)], tmp_path) == []
+
+
+CLIPPED_LABEL = (
+    '<rect x="100" y="96" width="40" height="12" rx="2" fill="#f5f5f5"/>'
+    '<rect x="120" y="80" width="120" height="60" rx="6" fill="#fff"/>'
+)
+
+
+@pytest.mark.skipif(not self_check_available(), reason="diagram-design plugin not installed")
+def test_real_verify_flags_a_label_clipped_by_a_later_node(tmp_path):
+    src = tmp_path / "clipped.html"
+    src.write_text((FIX / "ok.html").read_text().replace("</svg>", CLIPPED_LABEL + "</svg>"))
+    errors = filter_self_check(load_verify()(src))
+    assert any("label mask" in e and "clipped by node" in e for e in errors)
+
+
+@pytest.mark.skipif(not self_check_available(), reason="diagram-design plugin not installed")
+def test_real_verify_passes_the_ok_fixture_geometry(tmp_path):
+    assert filter_self_check(load_verify()(FIX / "ok.html")) == []
