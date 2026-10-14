@@ -67,7 +67,7 @@
 
     <svg viewBox="0 0 1872 1056" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="architecture-preprod-title architecture-preprod-desc">
       <title id="architecture-preprod-title">Pre-prod on Floci — request path</title>
-      <desc id="architecture-preprod-desc">Architecture of the pre-prod environment, where every service runs as an ECS Fargate task on its own Floci: the browser loads the SPA through the ALB and calls API Gateway, which validates JWTs with Cognito and routes to the ALB; the ALB has one listener per ECS service; the orders and tracking tasks call users over gRPC; the backend tasks use RDS and ElastiCache; ECR supplies the images and SSM plus Secrets Manager supply the task config; the browser loads images from the S3 assets bucket and holds a live socket on the API Gateway WebSocket API; the backend tasks publish events through the SNS topic to SQS, which triggers the events-pipeline Lambda that sends email through SES; users and the events-pipeline Lambda push frames to the WebSocket API; every task ships logs and pushes custom metrics to CloudWatch, the backend tasks send OTLP traces to the OTel collector task, and the collector polls CloudWatch for logs and metrics and exports everything over OTLP to the OpenObserve task.</desc>
+      <desc id="architecture-preprod-desc">Architecture of the pre-prod environment, where every service runs as an ECS Fargate task on its own Floci: the browser loads the SPA through the ALB and calls API Gateway, which validates JWTs with Cognito and routes to the ALB; the ALB has one listener per ECS service; the orders and tracking tasks call users over gRPC; the backend tasks use RDS and ElastiCache; the cluster pulls images from ECR and reads task config from SSM plus Secrets Manager; the browser loads images from the S3 assets bucket and holds a live socket on the API Gateway WebSocket API; the backend tasks publish events through the SNS topic to SQS, which triggers the events-pipeline Lambda that sends email through SES; users and the events-pipeline Lambda push frames to the WebSocket API; every task ships logs and pushes custom metrics to CloudWatch, the backend tasks send OTLP traces to the OTel collector task, and the collector polls CloudWatch for logs and metrics and exports everything over OTLP to the OpenObserve task.</desc>
       <defs>
         <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
         <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker>
@@ -96,8 +96,8 @@
       <path d="M 1232,352 V 64 Q 1232,56 1224,56 H 664 Q 656,56 656,64 V 88" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
       <path d="M 1288,336 H 1384" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
       <path d="M 1288,488 H 1384" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-      <path d="M 968,784 V 744" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-      <path d="M 1192,784 V 744" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <path d="M 968,744 V 784" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <path d="M 1192,744 V 784" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
       <path d="M 96,400 V 904 Q 96,912 104,912 H 1456 Q 1464,912 1464,904 V 680" fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
       <path d="M 1256,448 V 624 Q 1256,632 1264,632 H 1384" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
       <path d="M 1288,412 H 1640" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
@@ -125,10 +125,10 @@
       <text x="1102" y="45" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ADMIN API</text>
       <rect x="1316" y="316" width="32" height="12" rx="2" fill="#f5f5f5"/>
       <text x="1332" y="325" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SQL</text>
-      <rect x="976" y="756" width="44" height="12" rx="2" fill="#f5f5f5"/>
-      <text x="998" y="765" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">IMAGES</text>
-      <rect x="1112" y="756" width="72" height="12" rx="2" fill="#f5f5f5"/>
-      <text x="1148" y="765" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">TASK CONFIG</text>
+      <rect x="976" y="756" width="76" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="1014" y="765" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PULLS IMAGES</text>
+      <rect x="1108" y="756" width="76" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="1146" y="765" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">READS CONFIG</text>
       <rect x="724" y="892" width="72" height="12" rx="2" fill="#f5f5f5"/>
       <text x="760" y="901" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">LIVE SOCKET</text>
       <rect x="1320" y="612" width="40" height="12" rx="2" fill="#f5f5f5"/>
