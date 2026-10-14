@@ -75,7 +75,7 @@ propagates-to:
 **Interfaces:**
 - Produces: `diagrams3mrai.catalog.REPO_ROOT: Path`, `CATALOG_PATH: Path`, `GROUPS = ("architecture", "system-context", "flows", "milestones")`, `@dataclass(frozen=True) Entry(id: str, title: str, src: str, output: str, watches: tuple[str, ...])` with property `png -> str` (`f"{output}.png"`), `load_catalog(path: Path = CATALOG_PATH) -> list[Entry]`, `select(entries: list[Entry], ids: list[str]) -> list[Entry]` (empty `ids` → all; unknown id → `KeyError` naming it).
 
-- [ ] **Step 1: Create the package metadata and marker**
+- [x] **Step 1: Create the package metadata and marker**
 
 `diagrams/pyproject.toml`:
 ```toml
@@ -108,7 +108,7 @@ testpaths = ["tests"]
 profile: default
 ```
 
-- [ ] **Step 2: Add `diagrams-setup` to the Makefile**
+- [x] **Step 2: Add `diagrams-setup` to the Makefile**
 
 Add `diagrams-setup` to the `.PHONY` list and this target next to the other `diagrams-*` targets:
 ```make
@@ -120,7 +120,7 @@ diagrams-setup: $(PY) ## Install the diagram toolchain (Playwright + Chromium) i
 Run: `make diagrams-setup`
 Expected: exits 0; `.venv/bin/python -c "import yaml, playwright"` succeeds.
 
-- [ ] **Step 3: Write the failing catalog tests**
+- [x] **Step 3: Write the failing catalog tests**
 
 `diagrams/tests/test_catalog.py`:
 ```python
@@ -197,12 +197,12 @@ def test_real_catalog_has_29_entries():
     assert len(load_catalog(CATALOG_PATH)) == 29
 ```
 
-- [ ] **Step 4: Run tests to verify they fail**
+- [x] **Step 4: Run tests to verify they fail**
 
 Run: `cd diagrams && ../.venv/bin/python -m pytest tests/test_catalog.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'diagrams3mrai.catalog'`.
 
-- [ ] **Step 5: Implement `catalog.py`**
+- [x] **Step 5: Implement `catalog.py`**
 
 `diagrams/diagrams3mrai/catalog.py`:
 ```python
@@ -265,7 +265,7 @@ def select(entries: list[Entry], ids: list[str]) -> list[Entry]:
     return [by_id[i] for i in ids]
 ```
 
-- [ ] **Step 6: Generate `catalog.yaml` from the Remotion catalog (one-off, not committed)**
+- [x] **Step 6: Generate `catalog.yaml` from the Remotion catalog (one-off, not committed)**
 
 The TS catalog is the source of truth until Task 9 deletes it. Export it once:
 ```bash
@@ -285,12 +285,12 @@ PY
 ```
 Check: `grep -c '^  - id:' diagrams/catalog.yaml` → `29`; every `src` group is one of `architecture`, `system-context`, `flows`, `milestones`.
 
-- [ ] **Step 7: Run tests to verify they pass**
+- [x] **Step 7: Run tests to verify they pass**
 
 Run: `cd diagrams && ../.venv/bin/python -m pytest tests/test_catalog.py -v`
 Expected: PASS (all).
 
-- [ ] **Step 8: Commit (via the A/B/C/D/E menu)**
+- [x] **Step 8: Commit (via the A/B/C/D/E menu)**
 
 ```bash
 git add .diagram-design Makefile diagrams/pyproject.toml diagrams/diagrams3mrai diagrams/catalog.yaml diagrams/tests/test_catalog.py
@@ -310,7 +310,7 @@ git commit -m "build(diagrams): add the diagram-design python toolchain and cata
 - Consumes: `Entry`, `load_catalog`, `REPO_ROOT` from Task 1.
 - Produces: `SHARED_RENDER_GLOBS: tuple[str, ...]`, `TEST_GLOBS: tuple[str, ...]`, `@dataclass(frozen=True) DriftResult(id: str, status: Literal["stale", "updated"], matches: tuple[str, ...])`, `affected(changed: list[str], entries: list[Entry]) -> list[DriftResult]`, `main() -> int` (always 0), runnable as `python -m diagrams3mrai.drift`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `diagrams/tests/test_drift.py`:
 ```python
@@ -377,12 +377,12 @@ def test_single_star_does_not_cross_directories():
     assert affected(["services/orders/extra/src/shared/cache/a.ts"], e) == []
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd diagrams && ../.venv/bin/python -m pytest tests/test_drift.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'diagrams3mrai.drift'`.
 
-- [ ] **Step 3: Implement `drift.py`**
+- [x] **Step 3: Implement `drift.py`**
 
 `diagrams/diagrams3mrai/drift.py`:
 ```python
@@ -467,12 +467,12 @@ if __name__ == "__main__":
     raise SystemExit(main())
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd diagrams && ../.venv/bin/python -m pytest tests/test_drift.py -v`
 Expected: PASS.
 
-- [ ] **Step 5: Switch `diagrams-check` to the Python port**
+- [x] **Step 5: Switch `diagrams-check` to the Python port**
 
 Replace the recipe line `pnpm --filter @3mrai/diagrams check-drift` with:
 ```make
@@ -481,7 +481,7 @@ Replace the recipe line `pnpm --filter @3mrai/diagrams check-drift` with:
 Run: `make diagrams-check`
 Expected: exit 0 and a report (entries listed as `STALE?` is expected on this branch).
 
-- [ ] **Step 6: Commit (via the menu)**
+- [x] **Step 6: Commit (via the menu)**
 
 ```bash
 git add diagrams/diagrams3mrai/drift.py diagrams/tests/test_drift.py Makefile
@@ -501,9 +501,9 @@ git commit -m "build(diagrams): port the drift check to python"
 
 **Interfaces:**
 - Consumes: `Entry`, `load_catalog`, `select`, `REPO_ROOT` from Task 1.
-- Produces: `ICON_PREFIX = "https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/"`, `ICONS_PATH: Path`, `load_icons(path: Path = ICONS_PATH) -> dict[str, str]` (key → full URL), `image_hrefs(html: str) -> list[str]`, `check_icons(html: str, allowed: set[str]) -> list[str]`, `view_box_width(html: str) -> float | None`, `filter_self_check(errors: list[str]) -> list[str]`, `locate_self_check() -> Path` (raises `GateSetupError`), `check_entry(entry: Entry, allowed: set[str], verify: Callable[[Path], list[str]], root: Path = REPO_ROOT) -> list[str]`, `orphans(entries: list[Entry], root: Path = REPO_ROOT) -> list[str]`, `main(argv: list[str] | None = None) -> int` (`python -m diagrams3mrai.gate [id ...]`; nonzero on any failure). Env: `DIAGRAMS_OFFLINE=1` skips manifest reachability; `DIAGRAM_DESIGN_SELF_CHECK=<path>` overrides the self_check location.
+- Produces: `ICON_PREFIX = "https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/"`, `ICONS_PATH: Path`, `load_icons(path: Path = ICONS_PATH) -> dict[str, str]` (key → full URL), `image_hrefs(html: str) -> list[str]`, `check_icons(html: str, allowed: set[str]) -> list[str]`, `view_box_width(html: str) -> float | None`, `filter_self_check(errors: list[str]) -> list[str]`, `locate_self_check() -> Path` (raises `GateSetupError`), `check_entry(entry: Entry, allowed: set[str], verify: Callable[[Path], list[str]], root: Path = REPO_ROOT) -> list[str]`, `orphans(entries: list[Entry], root: Path = REPO_ROOT) -> list[str]`, `missing_renders(entries: list[Entry], root: Path = REPO_ROOT) -> list[str]` (entries whose source exists but whose PNG is missing; run only when the gate is called without ids, together with `orphans`), `main(argv: list[str] | None = None) -> int` (`python -m diagrams3mrai.gate [id ...]`; nonzero on any failure). Env: `DIAGRAMS_OFFLINE=1` skips manifest reachability; `DIAGRAM_DESIGN_SELF_CHECK=<path>` overrides the self_check location.
 
-- [ ] **Step 1: Create `icons.yaml`**
+- [x] **Step 1: Create `icons.yaml`**
 
 `diagrams/icons.yaml` (keys are what authors write in prose; values are paths under `ICON_PREFIX`):
 ```yaml
@@ -549,7 +549,7 @@ icons:
   group-public-subnet: architecture-group/Publicsubnet.svg
 ```
 
-- [ ] **Step 2: Create the passing fixture**
+- [x] **Step 2: Create the passing fixture**
 
 `diagrams/tests/fixtures/ok.html` — a minimal page the real `self_check.py` accepts apart from the allow-listed icon:
 ```html
@@ -571,7 +571,7 @@ icons:
 </html>
 ```
 
-- [ ] **Step 3: Write the failing tests**
+- [x] **Step 3: Write the failing tests**
 
 `diagrams/tests/test_gate.py`:
 ```python
@@ -693,12 +693,12 @@ def test_real_self_check_accepts_fixture_after_filter():
     assert filter_self_check(load_verify()(FIX / "ok.html")) == []
 ```
 
-- [ ] **Step 4: Run tests to verify they fail**
+- [x] **Step 4: Run tests to verify they fail**
 
 Run: `cd diagrams && ../.venv/bin/python -m pytest tests/test_gate.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'diagrams3mrai.gate'`.
 
-- [ ] **Step 5: Implement `gate.py`**
+- [x] **Step 5: Implement `gate.py`**
 
 `diagrams/diagrams3mrai/gate.py`:
 ```python
@@ -863,12 +863,12 @@ if __name__ == "__main__":
     raise SystemExit(main())
 ```
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [x] **Step 6: Run tests to verify they pass**
 
 Run: `cd diagrams && ../.venv/bin/python -m pytest tests/test_gate.py -v`
 Expected: PASS (the real-self_check test runs when the plugin is installed; it must pass, proving the fixture contract).
 
-- [ ] **Step 7: Add `diagrams-gate` and verify the manifest is reachable**
+- [x] **Step 7: Add `diagrams-gate` and verify the manifest is reachable**
 
 Add to `.PHONY` and the Makefile:
 ```make
@@ -878,7 +878,7 @@ diagrams-gate: ## Fail on any diagram-design source that breaks the skill self_c
 Run: `.venv/bin/python -c "from diagrams3mrai.gate import load_icons, unreachable; print(unreachable(sorted(load_icons().values())))"`
 Expected: `[]` (every manifest URL answers 200). Fix any wrong path in `icons.yaml` before continuing.
 
-- [ ] **Step 8: Commit (via the menu)**
+- [x] **Step 8: Commit (via the menu)**
 
 ```bash
 git add diagrams/icons.yaml diagrams/diagrams3mrai/gate.py diagrams/tests/test_gate.py diagrams/tests/fixtures/ok.html Makefile
@@ -897,13 +897,13 @@ git commit -m "build(diagrams): gate diagram-design sources with an aws-icons al
 
 **Interfaces:**
 - Consumes: `Entry`, `load_catalog`, `select`, `REPO_ROOT` (Task 1); `gate.main` (Task 3).
-- Produces: `render_png(src: Path, out: Path, scale: int = 2) -> None` (raises `RenderError` on any failed/≥400 jsDelivr request or a motion root not in `data-frame="static"`), `main(argv: list[str] | None = None) -> int` (`python -m diagrams3mrai.render [id ...]`: runs the gate for the same ids first, then renders each entry to `entry.png`, warns over 2 MB).
+- Produces: `render_png(src: Path, out: Path, scale: int = 2) -> None` (raises `RenderError` on any failed/≥400 jsDelivr request or a motion root not in `data-frame="static"`), `render_png` pins the SVG to its viewBox size before the screenshot, so the PNG is viewBox width × scale (`test_png_width_is_view_box_width_times_scale`), `main(argv: list[str] | None = None) -> int` (`python -m diagrams3mrai.render [id ...]`: runs the gate for the same ids first, then renders each entry to `entry.png`, warns over 2 MB).
 
-- [ ] **Step 1: Create the failing fixture**
+- [x] **Step 1: Create the failing fixture**
 
 `diagrams/tests/fixtures/missing-icon.html`: copy `ok.html` and change the icon href to `https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/DoesNotExist.svg`.
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 `diagrams/tests/test_render.py`:
 ```python
@@ -939,12 +939,12 @@ def test_render_static_frame(tmp_path):
         render_png(src, tmp_path / "m.png")
 ```
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [x] **Step 3: Run tests to verify they fail**
 
 Run: `cd diagrams && ../.venv/bin/python -m pytest tests/test_render.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'diagrams3mrai.render'`.
 
-- [ ] **Step 4: Implement `render.py`**
+- [x] **Step 4: Implement `render.py`**
 
 `diagrams/diagrams3mrai/render.py`:
 ```python
@@ -1012,12 +1012,14 @@ if __name__ == "__main__":
     raise SystemExit(main())
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+The shipped `render.py` also pins the SVG to its viewBox size via `_PIN_SVG_SIZE`; see the Task 4 Interfaces line.
+
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `cd diagrams && ../.venv/bin/python -m pytest -v`
 Expected: PASS for the whole suite (catalog, drift, gate, render).
 
-- [ ] **Step 6: Switch the make targets**
+- [x] **Step 6: Switch the make targets**
 
 Replace the `diagrams-render` and `diagrams-studio` recipes:
 ```make
@@ -1031,7 +1033,7 @@ diagrams-studio: ## Open one diagram's interactive HTML in the browser (ID=<id> 
 Run: `make diagrams-render ID=typo`
 Expected: exit 1 with `unknown diagram id(s): typo`.
 
-- [ ] **Step 7: Commit (via the menu)**
+- [x] **Step 7: Commit (via the menu)**
 
 ```bash
 git add diagrams/diagrams3mrai/render.py diagrams/tests/test_render.py diagrams/tests/fixtures/missing-icon.html Makefile
@@ -1050,7 +1052,7 @@ git commit -m "build(diagrams): render diagram-design sources to png with playwr
 - Consumes: catalog/icons/gate/render contracts from Tasks 1–4.
 - Produces: the authoring contract `diagram-impl` follows in Tasks 6–8.
 
-- [ ] **Step 1: Rewrite `diagrams/CLAUDE.md`** with these sections (English, ≤150 lines):
+- [x] **Step 1: Rewrite `diagrams/CLAUDE.md`** with these sections (English, ≤150 lines):
   - **What lives here:** `catalog.yaml`, `icons.yaml`, `src/<group>/<id>.html`, `diagrams3mrai/` (catalog, drift, gate, render), `tests/`. Convention [[diagrams]], decision ADR-0024 (once written).
   - **Prerequisites:** the `diagram-design` plugin v2.6.6 installed (Claude Code `/plugin`; Codex has its own manifest); `make diagrams-setup` once per clone.
   - **Authoring contract:** load the `diagram-design:diagram-design` skill; read the type reference (`type-architecture`, `type-flowchart`/`type-sequence`/`type-process` for flows, `type-dependency` for milestones); copy `assets/template.html` (static) or `assets/template-motion.html` (flows, `data-motion-mode="step"`, controller verbatim); 4px grid; connector rules §6; accessible SVG contract with `<id>-title` / `<id>-desc`.
@@ -1060,15 +1062,15 @@ git commit -m "build(diagrams): render diagram-design sources to png with playwr
   - **Commands:** `make diagrams-gate [ID=]`, `make diagrams-render [ID=]`, `make diagrams-check`, `make diagrams-studio ID=`; `DIAGRAMS_OFFLINE=1` skips icon reachability.
   - **Never:** GIFs; unpinned icon versions; edits to `.md` under `docs/`; git or Linear.
 
-- [ ] **Step 2: Rewrite `.claude/agents/diagram-impl.md`**
+- [x] **Step 2: Rewrite `.claude/agents/diagram-impl.md`**
 
 Frontmatter `description`: "Diagram implementer for the 3MRAI diagram-design sources (diagrams/). Use to add, update or re-render an architecture, flow or milestone diagram. Loads the diagram-design skill, reads the real code and Terraform before drawing, edits only diagrams/** and the rendered docs/**/diagrams/*.png, never touches .md notes, git or Linear, and leaves the work in the working tree for the main session to commit." Tools: `Read, Write, Edit, Bash, Glob, Grep, Skill`. Body: read `diagrams/CLAUDE.md` first; per diagram — read sources named in its `watches`, plan nodes/edges against the budget, author HTML, `make diagrams-render ID=<id>`, view the PNG with Read, iterate until the skill's §9 checklist passes; report a coverage table (AWS services drawn vs. the Remotion view it replaces, when one exists) and any embed changes needed for `obsidian-vault`.
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 Run: `make lint-comments` → exit 0. `grep -n -i remotion diagrams/CLAUDE.md .claude/agents/diagram-impl.md` → no output.
 
-- [ ] **Step 4: Commit (via the menu)**
+- [x] **Step 4: Commit (via the menu)**
 
 ```bash
 git add diagrams/CLAUDE.md .claude/agents/diagram-impl.md
@@ -1089,11 +1091,11 @@ git commit -m "docs(agents): point diagram-impl at the diagram-design toolchain"
 **Interfaces:**
 - Consumes: Task 5 authoring contract; the Remotion data modules `diagrams/src/data/<group>/*.ts` as the content inventory (nodes, edges, steps) to carry over.
 
-- [ ] **Step 1: Dispatch `diagram-impl`** (one agent, English brief) for the four ids above. Brief must include: the Global Constraints of this plan; "carry over every node, edge and step of the Remotion data module — do not add or drop content; if the budget forces zoning or a cut, report it instead of deciding"; render each with `make diagrams-render ID=<id>`; no git.
-- [ ] **Step 2: Gate.** Run `make diagrams-gate ID=architecture-dev-floci-events,orders-checkout-stripe,system-context-l1,milestone-users-service-deps` → all `OK`.
-- [ ] **Step 3: Coverage parity.** For each pilot id, list the AWS icons in the old TS module (`grep -oE 'icon: *"[a-z-]+"'`) and the `<image href>` keys in the new HTML; every runtime AWS service of the old view is present, or the difference is listed for the user.
-- [ ] **Step 4: Visual check.** Read each PNG; confirm entry on the left, orthogonal connectors, no label on its own stroke, numbered badges on the flow, width ≤2000. Open `orders-checkout-stripe.html` with `make diagrams-studio ID=orders-checkout-stripe` and step through it.
-- [ ] **Step 5: Audit.** Run the `spec-implementation-audit` skill against the spec for Tasks 1–6.
+- [x] **Step 1: Dispatch `diagram-impl`** (one agent, English brief) for the four ids above. Brief must include: the Global Constraints of this plan; "carry over every node, edge and step of the Remotion data module — do not add or drop content; if the budget forces zoning or a cut, report it instead of deciding"; render each with `make diagrams-render ID=<id>`; no git.
+- [x] **Step 2: Gate.** Run `make diagrams-gate ID=architecture-dev-floci-events,orders-checkout-stripe,system-context-l1,milestone-users-service-deps` → all `OK`.
+- [x] **Step 3: Coverage parity.** For each pilot id, list the AWS icons in the old TS module (`grep -oE 'icon: *"[a-z-]+"'`) and the `<image href>` keys in the new HTML; every runtime AWS service of the old view is present, or the difference is listed for the user.
+- [x] **Step 4: Visual check.** Read each PNG; confirm entry on the left, orthogonal connectors, no label on its own stroke, numbered badges on the flow, width ≤2000. Open `orders-checkout-stripe.html` with `make diagrams-studio ID=orders-checkout-stripe` and step through it.
+- [x] **Step 5: Audit.** Run the `spec-implementation-audit` skill against the spec for Tasks 1–6.
 - [ ] **Step 6: Commit (via the menu)** — `feat(diagrams): pilot the diagram-design style on one diagram per kind`.
 - [ ] **Step 7: STOP.** Present the four PNGs, the parity table and audit findings to the user. Do not start Task 7 until the user approves the style and icons (changes requested → revise Task 5 guidance and the pilot first).
 
@@ -1175,6 +1177,12 @@ git commit -m "docs(agents): point diagram-impl at the diagram-design toolchain"
 - [ ] **Step 1:** Run the `spec-implementation-audit` skill (spec → code, code → docs, plan → repo). Every gap found is fixed in its own change before continuing; re-run until clean.
 - [ ] **Step 2:** `make diagrams-gate`, `make diagrams-check`, `cd diagrams && ../.venv/bin/python -m pytest`, `nvm use && node scripts/validate-vault.mjs`, `make lint-comments` — all green; paste outputs into the handoff.
 - [ ] **Step 3:** Update PR #130's title/body (`gh pr edit 130`) to describe the diagram-design migration, with `## Diagrams` (pilot PNGs), `## References` (spec, plan, ADR-0024) — via the menu (option for push + PR edit). Never merge.
+
+## Execution notes
+
+- Task 3 gap closed at the Task 6 stop point: the spec requires catalog ↔ sources ↔ PNG parity; the gate checks PNG existence via `missing_renders` (tests `test_missing_png_fails`, `test_missing_png_is_not_reported_before_the_source_exists`).
+- `.claude/settings.json` enables `diagram-design@diagram-design` and declares the `cathrynlavery/diagram-design` marketplace; the installed plugin is v2.6.6 while upstream is v2.6.98 (not pinned by the setting).
+- `diagram-impl` keeps two transitional Remotion mentions until Task 10.
 
 ## Related
 

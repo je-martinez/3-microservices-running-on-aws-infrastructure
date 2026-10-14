@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Users Service milestone: task dependencies · Dependency</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #f5f5f5;   /* white-smoke */
+      --color-ink:     #2d3142;   /* jet-black */
+      --color-muted:   #4f5d75;   /* blue-slate */
+      --color-accent:  #eb6c36;   /* atomic-tangerine */
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+
+    .frame { max-width: 2000px; width: 100%; }
+
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+
+    svg { width: 100%; min-width: 900px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Dependency · Users Service milestone</p>
+    <h1>Users Service milestone: task dependencies</h1>
+
+    <svg viewBox="0 0 1968 548" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="milestone-users-service-deps-title milestone-users-service-deps-desc">
+      <title id="milestone-users-service-deps-title">Users Service milestone: task dependencies</title>
+      <desc id="milestone-users-service-deps-desc">Dependency graph of the 17 Users Service milestone tasks in three phase zones: the JE-25 spike gates the infra chain, JE-36 apply waits on the domain, infra and schema chains, and the JE-38 to post-JE-40 follow-ups run after the JE-37 E2E specs.</desc>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker>
+        <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+      <!-- Zones (painted first) -->
+      <rect x="40" y="40" width="608" height="408" rx="6" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="0.8"/>
+      <text x="56" y="60" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">PNPM AND SPIKE · PACKAGES, MODULES · SCHEMA AND INFRA</text>
+      <rect x="680" y="40" width="1008" height="408" rx="6" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="0.8"/>
+      <text x="696" y="60" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">DOMAIN LOGIC · PACKAGE, APPLY, E2E</text>
+      <rect x="1720" y="40" width="208" height="408" rx="6" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="0.8"/>
+      <text x="1736" y="60" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">AFTER E2E</text>
+
+      <!-- Connectors drawn before boxes -->
+      <!-- JE-25 → JE-28 -->
+      <line x1="224" y1="108" x2="264" y2="108" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- JE-28 → JE-30 -->
+      <line x1="424" y1="108" x2="464" y2="108" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- JE-26 → JE-27 -->
+      <line x1="224" y1="204" x2="264" y2="204" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- JE-26 → JE-32 -->
+      <path d="M 144,232 V 292 Q 144,300 152,300 H 264" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- JE-27 → JE-29 -->
+      <line x1="424" y1="204" x2="464" y2="204" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- JE-29 → JE-31 -->
+      <line x1="624" y1="204" x2="704" y2="204" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- JE-29 → JE-34 (bottom attach left of JE-29 → JE-36) -->
+      <path d="M 520,232 V 292 Q 520,300 528,300 H 704" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- JE-29 → JE-36 (lane between rows b and c) -->
+      <path d="M 568,232 V 244 Q 568,252 576,252 H 1376 Q 1384,252 1384,244 V 232" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- JE-31 → JE-33 -->
+      <line x1="864" y1="204" x2="904" y2="204" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- JE-33 → JE-35 -->
+      <line x1="1064" y1="204" x2="1104" y2="204" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- JE-35 → JE-36 -->
+      <line x1="1264" y1="204" x2="1304" y2="204" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- JE-30 → JE-36 (along the empty row a) -->
+      <path d="M 624,108 H 1376 Q 1384,108 1384,116 V 176" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- JE-36 → JE-37 -->
+      <line x1="1464" y1="204" x2="1504" y2="204" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- JE-32 → JE-37 (lane below row c) -->
+      <path d="M 344,328 V 344 Q 344,352 352,352 H 1576 Q 1584,352 1584,344 V 232" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- JE-37 → JE-38 -->
+      <path d="M 1664,204 H 1696 Q 1704,204 1704,196 V 116 Q 1704,108 1712,108 H 1744" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- JE-38 → JE-39 -->
+      <line x1="1824" y1="136" x2="1824" y2="176" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- JE-39 → JE-40 -->
+      <line x1="1824" y1="232" x2="1824" y2="272" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- JE-40 → post-JE-40 -->
+      <line x1="1824" y1="328" x2="1824" y2="368" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+
+      <!-- JE-25 -->
+      <rect x="64" y="80" width="160" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="64" y="80" width="160" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="72" y="88" width="32" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="88" y="97" fill="#2d3142" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">GATE</text>
+      <rect x="188" y="88" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="202" y="97" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">0 IN</text>
+      <text x="144" y="116" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">emulator spike</text>
+      <text x="144" y="130" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">JE-25</text>
+      <!-- JE-26 -->
+      <rect x="64" y="176" width="160" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="64" y="176" width="160" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="188" y="184" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="202" y="193" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">0 IN</text>
+      <text x="144" y="212" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">pnpm root</text>
+      <text x="144" y="226" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">JE-26</text>
+      <!-- JE-28 -->
+      <rect x="264" y="80" width="160" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="264" y="80" width="160" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="388" y="88" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="402" y="97" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">1 IN</text>
+      <text x="344" y="116" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">net/rds/cognito mods</text>
+      <text x="344" y="130" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">JE-28</text>
+      <!-- JE-27 -->
+      <rect x="264" y="176" width="160" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="264" y="176" width="160" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="388" y="184" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="402" y="193" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">1 IN</text>
+      <text x="344" y="212" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">users pkg</text>
+      <text x="344" y="226" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">JE-27</text>
+      <!-- JE-32 -->
+      <rect x="264" y="272" width="160" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="264" y="272" width="160" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="388" y="280" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="402" y="289" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">1 IN</text>
+      <text x="344" y="308" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">e2e harness</text>
+      <text x="344" y="322" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">JE-32</text>
+      <!-- JE-30 -->
+      <rect x="464" y="80" width="160" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="464" y="80" width="160" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="588" y="88" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="602" y="97" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">1 IN</text>
+      <text x="544" y="116" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">compute + gateway</text>
+      <text x="544" y="130" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">JE-30</text>
+      <!-- JE-29 -->
+      <rect x="464" y="176" width="160" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="464" y="176" width="160" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="588" y="184" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="602" y="193" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">1 IN</text>
+      <text x="544" y="212" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">schema + primitives</text>
+      <text x="544" y="226" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">JE-29</text>
+      <!-- JE-31 -->
+      <rect x="704" y="176" width="160" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="704" y="176" width="160" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="828" y="184" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="842" y="193" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">1 IN</text>
+      <text x="784" y="212" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">auth + domain + cmds</text>
+      <text x="784" y="226" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">JE-31</text>
+      <!-- JE-34 -->
+      <rect x="704" y="272" width="160" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="704" y="272" width="160" height="56" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+      <rect x="828" y="280" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="842" y="289" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">1 IN</text>
+      <text x="784" y="308" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">vault tags sync</text>
+      <text x="784" y="322" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">JE-34</text>
+      <!-- JE-33 -->
+      <rect x="904" y="176" width="160" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="904" y="176" width="160" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="1028" y="184" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="1042" y="193" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">1 IN</text>
+      <text x="984" y="212" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">http + gRPC</text>
+      <text x="984" y="226" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">JE-33</text>
+      <!-- JE-35 -->
+      <rect x="1104" y="176" width="160" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="1104" y="176" width="160" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="1228" y="184" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="1242" y="193" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">1 IN</text>
+      <text x="1184" y="212" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Dockerfile + compose</text>
+      <text x="1184" y="226" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">JE-35</text>
+      <!-- JE-36 -->
+      <rect x="1304" y="176" width="160" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="1304" y="176" width="160" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="1428" y="184" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="1442" y="193" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">3 IN</text>
+      <text x="1384" y="212" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">env/local + apply</text>
+      <text x="1384" y="226" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">JE-36</text>
+      <!-- JE-37 -->
+      <rect x="1504" y="176" width="160" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="1504" y="176" width="160" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="1628" y="184" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="1642" y="193" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">2 IN</text>
+      <text x="1584" y="212" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">e2e specs</text>
+      <text x="1584" y="226" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">JE-37</text>
+      <!-- JE-38 -->
+      <rect x="1744" y="80" width="160" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="1744" y="80" width="160" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="1868" y="88" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="1882" y="97" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">1 IN</text>
+      <text x="1824" y="116" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Cognito webhook</text>
+      <text x="1824" y="130" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">JE-38</text>
+      <!-- JE-39 -->
+      <rect x="1744" y="176" width="160" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="1744" y="176" width="160" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="1868" y="184" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="1882" y="193" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">1 IN</text>
+      <text x="1824" y="212" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">code quality refactor</text>
+      <text x="1824" y="226" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">JE-39</text>
+      <!-- JE-40 -->
+      <rect x="1744" y="272" width="160" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="1744" y="272" width="160" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="1868" y="280" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="1882" y="289" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">1 IN</text>
+      <text x="1824" y="308" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">JE-39 follow-up debt</text>
+      <text x="1824" y="322" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">JE-40</text>
+      <!-- post-JE-40 -->
+      <rect x="1744" y="368" width="160" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="1744" y="368" width="160" height="56" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+      <rect x="1868" y="376" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="1882" y="385" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">1 IN</text>
+      <text x="1824" y="404" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">7 tasks, no issue</text>
+      <text x="1824" y="418" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">post-JE-40 · tasks 17–23</text>
+
+      <!-- Legend strip -->
+      <line x1="40" y1="476" x2="1928" y2="476" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="40" y="492" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+
+      <rect x="40" y="508" width="16" height="12" rx="2" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="64" y="517" fill="#4f5d75" font-size="8.5" font-family="'Geist', sans-serif">Task</text>
+
+      <rect x="136" y="508" width="16" height="12" rx="2" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+      <text x="160" y="517" fill="#4f5d75" font-size="8.5" font-family="'Geist', sans-serif">Leaf task (unblocks nothing)</text>
+
+      <line x1="316" y1="514" x2="344" y2="514" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <text x="352" y="517" fill="#4f5d75" font-size="8.5" font-family="'Geist', sans-serif">Blocker → blocked task</text>
+
+      <rect x="496" y="508" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="510" y="517" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">N IN</text>
+      <text x="532" y="517" fill="#4f5d75" font-size="8.5" font-family="'Geist', sans-serif">Number of blocking tasks</text>
+
+      <rect x="680" y="508" width="32" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="696" y="517" fill="#2d3142" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">GATE</text>
+      <text x="720" y="517" fill="#4f5d75" font-size="8.5" font-family="'Geist', sans-serif">Hard gate: infra work stops if the spike fails</text>
+
+      <rect x="960" y="508" width="16" height="12" rx="2" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="0.8"/>
+      <text x="984" y="517" fill="#4f5d75" font-size="8.5" font-family="'Geist', sans-serif">Zone = milestone phases</text>
+    </svg>
+  </div>
+</body>
+</html>

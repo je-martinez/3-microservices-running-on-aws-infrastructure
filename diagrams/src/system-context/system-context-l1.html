@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>System context — Level 1</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #f5f5f5;
+      --color-ink:     #2d3142;
+      --color-muted:   #4f5d75;
+      --color-accent:  #eb6c36;
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+
+    .frame { max-width: 1200px; width: 100%; }
+
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 0.5rem;
+    }
+
+    .subtitle {
+      color: var(--color-muted);
+      font-size: 0.95rem;
+      margin-bottom: 1.5rem;
+    }
+
+    svg { width: 100%; min-width: 900px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Architecture · System context</p>
+    <h1>System context — Level 1</h1>
+    <p class="subtitle">3MRAI as a black box: who uses it and which systems it depends on</p>
+
+    <svg viewBox="0 0 912 568" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="system-context-l1-title system-context-l1-desc">
+      <title id="system-context-l1-title">System context — Level 1</title>
+      <desc id="system-context-l1-desc">System context showing customers and carriers using the 3MRAI platform, which relies on Cognito and SES inside AWS and on Stripe, Geoapify and OpenObserve outside it.</desc>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker>
+        <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+      <!-- Zones -->
+      <rect x="32" y="48" width="192" height="440" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <rect x="72" y="52" width="112" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="128" y="61" fill="rgba(45,49,66,0.40)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">PEOPLE AND PARTNERS</text>
+
+      <rect x="352" y="48" width="224" height="440" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <rect x="392" y="52" width="144" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="464" y="61" fill="rgba(45,49,66,0.40)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">AWS CLOUD (FLOCI LOCALLY)</text>
+
+      <rect x="672" y="48" width="208" height="440" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <rect x="716" y="52" width="120" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="776" y="61" fill="rgba(45,49,66,0.40)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">THIRD-PARTY SERVICES</text>
+
+      <!-- Arrows (before nodes) -->
+      <path d="M 208,128 H 280 Q 288,128 288,136 V 248 Q 288,256 296,256 H 384" fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+      <path d="M 208,416 H 296 Q 304,416 304,408 V 296 Q 304,288 312,288 H 384" fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+      <line x1="464" y1="224" x2="464" y2="176" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <line x1="464" y1="320" x2="464" y2="368" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <path d="M 544,240 H 608 Q 616,240 616,232 V 136 Q 616,128 624,128 H 704" fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+      <line x1="544" y1="272" x2="704" y2="272" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+      <path d="M 544,304 H 624 Q 632,304 632,312 V 408 Q 632,416 640,416 H 704" fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+
+      <!-- Arrow labels -->
+      <rect x="224" y="108" width="40" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="244" y="117" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">USES</text>
+      <rect x="228" y="396" width="48" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="252" y="405" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">STATUS</text>
+      <rect x="472" y="196" width="32" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="488" y="205" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">AUTH</text>
+      <rect x="472" y="340" width="36" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="490" y="349" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">EMAIL</text>
+      <rect x="636" y="108" width="56" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="664" y="117" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PAYMENTS</text>
+      <rect x="644" y="252" width="52" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="670" y="261" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">GEOCODE</text>
+      <rect x="640" y="396" width="60" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="670" y="405" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">TELEMETRY</text>
+
+      <!-- Node: Customer -->
+      <rect x="48" y="80" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="48" y="80" width="160" height="96" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/Users.svg" x="108" y="92" width="40" height="40"/>
+      <text x="128" y="152" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Customer</text>
+
+      <!-- Node: Carrier -->
+      <rect x="48" y="368" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="48" y="368" width="160" height="96" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/Officebuilding.svg" x="108" y="380" width="40" height="40"/>
+      <text x="128" y="440" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Carrier</text>
+
+      <!-- Node: Cognito -->
+      <rect x="384" y="80" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="384" y="80" width="160" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonCognito.svg" x="444" y="92" width="40" height="40"/>
+      <text x="464" y="152" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Cognito</text>
+
+      <!-- Node: 3MRAI platform (focal) -->
+      <rect x="384" y="224" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="384" y="224" width="160" height="96" rx="6" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/Server.svg" x="444" y="236" width="40" height="40"/>
+      <text x="464" y="296" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">3MRAI platform</text>
+
+      <!-- Node: SES -->
+      <rect x="384" y="368" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="384" y="368" width="160" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonSimpleEmailService.svg" x="444" y="380" width="40" height="40"/>
+      <text x="464" y="440" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">SES</text>
+
+      <!-- Node: Stripe (optional) -->
+      <rect x="704" y="80" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="704" y="80" width="160" height="96" rx="6" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/Internet.svg" x="764" y="92" width="40" height="40"/>
+      <text x="784" y="148" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Stripe</text>
+      <text x="784" y="164" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">optional, webhooks</text>
+
+      <!-- Node: Geoapify (optional) -->
+      <rect x="704" y="224" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="704" y="224" width="160" height="96" rx="6" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/Internet.svg" x="764" y="236" width="40" height="40"/>
+      <text x="784" y="292" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Geoapify</text>
+      <text x="784" y="308" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">optional</text>
+
+      <!-- Node: OpenObserve -->
+      <rect x="704" y="368" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="704" y="368" width="160" height="96" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/Server.svg" x="764" y="380" width="40" height="40"/>
+      <text x="784" y="436" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">OpenObserve</text>
+      <text x="784" y="452" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">logs + traces</text>
+
+      <!-- Legend -->
+      <line x1="32" y1="512" x2="880" y2="512" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="32" y="544" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+
+      <line x1="96" y1="540" x2="120" y2="540" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+      <text x="128" y="544" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">EXTERNAL CALL</text>
+
+      <line x1="216" y1="540" x2="240" y2="540" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <text x="248" y="544" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">CALL INSIDE AWS</text>
+
+      <rect x="352" y="532" width="16" height="12" rx="2" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+      <text x="376" y="544" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">THE SYSTEM</text>
+
+      <rect x="452" y="532" width="16" height="12" rx="2" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+      <text x="476" y="544" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">PERSON / PARTNER</text>
+
+      <rect x="584" y="532" width="16" height="12" rx="2" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+      <text x="608" y="544" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">EXTERNAL SYSTEM</text>
+
+      <rect x="712" y="532" width="16" height="12" rx="2" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+      <text x="736" y="544" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">OPTIONAL</text>
+    </svg>
+  </div>
+</body>
+</html>
