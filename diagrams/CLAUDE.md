@@ -66,7 +66,7 @@ The four pilots are the reference implementation; open the one of the same kind 
 
 | Command | What it does |
 |---|---|
-| `make diagrams-gate [ID=a,b]` | Skill self_check (filtered to allow-listed icons) and verify-geometry (label masks clipped by a later node), icon allowlist, width cap; without `ID`, also catalog ↔ sources ↔ PNG parity. Fails. |
+| `make diagrams-gate [ID=a,b]` | Skill self_check (filtered to allow-listed icons), verify-geometry (label masks clipped by a later node) and, for a flow with a motion root, verify-motion, icon allowlist, width cap; without `ID`, also catalog ↔ sources ↔ PNG parity. Fails. |
 | `make diagrams-render [ID=a,b]` | Gate, then PNG to `<output>.png` (static frame, opaque paper, viewBox × 2). Warns over 2 MB. |
 | `make diagrams-check` | Lists diagrams whose `watches`, `src` or shared render inputs changed vs `DIAGRAMS_BASE` (default `main`) without a re-render. Never fails. |
 | `make diagrams-studio ID=<id>` | Opens the interactive HTML in the browser. |

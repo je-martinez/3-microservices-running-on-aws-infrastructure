@@ -102,13 +102,23 @@ def _load(path: Path, name: str):
 
 def load_verify() -> Callable[[Path], list[str]]:
     self_check = locate_self_check()
-    # CONTRACT: verify-geometry ships at the plugin root, three levels above skills/diagram-design/scripts/.
-    geometry_path = self_check.parents[3] / "scripts" / "verify-geometry.py"
-    if not geometry_path.is_file():
-        raise GateSetupError(f"diagram-design verify-geometry.py not found at {geometry_path}")
+    # CONTRACT: verify-geometry and verify-motion ship at the plugin root, three levels above skills/diagram-design/scripts/.
+    scripts = self_check.parents[3] / "scripts"
+    for name in ("verify-geometry.py", "verify-motion.py"):
+        if not (scripts / name).is_file():
+            raise GateSetupError(f"diagram-design {name} not found at {scripts}")
     verify = _load(self_check, "diagram_design_self_check").verify
-    geometry = _load(geometry_path, "diagram_design_verify_geometry").check
-    return lambda path: [*verify(path), *geometry(path)]
+    geometry = _load(scripts / "verify-geometry.py", "diagram_design_verify_geometry").check
+    motion = _load(scripts / "verify-motion.py", "diagram_design_verify_motion").verify
+
+    def run(path: Path) -> list[str]:
+        errors = [*verify(path), *geometry(path)]
+        # WHY: verify-motion requires a motion root, so a static diagram would always fail it.
+        if "data-motion-root" in path.read_text(encoding="utf-8"):
+            errors += [e for e in motion(path) if e not in errors]
+        return errors
+
+    return run
 
 
 def check_entry(entry: Entry, allowed: set[str], verify: Callable[[Path], list[str]], root: Path = REPO_ROOT) -> list[str]:

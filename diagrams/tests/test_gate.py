@@ -147,3 +147,21 @@ def test_real_verify_flags_a_label_clipped_by_a_later_node(tmp_path):
 @pytest.mark.skipif(not self_check_available(), reason="diagram-design plugin not installed")
 def test_real_verify_passes_the_ok_fixture_geometry(tmp_path):
     assert filter_self_check(load_verify()(FIX / "ok.html")) == []
+
+
+@pytest.mark.skipif(not self_check_available(), reason="diagram-design plugin not installed")
+def test_real_verify_passes_a_valid_motion_diagram():
+    assert filter_self_check(load_verify()(FIX / "motion-ok.html")) == []
+
+
+@pytest.mark.skipif(not self_check_available(), reason="diagram-design plugin not installed")
+def test_real_verify_runs_verify_motion_on_a_motion_root(tmp_path):
+    src = tmp_path / "count.html"
+    src.write_text((FIX / "motion-ok.html").read_text().replace('data-step-count="8"', 'data-step-count="7"'))
+    errors = load_verify()(src)
+    assert "motion item data-step falls outside declared step count" in errors
+
+
+@pytest.mark.skipif(not self_check_available(), reason="diagram-design plugin not installed")
+def test_real_verify_skips_verify_motion_on_a_static_diagram():
+    assert not any("data-motion-root" in e for e in load_verify()(FIX / "ok.html"))
