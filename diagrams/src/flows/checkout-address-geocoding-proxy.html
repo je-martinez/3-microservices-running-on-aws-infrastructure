@@ -160,7 +160,7 @@
     <p class="eyebrow">Orders · Flow · Local dev on Floci</p>
     <h1>Street autocomplete through a same-origin proxy</h1>
 
-    <svg viewBox="0 104 1280 752" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="checkout-address-geocoding-proxy-title checkout-address-geocoding-proxy-desc">
+    <svg viewBox="0 104 1280 776" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="checkout-address-geocoding-proxy-title checkout-address-geocoding-proxy-desc">
       <title id="checkout-address-geocoding-proxy-title">Street autocomplete through a same-origin proxy</title>
       <desc id="checkout-address-geocoding-proxy-desc">The web nginx proxies street autocomplete to Geoapify with a server-side key the browser never sees, logs only those calls to OpenObserve to count the free tier, and proxies the address save through API Gateway's JWT authorizer to the Users service.</desc>
       <defs>
@@ -228,9 +228,11 @@
       <!-- Geoapify (external, optional) -->
       <rect x="592" y="124" width="128" height="88" rx="6" fill="#f5f5f5"/>
       <rect x="592" y="124" width="128" height="88" rx="6" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+      <rect x="600" y="132" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="614" y="141" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">FLAG</text>
       <image href="https://cdn.jsdelivr.net/gh/geoapify/route-planner-sdk@cb2da5f18aee1efa35eb85ab948ffe8e17fcf9a8/docs-site/docs/assets/geoapify-logo-new-125x125.png" x="636" y="132" width="40" height="40"/>
       <text x="656" y="188" class="name" text-anchor="middle">Geoapify</text>
-      <text x="656" y="204" class="sub" text-anchor="middle">optional</text>
+      <text x="656" y="204" class="sub" text-anchor="middle">GEOAPIFY_ENABLED</text>
 
       <!-- OpenObserve -->
       <rect x="336" y="476" width="128" height="88" rx="6" fill="#f5f5f5"/>
@@ -315,6 +317,9 @@
       <text x="936" y="844" class="lbl">OPTIONAL · KEY MAY BE UNSET</text>
       <circle class="badge" cx="1112" cy="840" r="8"/><text class="badge-n" x="1112" y="844" text-anchor="middle">n</text>
       <text x="1128" y="844" class="lbl">STEP · CAPTION n</text>
+      <rect x="104" y="856" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="118" y="865" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">FLAG</text>
+      <text x="140" y="868" class="lbl">BEHIND A FEATURE FLAG · GEOAPIFY: GEOAPIFY_ENABLED (PRE-PROD) · KEY SET (DEV)</text>
     </svg>
 
     <div data-motion-controls role="group" aria-label="Diagram playback controls">

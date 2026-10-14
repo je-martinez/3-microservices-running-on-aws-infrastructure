@@ -161,7 +161,7 @@
     <p class="eyebrow">Orders · Flow · Local dev on Floci</p>
     <h1>Checkout with a Stripe charge</h1>
 
-    <svg viewBox="0 64 1360 792" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="orders-checkout-stripe-title orders-checkout-stripe-desc">
+    <svg viewBox="0 64 1360 816" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="orders-checkout-stripe-title orders-checkout-stripe-desc">
       <title id="orders-checkout-stripe-title">Checkout with a Stripe charge</title>
       <desc id="orders-checkout-stripe-desc">The Orders service charges a Stripe PaymentIntent before persisting the order in one RDS transaction, publishes ORDER_CREATED through SNS, SQS and the events pipeline to an SES receipt, initializes tracking, replays retries by Idempotency-Key, and reconciles orphan charges through Stripe's webhook.</desc>
       <defs>
@@ -251,11 +251,14 @@
       <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/Server.svg" x="336" y="488" width="40" height="40"/>
       <text x="356" y="548" class="name" text-anchor="middle">Tracking service</text>
 
-      <!-- Stripe (external) -->
+      <!-- Stripe (external, optional) -->
       <rect x="560" y="124" width="128" height="88" rx="6" fill="#f5f5f5"/>
-      <rect x="560" y="124" width="128" height="88" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+      <rect x="560" y="124" width="128" height="88" rx="6" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+      <rect x="568" y="132" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="582" y="141" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">FLAG</text>
       <image href="https://cdn.jsdelivr.net/gh/stripe/stripe-ios@26.14.0/StripePaymentSheet/StripePaymentSheet/Resources/StripePaymentSheet.xcassets/Link/InstantDebitIcons/bank_icon_stripe.imageset/BrandIcon--stripe.svg" x="604" y="136" width="40" height="40"/>
-      <text x="624" y="196" class="name" text-anchor="middle">Stripe</text>
+      <text x="624" y="192" class="name" text-anchor="middle">Stripe</text>
+      <text x="624" y="204" class="sub" text-anchor="middle">STRIPE_ENABLED</text>
 
       <!-- Orders DB (store) -->
       <rect x="832" y="316" width="128" height="88" rx="6" fill="#f5f5f5"/>
@@ -352,6 +355,11 @@
       <text x="856" y="836" class="lbl">FOCAL SERVICE</text>
       <circle class="badge" cx="972" cy="832" r="8"/><text class="badge-n" x="972" y="836" text-anchor="middle">n</text>
       <text x="988" y="836" class="lbl">STEP · SEE CAPTION n</text>
+      <rect x="1124" y="824" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="1138" y="833" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">FLAG</text>
+      <text x="1160" y="836" class="lbl">BEHIND A FEATURE FLAG</text>
+      <rect x="104" y="852" width="24" height="16" rx="4" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+      <text x="140" y="864" class="lbl">OPTIONAL</text>
     </svg>
 
     <div data-motion-controls role="group" aria-label="Diagram playback controls">

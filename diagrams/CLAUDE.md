@@ -57,6 +57,7 @@ The four pilots are the reference implementation; open the one of the same kind 
 - **An arrow points from the caller.** A pull receiver points at the polled service (e.g. the OTel collector polling CloudWatch, labelled `POLLS`; ECS pulling images, `PULLS IMAGES`; ECS reading task config, `READS CONFIG`). Exception: a queue → consumer edge points at the consumer, dashed, labelled by what it carries (`TRIGGERS`, `NOTIFY`) — the common AWS reading of a queue.
 - **No routes in labels, even when carrying content over 1:1:** `/v1 via web` becomes `API VIA WEB`. Labels ≤14 characters, uppercase.
 - **Stripe, Geoapify and OpenObserve use their `vendor` logo**; other external SaaS without one uses the `internet` icon. Optional integrations take the skill's dashed Optional treatment.
+- **An integration behind a feature flag** keeps the dashed Optional border, carries a `FLAG` tag (same chip as `VPC` / `COMPOSE` / `ECS`) and names the flag the code checks in its sublabel (e.g. `STRIPE_ENABLED`).
 - **Trim the viewBox** to the content so the PNG has no empty band at the top.
 
 ## Read the source before drawing

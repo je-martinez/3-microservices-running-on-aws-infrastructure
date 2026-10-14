@@ -65,7 +65,7 @@
     <h1>System context — Level 1</h1>
     <p class="subtitle">3MRAI as a black box: who uses it and which systems it depends on</p>
 
-    <svg viewBox="0 0 912 568" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="system-context-l1-title system-context-l1-desc">
+    <svg viewBox="0 0 912 592" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="system-context-l1-title system-context-l1-desc">
       <title id="system-context-l1-title">System context — Level 1</title>
       <desc id="system-context-l1-desc">System context showing customers and carriers using the 3MRAI platform, which relies on Cognito and SES inside AWS and on Stripe, Geoapify and OpenObserve outside it.</desc>
       <defs>
@@ -147,16 +147,20 @@
       <!-- Node: Stripe (optional) -->
       <rect x="704" y="80" width="160" height="96" rx="6" fill="#f5f5f5"/>
       <rect x="704" y="80" width="160" height="96" rx="6" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+      <rect x="712" y="88" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="726" y="97" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">FLAG</text>
       <image href="https://cdn.jsdelivr.net/gh/stripe/stripe-ios@26.14.0/StripePaymentSheet/StripePaymentSheet/Resources/StripePaymentSheet.xcassets/Link/InstantDebitIcons/bank_icon_stripe.imageset/BrandIcon--stripe.svg" x="764" y="92" width="40" height="40"/>
       <text x="784" y="148" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Stripe</text>
-      <text x="784" y="164" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">optional, webhooks</text>
+      <text x="784" y="164" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">STRIPE_ENABLED</text>
 
       <!-- Node: Geoapify (optional) -->
       <rect x="704" y="224" width="160" height="96" rx="6" fill="#f5f5f5"/>
       <rect x="704" y="224" width="160" height="96" rx="6" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+      <rect x="712" y="232" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="726" y="241" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">FLAG</text>
       <image href="https://cdn.jsdelivr.net/gh/geoapify/route-planner-sdk@cb2da5f18aee1efa35eb85ab948ffe8e17fcf9a8/docs-site/docs/assets/geoapify-logo-new-125x125.png" x="764" y="236" width="40" height="40"/>
       <text x="784" y="292" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Geoapify</text>
-      <text x="784" y="308" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">optional</text>
+      <text x="784" y="308" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">GEOAPIFY_ENABLED</text>
 
       <!-- Node: OpenObserve -->
       <rect x="704" y="368" width="160" height="96" rx="6" fill="#f5f5f5"/>
@@ -186,6 +190,9 @@
 
       <rect x="712" y="532" width="16" height="12" rx="2" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
       <text x="736" y="544" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">OPTIONAL</text>
+      <rect x="96" y="556" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="110" y="565" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">FLAG</text>
+      <text x="132" y="568" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">BEHIND A FEATURE FLAG · GEOAPIFY: GEOAPIFY_ENABLED (PRE-PROD) · KEY SET (DEV)</text>
     </svg>
   </div>
 </body>
