@@ -13,6 +13,8 @@ entries:
   - apps/web/src/app/core/payments/**
   - services/users/src/shared/stripe/**
   - services/orders/src/Orders.Infrastructure/Payments/**
+  - apps/web/nginx.conf
+  - apps/web/src/app/core/api/geocode-api.ts
 - id: architecture-dev-floci-events
   title: Architecture — local dev (Floci) — events & observability
   src: diagrams/src/architecture/architecture-dev-floci-events.html
@@ -36,6 +38,8 @@ entries:
   - apps/web/src/app/core/payments/**
   - services/users/src/shared/stripe/**
   - services/orders/src/Orders.Infrastructure/Payments/**
+  - apps/web/nginx.conf
+  - apps/web/src/app/core/api/geocode-api.ts
 - id: architecture-preprod-events
   title: Architecture — pre-prod (ECS on Floci) — events & observability
   src: diagrams/src/architecture/architecture-preprod-events.html

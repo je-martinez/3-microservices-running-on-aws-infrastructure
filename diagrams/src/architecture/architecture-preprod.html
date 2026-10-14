@@ -65,9 +65,9 @@
     <h1>Pre-prod on Floci — request path</h1>
     <p class="subtitle">One ECS cluster across two AZs: ECS places each Fargate task in either subnet; one ALB listener per service</p>
 
-    <svg viewBox="0 0 1872 1184" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="architecture-preprod-title architecture-preprod-desc">
+    <svg viewBox="0 0 1872 1280" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="architecture-preprod-title architecture-preprod-desc">
       <title id="architecture-preprod-title">Pre-prod on Floci — request path</title>
-      <desc id="architecture-preprod-desc">Architecture of the pre-prod environment, where every service runs as an ECS Fargate task on its own Floci: the browser loads the SPA through the ALB and calls API Gateway, which validates JWTs with Cognito and routes to the ALB; the ALB has one listener per ECS service; the orders and tracking tasks call users over gRPC; the backend tasks use RDS and ElastiCache; the cluster pulls images from ECR and reads task config from SSM plus Secrets Manager; the browser loads images from the S3 assets bucket and holds a live socket on the API Gateway WebSocket API; the backend tasks publish events through the SNS topic to SQS, which triggers the events-pipeline Lambda that sends email through SES; users and the events-pipeline Lambda push frames to the WebSocket API; every task ships logs and pushes custom metrics to CloudWatch, the backend tasks send OTLP traces to the OTel collector task, and the collector polls CloudWatch for logs and metrics and exports everything over OTLP to the OpenObserve task; when the optional Stripe integration is on, the browser loads Stripe.js, users creates setup intents, orders charges and refunds, and the Stripe CLI forwards webhooks to the ALB listeners of users and orders.</desc>
+      <desc id="architecture-preprod-desc">Architecture of the pre-prod environment, where every service runs as an ECS Fargate task on its own Floci: the browser loads the SPA through the ALB and calls API Gateway, which validates JWTs with Cognito and routes to the ALB; the ALB has one listener per ECS service; the orders and tracking tasks call users over gRPC; the backend tasks use RDS and ElastiCache; the cluster pulls images from ECR and reads task config from SSM plus Secrets Manager; the browser loads images from the S3 assets bucket and holds a live socket on the API Gateway WebSocket API; the backend tasks publish events through the SNS topic to SQS, which triggers the events-pipeline Lambda that sends email through SES; users and the events-pipeline Lambda push frames to the WebSocket API; every task ships logs and pushes custom metrics to CloudWatch, the backend tasks send OTLP traces to the OTel collector task, and the collector polls CloudWatch for logs and metrics and exports everything over OTLP to the OpenObserve task; when the optional Stripe integration is on, the browser loads Stripe.js, users creates setup intents, orders charges and refunds, and the Stripe CLI forwards webhooks to the ALB listeners of users and orders; when the optional Geoapify integration is on, the web task's nginx proxies address autocomplete to Geoapify.</desc>
       <defs>
         <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
         <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker>
@@ -75,84 +75,85 @@
       </defs>
       <rect width="100%" height="100%" fill="#f5f5f5"/>
       <!-- Zones -->
-      <rect x="232" y="144" width="1600" height="928" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
-      <rect x="248" y="148" width="156" height="12" rx="2" fill="#f5f5f5"/>
-      <text x="326" y="157" fill="rgba(45,49,66,0.40)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">FLOCI — PRE-PROD AWS :4566</text>
-      <rect x="840" y="200" width="464" height="672" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
-      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonElasticContainerService.svg" x="856" y="208" width="32" height="32"/>
-      <text x="896" y="228" fill="rgba(45,49,66,0.60)" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">ECS CLUSTER · 3mrai-preprod-ecs-cluster</text>
-      <rect x="864" y="368" width="424" height="328" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
-      <rect x="880" y="372" width="184" height="12" rx="2" fill="#f5f5f5"/>
-      <text x="972" y="381" fill="rgba(45,49,66,0.40)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">BACKEND SERVICES · GRPC TO USERS</text>
+      <rect x="232" y="240" width="1600" height="928" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <rect x="248" y="244" width="156" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="326" y="253" fill="rgba(45,49,66,0.40)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">FLOCI — PRE-PROD AWS :4566</text>
+      <rect x="840" y="296" width="464" height="672" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonElasticContainerService.svg" x="856" y="304" width="32" height="32"/>
+      <text x="896" y="324" fill="rgba(45,49,66,0.60)" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">ECS CLUSTER · 3mrai-preprod-ecs-cluster</text>
+      <rect x="864" y="464" width="424" height="328" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <rect x="880" y="468" width="184" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="972" y="477" fill="rgba(45,49,66,0.40)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">BACKEND SERVICES · GRPC TO USERS</text>
       <!-- Connectors (before nodes) -->
-      <path d="M 120,432 V 272 Q 120,264 128,264 H 264" fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
-      <path d="M 200,504 H 536" fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
-      <path d="M 152,528 V 696 Q 152,704 160,704 H 264" fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
-      <path d="M 424,264 H 536" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-      <path d="M 344,312 V 448 Q 344,456 352,456 H 536" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-      <path d="M 696,480 H 840" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-      <path d="M 1048,448 H 1144 Q 1152,448 1152,456 V 480" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-      <path d="M 1048,608 H 1144 Q 1152,608 1152,600 V 576" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-      <path d="M 1232,480 V 192 Q 1232,184 1224,184 H 664 Q 656,184 656,192 V 216" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-      <path d="M 1288,464 H 1384" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-      <path d="M 1288,616 H 1384" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-      <path d="M 968,872 V 912" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-      <path d="M 1192,872 V 912" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-      <path d="M 96,528 V 1032 Q 96,1040 104,1040 H 1456 Q 1464,1040 1464,1032 V 808" fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
-      <path d="M 1256,576 V 752 Q 1256,760 1264,760 H 1384" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-      <path d="M 1288,540 H 1640" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
-      <path d="M 1720,588 V 712" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
-      <path d="M 1640,760 H 1544" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-      <path d="M 1720,808 V 888" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-      <path d="M 840,688 H 624 Q 616,688 616,696 V 728" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-      <path d="M 888,776 H 696" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-      <path d="M 960,696 V 728" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-      <path d="M 1032,776 H 1088" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-      <path d="M 72,432 V 72 Q 72,64 80,64 H 1112" fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
-      <path d="M 1256,480 V 112" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-      <path d="M 1048,416 H 1152 Q 1160,416 1160,408 V 192 a 8,8 0 0,1 0,-16 V 112" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-      <path d="M 1112,96 H 768 Q 760,96 760,104 V 176 a 8,8 0 0,0 0,16 V 432 Q 760,440 752,440 H 696" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+      <path d="M 120,528 V 368 Q 120,360 128,360 H 264" fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+      <path d="M 200,600 H 536" fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+      <path d="M 152,624 V 792 Q 152,800 160,800 H 264" fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+      <path d="M 424,360 H 536" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <path d="M 344,408 V 544 Q 344,552 352,552 H 536" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <path d="M 696,576 H 840" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <path d="M 1048,544 H 1144 Q 1152,544 1152,552 V 576" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <path d="M 1048,704 H 1144 Q 1152,704 1152,696 V 672" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <path d="M 1232,576 V 288 Q 1232,280 1224,280 H 664 Q 656,280 656,288 V 312" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <path d="M 1288,560 H 1384" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <path d="M 1288,712 H 1384" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <path d="M 968,968 V 1008" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <path d="M 1192,968 V 1008" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <path d="M 96,624 V 1128 Q 96,1136 104,1136 H 1456 Q 1464,1136 1464,1128 V 904" fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+      <path d="M 1256,672 V 848 Q 1256,856 1264,856 H 1384" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <path d="M 1288,636 H 1640" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+      <path d="M 1720,684 V 808" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+      <path d="M 1640,856 H 1544" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <path d="M 1720,904 V 984" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <path d="M 840,784 H 624 Q 616,784 616,792 V 824" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <path d="M 888,872 H 696" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <path d="M 960,792 V 824" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <path d="M 1032,872 H 1088" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <path d="M 72,528 V 72 Q 72,64 80,64 H 1112" fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+      <path d="M 1256,576 V 112" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <path d="M 1048,512 H 1152 Q 1160,512 1160,504 V 288 a 8,8 0 0,1 0,-16 V 112" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <path d="M 1112,96 H 768 Q 760,96 760,104 V 272 a 8,8 0 0,0 0,16 V 528 Q 760,536 752,536 H 696" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+      <path d="M 888,400 H 856 Q 848,400 848,392 V 288 a 8,8 0 0,1 0,-16 V 176 Q 848,168 856,168 H 888" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
       <!-- Connector labels -->
-      <rect x="144" y="244" width="68" height="12" rx="2" fill="#f5f5f5"/>
-      <text x="178" y="253" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">API VIA WEB</text>
-      <rect x="404" y="484" width="60" height="12" rx="2" fill="#f5f5f5"/>
-      <text x="434" y="493" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SPA :9090</text>
-      <rect x="184" y="684" width="44" height="12" rx="2" fill="#f5f5f5"/>
-      <text x="206" y="693" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">IMAGES</text>
-      <rect x="436" y="244" width="88" height="12" rx="2" fill="#f5f5f5"/>
-      <text x="480" y="253" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">JWT AUTHORIZER</text>
-      <rect x="420" y="436" width="44" height="12" rx="2" fill="#f5f5f5"/>
-      <text x="442" y="445" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ROUTES</text>
-      <rect x="708" y="460" width="120" height="12" rx="2" fill="#f5f5f5"/>
-      <text x="768" y="469" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">LISTENER PER SERVICE</text>
-      <rect x="1072" y="164" width="60" height="12" rx="2" fill="#f5f5f5"/>
-      <text x="1102" y="173" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ADMIN API</text>
-      <rect x="1316" y="444" width="32" height="12" rx="2" fill="#f5f5f5"/>
-      <text x="1332" y="453" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SQL</text>
-      <rect x="976" y="884" width="76" height="12" rx="2" fill="#f5f5f5"/>
-      <text x="1014" y="893" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PULLS IMAGES</text>
-      <rect x="1108" y="884" width="76" height="12" rx="2" fill="#f5f5f5"/>
-      <text x="1146" y="893" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">READS CONFIG</text>
-      <rect x="724" y="1020" width="72" height="12" rx="2" fill="#f5f5f5"/>
-      <text x="760" y="1029" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">LIVE SOCKET</text>
-      <rect x="1320" y="740" width="40" height="12" rx="2" fill="#f5f5f5"/>
-      <text x="1340" y="749" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PUSH</text>
-      <rect x="1416" y="520" width="96" height="12" rx="2" fill="#f5f5f5"/>
-      <text x="1464" y="529" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">EVENTS VIA SNS</text>
-      <rect x="1728" y="644" width="56" height="12" rx="2" fill="#f5f5f5"/>
-      <text x="1756" y="653" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">TRIGGERS</text>
-      <rect x="1572" y="740" width="40" height="12" rx="2" fill="#f5f5f5"/>
-      <text x="1592" y="749" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PUSH</text>
-      <rect x="1728" y="844" width="40" height="12" rx="2" fill="#f5f5f5"/>
-      <text x="1748" y="853" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">EMAIL</text>
-      <rect x="684" y="668" width="96" height="12" rx="2" fill="#f5f5f5"/>
-      <text x="732" y="677" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">LOGS + METRICS</text>
-      <rect x="772" y="756" width="40" height="12" rx="2" fill="#f5f5f5"/>
-      <text x="792" y="765" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">POLLS</text>
-      <rect x="968" y="706" width="48" height="12" rx="2" fill="#f5f5f5"/>
-      <text x="992" y="715" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">TRACES</text>
-      <rect x="1044" y="756" width="32" height="12" rx="2" fill="#f5f5f5"/>
-      <text x="1060" y="765" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">OTLP</text>
+      <rect x="144" y="340" width="68" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="178" y="349" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">API VIA WEB</text>
+      <rect x="404" y="580" width="60" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="434" y="589" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SPA :9090</text>
+      <rect x="184" y="780" width="44" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="206" y="789" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">IMAGES</text>
+      <rect x="436" y="340" width="88" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="480" y="349" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">JWT AUTHORIZER</text>
+      <rect x="420" y="532" width="44" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="442" y="541" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ROUTES</text>
+      <rect x="708" y="556" width="120" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="768" y="565" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">LISTENER PER SERVICE</text>
+      <rect x="1072" y="260" width="60" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="1102" y="269" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ADMIN API</text>
+      <rect x="1316" y="540" width="32" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="1332" y="549" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SQL</text>
+      <rect x="976" y="980" width="76" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="1014" y="989" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PULLS IMAGES</text>
+      <rect x="1108" y="980" width="76" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="1146" y="989" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">READS CONFIG</text>
+      <rect x="724" y="1116" width="72" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="760" y="1125" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">LIVE SOCKET</text>
+      <rect x="1320" y="836" width="40" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="1340" y="845" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PUSH</text>
+      <rect x="1416" y="616" width="96" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="1464" y="625" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">EVENTS VIA SNS</text>
+      <rect x="1728" y="740" width="56" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="1756" y="749" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">TRIGGERS</text>
+      <rect x="1572" y="836" width="40" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="1592" y="845" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PUSH</text>
+      <rect x="1728" y="940" width="40" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="1748" y="949" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">EMAIL</text>
+      <rect x="684" y="764" width="96" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="732" y="773" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">LOGS + METRICS</text>
+      <rect x="772" y="852" width="40" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="792" y="861" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">POLLS</text>
+      <rect x="968" y="802" width="48" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="992" y="811" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">TRACES</text>
+      <rect x="1044" y="852" width="32" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="1060" y="861" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">OTLP</text>
       <rect x="560" y="44" width="56" height="12" rx="2" fill="#f5f5f5"/>
       <text x="588" y="53" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">STRIPE.JS</text>
       <rect x="892" y="76" width="88" height="12" rx="2" fill="#f5f5f5"/>
@@ -169,166 +170,176 @@
       <image href="https://cdn.jsdelivr.net/gh/stripe/stripe-ios@26.14.0/StripePaymentSheet/StripePaymentSheet/Resources/StripePaymentSheet.xcassets/Link/InstantDebitIcons/bank_icon_stripe.imageset/BrandIcon--stripe.svg" x="1172" y="28" width="40" height="40"/>
       <text x="1192" y="84" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Stripe</text>
       <text x="1192" y="100" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">STRIPE_ENABLED</text>
+      <rect x="788" y="212" width="52" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="814" y="221" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">GEOCODE</text>
+      <!-- Node: Geoapify (optional) -->
+      <rect x="888" y="120" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="888" y="120" width="160" height="96" rx="6" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+      <rect x="896" y="128" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="910" y="137" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">FLAG</text>
+      <image href="https://cdn.jsdelivr.net/gh/geoapify/route-planner-sdk@cb2da5f18aee1efa35eb85ab948ffe8e17fcf9a8/docs-site/docs/assets/geoapify-logo-new-125x125.png" x="948" y="132" width="40" height="40"/>
+      <text x="968" y="188" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Geoapify</text>
+      <text x="968" y="204" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">GEOAPIFY_ENABLED</text>
       <!-- Node: Browser (SPA) -->
-      <rect x="40" y="432" width="160" height="96" rx="6" fill="#f5f5f5"/>
-      <rect x="40" y="432" width="160" height="96" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
-      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/Client.svg" x="100" y="444" width="40" height="40"/>
-      <text x="120" y="504" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Browser (SPA)</text>
+      <rect x="40" y="528" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="40" y="528" width="160" height="96" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/Client.svg" x="100" y="540" width="40" height="40"/>
+      <text x="120" y="600" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Browser (SPA)</text>
       <!-- Node: API Gateway -->
-      <rect x="264" y="216" width="160" height="96" rx="6" fill="#f5f5f5"/>
-      <rect x="264" y="216" width="160" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
-      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonAPIGateway.svg" x="324" y="228" width="40" height="40"/>
-      <text x="344" y="284" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">API Gateway</text>
-      <text x="344" y="300" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">HTTP API</text>
+      <rect x="264" y="312" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="264" y="312" width="160" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonAPIGateway.svg" x="324" y="324" width="40" height="40"/>
+      <text x="344" y="380" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">API Gateway</text>
+      <text x="344" y="396" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">HTTP API</text>
       <!-- Node: S3 -->
-      <rect x="264" y="656" width="160" height="96" rx="6" fill="#f5f5f5"/>
-      <rect x="264" y="656" width="160" height="96" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
-      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonSimpleStorageService.svg" x="324" y="668" width="40" height="40"/>
-      <text x="344" y="724" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">S3</text>
-      <text x="344" y="740" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">assets bucket</text>
+      <rect x="264" y="752" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="264" y="752" width="160" height="96" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonSimpleStorageService.svg" x="324" y="764" width="40" height="40"/>
+      <text x="344" y="820" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">S3</text>
+      <text x="344" y="836" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">assets bucket</text>
       <!-- Node: Cognito -->
-      <rect x="536" y="216" width="160" height="96" rx="6" fill="#f5f5f5"/>
-      <rect x="536" y="216" width="160" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
-      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonCognito.svg" x="596" y="228" width="40" height="40"/>
-      <text x="616" y="284" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Cognito</text>
-      <text x="616" y="300" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">user pool</text>
+      <rect x="536" y="312" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="536" y="312" width="160" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonCognito.svg" x="596" y="324" width="40" height="40"/>
+      <text x="616" y="380" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Cognito</text>
+      <text x="616" y="396" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">user pool</text>
       <!-- Node: ALB -->
-      <rect x="536" y="432" width="160" height="96" rx="6" fill="#f5f5f5"/>
-      <rect x="536" y="432" width="160" height="96" rx="6" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
-      <rect x="544" y="440" width="24" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
-      <text x="556" y="449" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">VPC</text>
-      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/ElasticLoadBalancingApplicationLoadBalancer.svg" x="596" y="444" width="40" height="40"/>
-      <text x="616" y="500" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">ALB</text>
-      <text x="616" y="516" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">internal</text>
+      <rect x="536" y="528" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="536" y="528" width="160" height="96" rx="6" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+      <rect x="544" y="536" width="24" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="556" y="545" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">VPC</text>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/ElasticLoadBalancingApplicationLoadBalancer.svg" x="596" y="540" width="40" height="40"/>
+      <text x="616" y="596" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">ALB</text>
+      <text x="616" y="612" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">internal</text>
       <!-- Node: web -->
-      <rect x="888" y="256" width="160" height="96" rx="6" fill="#f5f5f5"/>
-      <rect x="888" y="256" width="160" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
-      <rect x="896" y="264" width="24" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
-      <text x="908" y="273" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">VPC</text>
-      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/AmazonElasticContainerServiceTask.svg" x="948" y="268" width="40" height="40"/>
-      <text x="968" y="324" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">web</text>
-      <text x="968" y="340" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Fargate · 1 task</text>
+      <rect x="888" y="352" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="888" y="352" width="160" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="896" y="360" width="24" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="908" y="369" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">VPC</text>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/AmazonElasticContainerServiceTask.svg" x="948" y="364" width="40" height="40"/>
+      <text x="968" y="420" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">web</text>
+      <text x="968" y="436" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Fargate · 1 task</text>
       <!-- Node: orders -->
-      <rect x="888" y="400" width="160" height="96" rx="6" fill="#f5f5f5"/>
-      <rect x="888" y="400" width="160" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
-      <rect x="896" y="408" width="24" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
-      <text x="908" y="417" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">VPC</text>
-      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/AmazonElasticContainerServiceTask.svg" x="948" y="412" width="40" height="40"/>
-      <text x="968" y="468" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">orders</text>
-      <text x="968" y="484" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Fargate · 1 task</text>
+      <rect x="888" y="496" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="888" y="496" width="160" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="896" y="504" width="24" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="908" y="513" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">VPC</text>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/AmazonElasticContainerServiceTask.svg" x="948" y="508" width="40" height="40"/>
+      <text x="968" y="564" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">orders</text>
+      <text x="968" y="580" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Fargate · 1 task</text>
       <!-- Node: tracking -->
-      <rect x="888" y="560" width="160" height="96" rx="6" fill="#f5f5f5"/>
-      <rect x="888" y="560" width="160" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
-      <rect x="896" y="568" width="24" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
-      <text x="908" y="577" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">VPC</text>
-      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/AmazonElasticContainerServiceTask.svg" x="948" y="572" width="40" height="40"/>
-      <text x="968" y="628" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">tracking</text>
-      <text x="968" y="644" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Fargate · 1 task</text>
+      <rect x="888" y="656" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="888" y="656" width="160" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="896" y="664" width="24" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="908" y="673" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">VPC</text>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/AmazonElasticContainerServiceTask.svg" x="948" y="668" width="40" height="40"/>
+      <text x="968" y="724" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">tracking</text>
+      <text x="968" y="740" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Fargate · 1 task</text>
       <!-- Node: users -->
-      <rect x="1112" y="480" width="160" height="96" rx="6" fill="#f5f5f5"/>
-      <rect x="1112" y="480" width="160" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
-      <rect x="1120" y="488" width="24" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
-      <text x="1132" y="497" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">VPC</text>
-      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/AmazonElasticContainerServiceTask.svg" x="1172" y="492" width="40" height="40"/>
-      <text x="1192" y="548" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">users</text>
-      <text x="1192" y="564" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Fargate · 1 task</text>
+      <rect x="1112" y="576" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="1112" y="576" width="160" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="1120" y="584" width="24" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="1132" y="593" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">VPC</text>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/AmazonElasticContainerServiceTask.svg" x="1172" y="588" width="40" height="40"/>
+      <text x="1192" y="644" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">users</text>
+      <text x="1192" y="660" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Fargate · 1 task</text>
       <!-- Node: RDS -->
-      <rect x="1384" y="416" width="160" height="96" rx="6" fill="#f5f5f5"/>
-      <rect x="1384" y="416" width="160" height="96" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
-      <rect x="1392" y="424" width="24" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
-      <text x="1404" y="433" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">VPC</text>
-      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonRDS.svg" x="1444" y="428" width="40" height="40"/>
-      <text x="1464" y="484" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">RDS</text>
-      <text x="1464" y="500" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Postgres + MySQL</text>
+      <rect x="1384" y="512" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="1384" y="512" width="160" height="96" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <rect x="1392" y="520" width="24" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="1404" y="529" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">VPC</text>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonRDS.svg" x="1444" y="524" width="40" height="40"/>
+      <text x="1464" y="580" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">RDS</text>
+      <text x="1464" y="596" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Postgres + MySQL</text>
       <!-- Node: ElastiCache -->
-      <rect x="1384" y="568" width="160" height="96" rx="6" fill="#f5f5f5"/>
-      <rect x="1384" y="568" width="160" height="96" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
-      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonElastiCache.svg" x="1444" y="580" width="40" height="40"/>
-      <text x="1464" y="640" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">ElastiCache</text>
+      <rect x="1384" y="664" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="1384" y="664" width="160" height="96" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonElastiCache.svg" x="1444" y="676" width="40" height="40"/>
+      <text x="1464" y="736" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">ElastiCache</text>
       <!-- Node: ECR -->
-      <rect x="888" y="912" width="160" height="96" rx="6" fill="#f5f5f5"/>
-      <rect x="888" y="912" width="160" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
-      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonElasticContainerRegistry.svg" x="948" y="924" width="40" height="40"/>
-      <text x="968" y="980" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">ECR</text>
-      <text x="968" y="996" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">7 images</text>
+      <rect x="888" y="1008" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="888" y="1008" width="160" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonElasticContainerRegistry.svg" x="948" y="1020" width="40" height="40"/>
+      <text x="968" y="1076" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">ECR</text>
+      <text x="968" y="1092" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">7 images</text>
       <!-- Node: SSM + Secrets Manager -->
-      <rect x="1112" y="912" width="160" height="96" rx="6" fill="#f5f5f5"/>
-      <rect x="1112" y="912" width="160" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
-      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AWSSystemsManager.svg" x="1172" y="924" width="40" height="40"/>
-      <text x="1192" y="980" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">SSM + Secrets Manager</text>
-      <text x="1192" y="996" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">params · secrets · RDS creds</text>
+      <rect x="1112" y="1008" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="1112" y="1008" width="160" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AWSSystemsManager.svg" x="1172" y="1020" width="40" height="40"/>
+      <text x="1192" y="1076" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">SSM + Secrets Manager</text>
+      <text x="1192" y="1092" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">params · secrets · RDS creds</text>
       <!-- Node: CloudWatch -->
-      <rect x="536" y="728" width="160" height="96" rx="6" fill="#f5f5f5"/>
-      <rect x="536" y="728" width="160" height="96" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
-      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonCloudWatch.svg" x="596" y="740" width="40" height="40"/>
-      <text x="616" y="796" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">CloudWatch</text>
-      <text x="616" y="812" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">log groups · metrics</text>
+      <rect x="536" y="824" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="536" y="824" width="160" height="96" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonCloudWatch.svg" x="596" y="836" width="40" height="40"/>
+      <text x="616" y="892" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">CloudWatch</text>
+      <text x="616" y="908" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">log groups · metrics</text>
       <!-- Node: OTel collector -->
-      <rect x="888" y="728" width="144" height="96" rx="6" fill="#f5f5f5"/>
-      <rect x="888" y="728" width="144" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
-      <rect x="896" y="736" width="24" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
-      <text x="908" y="745" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">VPC</text>
-      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/AmazonElasticContainerServiceTask.svg" x="940" y="740" width="40" height="40"/>
-      <text x="960" y="796" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">OTel collector</text>
-      <text x="960" y="812" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Fargate · 1 task</text>
+      <rect x="888" y="824" width="144" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="888" y="824" width="144" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="896" y="832" width="24" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="908" y="841" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">VPC</text>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/AmazonElasticContainerServiceTask.svg" x="940" y="836" width="40" height="40"/>
+      <text x="960" y="892" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">OTel collector</text>
+      <text x="960" y="908" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Fargate · 1 task</text>
       <!-- Node: OpenObserve -->
-      <rect x="1088" y="728" width="144" height="96" rx="6" fill="#f5f5f5"/>
-      <rect x="1088" y="728" width="144" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
-      <rect x="1096" y="736" width="24" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
-      <text x="1108" y="745" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">VPC</text>
-      <image href="https://cdn.jsdelivr.net/gh/selfhst/icons@7e8bfc59dd0f09dab84f53a6be206592a24799b1/svg/openobserve.svg" x="1140" y="740" width="40" height="40"/>
-      <text x="1160" y="796" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">OpenObserve</text>
-      <text x="1160" y="812" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Fargate · 1 task</text>
+      <rect x="1088" y="824" width="144" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="1088" y="824" width="144" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="1096" y="832" width="24" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="1108" y="841" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">VPC</text>
+      <image href="https://cdn.jsdelivr.net/gh/selfhst/icons@7e8bfc59dd0f09dab84f53a6be206592a24799b1/svg/openobserve.svg" x="1140" y="836" width="40" height="40"/>
+      <text x="1160" y="892" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">OpenObserve</text>
+      <text x="1160" y="908" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Fargate · 1 task</text>
       <!-- Node: WebSocket API -->
-      <rect x="1384" y="712" width="160" height="96" rx="6" fill="#f5f5f5"/>
-      <rect x="1384" y="712" width="160" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
-      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonAPIGateway.svg" x="1444" y="724" width="40" height="40"/>
-      <text x="1464" y="780" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">WebSocket API</text>
-      <text x="1464" y="796" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">API Gateway</text>
+      <rect x="1384" y="808" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="1384" y="808" width="160" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonAPIGateway.svg" x="1444" y="820" width="40" height="40"/>
+      <text x="1464" y="876" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">WebSocket API</text>
+      <text x="1464" y="892" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">API Gateway</text>
       <!-- Node: SQS -->
-      <rect x="1640" y="492" width="160" height="96" rx="6" fill="#f5f5f5"/>
-      <rect x="1640" y="492" width="160" height="96" rx="6" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.30)" stroke-width="1" stroke-dasharray="4,3"/>
-      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonSimpleQueueService.svg" x="1700" y="504" width="40" height="40"/>
-      <text x="1720" y="560" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">SQS</text>
-      <text x="1720" y="576" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">events queue</text>
+      <rect x="1640" y="588" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="1640" y="588" width="160" height="96" rx="6" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.30)" stroke-width="1" stroke-dasharray="4,3"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonSimpleQueueService.svg" x="1700" y="600" width="40" height="40"/>
+      <text x="1720" y="656" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">SQS</text>
+      <text x="1720" y="672" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">events queue</text>
       <!-- Node: events-pipeline -->
-      <rect x="1640" y="712" width="160" height="96" rx="6" fill="#f5f5f5"/>
-      <rect x="1640" y="712" width="160" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
-      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AWSLambda.svg" x="1700" y="724" width="40" height="40"/>
-      <text x="1720" y="780" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">events-pipeline</text>
-      <text x="1720" y="796" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Lambda</text>
+      <rect x="1640" y="808" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="1640" y="808" width="160" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AWSLambda.svg" x="1700" y="820" width="40" height="40"/>
+      <text x="1720" y="876" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">events-pipeline</text>
+      <text x="1720" y="892" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Lambda</text>
       <!-- Node: SES -->
-      <rect x="1640" y="888" width="160" height="96" rx="6" fill="#f5f5f5"/>
-      <rect x="1640" y="888" width="160" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
-      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonSimpleEmailService.svg" x="1700" y="900" width="40" height="40"/>
-      <text x="1720" y="956" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">SES</text>
-      <text x="1720" y="972" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">email</text>
+      <rect x="1640" y="984" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="1640" y="984" width="160" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonSimpleEmailService.svg" x="1700" y="996" width="40" height="40"/>
+      <text x="1720" y="1052" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">SES</text>
+      <text x="1720" y="1068" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">email</text>
       <!-- Legend -->
-      <line x1="40" y1="1104" x2="1832" y2="1104" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
-      <text x="40" y="1140" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
-      <rect x="112" y="1128" width="16" height="12" rx="2" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
-      <text x="136" y="1140" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">FOCAL</text>
-      <rect x="204" y="1128" width="16" height="12" rx="2" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
-      <text x="228" y="1140" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">SERVICE</text>
-      <rect x="308" y="1128" width="16" height="12" rx="2" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
-      <text x="332" y="1140" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">STORE</text>
-      <rect x="400" y="1128" width="16" height="12" rx="2" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.30)" stroke-width="1" stroke-dasharray="4,3"/>
-      <text x="424" y="1140" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">QUEUE · OPTIONAL</text>
-      <rect x="556" y="1128" width="16" height="12" rx="2" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
-      <text x="580" y="1140" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">CLIENT</text>
-      <line x1="652" y1="1136" x2="676" y2="1136" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
-      <text x="684" y="1140" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">SYNC CALL</text>
-      <line x1="772" y1="1136" x2="796" y2="1136" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
-      <text x="804" y="1140" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">ASYNC</text>
-      <line x1="864" y1="1136" x2="888" y2="1136" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
-      <text x="896" y="1140" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">FROM THE BROWSER</text>
-      <rect x="1024" y="1128" width="24" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
-      <text x="1036" y="1137" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">VPC</text>
-      <text x="1056" y="1140" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">RUNS IN VPC 10.1.0.0/16 · PUBLIC SUBNETS 10.1.1.0/24 (US-EAST-1A) + 10.1.2.0/24 (US-EAST-1B) · 1 TASK PER SERVICE</text>
-      <text x="112" y="1164" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">EVERY TASK LOGS TO CLOUDWATCH · THE EVENTS-PIPELINE LAMBDA ALSO LOGS AND PUTS METRICS TO CLOUDWATCH AND SENDS TRACES TO THE COLLECTOR</text>
-      <rect x="976" y="1152" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
-      <text x="990" y="1161" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">FLAG</text>
-      <text x="1012" y="1164" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">BEHIND A FEATURE FLAG</text>
+      <line x1="40" y1="1200" x2="1832" y2="1200" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="40" y="1236" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+      <rect x="112" y="1224" width="16" height="12" rx="2" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+      <text x="136" y="1236" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">FOCAL</text>
+      <rect x="204" y="1224" width="16" height="12" rx="2" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="228" y="1236" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">SERVICE</text>
+      <rect x="308" y="1224" width="16" height="12" rx="2" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <text x="332" y="1236" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">STORE</text>
+      <rect x="400" y="1224" width="16" height="12" rx="2" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.30)" stroke-width="1" stroke-dasharray="4,3"/>
+      <text x="424" y="1236" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">QUEUE · OPTIONAL</text>
+      <rect x="556" y="1224" width="16" height="12" rx="2" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+      <text x="580" y="1236" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">CLIENT</text>
+      <line x1="652" y1="1232" x2="676" y2="1232" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <text x="684" y="1236" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">SYNC CALL</text>
+      <line x1="772" y1="1232" x2="796" y2="1232" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+      <text x="804" y="1236" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">ASYNC</text>
+      <line x1="864" y1="1232" x2="888" y2="1232" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+      <text x="896" y="1236" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">FROM THE BROWSER</text>
+      <rect x="1024" y="1224" width="24" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="1036" y="1233" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">VPC</text>
+      <text x="1056" y="1236" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">RUNS IN VPC 10.1.0.0/16 · PUBLIC SUBNETS 10.1.1.0/24 (US-EAST-1A) + 10.1.2.0/24 (US-EAST-1B) · 1 TASK PER SERVICE</text>
+      <text x="112" y="1260" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">EVERY TASK LOGS TO CLOUDWATCH · THE EVENTS-PIPELINE LAMBDA ALSO LOGS AND PUTS METRICS TO CLOUDWATCH AND SENDS TRACES TO THE COLLECTOR</text>
+      <rect x="976" y="1248" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="990" y="1257" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">FLAG</text>
+      <text x="1012" y="1260" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">BEHIND A FEATURE FLAG</text>
     </svg>
   </div>
 </body>
