@@ -944,12 +944,12 @@ diagrams-check: ## List diagrams whose watched sources changed vs main (warns, n
 diagrams-gate: ## Fail on any diagram-design source that breaks the skill self_check, icon allowlist, 2000px cap or catalog parity (all, or ID=a,b)
 	$(VENV)/bin/python -m diagrams3mrai.gate $(subst $(comma), ,$(ID))
 
-diagrams-studio: ## Open Remotion Studio to browse/scrub every diagram interactively
-	pnpm --filter @3mrai/diagrams studio
+diagrams-studio: ## Open one diagram's interactive HTML in the browser (ID=<id> required)
+	@test -n "$(ID)" || { echo "usage: make diagrams-studio ID=<id>"; exit 1; }
+	open "$$($(VENV)/bin/python -c 'import sys; from diagrams3mrai.catalog import REPO_ROOT, load_catalog, select; print(REPO_ROOT / select(load_catalog(), [sys.argv[1]])[0].src)' $(ID))"
 
-diagrams-render: ## Render diagrams to the vault (all, or ID=a,b). GIF + last-frame PNG, PNG only when no steps; warns over 2 MB
-	pnpm --filter @3mrai/diagrams browser
-	pnpm --filter @3mrai/diagrams render $(subst $(comma), ,$(ID))
+diagrams-render: ## Gate then render diagram-design sources to PNG in the vault (all, or ID=a,b); warns over 2 MB
+	$(VENV)/bin/python -m diagrams3mrai.render $(subst $(comma), ,$(ID))
 
 diagrams-icons: scripts-setup ## Re-fetch the official AWS group/generic icons into diagrams/public/aws-icons
 	.venv/bin/python diagrams/scripts/fetch_aws_icons.py
