@@ -136,3 +136,4 @@ Same branch, one commit per block, each through the git confirmation menu ([[git
 - [[diagrams]]
 - [[diagram-legibility]]
 - [[git-workflow]]
+- [[2026-10-13-diagram-design-migration]]
