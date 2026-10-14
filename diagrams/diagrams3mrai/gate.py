@@ -16,9 +16,8 @@ from diagrams3mrai.catalog import REPO_ROOT, Entry, load_catalog, select
 ICON_PREFIX = "https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/"
 ICONS_PATH = REPO_ROOT / "diagrams" / "icons.yaml"
 MAX_WIDTH = 2000
-SELF_CHECK_DEFAULT = Path.home() / (
-    ".claude/plugins/cache/diagram-design/diagram-design/2.6.6/skills/diagram-design/scripts/self_check.py"
-)
+PLUGIN_CACHE = Path.home() / ".claude/plugins/cache/diagram-design/diagram-design"
+_SELF_CHECK_REL = Path("skills/diagram-design/scripts/self_check.py")
 # CONTRACT: self_check truncates URLs to 80 chars; this filter only drops the error, check_icons validates the full URL.
 _TOLERATED = "remote reference on <image>: " + ICON_PREFIX
 _ICON_PATH = re.compile(r"(architecture-service|architecture-group|resource|category)/[A-Za-z0-9]+\.svg")
@@ -75,14 +74,23 @@ def filter_self_check(errors: list[str]) -> list[str]:
     return [e for e in errors if not e.startswith(_TOLERATED)]
 
 
-def locate_self_check() -> Path:
-    path = Path(os.environ.get("DIAGRAM_DESIGN_SELF_CHECK", SELF_CHECK_DEFAULT))
-    if not path.is_file():
+def _version_key(name: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in name.split(".") if part.isdigit())
+
+
+def locate_self_check(cache: Path = PLUGIN_CACHE) -> Path:
+    override = os.environ.get("DIAGRAM_DESIGN_SELF_CHECK")
+    if override:
+        candidates = [Path(override)] if Path(override).is_file() else []
+    else:
+        installs = [d for d in cache.glob("*") if (d / _SELF_CHECK_REL).is_file()]
+        candidates = [max(installs, key=lambda d: _version_key(d.name)) / _SELF_CHECK_REL] if installs else []
+    if not candidates:
         raise GateSetupError(
-            f"diagram-design self_check.py not found at {path}. Install the diagram-design plugin v2.6.6 "
-            "(see diagrams/CLAUDE.md) or set DIAGRAM_DESIGN_SELF_CHECK."
+            f"diagram-design self_check.py not found under {override or cache}. Install the plugin "
+            "diagram-design@diagram-design (declared in .claude/settings.json) or set DIAGRAM_DESIGN_SELF_CHECK."
         )
-    return path
+    return candidates[0]
 
 
 def self_check_available() -> bool:
@@ -169,6 +177,7 @@ def main(argv: list[str] | None = None) -> int:
         chosen = select(entries, ids)
         icons = load_icons()
         verify = load_verify()
+        print(f"diagrams-gate: diagram-design {locate_self_check().parents[3].name}")
     except (GateSetupError, KeyError, ValueError) as exc:
         print(f"diagrams-gate: {exc}")
         return 1

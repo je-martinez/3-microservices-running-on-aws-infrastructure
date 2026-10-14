@@ -25,8 +25,8 @@ Every architecture map, flow and milestone-dependency graph in the vault is a ha
 
 ## Tool and prerequisites
 
-- The `diagram-design` plugin (v2.6.6), declared in `.claude/settings.json`. The skill's default style is pinned by the repo-root `.diagram-design` marker (`profile: default`); never customise the style.
-- `make diagrams-setup` once per clone: installs the Python package, Playwright and Chromium into the repo `.venv`. No apply target depends on it.
+- The `diagram-design` plugin, declared in `.claude/settings.json`. The gate uses the newest installed version and prints it (`diagrams-gate: diagram-design <version>`); `DIAGRAM_DESIGN_SELF_CHECK` overrides the path. The migration was verified with v2.6.6. The skill's default style is pinned by the repo-root `.diagram-design` marker (`profile: default`); never customise the style.
+- `make diagrams-setup` once per clone: installs the Python package, Playwright and Chromium into the repo `.venv`. No apply target depends on it. Every `diagrams-*` target needs it: without it `diagrams-check` prints "skipped" and exits 0, while `diagrams-gate`, `diagrams-render` and `diagrams-studio` fail with "run make diagrams-setup".
 - The toolchain is a slim Python package (`diagrams/diagrams3mrai/`: catalog, drift, gate, render), per [[scripting-language]].
 
 ## Make targets
@@ -35,7 +35,7 @@ Every architecture map, flow and milestone-dependency graph in the vault is a ha
 |---|---|
 | `make diagrams-setup` | Install the toolchain and Chromium (idempotent). |
 | `make diagrams-gate [ID=a,b]` | Plugin `self_check`, `verify-geometry` and (flows with a motion root) `verify-motion`, icon allowlist, 2000 px width cap, and catalog / source / PNG parity. Fails. |
-| `make diagrams-render [ID=a,b]` | Gate, then the PNG. All diagrams when `ID` is omitted. |
+| `make diagrams-render [ID=a,b]` | Gate, then the PNG. All diagrams when `ID` is omitted. Fails when any request fails or answers 400 or above (for example an icon from jsDelivr while offline); never writes a PNG with missing icons. |
 | `make diagrams-check` | Drift check. Warns, never fails. |
 | `make diagrams-studio ID=<id>` | Opens the interactive HTML in the browser. |
 

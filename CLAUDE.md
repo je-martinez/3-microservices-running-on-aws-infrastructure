@@ -81,7 +81,7 @@ Pre-prod (`make preprod-up`, compose project `3mrai-preprod`, `infra/environment
 - Full convention (routing table by decision kind + mechanics): `docs/shared/conventions/doc-propagation.md` → [[doc-propagation]].
 
 ### Diagrams
-- Diagrams are hand-authored `diagram-design` HTML sources in `diagrams/src/`, rendered to PNG beside their vault notes; no GIFs. The plugin is declared in `.claude/settings.json`; `make diagrams-setup` installs the renderer once per clone.
+- Diagrams are hand-authored `diagram-design` HTML sources in `diagrams/src/`, rendered to PNG beside their vault notes; no GIFs. The plugin is declared in `.claude/settings.json`; `make diagrams-setup` installs the toolchain once per clone; every `diagrams-*` target needs it.
 - A change to a diagrammed flow or an AWS resource re-renders the affected diagram in the same PR.
 - Run `make diagrams-gate` and `make diagrams-check` before proposing a PR; every `STALE?` line is fixed or justified.
 - Attach the PNG under `## Diagrams` in the PR body when a flow is new or affected.

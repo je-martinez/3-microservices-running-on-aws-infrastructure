@@ -938,17 +938,25 @@ diagrams-setup: $(PY) ## Install the diagram toolchain (Playwright + Chromium) i
 	$(VENV)/bin/pip install -q -e "diagrams[dev]"
 	$(VENV)/bin/python -m playwright install chromium
 
+# Every diagram target needs `make diagrams-setup`; the check warns without it, the others fail with the fix.
+DIAGRAMS_READY := $(VENV)/bin/python -c "import diagrams3mrai" 2>/dev/null
+DIAGRAMS_SETUP_HINT := diagram toolchain not installed; run make diagrams-setup
+
 diagrams-check: ## List diagrams whose watched sources changed vs main (warns, never fails; DIAGRAMS_BASE=main)
-	$(VENV)/bin/python -m diagrams3mrai.drift
+	@if $(DIAGRAMS_READY); then $(VENV)/bin/python -m diagrams3mrai.drift; \
+	else echo "diagrams-check: skipped ($(DIAGRAMS_SETUP_HINT))"; fi
 
 diagrams-gate: ## Fail on any diagram-design source that breaks the skill self_check, icon allowlist, 2000px cap or catalog parity (all, or ID=a,b)
+	@$(DIAGRAMS_READY) || { echo "diagrams-gate: $(DIAGRAMS_SETUP_HINT)"; exit 1; }
 	$(VENV)/bin/python -m diagrams3mrai.gate $(subst $(comma), ,$(ID))
 
 diagrams-studio: ## Open one diagram's interactive HTML in the browser (ID=<id> required)
 	@test -n "$(ID)" || { echo "usage: make diagrams-studio ID=<id>"; exit 1; }
+	@$(DIAGRAMS_READY) || { echo "diagrams-studio: $(DIAGRAMS_SETUP_HINT)"; exit 1; }
 	open "$$($(VENV)/bin/python -c 'import sys; from diagrams3mrai.catalog import REPO_ROOT, load_catalog, select; print(REPO_ROOT / select(load_catalog(), [sys.argv[1]])[0].src)' $(ID))"
 
 diagrams-render: ## Gate then render diagram-design sources to PNG in the vault (all, or ID=a,b); warns over 2 MB
+	@$(DIAGRAMS_READY) || { echo "diagrams-render: $(DIAGRAMS_SETUP_HINT)"; exit 1; }
 	$(VENV)/bin/python -m diagrams3mrai.render $(subst $(comma), ,$(ID))
 
 ## ── Pre-production (Floci-only, see docs/infrastructure/runbooks/preprod.md) ──

@@ -11,8 +11,8 @@ Every architecture, flow and milestone-dependency diagram in the vault is a hand
 
 ## Prerequisites
 
-- The `diagram-design` plugin **v2.6.6** installed for your agent. Claude Code: `.claude/settings.json` enables `diagram-design@diagram-design` and declares its marketplace (`cathrynlavery/diagram-design`), so `/plugin` offers it on a fresh clone; Codex ships its own manifest. The gate runs its `scripts/self_check.py` from `~/.claude/plugins/cache/diagram-design/diagram-design/2.6.6/`; set `DIAGRAM_DESIGN_SELF_CHECK=<path>` if yours lives elsewhere.
-- `make diagrams-setup` once per clone: installs this package, PyYAML, Playwright and Chromium into the repo `.venv`. No apply target needs it.
+- The `diagram-design` plugin installed for your agent (verified with v2.6.6). Claude Code: `.claude/settings.json` enables `diagram-design@diagram-design` and declares its marketplace (`cathrynlavery/diagram-design`), so `/plugin` offers it on a fresh clone; Codex ships its own manifest. The gate uses the newest version installed under `~/.claude/plugins/cache/diagram-design/diagram-design/` and prints it; set `DIAGRAM_DESIGN_SELF_CHECK=<path>` if yours lives elsewhere.
+- `make diagrams-setup` once per clone: installs this package, PyYAML, Playwright and Chromium into the repo `.venv`. Every `diagrams-*` target needs it (`diagrams-check` warns and skips without it; the others fail with the fix). No apply target needs it.
 - The repo-root `.diagram-design` marker pins the skill's default style (`profile: default`). Never customise the style guide for this repo.
 
 ## Authoring contract

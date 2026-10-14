@@ -322,7 +322,8 @@ Full rule: `.ai/rules/documentation-vault.md`.
 
 - Diagrams are hand-authored `diagram-design` HTML sources in `diagrams/src/`,
   rendered to PNG beside their vault notes; no GIFs.
-  `make diagrams-setup` installs the renderer once per clone.
+  `make diagrams-setup` installs the toolchain once per clone; every
+  `diagrams-*` target needs it.
 - A change to a diagrammed flow or an AWS resource re-renders the affected
   diagram in the same PR.
 - Run `make diagrams-gate` and `make diagrams-check` before proposing a PR;
@@ -535,7 +536,8 @@ and confirm nothing you touched is `STALE?`. No GIFs; icons only from
 `diagrams/icons.yaml`. If a note needs an embed or a link, list it in the
 handoff for whoever owns `docs/` (see **Prohibitions**) rather than writing it.
 
-Authoring depends on the `diagram-design` skill (pinned v2.6.6), which is an
+Authoring depends on the `diagram-design` skill (the gate uses the newest
+installed version; verified with v2.6.6), which is an
 agent plugin, not a repo skill — it is not shipped in this environment's
 skills. If your agent does not have it installed, stop and report rather than
 authoring a diagram without its templates and checklist.

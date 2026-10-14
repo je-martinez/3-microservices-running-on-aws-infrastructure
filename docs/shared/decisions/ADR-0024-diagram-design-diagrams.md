@@ -40,7 +40,7 @@ related:
 
 **Gate.** `make diagrams-gate` runs the plugin's `self_check`, `verify-geometry` and, for a flow with a motion root, `verify-motion`, plus the icon allowlist, the 2000 px width cap and catalog / source / PNG parity.
 
-**Plugin.** `diagram-design` is declared in `.claude/settings.json` (`enabledPlugins` and `extraKnownMarketplaces`) and the installed version is v2.6.6. Upstream is newer and the setting does not pin it.
+**Plugin.** `diagram-design` is declared in `.claude/settings.json` (`enabledPlugins` and `extraKnownMarketplaces`) and the setting does not pin a version. The gate uses the newest installed version under `~/.claude/plugins/cache/diagram-design/diagram-design/` and prints it (`diagrams-gate: diagram-design <version>`); `DIAGRAM_DESIGN_SELF_CHECK` overrides the path. The migration was verified with v2.6.6.
 
 Rules and procedure live in [[diagrams]]; the legibility lessons in [[diagram-legibility]].
 
@@ -55,11 +55,11 @@ Rules and procedure live in [[diagrams]]; the legibility lessons in [[diagram-le
 **Negative / risks:**
 
 - **No GIF.** A flow's order is carried by numbered badges and a caption list in the PNG, and by `step` mode in the browser only.
-- **PNG needs Playwright and Chromium**, installed by `make diagrams-setup`; kept off the apply path so Terraform never needs a browser.
-- **CDN dependency at render time.** The icons load from jsDelivr, so an offline render shows missing icons (`DIAGRAMS_OFFLINE=1` skips only the reachability check).
+- **PNG needs Playwright and Chromium**, installed by `make diagrams-setup`; kept off the apply path so Terraform never needs a browser. Every `diagrams-*` target needs that setup: without it `diagrams-check` prints "skipped" and exits 0 (its never-fails contract), while `diagrams-gate`, `diagrams-render` and `diagrams-studio` fail with "run make diagrams-setup".
+- **CDN dependency at render time.** The icons load from jsDelivr, so an offline or failed icon fetch fails the render: `render.py` fails when any request fails or answers 400 or above and never writes a PNG with missing icons (`DIAGRAMS_OFFLINE=1` skips only the reachability check).
 - **Hand-authored.** An agent writes each diagram's HTML; there is no layout engine, so legibility relies on the gate and on reading the PNG.
 - **Density.** Dense views reach about 20 nodes at `faithful` detail (up to 24), kept legible with tags and a legend rather than nested frames.
-- **Plugin drift.** Upstream is ahead of v2.6.6 and unpinned; a plugin update may change checker behaviour.
+- **Plugin drift.** The gate takes the newest installed version, which is unpinned and verified with v2.6.6; a plugin update may change checker behaviour.
 
 ## Alternatives considered
 

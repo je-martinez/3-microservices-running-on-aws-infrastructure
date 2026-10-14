@@ -165,3 +165,26 @@ def test_real_verify_runs_verify_motion_on_a_motion_root(tmp_path):
 @pytest.mark.skipif(not self_check_available(), reason="diagram-design plugin not installed")
 def test_real_verify_skips_verify_motion_on_a_static_diagram():
     assert not any("data-motion-root" in e for e in load_verify()(FIX / "ok.html"))
+
+
+def _fake_install(root: Path, version: str) -> Path:
+    path = root / version / "skills/diagram-design/scripts/self_check.py"
+    path.parent.mkdir(parents=True)
+    path.write_text("")
+    return path
+
+
+def test_locate_self_check_picks_the_newest_installed_version(tmp_path, monkeypatch):
+    from diagrams3mrai.gate import locate_self_check
+    monkeypatch.delenv("DIAGRAM_DESIGN_SELF_CHECK", raising=False)
+    _fake_install(tmp_path, "2.6.6")
+    newest = _fake_install(tmp_path, "2.6.98")
+    _fake_install(tmp_path, "2.6.10")
+    assert locate_self_check(tmp_path) == newest
+
+
+def test_locate_self_check_without_an_install_names_the_plugin(tmp_path, monkeypatch):
+    from diagrams3mrai.gate import GateSetupError, locate_self_check
+    monkeypatch.delenv("DIAGRAM_DESIGN_SELF_CHECK", raising=False)
+    with pytest.raises(GateSetupError, match="diagram-design@diagram-design"):
+        locate_self_check(tmp_path)

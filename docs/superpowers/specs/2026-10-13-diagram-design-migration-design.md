@@ -31,7 +31,7 @@ propagates-to:
 
 ## Context
 
-On 2026-10-13 the user decided to replace Remotion with the `diagram-design` Claude Code plugin skill (v2.6.6). Remotion today is the `diagrams/` package: Remotion 4.0.533, ELK layout, a zod schema and 29 catalog entries, shipped in PR #130 on `feature/remotion-diagrams` (not merged).
+On 2026-10-13 the user decided to replace Remotion with the `diagram-design` Claude Code plugin skill (verified with v2.6.6). Remotion today is the `diagrams/` package: Remotion 4.0.533, ELK layout, a zod schema and 29 catalog entries, shipped in PR #130 on `feature/remotion-diagrams` (not merged).
 
 Facts about the skill that drive the design:
 
@@ -75,15 +75,15 @@ diagrams/
 
 - **Catalog.** `catalog.yaml` is ported 1:1 from the 29 `diagrams/src/data/*.catalog.ts` entries, keeping `id`, `output` and `watches`. `source` becomes `src` (the HTML file, an implicit watch).
 - **Gate.**
-  - Runs the plugin's `self_check.py`, located in the installed plugin path; if absent, it fails with a clear install message.
+  - Runs the plugin's `self_check.py` from the newest installed version under `~/.claude/plugins/cache/diagram-design/diagram-design/` and prints it (`diagrams-gate: diagram-design <version>`); if absent, it fails with a clear install message.
   - Runs `verify-geometry.py` (fails on a label mask clipped by a later node) and, for a flow with a motion root, `verify-motion.py`.
   - Filters only "remote reference" errors whose URL starts exactly with `https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/` and appears in `icons.yaml`. Any other error still fails.
   - Checks every manifest URL answers HTTP 200 (skippable offline).
   - Checks that viewBox width is at most 2000.
   - When called without ids, checks catalog, `src/*.html` and output PNG correspond 1:1 (`orphans`, `missing_renders`).
-- **Setup.** `make diagrams-setup` runs `pip install -e diagrams` into the repo `.venv` plus `playwright install chromium`. It is idempotent and not a dependency of `scripts-setup`, so apply never needs Chromium.
+- **Setup.** `make diagrams-setup` runs `pip install -e diagrams` into the repo `.venv` plus `playwright install chromium`. It is idempotent and not a dependency of `scripts-setup`, so apply never needs Chromium. Every `diagrams-*` target needs it: without it `diagrams-check` prints "skipped" and exits 0, while `diagrams-gate`, `diagrams-render` and `diagrams-studio` fail with "run make diagrams-setup".
 - **Make targets.**
-  - `diagrams-render [ID=...]` — gate, then render.
+  - `diagrams-render [ID=...]` — gate, then render. The render fails when any request fails or answers 400 or above (for example an icon from jsDelivr while offline); it never writes a PNG with missing icons.
   - `diagrams-check` — drift; warns, never fails (unchanged contract).
   - `diagrams-gate` — new; fails.
   - `diagrams-studio` — opens the HTML in a browser; `ID=` required.
@@ -95,8 +95,8 @@ diagrams/
 
 - **`diagram-impl`** is rewritten around the `diagram-design` skill. It reads `diagrams/CLAUDE.md`, `icons.yaml` and `catalog.yaml`; writes only `diagrams/**` and `docs/**/diagrams/*.png`; still never touches `.md`, git or Linear; still reads real code and Terraform before drawing.
 - **Skills.** The 12 Remotion skills are deleted from `.claude/skills/` and `.ai/skills/`; `make ai-sync` retires them from the other providers.
-- **Plugin.** `diagram-design` is a user-level plugin (manifests for Claude Code and Codex), documented as a prerequisite (v2.6.6) in `diagrams/CLAUDE.md` and the convention. It is not vendored.
-- **Plugin declaration.** The plugin is declared in `.claude/settings.json` (`enabledPlugins` `diagram-design@diagram-design` plus `extraKnownMarketplaces` pointing at `cathrynlavery/diagram-design`). The installed version is 2.6.6; upstream is newer and the setting does not pin a version. The gate resolves the 2.6.6 install path; `DIAGRAM_DESIGN_SELF_CHECK` overrides it.
+- **Plugin.** `diagram-design` is a user-level plugin (manifests for Claude Code and Codex), documented as a prerequisite (verified with v2.6.6) in `diagrams/CLAUDE.md` and the convention. It is not vendored.
+- **Plugin declaration.** The plugin is declared in `.claude/settings.json` (`enabledPlugins` `diagram-design@diagram-design` plus `extraKnownMarketplaces` pointing at `cathrynlavery/diagram-design`). The installed version is 2.6.6; upstream is newer and the setting does not pin a version. The gate uses the newest installed version, not a specific one; `DIAGRAM_DESIGN_SELF_CHECK` overrides the path.
 - **Vault** (via `obsidian-vault`):
   - New ADR-0024 `diagram-design-diagrams` superseding ADR-0023 (style, pinned jsDelivr icons, no GIF, dropped AWS frames).
   - Rewrite the `diagrams` convention, keeping the keep-current rule, the coverage rule (every runtime AWS service gets a node, now within 24 faithful nodes or split into views) and the PR `## Diagrams` rule (now attaches the PNG).
