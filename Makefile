@@ -941,6 +941,9 @@ diagrams-setup: $(PY) ## Install the diagram toolchain (Playwright + Chromium) i
 diagrams-check: ## List diagrams whose watched sources changed vs main (warns, never fails; DIAGRAMS_BASE=main)
 	$(VENV)/bin/python -m diagrams3mrai.drift
 
+diagrams-gate: ## Fail on any diagram-design source that breaks the skill self_check, icon allowlist, 2000px cap or catalog parity (all, or ID=a,b)
+	$(VENV)/bin/python -m diagrams3mrai.gate $(subst $(comma), ,$(ID))
+
 diagrams-studio: ## Open Remotion Studio to browse/scrub every diagram interactively
 	pnpm --filter @3mrai/diagrams studio
 

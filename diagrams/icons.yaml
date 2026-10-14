@@ -1,0 +1,40 @@
+# Allowlist of AWS Architecture Icons (aws-icons@3.2.0 on jsDelivr) a diagram may reference.
+# A diagram's <image href> must be ICON_PREFIX + one of these values; anything else fails make diagrams-gate.
+icons:
+  api-gateway: architecture-service/AmazonAPIGateway.svg
+  aurora: architecture-service/AmazonAurora.svg
+  cloudwatch: architecture-service/AmazonCloudWatch.svg
+  cognito: architecture-service/AmazonCognito.svg
+  documentdb: architecture-service/AmazonDocumentDB.svg
+  dynamodb: architecture-service/AmazonDynamoDB.svg
+  ecr: architecture-service/AmazonElasticContainerRegistry.svg
+  ecs: architecture-service/AmazonElasticContainerService.svg
+  elasticache: architecture-service/AmazonElastiCache.svg
+  elb: architecture-service/ElasticLoadBalancing.svg
+  eventbridge: architecture-service/AmazonEventBridge.svg
+  fargate: architecture-service/AWSFargate.svg
+  lambda: architecture-service/AWSLambda.svg
+  rds: architecture-service/AmazonRDS.svg
+  s3: architecture-service/AmazonSimpleStorageService.svg
+  secrets-manager: architecture-service/AWSSecretsManager.svg
+  ses: architecture-service/AmazonSimpleEmailService.svg
+  sns: architecture-service/AmazonSimpleNotificationService.svg
+  sqs: architecture-service/AmazonSimpleQueueService.svg
+  ssm: architecture-service/AWSSystemsManager.svg
+  vpc: architecture-service/AmazonVirtualPrivateCloud.svg
+  alb: resource/ElasticLoadBalancingApplicationLoadBalancer.svg
+  ecs-service: resource/AmazonElasticContainerServiceService.svg
+  ecs-task: resource/AmazonElasticContainerServiceTask.svg
+  dynamodb-table: resource/AmazonDynamoDBTable.svg
+  client: resource/Client.svg
+  data-table: resource/DataTable.svg
+  internet: resource/Internet.svg
+  office-building: resource/Officebuilding.svg
+  server: resource/Server.svg
+  user: resource/User.svg
+  users: resource/Users.svg
+  group-aws-cloud: architecture-group/AWSCloudlogo.svg
+  group-region: architecture-group/Region.svg
+  group-vpc: architecture-group/VirtualprivatecloudVPC.svg
+  group-private-subnet: architecture-group/Privatesubnet.svg
+  group-public-subnet: architecture-group/Publicsubnet.svg
