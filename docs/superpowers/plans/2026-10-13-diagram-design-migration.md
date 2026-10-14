@@ -2,13 +2,13 @@
 title: "Diagram-Design Migration — Implementation Plan"
 type: plan
 area: shared
-status: active
+status: accepted
 created: 2026-10-13
 updated: 2026-10-13
 tags:
   - type/plan
   - area/shared
-  - status/active
+  - status/accepted
 related:
   - "[[2026-10-13-diagram-design-migration-design]]"
   - "[[diagrams]]"
@@ -1176,9 +1176,9 @@ git commit -m "docs(agents): point diagram-impl at the diagram-design toolchain"
 
 ### Task 11: Close
 
-- [ ] **Step 1:** Run the `spec-implementation-audit` skill (spec → code, code → docs, plan → repo). Every gap found is fixed in its own change before continuing; re-run until clean.
-- [ ] **Step 2:** `make diagrams-gate`, `make diagrams-check`, `cd diagrams && ../.venv/bin/python -m pytest`, `nvm use && node scripts/validate-vault.mjs`, `make lint-comments` — all green; paste outputs into the handoff.
-- [ ] **Step 3:** Update PR #130's title/body (`gh pr edit 130`) to describe the diagram-design migration, with `## Diagrams` (pilot PNGs), `## References` (spec, plan, ADR-0024) — via the menu (option for push + PR edit). Never merge.
+- [x] **Step 1:** Run the `spec-implementation-audit` skill (spec → code, code → docs, plan → repo). Every gap found is fixed in its own change before continuing; re-run until clean.
+- [x] **Step 2:** `make diagrams-gate`, `make diagrams-check`, `cd diagrams && ../.venv/bin/python -m pytest`, `nvm use && node scripts/validate-vault.mjs`, `make lint-comments` — all green; paste outputs into the handoff.
+- [x] **Step 3:** Update PR #130's title/body (`gh pr edit 130`) to describe the diagram-design migration, with `## Diagrams` (pilot PNGs), `## References` (spec, plan, ADR-0024) — via the menu (option for push + PR edit). Never merge.
 
 ## Execution notes
 
@@ -1192,6 +1192,7 @@ git commit -m "docs(agents): point diagram-impl at the diagram-design toolchain"
 
 - Task 9 removes the Remotion package, its 12 skills (and their provider links via `make ai-sync`), the local icons and the 19 GIFs; embeds switch to PNG first so the validator stays green.
 - Task 10 records ADR-0024 (superseding ADR-0023), rewrites the `diagrams` convention and the `diagram-legibility` lesson, and replaces Remotion mentions across the vault; historical mentions (superseded ADRs, dated plans) stay.
+- Task 11: the audit aligned the spec with the shipped gate and zone conventions; the whole-branch review found no Critical issues and three Important ones (newest plugin install, setup guard on every `diagrams-*` target, stale `skills-lock.json` entries), all fixed; minor gate-hardening findings are listed as follow-ups in PR #130.
 
 ## Related
 
