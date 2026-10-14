@@ -4,7 +4,7 @@ type: runbook
 area: infra
 status: active
 created: 2026-09-21
-updated: 2026-10-05
+updated: 2026-10-14
 integration-status: partially-verified
 verified-on: 2026-09-23
 verified-by: "Jose E. Martinez"
@@ -148,6 +148,14 @@ Run each command in its own terminal — Users' process filters to the five card
 against port 3000, Orders' filters to the four payment-reconciliation events against port 3001.
 Restart the affected service after running `make stripe-webhook-secret` so it picks up the new
 `STRIPE_WEBHOOK_SECRET`/`STRIPE_WEBHOOK_URL_TOKEN` values, per the target's own printed hint.
+
+> [!note] Local webhooks never pass through API Gateway
+> In dev and pre-prod, `stripe listen` forwards events straight to the services: dev to the
+> Users/Orders container ports (`localhost:3000` / `:3001`), pre-prod to the Users/Orders ALB
+> listeners (`9101` / `9102`, via `infra/environments/preprod/scripts/preprod_stripe_listen.py`).
+> This holds even though `infra/modules/api-gateway/main.tf` declares unauthenticated webhook
+> routes (`auth = false`). A gateway-only webhook bug — route, path param or method — will
+> therefore **not** reproduce locally.
 
 > [!danger] The dashboard's webhook secret is NOT this secret
 > `stripe listen` mints its **own** signing secret, different from any secret shown on the
