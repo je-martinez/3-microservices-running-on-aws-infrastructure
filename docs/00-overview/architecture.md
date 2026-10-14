@@ -20,7 +20,7 @@ related:
   - "[[ADR-0018-observability-openobserve]]"
   - "[[ADR-0017-floci-local]]"
   - "[[local-dev-floci]]"
-  - "[[ADR-0023-remotion-diagrams]]"
+  - "[[ADR-0024-diagram-design-diagrams]]"
   - "[[diagrams]]"
   - "[[ADR-0016-local-apigw-nginx-ecs]]"
   - "[[tracking-service-design]]"
@@ -202,7 +202,7 @@ Compose and Terraform. See [[ADR-0017-floci-local]] (which supersedes the earlie
 - [[openobserve-cloudwatch]]
 - [[scripting-language]] — Python remains the repo's default scripting language; only service runtimes went all-Node/.NET/Go.
 - [[local-dev-floci]]
-- [[ADR-0023-remotion-diagrams]]
+- [[ADR-0024-diagram-design-diagrams]]
 - [[diagrams]]
 - [[ADR-0016-local-apigw-nginx-ecs]]
 - [[tracking-service-design]] — Tracking's runtime is now Go/Gin; see the Compute Layer table above.

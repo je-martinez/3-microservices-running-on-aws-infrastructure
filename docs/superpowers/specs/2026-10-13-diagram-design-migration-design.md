@@ -2,17 +2,18 @@
 title: "Diagram-Design Migration — Design"
 type: spec
 area: shared
-status: draft
+status: active
 created: 2026-10-13
 updated: 2026-10-13
 tags:
   - type/spec
   - area/shared
-  - status/draft
+  - status/active
 related:
   - "[[2026-10-07-aws-style-diagrams-design]]"
   - "[[2026-10-06-remotion-diagrams-design]]"
   - "[[ADR-0023-remotion-diagrams]]"
+  - "[[ADR-0024-diagram-design-diagrams]]"
   - "[[diagrams]]"
   - "[[diagram-legibility]]"
   - "[[git-workflow]]"
@@ -21,13 +22,12 @@ propagates-to:
   - "[[git-workflow]]"
   - "[[diagram-legibility]]"
   - "[[ADR-0023-remotion-diagrams]]"
+  - "[[ADR-0024-diagram-design-diagrams]]"
   - "[[architecture]]"
   - "[[system-context]]"
 ---
 
 # Diagram-Design Migration — Design
-
-ADR-0024 (`diagram-design-diagrams`) is added to `propagates-to` once it exists; it cannot be listed before then because the validator requires every target to resolve.
 
 ## Context
 
@@ -132,6 +132,7 @@ Same branch, one commit per block, each through the git confirmation menu ([[git
 - [[2026-10-07-aws-style-diagrams-design]]
 - [[2026-10-06-remotion-diagrams-design]]
 - [[ADR-0023-remotion-diagrams]]
+- [[ADR-0024-diagram-design-diagrams]]
 - [[ADR-0015-drawio-diagrams]]
 - [[diagrams]]
 - [[diagram-legibility]]

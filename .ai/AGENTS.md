@@ -320,16 +320,18 @@ Full rule: `.ai/rules/documentation-vault.md`.
 
 ### Diagrams
 
-- Diagrams are Remotion renders from `diagrams/` (GIF + PNG into the vault),
-  not hand-drawn files.
+- Diagrams are hand-authored `diagram-design` HTML sources in `diagrams/src/`,
+  rendered to PNG beside their vault notes; no GIFs.
+  `make diagrams-setup` installs the renderer once per clone.
 - A change to a diagrammed flow or an AWS resource re-renders the affected
   diagram in the same PR.
-- Run `make diagrams-check` before proposing a PR; every `STALE?` line is fixed
-  or justified.
-- Attach the GIF under `## Diagrams` in the PR body when a flow is new or
+- Run `make diagrams-gate` and `make diagrams-check` before proposing a PR;
+  every `STALE?` line is fixed or justified.
+- Attach the PNG under `## Diagrams` in the PR body when a flow is new or
   affected.
-- Full convention: `docs/shared/conventions/diagrams.md`. The work belongs to
-  the `diagram-impl` role below.
+- Full convention: `docs/shared/conventions/diagrams.md`; decision
+  `docs/shared/decisions/ADR-0024-diagram-design-diagrams.md`. The work belongs
+  to the `diagram-impl` role below.
 
 ## Prohibitions
 
@@ -515,21 +517,28 @@ not tool-enforceable — treat it as a norm.*
 
 ### diagram-impl
 
-Diagram implementer for the 3MRAI Remotion package in `diagrams/`. Use to add,
-update or re-render an animated flow/architecture diagram or a milestone
-dependency graph. Writes **only `diagrams/**` and the rendered
-`docs/**/diagrams/*.{gif,png}`** — never edits a `.md` note under `docs/`, never
-touches git or Linear. Reads `diagrams/CLAUDE.md` for its stack, primitives and
-verify loop, reads the real code and Terraform before drawing, and leaves the
-work in the working tree for the main session to commit.
+Diagram implementer for the 3MRAI diagram-design sources in `diagrams/`. Use
+to add, update or re-render an architecture, flow or milestone diagram. Writes
+**only `diagrams/**` and the rendered `docs/**/diagrams/*.png`** — never edits a
+`.md` note under `docs/`, never touches git or Linear. Reads `diagrams/CLAUDE.md`
+for its toolchain, authoring contract, icons and verify loop, reads the real
+code and Terraform before drawing, and leaves the work in the working tree for
+the main session to commit.
 
 Three rules carry extra weight here. **Never invent content** — read the
-Terraform, compose files, handlers or `openapi.yaml` the diagram depicts. Every
-catalog entry needs `watches` globs that match real files. And **look at the
-render**: open the PNG and check contrast, clipping and overlapping labels, then
-run `make diagrams-check` and confirm nothing you touched is `STALE?`. If a note
-needs an embed or a link, list it in the handoff for whoever owns `docs/` (see
-**Prohibitions**) rather than writing it.
+Terraform, compose files, handlers or `openapi.yaml` the diagram depicts; when
+updating, the current HTML is the content inventory. **Never drop a runtime AWS
+service to fit a budget** — zone it, or report the conflict. And **look at the
+render**: `make diagrams-render ID=<id>` gates then renders; open the PNG and
+check connectors, clipped or overlapping labels, then run `make diagrams-check`
+and confirm nothing you touched is `STALE?`. No GIFs; icons only from
+`diagrams/icons.yaml`. If a note needs an embed or a link, list it in the
+handoff for whoever owns `docs/` (see **Prohibitions**) rather than writing it.
+
+Authoring depends on the `diagram-design` skill (pinned v2.6.6), which is an
+agent plugin, not a repo skill — it is not shipped in this environment's
+skills. If your agent does not have it installed, stop and report rather than
+authoring a diagram without its templates and checklist.
 
 *In Claude Code this is a subagent whose tools are restricted to
 Read/Write/Edit/Bash/Glob/Grep/Skill. In this environment that restriction is

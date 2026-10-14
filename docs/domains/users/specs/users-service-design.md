@@ -1085,4 +1085,4 @@ convention/pattern notes in `shared/`) live in `docs/domains/users/decisions/`:
 - [[2026-08-27-tracking-go-migration-design]] — Tracking's Python-to-Go migration, including the
   `proto/users.proto` consumption mechanism change (committed stubs via `buf generate`, replacing
   the retired Python codegen and its byte-for-byte drift guard) documented above.
-- [[2026-10-06-remotion-diagrams-design]] — design of the Remotion diagram pipeline that renders the embedded diagrams in this note
+- [[ADR-0024-diagram-design-diagrams]] — the diagram-design pipeline (hand-authored HTML sources, PNG rendered by `make diagrams-render`) that produces the embedded diagrams in this note

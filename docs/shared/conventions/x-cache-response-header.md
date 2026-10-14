@@ -233,4 +233,4 @@ can silently strip an unknown response header).
 - [[2026-08-26-cache-keys-built-from-a-raw-identity-header]] — the raw-identity-header
   invalidation trap this cache design fell into; read before trusting a comment that claims a
   key is "keyed on X alone."
-- [[2026-10-06-remotion-diagrams-design]] — design of the Remotion diagram pipeline that renders the embedded diagrams in this note
+- [[ADR-0024-diagram-design-diagrams]] — the diagram-design pipeline (hand-authored HTML sources, PNG rendered by `make diagrams-render`) that produces the embedded diagrams in this note

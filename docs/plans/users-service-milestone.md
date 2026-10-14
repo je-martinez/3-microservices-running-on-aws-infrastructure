@@ -4,7 +4,7 @@ type: plan
 area: users
 status: active
 created: 2026-06-28
-updated: 2026-10-06
+updated: 2026-10-13
 tags:
   - type/plan
   - area/users
@@ -31,7 +31,7 @@ related:
   - "[[linear-references]]"
   - "[[2026-06-28-users-service-design]]"
   - "[[2026-06-28-users-service]]"
-  - "[[ADR-0023-remotion-diagrams]]"
+  - "[[ADR-0024-diagram-design-diagrams]]"
   - "[[2026-07-09-users-cognito-webhook-design]]"
   - "[[2026-07-10-users-openapi-autogen-design]]"
   - "[[2026-07-11-refresh-token-endpoint-design]]"
@@ -149,7 +149,7 @@ JE-25 (originally the Ministack spike, later re-verified on Floci) is the hard e
 - [[linear-references]] — Linear reference convention.
 - [[2026-06-28-users-service-design]] — the design spec specifying each deliverable.
 - [[2026-06-28-users-service]] — the implementation plan with detailed task steps.
-- [[ADR-0023-remotion-diagrams]] — governs the diagram format; see [[diagrams]].
+- [[ADR-0024-diagram-design-diagrams]] — governs the diagram format; see [[diagrams]].
 - [[2026-07-09-users-cognito-webhook-design]] — JE-38 design spec.
 - [[2026-07-10-users-openapi-autogen-design]] — OpenAPI autogen design spec (post-JE-40).
 - [[2026-07-11-refresh-token-endpoint-design]] — refresh endpoint design spec (post-JE-40).

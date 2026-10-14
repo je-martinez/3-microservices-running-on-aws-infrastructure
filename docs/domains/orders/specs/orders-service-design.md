@@ -954,4 +954,4 @@ Full milestone design: [[2026-07-14-orders-service-milestone-design]].
 - [[2026-09-18-cqrs-dispatch-tracking-orders-design]] — planned CQRS command/query bus
   (Wolverine) and transactional outbox design for this service, migrated endpoint-by-endpoint;
   not yet implemented. See [Cross-cutting rules](#cross-cutting-rules) above.
-- [[2026-10-06-remotion-diagrams-design]] — design of the Remotion diagram pipeline that renders the embedded diagrams in this note
+- [[ADR-0024-diagram-design-diagrams]] — the diagram-design pipeline (hand-authored HTML sources, PNG rendered by `make diagrams-render`) that produces the embedded diagrams in this note

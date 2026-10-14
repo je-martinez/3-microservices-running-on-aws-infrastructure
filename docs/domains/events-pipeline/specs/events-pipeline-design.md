@@ -1244,4 +1244,4 @@ flushed are lost or arrive late on the next cold invocation, attributed to the w
 - [[friendly-order-number]] — the `order_number` object both `ORDER_CREATED` and
   `TRACKING_STATUS_CHANGED` carry, why it is optional on both, and why the producer owns
   the displayed form.
-- [[2026-10-06-remotion-diagrams-design]] — design of the Remotion diagram pipeline that renders the embedded diagrams in this note
+- [[ADR-0024-diagram-design-diagrams]] — the diagram-design pipeline (hand-authored HTML sources, PNG rendered by `make diagrams-render`) that produces the embedded diagrams in this note

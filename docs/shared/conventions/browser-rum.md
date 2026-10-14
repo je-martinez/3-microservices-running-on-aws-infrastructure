@@ -195,4 +195,4 @@ See [[live-session-indicator]] and [[2026-10-02-a-websocket-can-die-without-tell
   rule that an aggregate over `app_traces` must scope itself in SQL.
 - [[live-session-indicator]] — evidence-only connection state and the silent-badge UI split.
 - [[2026-10-02-a-websocket-can-die-without-telling-you]] — the measured failures behind that rule.
-- [[2026-10-06-remotion-diagrams-design]] — design of the Remotion diagram pipeline that renders the embedded diagrams in this note
+- [[ADR-0024-diagram-design-diagrams]] — the diagram-design pipeline (hand-authored HTML sources, PNG rendered by `make diagrams-render`) that produces the embedded diagrams in this note

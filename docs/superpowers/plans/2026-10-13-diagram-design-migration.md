@@ -13,12 +13,14 @@ related:
   - "[[2026-10-13-diagram-design-migration-design]]"
   - "[[diagrams]]"
   - "[[ADR-0023-remotion-diagrams]]"
+  - "[[ADR-0024-diagram-design-diagrams]]"
   - "[[git-workflow]]"
 propagates-to:
   - "[[diagrams]]"
   - "[[git-workflow]]"
   - "[[diagram-legibility]]"
   - "[[ADR-0023-remotion-diagrams]]"
+  - "[[ADR-0024-diagram-design-diagrams]]"
   - "[[architecture]]"
   - "[[system-context]]"
 ---
@@ -1140,12 +1142,12 @@ git commit -m "docs(agents): point diagram-impl at the diagram-design toolchain"
 - Modify: `pnpm-workspace.yaml` (remove `- "diagrams"`), `pnpm-lock.yaml` (via `pnpm install`), `Makefile` (remove `diagrams-icons` target and `.PHONY` entry), `.gitignore` (drop Remotion-only entries such as `diagrams/out`)
 - Modify (via `obsidian-vault`): every vault note embedding `![[<id>.gif]]` → `![[<id>.png]]`
 
-- [ ] **Step 1: Switch embeds first** — dispatch `obsidian-vault` (English): replace every `.gif` embed/link of a catalog output with its `.png`, bump `updated:`; list the notes touched. Then `nvm use && node scripts/validate-vault.mjs` → green.
-- [ ] **Step 2: Delete** the files listed above (`git rm -r` for tracked paths; `rm -rf` for `node_modules`, `out`, `__pycache__`).
-- [ ] **Step 3: Workspace** — remove `"diagrams"` from `pnpm-workspace.yaml`; `nvm use && pnpm install` → lockfile updated, exit 0. Remove the `diagrams-icons` target.
-- [ ] **Step 4: Sync providers** — `make ai-sync` then `make ai-sync-check` → green; `grep -rli remotion .ai .claude AGENTS.md` lists nothing but vault-history notes.
-- [ ] **Step 5: Verify** — `find docs -name '*.gif' -path '*diagrams*'` → empty; `node scripts/validate-vault.mjs` → green; `make diagrams-gate` → 29 OK; `cd diagrams && ../.venv/bin/python -m pytest` → PASS.
-- [ ] **Step 6: Commit (via the menu)** — `refactor(diagrams)!: retire remotion in favour of diagram-design` with a `BREAKING CHANGE:` footer naming the removed targets/scripts (`diagrams-icons`, `pnpm --filter @3mrai/diagrams *`).
+- [x] **Step 1: Switch embeds first** — dispatch `obsidian-vault` (English): replace every `.gif` embed/link of a catalog output with its `.png`, bump `updated:`; list the notes touched. Then `nvm use && node scripts/validate-vault.mjs` → green.
+- [x] **Step 2: Delete** the files listed above (`git rm -r` for tracked paths; `rm -rf` for `node_modules`, `out`, `__pycache__`).
+- [x] **Step 3: Workspace** — remove `"diagrams"` from `pnpm-workspace.yaml`; `nvm use && pnpm install` → lockfile updated, exit 0. Remove the `diagrams-icons` target.
+- [x] **Step 4: Sync providers** — `make ai-sync` then `make ai-sync-check` → green; `grep -rli remotion .ai .claude AGENTS.md` lists nothing but vault-history notes.
+- [x] **Step 5: Verify** — `find docs -name '*.gif' -path '*diagrams*'` → empty; `node scripts/validate-vault.mjs` → green; `make diagrams-gate` → 29 OK; `cd diagrams && ../.venv/bin/python -m pytest` → PASS.
+- [x] **Step 6: Commit (via the menu)** — `refactor(diagrams)!: retire remotion in favour of diagram-design` with a `BREAKING CHANGE:` footer naming the removed targets/scripts (`diagrams-icons`, `pnpm --filter @3mrai/diagrams *`).
 
 ---
 
@@ -1156,8 +1158,8 @@ git commit -m "docs(agents): point diagram-impl at the diagram-design toolchain"
 - Modify (via `obsidian-vault`): `docs/shared/decisions/ADR-0023-remotion-diagrams.md` (status superseded, link to ADR-0024), `docs/shared/conventions/diagrams.md`, `docs/shared/conventions/git-workflow.md`, `docs/lessons/diagram-legibility.md`, `docs/00-overview/architecture.md`, `docs/00-overview/system-context.md`, the remaining notes that mention Remotion (list via `grep -rli remotion docs | grep -v superpowers`), the spec (add `[[ADR-0024-diagram-design-diagrams]]` to `propagates-to`, status `active`), and this plan's index entry in `docs/plans/index.md`
 - Modify: root `CLAUDE.md` (*Diagrams* section and the `diagram-impl` line under *Subagents*), then `make ai-sync`
 
-- [ ] **Step 1: Dispatch `obsidian-vault`** (English brief) with: ADR-0024 content (context: Remotion → diagram-design; decisions 1–6 of the spec; consequences: no GIF, no AWS group frames, CDN dependency pinned to aws-icons@3.2.0, plugin prerequisite); `diagrams` convention rewrite keeping keep-current, coverage and PR `## Diagrams` (PNG) rules and documenting the make targets; `git-workflow` GIF→PNG; `diagram-legibility` trimmed of ELK/Remotion specifics; other notes' Remotion mentions updated to diagram-design; bidirectional `## Related` links; `updated: <today>`.
-- [ ] **Step 2: Edit root `CLAUDE.md`** *Diagrams* section to:
+- [x] **Step 1: Dispatch `obsidian-vault`** (English brief) with: ADR-0024 content (context: Remotion → diagram-design; decisions 1–6 of the spec; consequences: no GIF, no AWS group frames, CDN dependency pinned to aws-icons@3.2.0, plugin prerequisite); `diagrams` convention rewrite keeping keep-current, coverage and PR `## Diagrams` (PNG) rules and documenting the make targets; `git-workflow` GIF→PNG; `diagram-legibility` trimmed of ELK/Remotion specifics; other notes' Remotion mentions updated to diagram-design; bidirectional `## Related` links; `updated: <today>`.
+- [x] **Step 2: Edit root `CLAUDE.md`** *Diagrams* section to:
   ```markdown
   ### Diagrams
   - Diagrams are hand-authored `diagram-design` HTML sources in `diagrams/src/`, rendered to PNG beside their vault notes; no GIFs.
@@ -1167,8 +1169,8 @@ git commit -m "docs(agents): point diagram-impl at the diagram-design toolchain"
   - Full convention: `docs/shared/conventions/diagrams.md` → [[diagrams]]. Work goes through `diagram-impl`.
   ```
   and the `diagram-impl` bullet under *Subagents* to say "the diagram-design sources in `diagrams/`" and "`docs/**/diagrams/*.png`".
-- [ ] **Step 3: Sync and validate** — `make ai-sync && make ai-sync-check`; `nvm use && node scripts/validate-vault.mjs` → green; `make lint-comments` → green.
-- [ ] **Step 4: Commit (via the menu)** — `docs(vault): record the diagram-design decision and propagate it`.
+- [x] **Step 3: Sync and validate** — `make ai-sync && make ai-sync-check`; `nvm use && node scripts/validate-vault.mjs` → green; `make lint-comments` → green.
+- [x] **Step 4: Commit (via the menu)** — `docs(vault): record the diagram-design decision and propagate it`.
 
 ---
 
@@ -1188,9 +1190,13 @@ git commit -m "docs(agents): point diagram-impl at the diagram-design toolchain"
 - Approved pilot conventions and later rulings (ECS cluster may be a zone when edges target it; no routes in labels even when carrying content over 1:1) live in `diagrams/CLAUDE.md`.
 - Flows carry Remotion content over 1:1 except merged adjacent steps (≤8 motion steps). Content gaps found against the code (pre-existing in the Remotion versions) are listed for follow-up, not drawn: tracking-outbox-relay (notifications queue), websocket-lifecycle ($default Lambda, Sockets query), users-password-reset (CloudWatch metric), auth flows (API Gateway / nginx hop), users-account-deletion-cascade (Orders/Tracking cache invalidation), preprod-deploy (integration decisions, lambda bundles), terraform-two-phase-apply (app-user secrets).
 
+- Task 9 removes the Remotion package, its 12 skills (and their provider links via `make ai-sync`), the local icons and the 19 GIFs; embeds switch to PNG first so the validator stays green.
+- Task 10 records ADR-0024 (superseding ADR-0023), rewrites the `diagrams` convention and the `diagram-legibility` lesson, and replaces Remotion mentions across the vault; historical mentions (superseded ADRs, dated plans) stay.
+
 ## Related
 
 - [[2026-10-13-diagram-design-migration-design]]
 - [[diagrams]]
 - [[ADR-0023-remotion-diagrams]]
+- [[ADR-0024-diagram-design-diagrams]]
 - [[git-workflow]]

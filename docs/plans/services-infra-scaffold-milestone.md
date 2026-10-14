@@ -4,7 +4,7 @@ type: plan
 area: shared
 status: active
 created: 2026-06-28
-updated: 2026-10-06
+updated: 2026-10-13
 tags:
   - type/plan
   - area/shared
@@ -23,7 +23,7 @@ related:
   - "[[linear-references]]"
   - "[[2026-06-28-services-infra-scaffold]]"
   - "[[2026-06-28-services-infra-scaffold-design]]"
-  - "[[ADR-0023-remotion-diagrams]]"
+  - "[[ADR-0024-diagram-design-diagrams]]"
 ---
 
 # Services & Infra Scaffold — Milestone Plan
@@ -81,4 +81,4 @@ The five scaffold tasks (JE-17 through JE-21) have no blockers and can run in pa
 - [[linear-references]] — Linear reference convention.
 - [[2026-06-28-services-infra-scaffold]] — the implementation plan with detailed task steps.
 - [[2026-06-28-services-infra-scaffold-design]] — the design spec specifying each deliverable.
-- [[ADR-0023-remotion-diagrams]] — governs the diagram format; see [[diagrams]].
+- [[ADR-0024-diagram-design-diagrams]] — governs the diagram format; see [[diagrams]].

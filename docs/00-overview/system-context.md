@@ -18,7 +18,7 @@ related:
   - "[[ADR-0009-apigw-alb-fargate]]"
   - "[[ADR-0010-cognito-auth]]"
   - "[[ADR-0018-observability-openobserve]]"
-  - "[[ADR-0023-remotion-diagrams]]"
+  - "[[ADR-0024-diagram-design-diagrams]]"
   - "[[diagrams]]"
   - "[[2026-08-27-tracking-go-migration-design]]"
   - "[[ADR-0021-tracking-go-gin-sqlc-stack]]"
@@ -105,7 +105,7 @@ The container diagram zooms into the 3MRAI system and shows the independently de
 - [[ADR-0006-read-write-replicas]]
 - [[ADR-0011-observability-signoz]]
 - [[ADR-0018-observability-openobserve]]
-- [[ADR-0023-remotion-diagrams]]
+- [[ADR-0024-diagram-design-diagrams]]
 - [[diagrams]]
 - [[2026-08-27-tracking-go-migration-design]] — the Python-to-Go migration behind the Tracking
   Service row's runtime change above.

@@ -148,4 +148,4 @@ ALB listeners instead of an nginx task. See [[ADR-0022-preprod-ecs-on-floci]] an
 - [[two-phase-terraform-apply]]
 - [[ADR-0022-preprod-ecs-on-floci]]
 - [[preprod]]
-- [[2026-10-06-remotion-diagrams-design]] — design of the Remotion diagram pipeline that renders the embedded diagrams in this note
+- [[ADR-0024-diagram-design-diagrams]] — the diagram-design pipeline (hand-authored HTML sources, PNG rendered by `make diagrams-render`) that produces the embedded diagrams in this note

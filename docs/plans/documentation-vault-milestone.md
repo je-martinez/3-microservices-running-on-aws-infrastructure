@@ -4,7 +4,7 @@ type: plan
 area: shared
 status: active
 created: 2026-06-27
-updated: 2026-10-06
+updated: 2026-10-13
 tags:
   - type/plan
   - area/shared
@@ -25,7 +25,7 @@ related:
   - "[[milestone-plan]]"
   - "[[linear-references]]"
   - "[[2026-06-26-3mrai-docs-vault]]"
-  - "[[ADR-0023-remotion-diagrams]]"
+  - "[[ADR-0024-diagram-design-diagrams]]"
 ---
 
 # Documentation Vault — Milestone Plan
@@ -92,4 +92,4 @@ The diagram shows the DAG of blocking relationships. JE-6 (Templates) is the mai
 - [[milestone-plan]] — convention this plan follows; defines table structure and Linear reference rules.
 - [[linear-references]] — general Linear reference convention; tags and inline links.
 - [[2026-06-26-3mrai-docs-vault]] — the vault build plan that specifies each deliverable in detail.
-- [[ADR-0023-remotion-diagrams]] — governs the diagram format; see [[diagrams]].
+- [[ADR-0024-diagram-design-diagrams]] — governs the diagram format; see [[diagrams]].

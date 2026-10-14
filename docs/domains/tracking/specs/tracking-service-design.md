@@ -1391,4 +1391,4 @@ the same way. See [gRPC — outbound client to Users](#grpc--outbound-client-to-
   absence.
 - [[friendly-order-number]] — the **order** number Orders mints and Tracking only mirrors,
   the counterpart to the tracking number this service owns.
-- [[2026-10-06-remotion-diagrams-design]] — design of the Remotion diagram pipeline that renders the embedded diagrams in this note
+- [[ADR-0024-diagram-design-diagrams]] — the diagram-design pipeline (hand-authored HTML sources, PNG rendered by `make diagrams-render`) that produces the embedded diagrams in this note

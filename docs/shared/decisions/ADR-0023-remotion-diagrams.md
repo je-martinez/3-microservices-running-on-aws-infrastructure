@@ -2,19 +2,20 @@
 title: "ADR-0023: Remotion as the vault diagram tool"
 type: adr
 area: shared
-status: accepted
+status: superseded
 id: ADR-0023
 created: 2026-10-06
-updated: 2026-10-12
+updated: 2026-10-13
 deciders: [Jose E. Martinez]
 supersedes: "ADR-0015-drawio-diagrams"
-superseded-by: null
+superseded-by: "ADR-0024-diagram-design-diagrams"
 tags:
   - type/adr
   - area/shared
-  - status/accepted
+  - status/superseded
 related:
   - "[[ADR-0015-drawio-diagrams]]"
+  - "[[ADR-0024-diagram-design-diagrams]]"
   - "[[diagrams]]"
   - "[[diagram-legibility]]"
   - "[[2026-10-06-remotion-diagrams-design]]"
@@ -25,6 +26,9 @@ related:
 ---
 
 # ADR-0023: Remotion as the vault diagram tool
+
+> [!warning] Superseded
+> Superseded by [[ADR-0024-diagram-design-diagrams]] on 2026-10-13. The body below is the historical record.
 
 ## Context
 
@@ -77,6 +81,7 @@ Same tool, no new ADR. Design: [[2026-10-07-aws-style-diagrams-design]].
 
 ## Related
 
+- [[ADR-0024-diagram-design-diagrams]] — supersedes this decision.
 - [[ADR-0015-drawio-diagrams]] — superseded by this decision.
 - [[diagrams]]
 - [[diagram-legibility]]

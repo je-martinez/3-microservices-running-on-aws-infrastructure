@@ -160,7 +160,7 @@ genuinely help someone understand or trace the change.
 ## Diagrams (PR body)
 
 When a PR introduces a new diagrammed flow or alters an existing one, the PR body includes a
-`## Diagrams` section next to `## References`: embed the rendered GIF through the branch's raw URL
+`## Diagrams` section next to `## References`: embed the rendered PNG through the branch's raw URL
 plus **one line on what changed**.
 
 ```markdown

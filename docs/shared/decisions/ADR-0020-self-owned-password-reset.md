@@ -141,4 +141,4 @@ See [[testing]] for where these are exercised (unit + gateway E2E,
 - [[email-templates]] — the `forgot-password` template, the fifth.
 - [[logging-context]] — masked-email logging applied throughout this flow.
 - [[testing]] — the three-layer testing convention this flow's gateway E2E follows.
-- [[2026-10-06-remotion-diagrams-design]] — design of the Remotion diagram pipeline that renders the embedded diagrams in this note
+- [[ADR-0024-diagram-design-diagrams]] — the diagram-design pipeline (hand-authored HTML sources, PNG rendered by `make diagrams-render`) that produces the embedded diagrams in this note
