@@ -5,7 +5,7 @@ Every architecture, flow and milestone-dependency diagram in the vault is a hand
 ## What lives here
 
 - `catalog.yaml` — one entry per diagram: `id`, `title`, `src` (`diagrams/src/<group>/<id>.html`), `output` (vault path, no extension; the PNG is `<output>.png`), `watches` (globs whose change may make it stale).
-- `icons.yaml` — the only icons a diagram may use, in two pinned sections: logical key → path inside `aws-icons@3.2.0` (`icons`) or `devicon@2.16.0` (`devicon`) on jsDelivr.
+- `icons.yaml` — the only icons a diagram may use, in three pinned sections: logical key → path inside `aws-icons@3.2.0` (`icons`), `devicon@2.16.0` (`devicon`), or a vendor's official GitHub repo pinned to a tag or SHA (`vendor`), all on jsDelivr.
 - `src/{architecture,system-context,flows,milestones}/<id>.html` — the sources.
 - `diagrams3mrai/` — Python toolchain: `catalog.py`, `drift.py`, `gate.py`, `render.py`. `tests/` — pytest.
 
@@ -25,11 +25,11 @@ Every architecture, flow and milestone-dependency diagram in the vault is a hand
 
 ## Icons
 
-- Icons come only from `icons.yaml`, which has two pinned sections: `icons` (`aws-icons@3.2.0`, AWS services) and `devicon` (`devicon@2.16.0`, technology logos).
-- Draw an icon as `<image href="<prefix><path>" width="40" height="40"/>` with its name below, where `<prefix>` is `https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/` or `https://cdn.jsdelivr.net/npm/devicon@2.16.0/icons/` and `<path>` is a value of the matching section.
+- Icons come only from `icons.yaml`, which has three pinned sections: `icons` (`aws-icons@3.2.0`, AWS services), `devicon` (`devicon@2.16.0`, technology logos) and `vendor` (a vendor's own logo, SVG or PNG, from its official GitHub repo via `https://cdn.jsdelivr.net/gh/`, pinned to a release tag or full commit SHA, never a branch).
+- Draw an icon as `<image href="<prefix><path>" width="40" height="40"/>` with its name below, where `<prefix>` is `https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/`, `https://cdn.jsdelivr.net/npm/devicon@2.16.0/icons/` or `https://cdn.jsdelivr.net/gh/`, and `<path>` is a value of the matching section. A non-square logo keeps the default `preserveAspectRatio` (centred, undistorted).
 - A Docker Compose container uses the `docker` whale (`devicon`).
-- Need a new icon or logo? Find it in its package (`https://data.jsdelivr.com/v1/packages/npm/aws-icons@3.2.0` or `.../devicon@2.16.0`), add a key to the matching section, and check it answers HTTP 200. Never change either version.
-- Other non-AWS things (browser, users, Stripe, Geoapify) use the `client`, `users`, `server` or `internet` icons, or a plain skill node box.
+- Need a new icon or logo? Find it in its package (`https://data.jsdelivr.com/v1/packages/npm/aws-icons@3.2.0`, `.../devicon@2.16.0`) or the vendor's official repo at a release tag or commit SHA, add a key to the matching section, and check it answers HTTP 200. Never change a pinned version, and never pin a vendor logo to a branch.
+- Other non-AWS things (browser, users) use the `client`, `users`, `server` or `internet` icons, or a plain skill node box.
 
 ## Budget and coverage
 
@@ -56,7 +56,7 @@ The four pilots are the reference implementation; open the one of the same kind 
 - **A group edges point at may be a zone even if it is a cluster** (e.g. `ECS cluster` when ALB, ECR and config arrows target it). An edge from a group that is not drawn as a zone leaves the zone holding its members, and the legend names the rest (e.g. "every task logs to CloudWatch").
 - **An arrow points from the caller.** A pull receiver points at the polled service (e.g. the OTel collector polling CloudWatch, labelled `POLLS`; ECS pulling images, `PULLS IMAGES`; ECS reading task config, `READS CONFIG`). Exception: a queue → consumer edge points at the consumer, dashed, labelled by what it carries (`TRIGGERS`, `NOTIFY`) — the common AWS reading of a queue.
 - **No routes in labels, even when carrying content over 1:1:** `/v1 via web` becomes `API VIA WEB`. Labels ≤14 characters, uppercase.
-- **External SaaS** (Stripe, Geoapify) uses the `internet` icon; optional integrations take the skill's dashed Optional treatment.
+- **Stripe, Geoapify and OpenObserve use their `vendor` logo**; other external SaaS without one uses the `internet` icon. Optional integrations take the skill's dashed Optional treatment.
 - **Trim the viewBox** to the content so the PNG has no empty band at the top.
 
 ## Read the source before drawing
@@ -86,7 +86,7 @@ The four pilots are the reference implementation; open the one of the same kind 
 ## Never
 
 - GIFs, MP4s or any other output than `<output>.png`.
-- An icon URL that is not a pinned prefix (`aws-icons@3.2.0` or `devicon@2.16.0`) + a value of its `icons.yaml` section.
+- An icon URL that is not a pinned prefix (`aws-icons@3.2.0`, `devicon@2.16.0`, or `cdn.jsdelivr.net/gh/` for `vendor`) + a value of its `icons.yaml` section.
 - Edits to `.md` notes under `docs/` (report embed needs for `obsidian-vault`), git writes, Linear.
 
 ## Write boundary

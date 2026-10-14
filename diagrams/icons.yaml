@@ -1,6 +1,8 @@
 # Allowlist of icons a diagram may reference: `icons` = AWS Architecture Icons (aws-icons@3.2.0 on jsDelivr),
-# `devicon` = technology logos (devicon@2.16.0 on jsDelivr). A diagram's <image href> must be the section's
-# pinned prefix + one of its values; anything else fails make diagrams-gate. Keys are unique across sections.
+# `devicon` = technology logos (devicon@2.16.0 on jsDelivr), `vendor` = a vendor's own logo served from its
+# official GitHub repo through jsDelivr (cdn.jsdelivr.net/gh/), pinned to a release tag or a full commit SHA.
+# A diagram's <image href> must be the section's prefix + one of its values; anything else fails
+# make diagrams-gate. Keys are unique across sections.
 icons:
   api-gateway: architecture-service/AmazonAPIGateway.svg
   aurora: architecture-service/AmazonAurora.svg
@@ -41,3 +43,7 @@ icons:
   group-public-subnet: architecture-group/Publicsubnet.svg
 devicon:
   docker: docker/docker-original.svg
+vendor:
+  stripe: stripe/stripe-ios@26.14.0/StripePaymentSheet/StripePaymentSheet/Resources/StripePaymentSheet.xcassets/Link/InstantDebitIcons/bank_icon_stripe.imageset/BrandIcon--stripe.svg
+  geoapify: geoapify/route-planner-sdk@cb2da5f18aee1efa35eb85ab948ffe8e17fcf9a8/docs-site/docs/assets/geoapify-logo-new-125x125.png
+  openobserve: openobserve/openobserve@v0.92.2/web/src/assets/images/common/mini_logo.svg

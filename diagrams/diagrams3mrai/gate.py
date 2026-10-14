@@ -15,16 +15,25 @@ from diagrams3mrai.catalog import REPO_ROOT, Entry, load_catalog, select
 
 ICON_PREFIX = "https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/"
 DEVICON_PREFIX = "https://cdn.jsdelivr.net/npm/devicon@2.16.0/icons/"
+VENDOR_PREFIX = "https://cdn.jsdelivr.net/gh/"
 ICONS_PATH = REPO_ROOT / "diagrams" / "icons.yaml"
 MAX_WIDTH = 2000
 PLUGIN_CACHE = Path.home() / ".claude/plugins/cache/diagram-design/diagram-design"
 _SELF_CHECK_REL = Path("skills/diagram-design/scripts/self_check.py")
 # CONTRACT: self_check truncates URLs to 80 chars; this filter only drops the error, check_icons validates the full URL.
-_TOLERATED = tuple("remote reference on <image>: " + p for p in (ICON_PREFIX, DEVICON_PREFIX))
+_TOLERATED = tuple("remote reference on <image>: " + p for p in (ICON_PREFIX, DEVICON_PREFIX, VENDOR_PREFIX))
 # icons.yaml section → (pinned package prefix, allowed path shape).
 _SECTIONS = {
     "icons": (ICON_PREFIX, re.compile(r"(architecture-service|architecture-group|resource|category)/[A-Za-z0-9]+\.svg")),
     "devicon": (DEVICON_PREFIX, re.compile(r"[a-z0-9]+/[a-z0-9]+-[a-z0-9-]+\.svg")),
+    # CONTRACT: a vendor logo is pinned to a release tag or a full commit SHA in the vendor's own repo, never a branch.
+    "vendor": (
+        VENDOR_PREFIX,
+        re.compile(
+            r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+@(v?[0-9]+(\.[0-9]+)+|[0-9a-f]{40})"
+            r"(/[A-Za-z0-9_-][A-Za-z0-9._-]*)+\.(svg|png)"
+        ),
+    ),
 }
 
 

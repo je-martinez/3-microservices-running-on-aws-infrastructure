@@ -4,7 +4,7 @@ import pytest
 
 from diagrams3mrai.catalog import Entry
 from diagrams3mrai.gate import (
-    DEVICON_PREFIX, ICON_PREFIX, check_entry, check_icons, filter_self_check, image_hrefs, load_icons, load_verify, orphans,
+    DEVICON_PREFIX, ICON_PREFIX, VENDOR_PREFIX, check_entry, check_icons, filter_self_check, image_hrefs, load_icons, load_verify, orphans,
     self_check_available, view_box_width,
 )
 
@@ -20,7 +20,7 @@ def svg(body: str, width: int = 400) -> str:
 def test_load_icons_builds_full_urls():
     icons = load_icons()
     assert icons["lambda"] == LAMBDA
-    assert all(u.startswith((ICON_PREFIX, DEVICON_PREFIX)) and u.endswith(".svg") for u in icons.values())
+    assert all(u.startswith((ICON_PREFIX, DEVICON_PREFIX, VENDOR_PREFIX)) and u.endswith((".svg", ".png")) for u in icons.values())
 
 
 def test_load_icons_reads_the_devicon_section():
@@ -40,6 +40,38 @@ def test_load_icons_rejects_a_key_in_both_sections(tmp_path):
     p.write_text("icons:\n  x: architecture-service/AWSLambda.svg\ndevicon:\n  x: docker/docker-original.svg\n")
     with pytest.raises(ValueError, match="x"):
         load_icons(p)
+
+
+def test_load_icons_reads_the_vendor_section():
+    icons = load_icons()
+    assert icons["stripe"].startswith(VENDOR_PREFIX + "stripe/stripe-ios@")
+    assert icons["openobserve"].startswith(VENDOR_PREFIX + "openobserve/openobserve@v")
+
+
+@pytest.mark.parametrize("rel", [
+    "stripe/stripe-ios@master/logo.svg",
+    "stripe/stripe-ios@latest/logo.svg",
+    "stripe/stripe-ios/logo.svg",
+    "stripe/stripe-ios@1.0.0/../evil.svg",
+    "stripe/stripe-ios@1.0.0/logo.js",
+    "geoapify/sdk@cb2da5f/logo.png",
+])
+def test_load_icons_rejects_an_unpinned_or_unsafe_vendor_path(tmp_path, rel):
+    p = tmp_path / "icons.yaml"
+    p.write_text(f"vendor:\n  v: {rel}\n")
+    with pytest.raises(ValueError, match="v"):
+        load_icons(p)
+
+
+@pytest.mark.parametrize("rel", [
+    "stripe/stripe-ios@26.14.0/a/BrandIcon--stripe.svg",
+    "openobserve/openobserve@v0.92.2/web/mini_logo.svg",
+    "geoapify/route-planner-sdk@cb2da5f18aee1efa35eb85ab948ffe8e17fcf9a8/docs/geoapify-logo-new-125x125.png",
+])
+def test_load_icons_accepts_a_tag_or_full_sha_vendor_path(tmp_path, rel):
+    p = tmp_path / "icons.yaml"
+    p.write_text(f"vendor:\n  v: {rel}\n")
+    assert load_icons(p) == {"v": VENDOR_PREFIX + rel}
 
 
 def test_load_icons_rejects_bad_path(tmp_path):
@@ -85,6 +117,12 @@ def test_filter_tolerates_devicon_but_check_icons_still_validates():
 def test_unpinned_devicon_is_not_tolerated():
     url = "https://cdn.jsdelivr.net/npm/devicon@latest/icons/docker/docker-original.svg"
     assert filter_self_check([f"remote reference on <image>: {url[:80]}"]) != []
+
+
+def test_filter_tolerates_vendor_but_check_icons_still_validates():
+    url = VENDOR_PREFIX + "someone/else@1.0.0/logo.svg"
+    assert filter_self_check([f"remote reference on <image>: {url[:80]}"]) == []
+    assert check_icons(svg(f'<image href="{url}"/>'), ALLOWED) == [f"icon not in diagrams/icons.yaml: {url}"]
 
 
 def test_filter_keeps_every_other_error():
