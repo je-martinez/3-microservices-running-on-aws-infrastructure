@@ -4,7 +4,7 @@ type: spec
 area: tracking
 status: accepted
 created: 2026-06-26
-updated: 2026-10-06
+updated: 2026-10-13
 tags: [type/spec, area/tracking, status/accepted]
 related:
   - "[[2026-09-18-cqrs-dispatch-tracking-orders-design]]"
@@ -943,9 +943,9 @@ notifying Tracking of a delivery status change. It is subject to the following g
 
 ## Events
 
-![[tracking-notification.gif]]
+![[tracking-notification.png]]
 
-![[tracking-outbox-relay.gif]]
+![[tracking-outbox-relay.png]]
 
 > [!info] Reversal — Tracking now publishes (events-pipeline milestone, 2026-08-04)
 > This note previously stated Tracking emits no domain events and is a pure consumer/updater.

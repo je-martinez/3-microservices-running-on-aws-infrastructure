@@ -4,7 +4,7 @@ type: spec
 area: infra
 status: active
 created: 2026-06-26
-updated: 2026-10-06
+updated: 2026-10-13
 tags: [type/spec, area/infra, status/active]
 related:
   - "[[ADR-0022-preprod-ecs-on-floci]]"
@@ -78,7 +78,7 @@ full account. The modules validate, but phase 2 has not yet been applied, so `or
 
 A WebSocket API gives the web app a server-to-client channel. A `$connect` REQUEST authorizer verifies the Cognito JWT, connect and disconnect Lambdas maintain a connections table keyed by `cognito_sub`, and the events pipeline pushes to every open socket of a user. See [[2026-08-05-realtime-tracking-events-websocket-design]] for the design.
 
-![[websocket-lifecycle.gif]]
+![[websocket-lifecycle.png]]
 
 ### Document Store
 

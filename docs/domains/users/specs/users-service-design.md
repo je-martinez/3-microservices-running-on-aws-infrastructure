@@ -4,7 +4,7 @@ type: spec
 area: users
 status: active
 created: 2026-06-26
-updated: 2026-10-06
+updated: 2026-10-13
 tags: [type/spec, area/users, status/active]
 related:
   - "[[2026-09-19-users-nestjs-migration-design]]"
@@ -244,7 +244,7 @@ The Prisma model method **`findByIdOrCognitoSub`** (`services/users/src/shared/d
 
 ## `custom:app_user_id` token claim
 
-![[auth-password-signin-refresh.gif]]
+![[auth-password-signin-refresh.png]]
 
 `POST /v1/users/register` reserves the `usr_` id **before** calling Cognito `signUp`, passing it through as `appUserId`. This lands in a custom Cognito user-pool attribute, `custom:app_user_id`, at sign-up time — before the corresponding Postgres row exists. The same id is then used as the row's own `id`.
 
@@ -254,7 +254,7 @@ See [[cognito-pre-token-lambda]] (infra spec) and [[2026-07-12-app-user-id-token
 
 ## Cognito identity capture
 
-![[users-cognito-identity-webhook.gif]]
+![[users-cognito-identity-webhook.png]]
 
 `POST /v1/webhooks/cognito` is a **public** route (no JWT authorizer) guarded only by a shared secret (`x-webhook-secret`, verified against `env.WEBHOOK_SECRET`). It validates the payload against `cognitoWebhookPayloadSchema` (manual `safeParse`, not Fastify's `schema.body`, so an invalid payload returns `422` rather than Fastify's default `400`) and delegates to `CaptureCognitoIdentityCommand` — the single persistence path for identity capture, writing `users_cognito_data` + `users_cognito_events` in one nested/transactional Prisma write.
 
@@ -264,9 +264,9 @@ See [[2026-07-09-users-cognito-webhook-design]] for the full design.
 
 ## Passwordless OTP authentication
 
-![[users-signup-otp.gif]]
+![[users-signup-otp.png]]
 
-![[auth-passwordless-otp-signin.gif]]
+![[auth-passwordless-otp-signin.png]]
 
 > [!info] Implemented and verified live (2026-08-05)
 > `CUSTOM_AUTH` in **both** local and production — never native `USER_AUTH`/`EMAIL_OTP`, which
@@ -310,7 +310,7 @@ Full design and the Floci feasibility evidence that ruled out native `EMAIL_OTP`
 
 ## Password reset
 
-![[users-password-reset.gif]]
+![[users-password-reset.png]]
 
 > [!info] Implemented and verified end to end through the gateway (2026-08-09)
 
@@ -461,7 +461,7 @@ whose every call returns `401` until a manual reload. Covered by `sign-out.spec.
 
 ## Account deletion
 
-![[users-account-deletion-cascade.gif]]
+![[users-account-deletion-cascade.png]]
 
 > [!info] Shipped 2026-08-26 — Account Deletion milestone
 > Full design: [[2026-08-25-account-deletion-design]]. `DELETE /v1/users/me` is the only

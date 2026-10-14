@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-09-20
-updated: 2026-10-06
+updated: 2026-10-13
 tags:
   - type/convention
   - area/shared
@@ -26,7 +26,7 @@ related:
 
 ## Why this note exists
 
-![[browser-rum.gif]]
+![[browser-rum.png]]
 
 The web app now emits browser telemetry — OTel traces joined to the backend's, Web Vitals, JS
 error logs (see [[2026-09-19-web-rum-integration-design]]). Nothing about that fact makes a

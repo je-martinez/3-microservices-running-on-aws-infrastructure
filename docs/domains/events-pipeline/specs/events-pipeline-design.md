@@ -4,7 +4,7 @@ type: spec
 area: events-pipeline
 status: accepted
 created: 2026-06-26
-updated: 2026-10-06
+updated: 2026-10-13
 tags: [type/spec, area/events-pipeline, status/accepted, issue/JE-180, issue/JE-181]
 related:
   - "[[2026-09-10-in-app-notifications-design]]"
@@ -115,7 +115,7 @@ None. The pipeline is not a gRPC server or client.
 
 ## Dispatch
 
-![[events-pipeline-fanout-dlq.gif]]
+![[events-pipeline-fanout-dlq.png]]
 
 The Lambda applies the CQRS pattern (see [[cqrs]] and [[ADR-0002-cqrs]]) to route each incoming
 event to its dedicated handler. The dispatch map (`src/handlers/index.ts`) is a plain object keyed

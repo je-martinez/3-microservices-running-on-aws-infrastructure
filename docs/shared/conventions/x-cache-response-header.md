@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-08-25
-updated: 2026-10-06
+updated: 2026-10-13
 tags:
   - type/convention
   - area/shared
@@ -63,7 +63,7 @@ hit-rate in the metrics — it is excluded from the hit-rate denominator
 
 ## Backing store
 
-![[response-cache.gif]]
+![[response-cache.png]]
 
 The shared, already-deployed Redis/ElastiCache instance (`infra/modules/redis`) — the same
 one Users already uses for password-reset codes. Not in-memory (does not propagate across

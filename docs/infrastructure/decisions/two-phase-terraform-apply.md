@@ -4,7 +4,7 @@ type: adr
 area: infra
 status: accepted
 created: 2026-07-28
-updated: 2026-10-06
+updated: 2026-10-13
 tags:
   - type/adr
   - area/infra
@@ -28,7 +28,7 @@ related:
 
 ## Decision
 
-![[terraform-two-phase-apply.gif]]
+![[terraform-two-phase-apply.png]]
 
 Local (and, prospectively, production) infrastructure is applied in **two independent
 Terraform roots with separate state**:

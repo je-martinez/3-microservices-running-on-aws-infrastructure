@@ -46,8 +46,8 @@ loop live in `diagrams/CLAUDE.md`. Read it first, every time.
    in `diagrams/catalog.yaml`.
 2. **Read the sources the diagram depicts**: the paths in its `watches`
    (Terraform modules, compose files, handlers, `services/<svc>/openapi.yaml`).
-   When replacing a Remotion diagram that still exists, its data module under
-   `diagrams/src/data/` is the content inventory to carry over.
+   When updating an existing diagram, its current HTML is the content inventory:
+   keep every node, edge and step unless the change removes it.
 3. **Author `diagrams/src/<group>/<id>.html`** from the skill's template
    (`template-motion.html` for flows), following `diagrams/CLAUDE.md`.
 4. **Render**: `make diagrams-render ID=<id>` (gate first, then PNG). Fix every
@@ -60,7 +60,7 @@ loop live in `diagrams/CLAUDE.md`. Read it first, every time.
 ## Handoff
 
 Report per diagram: files changed, PNG size, gate output, a coverage table (AWS
-services drawn vs. the Remotion view it replaces, when one exists), any zoning,
+services drawn vs. the previous version, when one exists), any zoning,
 merge or cut forced by the budget, embed requests for `obsidian-vault` (note
 path and image path), and lesson candidates. Do not commit.
 

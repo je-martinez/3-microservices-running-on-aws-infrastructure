@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-07-03
-updated: 2026-10-06
+updated: 2026-10-13
 tags:
   - type/convention
   - area/shared
@@ -166,7 +166,7 @@ plus **one line on what changed**.
 ```markdown
 ## Diagrams
 
-![orders checkout](https://github.com/je-martinez/3-microservices-running-on-aws-infrastructure/raw/<branch>/<path>.gif)
+![orders checkout](https://github.com/je-martinez/3-microservices-running-on-aws-infrastructure/raw/<branch>/<path>.png)
 
 Checkout now shows the Stripe webhook step.
 ```

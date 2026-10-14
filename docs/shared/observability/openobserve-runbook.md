@@ -4,7 +4,7 @@ type: runbook
 area: shared
 status: active
 created: 2026-07-10
-updated: 2026-10-06
+updated: 2026-10-13
 integration-status: verified
 verified-on: 2026-08-21
 verified-by: Jose E. Martinez
@@ -212,7 +212,7 @@ project, not just observability.
 
 ## Traces
 
-![[observability-telemetry.gif]]
+![[observability-telemetry.png]]
 
 Traces share the same OpenObserve instance and org as logs (org `3mrai`, stream `app_traces`,
 port `:5080`) — there is no separate tracing UI. See
@@ -277,7 +277,7 @@ removed and the collector's traces pipeline now exports to `otlp_http/openobserv
 
 ## Dashboards (as code)
 
-![[business-metrics.gif]]
+![[business-metrics.png]]
 
 Dashboards are version-controlled JSON, not click-ops in the UI. They live in
 `observability/dashboards/*.dashboard.json`:

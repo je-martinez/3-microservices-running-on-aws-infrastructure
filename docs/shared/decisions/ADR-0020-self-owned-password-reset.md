@@ -5,7 +5,7 @@ area: shared
 status: accepted
 id: ADR-0020
 created: 2026-08-09
-updated: 2026-10-06
+updated: 2026-10-13
 deciders: [Jose E. Martinez]
 supersedes: null
 superseded-by: null
@@ -37,7 +37,7 @@ here: both the native path and a self-owned path were probed empirically before 
 
 ## Decision — Users mints the code, emails it via the events pipeline, applies the change with `AdminSetUserPassword`
 
-![[users-password-reset.gif]]
+![[users-password-reset.png]]
 
 **Cognito's own `ForgotPassword`/`ConfirmForgotPassword` is not used anywhere in this flow.**
 Three separate, measured findings rule it out — none of them assumed:
