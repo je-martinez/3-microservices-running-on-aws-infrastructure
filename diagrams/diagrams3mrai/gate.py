@@ -14,13 +14,18 @@ import yaml
 from diagrams3mrai.catalog import REPO_ROOT, Entry, load_catalog, select
 
 ICON_PREFIX = "https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/"
+DEVICON_PREFIX = "https://cdn.jsdelivr.net/npm/devicon@2.16.0/icons/"
 ICONS_PATH = REPO_ROOT / "diagrams" / "icons.yaml"
 MAX_WIDTH = 2000
 PLUGIN_CACHE = Path.home() / ".claude/plugins/cache/diagram-design/diagram-design"
 _SELF_CHECK_REL = Path("skills/diagram-design/scripts/self_check.py")
 # CONTRACT: self_check truncates URLs to 80 chars; this filter only drops the error, check_icons validates the full URL.
-_TOLERATED = "remote reference on <image>: " + ICON_PREFIX
-_ICON_PATH = re.compile(r"(architecture-service|architecture-group|resource|category)/[A-Za-z0-9]+\.svg")
+_TOLERATED = tuple("remote reference on <image>: " + p for p in (ICON_PREFIX, DEVICON_PREFIX))
+# icons.yaml section → (pinned package prefix, allowed path shape).
+_SECTIONS = {
+    "icons": (ICON_PREFIX, re.compile(r"(architecture-service|architecture-group|resource|category)/[A-Za-z0-9]+\.svg")),
+    "devicon": (DEVICON_PREFIX, re.compile(r"[a-z0-9]+/[a-z0-9]+-[a-z0-9-]+\.svg")),
+}
 
 
 class GateSetupError(RuntimeError):
@@ -28,11 +33,16 @@ class GateSetupError(RuntimeError):
 
 
 def load_icons(path: Path = ICONS_PATH) -> dict[str, str]:
-    raw = yaml.safe_load(path.read_text(encoding="utf-8"))["icons"]
-    for key, rel in raw.items():
-        if not _ICON_PATH.fullmatch(rel):
-            raise ValueError(f"icons.yaml {key}: invalid path {rel}")
-    return {key: ICON_PREFIX + rel for key, rel in raw.items()}
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    icons: dict[str, str] = {}
+    for section, (prefix, shape) in _SECTIONS.items():
+        for key, rel in (data.get(section) or {}).items():
+            if not shape.fullmatch(rel):
+                raise ValueError(f"icons.yaml {section}.{key}: invalid path {rel}")
+            if key in icons:
+                raise ValueError(f"icons.yaml {key}: key defined in more than one section")
+            icons[key] = prefix + rel
+    return icons
 
 
 class _Images(HTMLParser):

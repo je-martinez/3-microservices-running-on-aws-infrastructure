@@ -41,7 +41,7 @@ Every architecture map, flow and milestone-dependency graph in the vault is a ha
 
 ## Sources, catalog and outputs
 
-- `diagrams/catalog.yaml`: one entry per diagram (`id`, `title`, `src`, `output`, `watches`). `diagrams/icons.yaml`: the icon allowlist.
+- `diagrams/catalog.yaml`: one entry per diagram (`id`, `title`, `src`, `output`, `watches`). `diagrams/icons.yaml`: the icon allowlist, in two sections (`icons`, `devicon`).
 - Sources: `diagrams/src/{architecture,system-context,flows,milestones}/<id>.html`.
 - Output: `docs/**/diagrams/<id>.png` beside the owning note (for example `docs/domains/orders/specs/diagrams/`, `docs/plans/diagrams/`). Embed by **output basename** with `![[<basename>.png]]`; for milestone graphs the basename differs from the id (id `milestone-<slug>-deps`, embed `![[<slug>-deps.png]]`). PNG is the only output: no GIF, no MP4.
 - The PNG is generated and never hand-edited; a change goes through the HTML source and a re-render.
@@ -51,7 +51,7 @@ Every architecture map, flow and milestone-dependency graph in the vault is a ha
 
 The contract with every detail is `diagrams/CLAUDE.md`; the four pilots there are the reference implementations.
 
-- **Style and icons.** Skill default style; AWS icons only from `aws-icons@3.2.0` on jsDelivr, via `icons.yaml`. Non-AWS things use generic icons or plain nodes.
+- **Style and icons.** Skill default style. Icons come only from two pinned jsDelivr packages, declared in `icons.yaml`: `icons` (AWS Architecture Icons, `aws-icons@3.2.0`) for AWS services, and `devicon` (`devicon@2.16.0`) for technology logos. A Docker Compose container uses the `docker` whale (`docker/docker-original.svg`), not the generic server icon. Keys are unique across sections, any other URL fails `make diagrams-gate`, and neither version is ever changed. Other non-AWS things use generic icons or plain nodes. See [[ADR-0024-diagram-design-diagrams]].
 - **Zones, not AWS frames.** At most 3 zones per diagram, drawn around the boundaries edges point at. VPC, subnets and clusters are named in tags and the legend unless edges target them.
 - **Entry on the left** (browser, API Gateway, ALB, ECS, data, events), at most 2000 px wide, viewBox trimmed to the content.
 - **Solid is synchronous, dashed is async** (queues, topics, EventBridge, webhooks).

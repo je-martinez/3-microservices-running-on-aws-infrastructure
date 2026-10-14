@@ -1,5 +1,6 @@
-# Allowlist of AWS Architecture Icons (aws-icons@3.2.0 on jsDelivr) a diagram may reference.
-# A diagram's <image href> must be ICON_PREFIX + one of these values; anything else fails make diagrams-gate.
+# Allowlist of icons a diagram may reference: `icons` = AWS Architecture Icons (aws-icons@3.2.0 on jsDelivr),
+# `devicon` = technology logos (devicon@2.16.0 on jsDelivr). A diagram's <image href> must be the section's
+# pinned prefix + one of its values; anything else fails make diagrams-gate. Keys are unique across sections.
 icons:
   api-gateway: architecture-service/AmazonAPIGateway.svg
   aurora: architecture-service/AmazonAurora.svg
@@ -38,3 +39,5 @@ icons:
   group-vpc: architecture-group/VirtualprivatecloudVPC.svg
   group-private-subnet: architecture-group/Privatesubnet.svg
   group-public-subnet: architecture-group/Publicsubnet.svg
+devicon:
+  docker: docker/docker-original.svg

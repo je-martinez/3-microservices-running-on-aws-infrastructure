@@ -4,7 +4,7 @@ import pytest
 
 from diagrams3mrai.catalog import Entry
 from diagrams3mrai.gate import (
-    ICON_PREFIX, check_entry, check_icons, filter_self_check, image_hrefs, load_icons, load_verify, orphans,
+    DEVICON_PREFIX, ICON_PREFIX, check_entry, check_icons, filter_self_check, image_hrefs, load_icons, load_verify, orphans,
     self_check_available, view_box_width,
 )
 
@@ -20,7 +20,26 @@ def svg(body: str, width: int = 400) -> str:
 def test_load_icons_builds_full_urls():
     icons = load_icons()
     assert icons["lambda"] == LAMBDA
-    assert all(u.startswith(ICON_PREFIX) and u.endswith(".svg") for u in icons.values())
+    assert all(u.startswith((ICON_PREFIX, DEVICON_PREFIX)) and u.endswith(".svg") for u in icons.values())
+
+
+def test_load_icons_reads_the_devicon_section():
+    icons = load_icons()
+    assert icons["docker"] == DEVICON_PREFIX + "docker/docker-original.svg"
+
+
+def test_load_icons_rejects_bad_devicon_path(tmp_path):
+    p = tmp_path / "icons.yaml"
+    p.write_text("icons:\n  lambda: architecture-service/AWSLambda.svg\ndevicon:\n  d: ../docker/x.svg\n")
+    with pytest.raises(ValueError, match="d"):
+        load_icons(p)
+
+
+def test_load_icons_rejects_a_key_in_both_sections(tmp_path):
+    p = tmp_path / "icons.yaml"
+    p.write_text("icons:\n  x: architecture-service/AWSLambda.svg\ndevicon:\n  x: docker/docker-original.svg\n")
+    with pytest.raises(ValueError, match="x"):
+        load_icons(p)
 
 
 def test_load_icons_rejects_bad_path(tmp_path):
@@ -55,6 +74,17 @@ def test_prefix_match_alone_is_not_enough():
     errors = [f"remote reference on <image>: {url[:80]}"]
     assert filter_self_check(errors) == []
     assert check_icons(svg(f'<image href="{url}"/>'), ALLOWED) != []
+
+
+def test_filter_tolerates_devicon_but_check_icons_still_validates():
+    url = DEVICON_PREFIX + "docker/docker-plain.svg"
+    assert filter_self_check([f"remote reference on <image>: {url[:80]}"]) == []
+    assert check_icons(svg(f'<image href="{url}"/>'), ALLOWED) == [f"icon not in diagrams/icons.yaml: {url}"]
+
+
+def test_unpinned_devicon_is_not_tolerated():
+    url = "https://cdn.jsdelivr.net/npm/devicon@latest/icons/docker/docker-original.svg"
+    assert filter_self_check([f"remote reference on <image>: {url[:80]}"]) != []
 
 
 def test_filter_keeps_every_other_error():

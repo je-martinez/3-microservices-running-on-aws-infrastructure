@@ -5,7 +5,7 @@ area: shared
 status: accepted
 id: ADR-0024
 created: 2026-10-13
-updated: 2026-10-13
+updated: 2026-10-14
 deciders: [Jose E. Martinez]
 supersedes: "ADR-0023-remotion-diagrams"
 superseded-by: null
@@ -32,7 +32,7 @@ related:
 ## Decision
 
 1. **Style.** The skill's default style wins over the AWS reference-architecture look. A committed repo-root `.diagram-design` marker containing `profile: default` pins it, so no session hits the skill's first-run brand gate.
-2. **Icons.** Official AWS Architecture Icons from jsDelivr, package `aws-icons@3.2.0` (MIT), allow-listed in `diagrams/icons.yaml` (logical key to CDN path). The version is always 3.2.0. This is an **accepted deviation** from the skill's "no external images" rule; the gate filters only those URLs out of `self_check`'s remote-reference errors and any other remote URL still fails.
+2. **Icons.** Two pinned jsDelivr packages, allow-listed in `diagrams/icons.yaml` (logical key to CDN path), in two sections: `icons` (official AWS Architecture Icons, `aws-icons@3.2.0`, MIT) and `devicon` (technology logos, `devicon@2.16.0`, MIT). Neither version ever changes; keys are unique across sections. Devicon was added on 2026-10-14 because Docker publishes no official icon CDN (its brand kit is a ZIP download), and it is coloured like the AWS icons, whereas Simple Icons are monochrome and an `<image>` cannot be recoloured. First use: a Docker Compose container shows the Docker whale instead of the generic server icon. This is an **accepted deviation** from the skill's "no external images" rule; the gate filters only those two pinned URL shapes out of `self_check`'s remote-reference errors and any other remote URL still fails.
 3. **AWS group frames dropped.** Cloud/Region/VPC/AZ/subnet frames are replaced by at most 3 skill zones per diagram, drawn around the boundaries edges point at.
 4. **Flows.** Step-mode HTML (interactive, browser-only) plus a static PNG of the complete frame with numbered step badges inside the SVG. No GIF.
 5. **Branch.** The migration landed on `feature/remotion-diagrams`, replacing Remotion before PR #130 merged.

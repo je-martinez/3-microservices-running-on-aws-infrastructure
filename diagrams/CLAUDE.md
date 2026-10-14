@@ -5,7 +5,7 @@ Every architecture, flow and milestone-dependency diagram in the vault is a hand
 ## What lives here
 
 - `catalog.yaml` — one entry per diagram: `id`, `title`, `src` (`diagrams/src/<group>/<id>.html`), `output` (vault path, no extension; the PNG is `<output>.png`), `watches` (globs whose change may make it stale).
-- `icons.yaml` — the only AWS icons a diagram may use: logical key → path inside `aws-icons@3.2.0` on jsDelivr.
+- `icons.yaml` — the only icons a diagram may use, in two pinned sections: logical key → path inside `aws-icons@3.2.0` (`icons`) or `devicon@2.16.0` (`devicon`) on jsDelivr.
 - `src/{architecture,system-context,flows,milestones}/<id>.html` — the sources.
 - `diagrams3mrai/` — Python toolchain: `catalog.py`, `drift.py`, `gate.py`, `render.py`. `tests/` — pytest.
 
@@ -25,9 +25,11 @@ Every architecture, flow and milestone-dependency diagram in the vault is a hand
 
 ## Icons
 
-- Draw an AWS node as `<image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/<path>" width="40" height="40"/>` with its name below, where `<path>` is a value of `icons.yaml`.
-- Need a new icon? Find it in the package (`https://data.jsdelivr.com/v1/packages/npm/aws-icons@3.2.0`), add a key to `icons.yaml`, and check it answers HTTP 200. Never change the version.
-- Non-AWS things (browser, users, Stripe, Geoapify, OpenObserve) use the `client`, `users`, `server` or `internet` icons, or a plain skill node box.
+- Icons come only from `icons.yaml`, which has two pinned sections: `icons` (`aws-icons@3.2.0`, AWS services) and `devicon` (`devicon@2.16.0`, technology logos).
+- Draw an icon as `<image href="<prefix><path>" width="40" height="40"/>` with its name below, where `<prefix>` is `https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/` or `https://cdn.jsdelivr.net/npm/devicon@2.16.0/icons/` and `<path>` is a value of the matching section.
+- A Docker Compose container uses the `docker` whale (`devicon`).
+- Need a new icon or logo? Find it in its package (`https://data.jsdelivr.com/v1/packages/npm/aws-icons@3.2.0` or `.../devicon@2.16.0`), add a key to the matching section, and check it answers HTTP 200. Never change either version.
+- Other non-AWS things (browser, users, Stripe, Geoapify) use the `client`, `users`, `server` or `internet` icons, or a plain skill node box.
 
 ## Budget and coverage
 
@@ -84,7 +86,7 @@ The four pilots are the reference implementation; open the one of the same kind 
 ## Never
 
 - GIFs, MP4s or any other output than `<output>.png`.
-- An icon URL that is not `aws-icons@3.2.0` + a value of `icons.yaml`.
+- An icon URL that is not a pinned prefix (`aws-icons@3.2.0` or `devicon@2.16.0`) + a value of its `icons.yaml` section.
 - Edits to `.md` notes under `docs/` (report embed needs for `obsidian-vault`), git writes, Linear.
 
 ## Write boundary
