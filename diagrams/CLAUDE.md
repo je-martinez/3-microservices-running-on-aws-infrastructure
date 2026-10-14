@@ -11,7 +11,7 @@ Every architecture, flow and milestone-dependency diagram in the vault is a hand
 
 ## Prerequisites
 
-- The `diagram-design` plugin **v2.6.6** installed for your agent (Claude Code: `/plugin`; Codex ships its own manifest). The gate runs its `scripts/self_check.py` from `~/.claude/plugins/cache/diagram-design/diagram-design/2.6.6/`; set `DIAGRAM_DESIGN_SELF_CHECK=<path>` if yours lives elsewhere.
+- The `diagram-design` plugin **v2.6.6** installed for your agent. Claude Code: `.claude/settings.json` enables `diagram-design@diagram-design` and declares its marketplace (`cathrynlavery/diagram-design`), so `/plugin` offers it on a fresh clone; Codex ships its own manifest. The gate runs its `scripts/self_check.py` from `~/.claude/plugins/cache/diagram-design/diagram-design/2.6.6/`; set `DIAGRAM_DESIGN_SELF_CHECK=<path>` if yours lives elsewhere.
 - `make diagrams-setup` once per clone: installs this package, PyYAML, Playwright and Chromium into the repo `.venv`. No apply target needs it.
 - The repo-root `.diagram-design` marker pins the skill's default style (`profile: default`). Never customise the style guide for this repo.
 
@@ -51,7 +51,7 @@ Every architecture, flow and milestone-dependency diagram in the vault is a hand
 
 | Command | What it does |
 |---|---|
-| `make diagrams-gate [ID=a,b]` | Skill self_check (filtered to allow-listed icons), icon allowlist, width cap, catalog ↔ sources parity. Fails. |
+| `make diagrams-gate [ID=a,b]` | Skill self_check (filtered to allow-listed icons), icon allowlist, width cap; without `ID`, also catalog ↔ sources ↔ PNG parity. Fails. |
 | `make diagrams-render [ID=a,b]` | Gate, then PNG to `<output>.png` (static frame, opaque paper, viewBox × 2). Warns over 2 MB. |
 | `make diagrams-check` | Lists diagrams whose `watches`, `src` or shared render inputs changed vs `DIAGRAMS_BASE` (default `main`) without a re-render. Never fails. |
 | `make diagrams-studio ID=<id>` | Opens the interactive HTML in the browser. |
