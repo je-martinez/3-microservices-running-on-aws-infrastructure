@@ -1,0 +1,319 @@
+# Every diagram: its diagram-design source, its PNG output (no extension) and the paths whose change may make it stale.
+entries:
+- id: architecture-dev-floci
+  title: Architecture — local dev (Floci) — request path
+  src: diagrams/src/architecture/architecture-dev-floci.html
+  output: docs/00-overview/diagrams/architecture-dev-floci
+  watches:
+  - infra/modules/**
+  - infra/environments/local/**
+  - docker-compose.yml
+  - observability/otel-collector-config.yaml
+  - services/users/src/shared/realtime/**
+  - apps/web/src/app/core/payments/**
+  - services/users/src/shared/stripe/**
+  - services/orders/src/Orders.Infrastructure/Payments/**
+  - apps/web/nginx.conf
+  - apps/web/src/app/core/api/geocode-api.ts
+- id: architecture-dev-floci-events
+  title: Architecture — local dev (Floci) — events & observability
+  src: diagrams/src/architecture/architecture-dev-floci-events.html
+  output: docs/00-overview/diagrams/architecture-dev-floci-events
+  watches:
+  - infra/modules/**
+  - infra/environments/local/**
+  - docker-compose.yml
+  - observability/otel-collector-config.yaml
+  - services/users/src/shared/realtime/**
+- id: architecture-preprod
+  title: Architecture — pre-prod (ECS on Floci) — request path
+  src: diagrams/src/architecture/architecture-preprod.html
+  output: docs/00-overview/diagrams/architecture-preprod
+  watches:
+  - infra/modules/**
+  - infra/environments/preprod/**
+  - docker-compose.preprod.yml
+  - observability/otel-collector-config.yaml
+  - services/users/src/shared/realtime/**
+  - apps/web/src/app/core/payments/**
+  - services/users/src/shared/stripe/**
+  - services/orders/src/Orders.Infrastructure/Payments/**
+  - apps/web/nginx.conf
+  - apps/web/src/app/core/api/geocode-api.ts
+- id: architecture-preprod-events
+  title: Architecture — pre-prod (ECS on Floci) — events & observability
+  src: diagrams/src/architecture/architecture-preprod-events.html
+  output: docs/00-overview/diagrams/architecture-preprod-events
+  watches:
+  - infra/modules/**
+  - infra/environments/preprod/**
+  - docker-compose.preprod.yml
+  - observability/otel-collector-config.yaml
+  - services/users/src/shared/realtime/**
+- id: system-context-l1
+  title: System context — Level 1
+  src: diagrams/src/system-context/system-context-l1.html
+  output: docs/00-overview/diagrams/system-context-l1
+  watches:
+  - infra/modules/api-gateway/**
+  - infra/modules/cognito/**
+  - services/*/openapi.yaml
+  - apps/web/nginx.conf
+  - infra/modules/compute/**
+  - infra/modules/alb/**
+  - infra/modules/docdb/**
+  - infra/modules/redis/**
+- id: system-context-l2
+  title: System context — Level 2 (containers) — request path
+  src: diagrams/src/system-context/system-context-l2.html
+  output: docs/00-overview/diagrams/system-context-l2
+  watches:
+  - infra/modules/api-gateway/**
+  - infra/modules/cognito/**
+  - services/*/openapi.yaml
+  - apps/web/nginx.conf
+  - infra/modules/compute/**
+  - infra/modules/alb/**
+  - infra/modules/docdb/**
+  - infra/modules/redis/**
+  - infra/modules/messaging/**
+  - infra/modules/lambda/**
+  - infra/modules/api-gateway-ws/**
+  - infra/modules/dynamodb/**
+  - infra/modules/ecr/**
+  - infra/modules/app-config/**
+  - infra/modules/ecs-service/**
+  - infra/modules/assets-bucket/**
+  - infra/modules/rds-aurora/**
+  - infra/environments/preprod/*.tf
+  - observability/otel-collector-config.yaml
+  - services/users/src/shared/realtime/**
+- id: system-context-l2-events
+  title: System context — Level 2 (containers) — events & observability
+  src: diagrams/src/system-context/system-context-l2-events.html
+  output: docs/00-overview/diagrams/system-context-l2-events
+  watches:
+  - infra/modules/api-gateway/**
+  - infra/modules/cognito/**
+  - services/*/openapi.yaml
+  - apps/web/nginx.conf
+  - infra/modules/compute/**
+  - infra/modules/alb/**
+  - infra/modules/docdb/**
+  - infra/modules/redis/**
+  - infra/modules/messaging/**
+  - infra/modules/lambda/**
+  - infra/modules/api-gateway-ws/**
+  - infra/modules/dynamodb/**
+  - infra/modules/ecr/**
+  - infra/modules/app-config/**
+  - infra/modules/ecs-service/**
+  - infra/modules/assets-bucket/**
+  - infra/modules/rds-aurora/**
+  - infra/environments/preprod/*.tf
+  - observability/otel-collector-config.yaml
+  - services/users/src/shared/realtime/**
+- id: milestone-users-service-deps
+  title: Users Service milestone dependencies
+  src: diagrams/src/milestones/milestone-users-service-deps.html
+  output: docs/plans/diagrams/users-service-deps
+  watches:
+  - docs/plans/users-service-milestone.md
+- id: milestone-services-infra-scaffold-deps
+  title: Services and Infra Scaffold milestone dependencies
+  src: diagrams/src/milestones/milestone-services-infra-scaffold-deps.html
+  output: docs/plans/diagrams/services-infra-scaffold-deps
+  watches:
+  - docs/plans/services-infra-scaffold-milestone.md
+- id: milestone-documentation-vault-deps
+  title: Documentation Vault milestone dependencies
+  src: diagrams/src/milestones/milestone-documentation-vault-deps.html
+  output: docs/plans/diagrams/documentation-vault-deps
+  watches:
+  - docs/plans/documentation-vault-milestone.md
+- id: users-signup-otp
+  title: Passwordless sign-up, then the first emailed code
+  src: diagrams/src/flows/users-signup-otp.html
+  output: docs/domains/users/specs/diagrams/users-signup-otp
+  watches:
+  - services/users/src/users/commands/register-passwordless.command.ts
+  - services/users/src/users/commands/*-otp-challenge.command.ts
+  - infra/modules/cognito/otp-challenge-lambda/**
+  - functions/events-pipeline/src/handlers/user-created.ts
+  - functions/events-pipeline/src/handlers/auth-otp-requested.ts
+- id: users-password-reset
+  title: Self-owned password reset
+  src: diagrams/src/flows/users-password-reset.html
+  output: docs/domains/users/specs/diagrams/users-password-reset
+  watches:
+  - services/users/src/users/commands/forgot-password.command.ts
+  - services/users/src/users/commands/confirm-password-reset.command.ts
+  - services/users/src/shared/cache/reset-code-store.ts
+  - services/users/src/shared/auth/reset-code.ts
+  - functions/events-pipeline/src/handlers/password-reset-requested.ts
+- id: orders-checkout-stripe
+  title: Checkout with a Stripe charge
+  src: diagrams/src/flows/orders-checkout-stripe.html
+  output: docs/domains/orders/specs/diagrams/orders-checkout-stripe
+  watches:
+  - services/orders/src/Orders.Api/Endpoints/CreateOrderEndpoint.cs
+  - services/orders/src/Orders.Api/Endpoints/StripeWebhookEndpoints.cs
+  - services/orders/src/Orders.Api/Payments/**
+  - services/orders/src/Orders.Application/Orders/CreateOrderCommand.cs
+  - services/orders/src/Orders.Infrastructure/Orders/CreateOrderService.cs
+  - services/orders/src/Orders.Infrastructure/Payments/**
+  - services/orders/src/Orders.Infrastructure/Grpc/UserDirectoryGrpcClient.cs
+  - services/orders/src/Orders.Infrastructure/Tracking/TrackingHttpClient.cs
+  - services/orders/src/Orders.Infrastructure/Messaging/SnsEventPublisher.cs
+  - functions/events-pipeline/src/handlers/order-created.ts
+- id: tracking-notification
+  title: Delivery status change to an in-app toast
+  src: diagrams/src/flows/tracking-notification.html
+  output: docs/domains/tracking/specs/diagrams/tracking-notification
+  watches:
+  - services/tracking-go/internal/adapter/http/handler_carrier.go
+  - services/tracking-go/internal/app/update_status.go
+  - services/tracking-go/internal/adapter/mysql/outbox_writer.go
+  - services/tracking-go/internal/outbox/**
+  - services/tracking-go/internal/adapter/notify/**
+  - infra/modules/messaging/**
+  - functions/realtime-events/**
+  - functions/events-pipeline/src/handlers/tracking-status-changed.ts
+  - services/users/src/notifications/**
+  - services/users/src/shared/realtime/**
+- id: observability-telemetry
+  title: How logs, traces and metrics reach OpenObserve
+  src: diagrams/src/flows/observability-telemetry.html
+  output: docs/shared/observability/diagrams/observability-telemetry
+  watches:
+  - observability/**
+  - docker-compose.yml
+  - apps/web/nginx.conf
+- id: auth-passwordless-otp-signin
+  title: Passwordless sign-in with an emailed code
+  src: diagrams/src/flows/auth-passwordless-otp-signin.html
+  output: docs/domains/users/specs/diagrams/auth-passwordless-otp-signin
+  watches:
+  - infra/modules/cognito/**
+  - functions/events-pipeline/src/handlers/auth-otp-requested.ts
+  - services/users/src/users/commands/*-otp-challenge.command.ts
+- id: auth-password-signin-refresh
+  title: Password sign-in and token refresh
+  src: diagrams/src/flows/auth-password-signin-refresh.html
+  output: docs/domains/users/specs/diagrams/auth-password-signin-refresh
+  watches:
+  - infra/modules/cognito/**
+  - infra/modules/api-gateway/**
+  - apps/web/src/app/core/auth/refresh-interceptor.ts
+- id: users-cognito-identity-webhook
+  title: Cognito identity capture
+  src: diagrams/src/flows/users-cognito-identity-webhook.html
+  output: docs/domains/users/specs/diagrams/users-cognito-identity-webhook
+  watches:
+  - services/users/src/users/commands/register.command.ts
+  - services/users/src/users/commands/register-passwordless.command.ts
+  - services/users/src/users/webhooks/cognito.controller.ts
+  - services/users/src/features/users/webhooks/**
+- id: users-account-deletion-cascade
+  title: Account deletion cascade
+  src: diagrams/src/flows/users-account-deletion-cascade.html
+  output: docs/domains/users/specs/diagrams/users-account-deletion-cascade
+  watches:
+  - services/users/src/users/commands/delete-account.command.ts
+  - services/users/src/shared/http/cascade-client.ts
+  - services/orders/src/Orders.Api/Endpoints/InternalEndpoints.cs
+  - services/orders/src/Orders.Infrastructure/Orders/DeleteOrdersByUserService.cs
+  - services/tracking-go/internal/adapter/http/handler_internal_delete.go
+  - services/tracking-go/internal/app/delete_by_user.go
+  - services/tracking-go/internal/adapter/mysql/soft_delete.go
+- id: orders-catalogue-cart
+  title: Browse the catalogue and edit the cart
+  src: diagrams/src/flows/orders-catalogue-cart.html
+  output: docs/domains/orders/specs/diagrams/orders-catalogue-cart
+  watches:
+  - services/orders/src/Orders.Api/Endpoints/CartEndpoints.cs
+  - services/orders/src/Orders.Api/Endpoints/ProductEndpoints.cs
+  - services/orders/src/Orders.Infrastructure/Carts/**
+  - services/orders/src/Orders.Infrastructure/Caching/**
+  - apps/web/src/app/features/cart/**
+  - apps/web/src/app/features/catalogue/**
+  - apps/web/src/app/core/cart/**
+- id: response-cache
+  title: Shared response cache, shown on the Users profile read
+  src: diagrams/src/flows/response-cache.html
+  output: docs/shared/patterns/diagrams/response-cache
+  watches:
+  - services/*/src/shared/cache/**
+  - services/orders/src/Orders.Infrastructure/Caching/**
+  - infra/modules/redis/**
+- id: checkout-address-geocoding-proxy
+  title: Street autocomplete through a same-origin proxy
+  src: diagrams/src/flows/checkout-address-geocoding-proxy.html
+  output: docs/domains/orders/specs/diagrams/checkout-address-geocoding-proxy
+  watches:
+  - apps/web/nginx.conf
+  - apps/web/src/app/core/api/geocode-api.ts
+  - apps/web/src/app/shared/ui/street-autocomplete.ts
+  - apps/web/src/app/features/checkout/checkout-payment.ts
+- id: tracking-outbox-relay
+  title: Tracking transactional outbox relay
+  src: diagrams/src/flows/tracking-outbox-relay.html
+  output: docs/domains/tracking/specs/diagrams/tracking-outbox-relay
+  watches:
+  - services/tracking-go/internal/outbox/**
+  - services/tracking-go/internal/bus/**
+  - services/tracking-go/internal/app/update_status.go
+- id: events-pipeline-fanout-dlq
+  title: Events fan-out, retries and the dead-letter queue
+  src: diagrams/src/flows/events-pipeline-fanout-dlq.html
+  output: docs/domains/events-pipeline/specs/diagrams/events-pipeline-fanout-dlq
+  watches:
+  - functions/events-pipeline/src/**
+  - infra/modules/messaging/**
+  - infra/modules/lambda/**
+- id: websocket-lifecycle
+  title: WebSocket connection lifecycle
+  src: diagrams/src/flows/websocket-lifecycle.html
+  output: docs/infrastructure/specs/diagrams/websocket-lifecycle
+  watches:
+  - functions/realtime-events/**
+  - infra/modules/api-gateway-ws/**
+  - functions/events-pipeline/src/shared/realtime/**
+- id: business-metrics
+  title: How business metrics reach the dashboard
+  src: diagrams/src/flows/business-metrics.html
+  output: docs/shared/observability/diagrams/business-metrics
+  watches:
+  - services/*/src/shared/metrics/**
+  - services/orders/src/Orders.Api/BackgroundServices/OrdersMetricsPublisher.cs
+  - services/tracking-go/internal/adapter/cloudwatch/**
+  - functions/events-pipeline/src/handler.ts
+  - observability/**
+- id: browser-rum
+  title: How browser telemetry reaches OpenObserve
+  src: diagrams/src/flows/browser-rum.html
+  output: docs/shared/observability/diagrams/browser-rum
+  watches:
+  - apps/web/src/app/core/observability/**
+  - apps/web/nginx.conf
+  - observability/otel-collector-config.yaml
+  - observability/dashboards/rum.dashboard.json
+- id: preprod-deploy
+  title: How make preprod-up deploys pre-prod on Floci
+  src: diagrams/src/flows/preprod-deploy.html
+  output: docs/infrastructure/runbooks/diagrams/preprod-deploy
+  watches:
+  - infra/environments/preprod/**
+  - docker-compose.preprod.yml
+  - Makefile
+- id: terraform-two-phase-apply
+  title: Two-phase Terraform apply in make bootstrap
+  src: diagrams/src/flows/terraform-two-phase-apply.html
+  output: docs/infrastructure/decisions/diagrams/terraform-two-phase-apply
+  watches:
+  - infra/environments/local/backend/**
+  - infra/environments/local/*.tf
+  - infra/environments/local/post/**
+  - infra/environments/local/backend.hcl
+  - infra/modules/tf-backend/**
+  - infra/scripts/lib3mrai/execution_log.py

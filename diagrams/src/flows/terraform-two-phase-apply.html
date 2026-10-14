@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Two-phase Terraform apply in make bootstrap</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    :root {
+      --color-paper: #f5f5f5;
+      --color-ink: #2d3142;
+      --color-muted: #4f5d75;
+      --color-soft: #7a8399;
+      --color-accent: #eb6c36;
+      --color-rule: rgba(45,49,66,0.12);
+      --font-sans: 'Geist', system-ui, sans-serif;
+      --font-serif: 'Instrument Serif', serif;
+      --font-mono: 'Geist Mono', ui-monospace, monospace;
+      --motion-fast: 160ms;
+      --motion-step: 480ms;
+      --motion-hold: 960ms;
+      --motion-total: 7680ms;
+      --motion-ease: cubic-bezier(.2,.8,.2,1);
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 48px 32px;
+      color: var(--color-ink);
+      background: var(--color-paper);
+      font-family: var(--font-sans);
+    }
+    [data-motion-root] { width: min(100%, 1360px); }
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--color-muted);
+      font: 500 12px/1.4 var(--font-mono);
+      letter-spacing: .18em;
+      text-transform: uppercase;
+    }
+    h1 { margin: 0 0 24px; font: 400 32px/1.15 var(--font-serif); }
+    svg { display: block; width: 100%; min-width: 720px; }
+
+    /* Static source is complete. Only an initialized enhancement hides items. */
+    .motion-ready [data-motion-item] {
+      opacity: .12;
+      transform: translateY(8px);
+      transform-box: fill-box;
+      transform-origin: center;
+      transition: opacity var(--motion-step) var(--motion-ease),
+                  transform var(--motion-step) var(--motion-ease);
+    }
+    .motion-ready [data-motion-item].is-visible,
+    .motion-ready[data-frame="end"] [data-motion-item],
+    .motion-ready[data-frame="static"] [data-motion-item] {
+      opacity: 1;
+      transform: none;
+    }
+    .motion-ready[data-frame="step"] [data-motion-item].is-current .badge { fill: var(--color-accent); }
+
+    [data-motion-controls] {
+      display: none;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--color-rule);
+    }
+    .motion-ready [data-motion-controls] { display: flex; }
+    [data-motion-controls][hidden] { display: none !important; }
+    [data-motion-controls] button {
+      min-width: 44px;
+      min-height: 44px;
+      padding: 8px 12px;
+      border: 1px solid var(--color-muted);
+      border-radius: 4px;
+      color: var(--color-ink);
+      background: var(--color-paper);
+      font: 600 12px/1 var(--font-sans);
+      cursor: pointer;
+    }
+    [data-motion-controls] button:hover { border-color: var(--color-accent); }
+    [data-motion-controls] button:focus-visible {
+      outline: 3px solid var(--color-accent);
+      outline-offset: 2px;
+    }
+    [data-motion-controls] button:disabled { cursor: not-allowed; opacity: .45; }
+    [data-motion-status-visible] {
+      margin-left: auto;
+      color: var(--color-muted);
+      font: 500 12px/1.4 var(--font-mono);
+    }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0,0,0,0);
+      white-space: nowrap;
+      border: 0;
+    }
+    noscript p {
+      margin: 12px 0 0;
+      color: var(--color-muted);
+      font: 500 12px/1.4 var(--font-mono);
+    }
+
+    html[data-motion="static"] [data-motion-controls],
+    html[data-motion="static"] [data-motion-decorative] { display: none !important; }
+    html[data-motion="static"] [data-motion-item] {
+      opacity: 1 !important;
+      transform: none !important;
+      animation: none !important;
+      transition: none !important;
+    }
+    html[data-motion="step"] [data-motion-controls],
+    html[data-motion="step"] [data-motion-decorative] { display: none !important; }
+    html[data-motion="step"] [data-motion-item] {
+      animation: none !important;
+      transition: none !important;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: .001ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: .001ms !important;
+      }
+      [data-motion-item] { opacity: 1 !important; transform: none !important; }
+      [data-motion-decorative] { display: none !important; }
+      [data-motion-controls] { display: none !important; }
+    }
+    @media print {
+      [data-motion-controls], [data-motion-decorative] { display: none !important; }
+      [data-motion-item] {
+        opacity: 1 !important;
+        transform: none !important;
+        animation: none !important;
+        transition: none !important;
+      }
+    }
+
+    .lbl { fill: #7a8399; font: 400 8px var(--font-mono); letter-spacing: .06em; }
+    .zone-lbl { fill: rgba(45,49,66,0.55); font: 500 8px var(--font-mono); letter-spacing: .14em; }
+    .name { fill: #2d3142; font: 600 12px var(--font-sans); }
+    .sub { fill: #4f5d75; font: 400 8px var(--font-mono); letter-spacing: .04em; }
+    .badge { fill: #2d3142; }
+    .badge-n { fill: #f5f5f5; font: 600 12px var(--font-mono); }
+    .cap { fill: #2d3142; font: 400 12px var(--font-sans); }
+    .tag { fill: #7a8399; font: 400 7px var(--font-mono); letter-spacing: .08em; }
+    .eyebrow-svg { fill: #4f5d75; font: 500 8px var(--font-mono); letter-spacing: .14em; }
+  </style>
+</head>
+<body>
+  <main data-motion-root data-motion-mode="step" data-step-count="8" data-step-current="8" data-frame="static" data-static-frame="complete">
+    <p class="eyebrow">Infra · Flow · Local dev on Floci</p>
+    <h1>Two-phase Terraform apply in make bootstrap</h1>
+
+    <svg viewBox="0 96 1360 960" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="terraform-two-phase-apply-title terraform-two-phase-apply-desc">
+      <title id="terraform-two-phase-apply-title">Two-phase Terraform apply in make bootstrap</title>
+      <desc id="terraform-two-phase-apply-desc">make bootstrap first creates the Terraform state bucket, lock table and execution-log table, applies phase 1 to create the RDS clusters, converges the Docker Compose services, then applies a separate phase-2 root that reads phase-1 state and the master secret to create least-privilege database app-users and the email assets bucket.</desc>
+      <defs>
+        <marker id="ttpa-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+        </marker>
+        <marker id="ttpa-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/>
+        </marker>
+        <marker id="ttpa-arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+        </marker>
+      </defs>
+      <rect x="0" y="96" width="1360" height="960" fill="#f5f5f5"/>
+
+      <!-- Zones (painted first) -->
+      <rect x="16" y="528" width="160" height="136" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="0.8" stroke-dasharray="4,4"/>
+      <rect x="28" y="644" width="84" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="32" y="653" class="zone-lbl">DOCKER COMPOSE</text>
+
+      <rect x="488" y="312" width="848" height="384" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="0.8" stroke-dasharray="4,4"/>
+      <rect x="604" y="316" width="136" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="608" y="325" class="zone-lbl">FLOCI :4566 · LOCAL AWS</text>
+
+      <!-- Connectors (before nodes) -->
+      <!-- make bootstrap -> phase 1 root -->
+      <path d="M96,336 V172 Q96,164 104,164 H256" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ttpa-arrow)"/>
+      <!-- make bootstrap -> S3 (backend root) -->
+      <path d="M160,356 H512" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ttpa-arrow)"/>
+      <!-- make bootstrap -> DynamoDB (backend root), hops over phase 2 -> S3 -->
+      <path d="M160,380 H452 Q460,380 460,388 V472 Q460,480 468,480 H568 a8,8 0 0,1 16,0 H760 Q768,480 768,472 V424" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ttpa-arrow)"/>
+      <!-- make bootstrap -> services -->
+      <path d="M96,424 V552" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ttpa-arrow)"/>
+      <!-- make bootstrap -> phase 2 root -->
+      <path d="M160,404 H200 Q208,404 208,412 V588 Q208,596 216,596 H256" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ttpa-arrow)"/>
+      <!-- phase 1 -> RDS, DynamoDB, S3 -->
+      <path d="M384,136 H1016 Q1024,136 1024,144 V336" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ttpa-arrow)"/>
+      <path d="M384,164 H792 Q800,164 800,172 V336" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ttpa-arrow)"/>
+      <path d="M384,192 H568 Q576,192 576,200 V336" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ttpa-arrow)"/>
+      <!-- phase 2 -> S3, DynamoDB, RDS (focal), Secrets Manager -->
+      <path d="M384,568 H568 Q576,568 576,560 V424" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ttpa-arrow)"/>
+      <path d="M384,588 H824 Q832,588 832,580 V424" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ttpa-arrow)"/>
+      <path d="M384,608 H1016 Q1024,608 1024,600 V424" fill="none" stroke="#eb6c36" stroke-width="1.2" marker-end="url(#ttpa-arrow-accent)"/>
+      <path d="M384,628 H1184" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ttpa-arrow)"/>
+
+      <!-- Arrow labels (masked, 8px off their stroke) -->
+      <rect x="124" y="144" width="32" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="140" y="153" class="lbl" text-anchor="middle">APPLY</text>
+      <rect x="228" y="336" width="72" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="264" y="345" class="lbl" text-anchor="middle">STATE BACKEND</text>
+      <rect x="600" y="460" width="56" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="628" y="469" class="lbl" text-anchor="middle">LOCK + LOG</text>
+      <rect x="104" y="492" width="48" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="128" y="501" class="lbl" text-anchor="middle">CONVERGE</text>
+      <rect x="216" y="464" width="56" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="244" y="473" class="lbl" text-anchor="middle">APPLY POST</text>
+      <rect x="880" y="116" width="40" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="900" y="125" class="lbl" text-anchor="middle">CREATE</text>
+      <rect x="808" y="248" width="72" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="844" y="257" class="lbl" text-anchor="middle">LOCK, RUN LOG</text>
+      <rect x="584" y="256" width="64" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="616" y="265" class="lbl" text-anchor="middle">WRITE STATE</text>
+      <rect x="420" y="548" width="72" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="456" y="557" class="lbl" text-anchor="middle">STATE, ASSETS</text>
+      <rect x="840" y="496" width="72" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="876" y="505" class="lbl" text-anchor="middle">LOCK, RUN LOG</text>
+      <rect x="1032" y="496" width="52" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="1058" y="505" class="lbl" text-anchor="middle">APP-USERS</text>
+      <rect x="1048" y="608" width="72" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="1084" y="617" class="lbl" text-anchor="middle">MASTER SECRET</text>
+
+      <!-- Nodes -->
+      <!-- make bootstrap (input) -->
+      <rect x="32" y="336" width="128" height="88" rx="6" fill="#f5f5f5"/>
+      <rect x="32" y="336" width="128" height="88" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+      <rect x="40" y="344" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="54" y="353" class="tag" text-anchor="middle">HOST</text>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/Server.svg" x="76" y="344" width="40" height="40"/>
+      <text x="96" y="404" class="name" text-anchor="middle">make bootstrap</text>
+
+      <!-- Phase 1 root -->
+      <rect x="256" y="120" width="128" height="88" rx="6" fill="#f5f5f5"/>
+      <rect x="256" y="120" width="128" height="88" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="264" y="128" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="278" y="137" class="tag" text-anchor="middle">HOST</text>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/Server.svg" x="300" y="128" width="40" height="40"/>
+      <text x="320" y="184" class="name" text-anchor="middle">Phase 1 root</text>
+      <text x="320" y="200" class="sub" text-anchor="middle">Terraform</text>
+
+      <!-- Phase 2 root (focal) -->
+      <rect x="256" y="552" width="128" height="88" rx="6" fill="#f5f5f5"/>
+      <rect x="256" y="552" width="128" height="88" rx="6" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1.2"/>
+      <rect x="264" y="560" width="28" height="12" rx="2" fill="transparent" stroke="rgba(235,108,54,0.50)" stroke-width="0.8"/>
+      <text x="278" y="569" class="tag" text-anchor="middle">HOST</text>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/Server.svg" x="300" y="560" width="40" height="40"/>
+      <text x="320" y="616" class="name" text-anchor="middle">Phase 2 root</text>
+      <text x="320" y="632" class="sub" text-anchor="middle">Terraform · post/</text>
+
+      <!-- Services (Docker Compose) -->
+      <rect x="32" y="552" width="128" height="88" rx="6" fill="#f5f5f5"/>
+      <rect x="32" y="552" width="128" height="88" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/Server.svg" x="76" y="564" width="40" height="40"/>
+      <text x="96" y="624" class="name" text-anchor="middle">Services</text>
+
+      <!-- S3 buckets (store) -->
+      <rect x="512" y="336" width="128" height="88" rx="6" fill="#f5f5f5"/>
+      <rect x="512" y="336" width="128" height="88" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonSimpleStorageService.svg" x="556" y="344" width="40" height="40"/>
+      <text x="576" y="400" class="name" text-anchor="middle">S3 buckets</text>
+      <text x="576" y="416" class="sub" text-anchor="middle">state + assets</text>
+
+      <!-- DynamoDB (store) -->
+      <rect x="736" y="336" width="128" height="88" rx="6" fill="#f5f5f5"/>
+      <rect x="736" y="336" width="128" height="88" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonDynamoDB.svg" x="780" y="344" width="40" height="40"/>
+      <text x="800" y="400" class="name" text-anchor="middle">DynamoDB</text>
+      <text x="800" y="416" class="sub" text-anchor="middle">tf lock + exec log</text>
+
+      <!-- RDS clusters (store, in the VPC) -->
+      <rect x="960" y="336" width="128" height="88" rx="6" fill="#f5f5f5"/>
+      <rect x="960" y="336" width="128" height="88" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <rect x="968" y="344" width="24" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="980" y="353" class="tag" text-anchor="middle">VPC</text>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonRDS.svg" x="1004" y="344" width="40" height="40"/>
+      <text x="1024" y="400" class="name" text-anchor="middle">RDS clusters</text>
+      <text x="1024" y="416" class="sub" text-anchor="middle">Postgres + MySQL</text>
+
+      <!-- Secrets Manager (store) -->
+      <rect x="1184" y="584" width="128" height="88" rx="6" fill="#f5f5f5"/>
+      <rect x="1184" y="584" width="128" height="88" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AWSSecretsManager.svg" x="1228" y="592" width="40" height="40"/>
+      <text x="1248" y="648" class="name" text-anchor="middle">Secrets Manager</text>
+      <text x="1248" y="664" class="sub" text-anchor="middle">master secret</text>
+
+      <!-- Steps: badges on their connectors + the numbered caption list -->
+      <line x1="32" y1="720" x2="1328" y2="720" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="32" y="744" class="eyebrow-svg">STEPS</text>
+
+      <g data-motion-item data-step="1" aria-label="Step 1: the backend root creates the state bucket, lock table and execution-log table">
+        <circle class="badge" cx="336" cy="356" r="8"/><text class="badge-n" x="336" y="360" text-anchor="middle">1</text>
+        <circle class="badge" cx="704" cy="480" r="8"/><text class="badge-n" x="704" y="484" text-anchor="middle">1</text>
+        <circle class="badge" cx="40" cy="768" r="8"/><text class="badge-n" x="40" y="772" text-anchor="middle">1</text>
+        <text class="cap" x="56" y="772">The backend root keeps local state and creates the state bucket, the lock table and the execution-log table first</text>
+      </g>
+      <g data-motion-item data-step="2" aria-label="Step 2: phase 1 applies the base infra under the state lock">
+        <circle class="badge" cx="200" cy="164" r="8"/><text class="badge-n" x="200" y="168" text-anchor="middle">2</text>
+        <circle class="badge" cx="704" cy="164" r="8"/><text class="badge-n" x="704" y="168" text-anchor="middle">2</text>
+        <circle class="badge" cx="40" cy="800" r="8"/><text class="badge-n" x="40" y="804" text-anchor="middle">2</text>
+        <text class="cap" x="56" y="804">Phase 1 applies the base infra under the state lock; each awscli-fallback script records its run in the execution log</text>
+      </g>
+      <g data-motion-item data-step="3" aria-label="Step 3: phase 1 creates the RDS clusters and writes their endpoints to its state">
+        <circle class="badge" cx="952" cy="136" r="8"/><text class="badge-n" x="952" y="140" text-anchor="middle">3</text>
+        <circle class="badge" cx="480" cy="192" r="8"/><text class="badge-n" x="480" y="196" text-anchor="middle">3</text>
+        <circle class="badge" cx="40" cy="832" r="8"/><text class="badge-n" x="40" y="836" text-anchor="middle">3</text>
+        <text class="cap" x="56" y="836">The cluster endpoints exist only after this apply, too late for a DB provider in the same root; its outputs carry them and the master secret's ARN</text>
+      </g>
+      <g data-motion-item data-step="4" aria-label="Step 4: env files, migrations and services converge">
+        <circle class="badge" cx="96" cy="464" r="8"/><text class="badge-n" x="96" y="468" text-anchor="middle">4</text>
+        <circle class="badge" cx="40" cy="864" r="8"/><text class="badge-n" x="40" y="868" text-anchor="middle">4</text>
+        <text class="cap" x="56" y="868">Env files, migrations and services converge; safe to re-run, unlike the phase-1 apply</text>
+      </g>
+      <g data-motion-item data-step="5" aria-label="Step 5: phase 2 applies a separate root under the same lock table">
+        <circle class="badge" cx="208" cy="528" r="8"/><text class="badge-n" x="208" y="532" text-anchor="middle">5</text>
+        <circle class="badge" cx="832" cy="548" r="8"/><text class="badge-n" x="832" y="552" text-anchor="middle">5</text>
+        <circle class="badge" cx="40" cy="896" r="8"/><text class="badge-n" x="40" y="900" text-anchor="middle">5</text>
+        <text class="cap" x="56" y="900">Phase 2 is a separate root with its own state key and the same lock table; it fails without phase 1</text>
+      </g>
+      <g data-motion-item data-step="6" aria-label="Step 6: phase 2 reads phase-1 state and the master secret">
+        <circle class="badge" cx="520" cy="568" r="8"/><text class="badge-n" x="520" y="572" text-anchor="middle">6</text>
+        <circle class="badge" cx="1144" cy="628" r="8"/><text class="badge-n" x="1144" y="632" text-anchor="middle">6</text>
+        <circle class="badge" cx="40" cy="928" r="8"/><text class="badge-n" x="40" y="932" text-anchor="middle">6</text>
+        <text class="cap" x="56" y="932">Phase-1 remote state yields the endpoints and the secret ARN; the master credentials configure the postgresql and mysql providers</text>
+      </g>
+      <g data-motion-item data-step="7" aria-label="Step 7: phase 2 creates the least-privilege app-users">
+        <circle class="badge" cx="1024" cy="548" r="8"/><text class="badge-n" x="1024" y="552" text-anchor="middle">7</text>
+        <circle class="badge" cx="40" cy="960" r="8"/><text class="badge-n" x="40" y="964" text-anchor="middle">7</text>
+        <text class="cap" x="56" y="964">wait_for_db blocks until each DB accepts connections; the app-users get no DELETE</text>
+      </g>
+      <g data-motion-item data-step="8" aria-label="Step 8: phase 2 also owns the email assets bucket">
+        <circle class="badge" cx="576" cy="520" r="8"/><text class="badge-n" x="576" y="524" text-anchor="middle">8</text>
+        <circle class="badge" cx="40" cy="992" r="8"/><text class="badge-n" x="40" y="996" text-anchor="middle">8</text>
+        <text class="cap" x="56" y="996">Phase 2 also owns the bucket the email templates load their images from</text>
+      </g>
+
+      <!-- Legend strip -->
+      <line x1="32" y1="1016" x2="1328" y2="1016" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="32" y="1044" class="eyebrow-svg">LEGEND</text>
+      <line x1="104" y1="1040" x2="136" y2="1040" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ttpa-arrow)"/>
+      <text x="148" y="1044" class="lbl">APPLY OR CALL</text>
+      <line x1="248" y1="1040" x2="280" y2="1040" stroke="#eb6c36" stroke-width="1.2" marker-end="url(#ttpa-arrow-accent)"/>
+      <text x="292" y="1044" class="lbl">THE APP-USERS PHASE 1 CANNOT CREATE</text>
+      <rect x="500" y="1032" width="24" height="16" rx="4" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+      <text x="536" y="1044" class="lbl">FOCAL ROOT</text>
+      <rect x="624" y="1034" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="638" y="1043" class="tag" text-anchor="middle">HOST</text>
+      <text x="664" y="1044" class="lbl">RUNS ON THE DEVELOPER MACHINE</text>
+      <rect x="836" y="1034" width="24" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="848" y="1043" class="tag" text-anchor="middle">VPC</text>
+      <text x="872" y="1044" class="lbl">VPC 10.0.0.0/16 · SUBNETS A + B</text>
+      <circle class="badge" cx="1068" cy="1040" r="8"/><text class="badge-n" x="1068" y="1044" text-anchor="middle">n</text>
+      <text x="1084" y="1044" class="lbl">STEP · SEE CAPTION n</text>
+    </svg>
+
+    <div data-motion-controls role="group" aria-label="Diagram playback controls">
+      <button type="button" data-motion-action="prev">Previous</button>
+      <button type="button" data-motion-action="play" aria-pressed="false">Play</button>
+      <button type="button" data-motion-action="pause" aria-pressed="true">Pause</button>
+      <button type="button" data-motion-action="next">Next</button>
+      <button type="button" data-motion-action="replay">Replay</button>
+      <span class="keyboard-help">←/→ step · Space play/pause · R replay · Home/End jump</span>
+      <span data-motion-status-visible aria-hidden="true">Step <span data-motion-step-label>8</span> of 8</span>
+    </div>
+    <p class="sr-only" data-motion-status role="status" aria-live="polite" aria-atomic="true"></p>
+    <noscript><p>Animation controls require JavaScript. The complete final diagram is shown above.</p></noscript>
+  </main>
+
+  <script data-diagram-controls>
+    (() => {
+      const params = new URLSearchParams(location.search);
+      const staticOverride = params.get('motion') === 'static' || document.documentElement.dataset.motion === 'static';
+      const requestedStep = params.get('step');
+      const reduce = matchMedia('(prefers-reduced-motion: reduce)');
+      document.fonts.ready.then(() => { document.documentElement.dataset.fontsReady = 'true'; });
+
+      document.querySelectorAll('[data-motion-root]').forEach((root) => {
+        const count = Number(root.dataset.stepCount);
+        const hold = parseFloat(getComputedStyle(root).getPropertyValue('--motion-hold')) || 720;
+        const parsedStep = requestedStep !== null && /^\d+$/.test(requestedStep) ? Number(requestedStep) : null;
+        const exactStep = params.get('motion') === 'step' && Number.isSafeInteger(parsedStep) && parsedStep >= 0 && parsedStep <= count ? parsedStep : null;
+        const items = [...root.querySelectorAll('[data-motion-item]')];
+        const labels = Array.from({ length: count + 1 }, (_, index) => index === 0
+          ? 'Ready'
+          : items.filter((item) => !item.hasAttribute('data-motion-decorative') && Number(item.dataset.step) === index)
+              .map((item) => item.getAttribute('aria-label')).join('; '));
+        const controls = root.querySelector('[data-motion-controls]');
+        const status = root.querySelector('[data-motion-status]');
+        const visibleStep = root.querySelector('[data-motion-step-label]');
+        let step = count;
+        let timer = 0;
+        let playing = false;
+        let stepBeforeReduce = 0;
+        let resumeAfterReduce = root.dataset.motionMode === 'reveal';
+
+        const buttons = (action) => controls.querySelector(`[data-motion-action="${action}"]`);
+        const clearClock = () => { window.clearTimeout(timer); timer = 0; };
+        const announce = () => { status.textContent = `Step ${step} of ${count}: ${labels[step] || 'Complete'}`; };
+        const setControlsAvailable = (available) => {
+          controls.hidden = !available;
+          controls.setAttribute('aria-hidden', String(!available));
+          controls.dataset.playbackDisabled = String(!available);
+          controls.querySelectorAll('button').forEach((control) => { control.disabled = !available; });
+        };
+
+        function render(next, userInitiated = false) {
+          step = Math.max(0, Math.min(count, next));
+          root.dataset.stepCurrent = String(step);
+          root.dataset.frame = step === count ? 'end' : step === 0 ? 'start' : 'step';
+          items.forEach((item) => {
+            const itemStep = Number(item.dataset.step);
+            item.classList.toggle('is-visible', itemStep <= step);
+            item.classList.toggle('is-current', itemStep === step);
+          });
+          if (visibleStep) visibleStep.textContent = String(step);
+          const unavailable = controls.dataset.playbackDisabled === 'true';
+          buttons('prev').disabled = unavailable || step === 0;
+          buttons('next').disabled = unavailable || step === count;
+          if (userInitiated) announce();
+        }
+
+        function pause(userInitiated = false) {
+          clearClock();
+          playing = false;
+          root.classList.remove('is-playing');
+          buttons('play').setAttribute('aria-pressed', 'false');
+          buttons('pause').setAttribute('aria-pressed', 'true');
+          if (userInitiated) status.textContent = `Paused at step ${step} of ${count}`;
+        }
+
+        function finish() {
+          pause(false);
+          root.dataset.frame = 'end';
+          status.textContent = `Complete · step ${count} of ${count}`;
+        }
+
+        function tick() {
+          if (!playing) return;
+          if (step >= count) { finish(); return; }
+          render(step + 1, false);
+          if (step >= count) { finish(); return; }
+          timer = window.setTimeout(tick, hold);
+        }
+
+        function play(fromStart = false, userInitiated = false) {
+          clearClock();
+          if (fromStart || step >= count) render(0, userInitiated);
+          playing = true;
+          root.classList.add('is-playing');
+          buttons('play').setAttribute('aria-pressed', 'true');
+          buttons('pause').setAttribute('aria-pressed', 'false');
+          timer = window.setTimeout(tick, hold);
+        }
+
+        controls.addEventListener('click', (event) => {
+          const button = event.target.closest('[data-motion-action]');
+          if (!button) return;
+          const action = button.dataset.motionAction;
+          if (action === 'play') play(false, true);
+          if (action === 'pause') pause(true);
+          if (action === 'replay') play(true, true);
+          if (action === 'prev') { pause(false); render(step - 1, true); }
+          if (action === 'next') { pause(false); render(step + 1, true); }
+        });
+
+        root.addEventListener('keydown', (event) => {
+          if (event.target.matches('input, textarea, select, a[href]')) return;
+          const keys = { ArrowLeft: step - 1, ArrowRight: step + 1, Home: 0, End: count };
+          if (event.code === 'Space' && !event.target.closest('button')) {
+            event.preventDefault();
+            playing ? pause(true) : play(false, true);
+            return;
+          }
+          if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === 'r') {
+            event.preventDefault();
+            play(true, true);
+            return;
+          }
+          if (!(event.key in keys)) return;
+          event.preventDefault();
+          pause(false);
+          render(keys[event.key], true);
+        });
+
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'hidden' && playing) pause(false);
+        });
+        reduce.addEventListener('change', (event) => {
+          if (event.matches && root.dataset.motionState !== 'reduced') {
+            stepBeforeReduce = step;
+            resumeAfterReduce = playing;
+          }
+          pause(false);
+          if (event.matches) {
+            setControlsAvailable(false);
+            render(count, false);
+            root.dataset.frame = 'static';
+            root.dataset.motionState = 'reduced';
+            status.textContent = 'Reduced motion · complete static frame · playback controls unavailable';
+          } else if (staticOverride || root.dataset.motionMode === 'none') {
+            setControlsAvailable(false);
+            render(count, false);
+            root.dataset.frame = 'static';
+            root.dataset.motionState = 'static';
+            status.textContent = 'Static frame · complete diagram · playback controls unavailable';
+          } else {
+            delete root.dataset.motionState;
+            if (exactStep !== null) {
+              setControlsAvailable(false);
+              render(exactStep, false);
+              root.dataset.frame = 'step';
+              root.dataset.motionState = 'test';
+              status.textContent = `Test frame · step ${step} of ${count} · playback controls unavailable`;
+            } else {
+              setControlsAvailable(true);
+              render(stepBeforeReduce, false);
+              status.textContent = `Ready · step ${step} of ${count}`;
+              if (resumeAfterReduce && root.dataset.motionMode === 'reveal') {
+                play(false, false);
+              }
+            }
+            resumeAfterReduce = false;
+          }
+        });
+
+        if (staticOverride) {
+          document.documentElement.dataset.motion = 'static';
+          pause(false);
+          setControlsAvailable(false);
+          render(count, false);
+          root.dataset.frame = 'static';
+          root.dataset.motionState = 'static';
+          status.textContent = 'Static frame · complete diagram · playback controls unavailable';
+        } else if (reduce.matches || root.dataset.motionMode === 'none') {
+          pause(false);
+          setControlsAvailable(false);
+          render(count, false);
+          root.dataset.frame = 'static';
+          root.dataset.motionState = reduce.matches ? 'reduced' : 'static';
+          status.textContent = reduce.matches
+            ? 'Reduced motion · complete static frame · playback controls unavailable'
+            : 'Static frame · complete diagram · playback controls unavailable';
+        } else if (exactStep !== null) {
+          document.documentElement.dataset.motion = 'step';
+          pause(false);
+          setControlsAvailable(false);
+          render(exactStep, false);
+          root.dataset.frame = 'step';
+          root.dataset.motionState = 'test';
+          status.textContent = `Test frame · step ${step} of ${count} · playback controls unavailable`;
+        } else if (root.dataset.motionMode === 'reveal') {
+          setControlsAvailable(true);
+          render(0, false);
+          play(false, false);
+        } else {
+          pause(false);
+          setControlsAvailable(true);
+          render(0, false);
+          status.textContent = `Ready · step 0 of ${count}`;
+        }
+        root.classList.add('motion-ready');
+      });
+    })();
+  </script>
+</body>
+</html>

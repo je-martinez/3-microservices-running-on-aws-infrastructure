@@ -4,7 +4,7 @@ type: plan
 area: shared
 status: active
 created: 2026-09-19
-updated: 2026-09-30
+updated: 2026-10-06
 tags:
   - type/plan
   - area/shared
@@ -271,7 +271,7 @@ convention; superseded the moment the described worktree is deleted or the branc
 ## Related
 
 - [[milestone-plan]] — the convention this note follows (task sequence, dependency diagram, phase
-  grouping); this note uses a mermaid diagram rather than a `.drawio.svg`, and a PR-linked status
+  grouping); this note uses a mermaid diagram rather than a rendered dependency graph, and a PR-linked status
   table rather than a Linear issue table, because no Linear milestone exists yet for this work.
 - [[phase-c-review-flow]] — the batch-review/dependency-gate flow this milestone's GATE 1/GATE 2
   stop points follow.

@@ -4,7 +4,7 @@ type: adr
 area: infra
 status: accepted
 created: 2026-07-28
-updated: 2026-10-02
+updated: 2026-10-13
 tags:
   - type/adr
   - area/infra
@@ -27,6 +27,8 @@ related:
 # Two-phase Terraform apply: app-users created after infra is live
 
 ## Decision
+
+![[terraform-two-phase-apply.png]]
 
 Local (and, prospectively, production) infrastructure is applied in **two independent
 Terraform roots with separate state**:
@@ -327,3 +329,4 @@ different problem.
 - [[2026-07-30-post-infra-root-design]]
 - [[scripting-language]]
 - [[execution-log-for-provisioning-scripts]]
+- [[ADR-0024-diagram-design-diagrams]] — the diagram-design pipeline (hand-authored HTML sources, PNG rendered by `make diagrams-render`) that produces the embedded diagrams in this note

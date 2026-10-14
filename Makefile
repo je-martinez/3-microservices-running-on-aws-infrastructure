@@ -67,7 +67,7 @@ _tf_plugin_cache := $(shell mkdir -p $(TF_PLUGIN_CACHE_DIR))
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down logs build ps test-unit test-e2e test-all load-test load-test-smoke cache-toggle load-test-cache-ab-on load-test-cache-ab-off backend-up infra-init infra-plan lambda-bundles infra-up post-infra infra-down infra-output env-file stripe-webhook-secret migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor heal clean clean-state warm-images warm-nuget observability-up observability-down observability-dashboards observability-traces-schema redeploy-lambdas scripts-setup watch watch-stop watch-status watch-logs lint-comments lint-secrets lint-comments-diff install-comment-hook ai-sync ai-sync-check
+.PHONY: help up down logs build ps test-unit test-e2e test-all load-test load-test-smoke cache-toggle load-test-cache-ab-on load-test-cache-ab-off backend-up infra-init infra-plan lambda-bundles infra-up post-infra infra-down infra-output env-file stripe-webhook-secret migrate migrate-tracking assets-sync bootstrap bootstrap-provision bootstrap-converge doctor heal clean clean-state warm-images warm-nuget observability-up observability-down observability-dashboards observability-traces-schema redeploy-lambdas scripts-setup watch watch-stop watch-status watch-logs lint-comments lint-secrets lint-comments-diff install-comment-hook ai-sync ai-sync-check diagrams-setup diagrams-check diagrams-gate diagrams-studio diagrams-render
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -929,6 +929,35 @@ ai-sync-check: ## Verify provider configs are valid and the guard is in place (C
 	  || { echo "ERROR: provider config is stale — run 'make ai-sync' and commit the result"; \
 	       git status --porcelain .ai/ .cursor/ .windsurf/ .gemini/ .codex/ .agents/ .github/ .opencode/ .vscode/ AGENTS.md GEMINI.md opencode.json; exit 1; }
 	@echo "OK: providers valid, guard in place, committed output up to date"
+
+## --- Diagrams ---
+
+comma := ,
+
+diagrams-setup: $(PY) ## Install the diagram toolchain (Playwright + Chromium) into .venv; not needed by any apply target
+	$(VENV)/bin/pip install -q -e "diagrams[dev]"
+	$(VENV)/bin/python -m playwright install chromium
+
+# Every diagram target needs `make diagrams-setup`; the check warns without it, the others fail with the fix.
+DIAGRAMS_READY := $(VENV)/bin/python -c "import diagrams3mrai" 2>/dev/null
+DIAGRAMS_SETUP_HINT := diagram toolchain not installed; run make diagrams-setup
+
+diagrams-check: ## List diagrams whose watched sources changed vs main (warns, never fails; DIAGRAMS_BASE=main)
+	@if $(DIAGRAMS_READY); then $(VENV)/bin/python -m diagrams3mrai.drift; \
+	else echo "diagrams-check: skipped ($(DIAGRAMS_SETUP_HINT))"; fi
+
+diagrams-gate: ## Fail on any diagram-design source that breaks the skill self_check, icon allowlist, 2000px cap or catalog parity (all, or ID=a,b)
+	@$(DIAGRAMS_READY) || { echo "diagrams-gate: $(DIAGRAMS_SETUP_HINT)"; exit 1; }
+	$(VENV)/bin/python -m diagrams3mrai.gate $(subst $(comma), ,$(ID))
+
+diagrams-studio: ## Open one diagram's interactive HTML in the browser (ID=<id> required)
+	@test -n "$(ID)" || { echo "usage: make diagrams-studio ID=<id>"; exit 1; }
+	@$(DIAGRAMS_READY) || { echo "diagrams-studio: $(DIAGRAMS_SETUP_HINT)"; exit 1; }
+	open "$$($(VENV)/bin/python -c 'import sys; from diagrams3mrai.catalog import REPO_ROOT, load_catalog, select; print(REPO_ROOT / select(load_catalog(), [sys.argv[1]])[0].src)' $(ID))"
+
+diagrams-render: ## Gate then render diagram-design sources to PNG in the vault (all, or ID=a,b); warns over 2 MB
+	@$(DIAGRAMS_READY) || { echo "diagrams-render: $(DIAGRAMS_SETUP_HINT)"; exit 1; }
+	$(VENV)/bin/python -m diagrams3mrai.render $(subst $(comma), ,$(ID))
 
 ## ── Pre-production (Floci-only, see docs/infrastructure/runbooks/preprod.md) ──
 PP_COMPOSE := docker compose -f docker-compose.preprod.yml
