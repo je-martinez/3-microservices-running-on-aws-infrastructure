@@ -10,6 +10,9 @@ entries:
   - docker-compose.yml
   - observability/otel-collector-config.yaml
   - services/users/src/shared/realtime/**
+  - apps/web/src/app/core/payments/**
+  - services/users/src/shared/stripe/**
+  - services/orders/src/Orders.Infrastructure/Payments/**
 - id: architecture-dev-floci-events
   title: Architecture — local dev (Floci) — events & observability
   src: diagrams/src/architecture/architecture-dev-floci-events.html
@@ -30,6 +33,9 @@ entries:
   - docker-compose.preprod.yml
   - observability/otel-collector-config.yaml
   - services/users/src/shared/realtime/**
+  - apps/web/src/app/core/payments/**
+  - services/users/src/shared/stripe/**
+  - services/orders/src/Orders.Infrastructure/Payments/**
 - id: architecture-preprod-events
   title: Architecture — pre-prod (ECS on Floci) — events & observability
   src: diagrams/src/architecture/architecture-preprod-events.html
