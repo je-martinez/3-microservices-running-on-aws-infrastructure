@@ -939,7 +939,7 @@ diagrams-setup: $(PY) ## Install the diagram toolchain (Playwright + Chromium) i
 	$(VENV)/bin/python -m playwright install chromium
 
 diagrams-check: ## List diagrams whose watched sources changed vs main (warns, never fails; DIAGRAMS_BASE=main)
-	pnpm --filter @3mrai/diagrams check-drift
+	$(VENV)/bin/python -m diagrams3mrai.drift
 
 diagrams-studio: ## Open Remotion Studio to browse/scrub every diagram interactively
 	pnpm --filter @3mrai/diagrams studio
