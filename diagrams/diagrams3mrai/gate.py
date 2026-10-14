@@ -120,6 +120,15 @@ def orphans(entries: list[Entry], root: Path = REPO_ROOT) -> list[str]:
     return [f"{p} has no catalog entry" for p in found if p not in known]
 
 
+def missing_renders(entries: list[Entry], root: Path = REPO_ROOT) -> list[str]:
+    # WHY: a source without its PNG is reported by missing source, not twice.
+    return [
+        f"{e.id}: missing render {e.png} (make diagrams-render ID={e.id})"
+        for e in entries
+        if (root / e.src).is_file() and not (root / e.png).is_file()
+    ]
+
+
 def unreachable(urls: list[str]) -> list[str]:
     bad = []
     for url in urls:
@@ -142,7 +151,7 @@ def main(argv: list[str] | None = None) -> int:
     except (GateSetupError, KeyError, ValueError) as exc:
         print(f"diagrams-gate: {exc}")
         return 1
-    errors = [] if ids else orphans(entries)
+    errors = [] if ids else [*orphans(entries), *missing_renders(entries)]
     if os.environ.get("DIAGRAMS_OFFLINE") != "1":
         errors += unreachable(sorted(set(icons.values())))
     allowed = set(icons.values())

@@ -114,3 +114,17 @@ def test_orphan_html_fails(tmp_path):
 @pytest.mark.skipif(not self_check_available(), reason="diagram-design plugin not installed")
 def test_real_self_check_accepts_fixture_after_filter():
     assert filter_self_check(load_verify()(FIX / "ok.html")) == []
+
+
+def test_missing_png_fails(tmp_path):
+    from diagrams3mrai.gate import missing_renders
+    e = entry(tmp_path, svg(""))
+    assert missing_renders([e], tmp_path) == ["ok: missing render docs/x/ok.png (make diagrams-render ID=ok)"]
+    (tmp_path / "docs/x").mkdir(parents=True)
+    (tmp_path / "docs/x/ok.png").write_bytes(b"png")
+    assert missing_renders([e], tmp_path) == []
+
+
+def test_missing_png_is_not_reported_before_the_source_exists(tmp_path):
+    from diagrams3mrai.gate import missing_renders
+    assert missing_renders([entry(tmp_path, None)], tmp_path) == []
