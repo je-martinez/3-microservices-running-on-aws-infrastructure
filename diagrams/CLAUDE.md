@@ -51,6 +51,8 @@ The four pilots are the reference implementation; open the one of the same kind 
 - **Coverage beats the budget.** A view keeps every runtime AWS service even past 9 nodes (≤24, `faithful`); a flow keeps every service it touches.
 - **Flows** use the flowchart type laid out left → right: numbered badges on the connectors, a numbered caption list inside the SVG below the drawing, accent on the step's current badge only under `[data-frame="step"]` so the static PNG stays neutral. One focal node (the service that owns the flow) and at most one accent connector.
 - **Milestone graphs** keep every task: phases merge into ≤3 zones whose labels name the original phases, ranks run left → right, a `N IN` chip counts blockers, `GATE` marks a hard gate.
+- **A group edges point at may be a zone even if it is a cluster** (e.g. `ECS cluster` when ALB, ECR and config arrows target it). An edge from a group that is not drawn as a zone leaves the zone holding its members, and the legend names the rest (e.g. "every task logs to CloudWatch").
+- **No routes in labels, even when carrying content over 1:1:** `/v1 via web` becomes `API VIA WEB`. Labels ≤14 characters, uppercase.
 - **External SaaS** (Stripe, Geoapify) uses the `internet` icon; optional integrations take the skill's dashed Optional treatment.
 - **Trim the viewBox** to the content so the PNG has no empty band at the top.
 
@@ -85,6 +87,8 @@ The four pilots are the reference implementation; open the one of the same kind 
 - Edits to `.md` notes under `docs/` (report embed needs for `obsidian-vault`), git writes, Linear.
 
 ## Write boundary
+
+- Scratch work (generators, templates) goes in a subdirectory named after your diagram id; parallel agents share the session scratchpad.
 
 - Write only `diagrams/**` and `docs/**/diagrams/*.png`.
 - Code comments follow [[code-comments]]; run `python3 scripts/validate-comments.py <files>` on what you touch.
