@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>How make preprod-up deploys pre-prod on Floci</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    :root {
+      --color-paper: #f5f5f5;
+      --color-ink: #2d3142;
+      --color-muted: #4f5d75;
+      --color-soft: #7a8399;
+      --color-accent: #eb6c36;
+      --color-rule: rgba(45,49,66,0.12);
+      --font-sans: 'Geist', system-ui, sans-serif;
+      --font-serif: 'Instrument Serif', serif;
+      --font-mono: 'Geist Mono', ui-monospace, monospace;
+      --motion-fast: 160ms;
+      --motion-step: 480ms;
+      --motion-hold: 960ms;
+      --motion-total: 7680ms;
+      --motion-ease: cubic-bezier(.2,.8,.2,1);
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 48px 32px;
+      color: var(--color-ink);
+      background: var(--color-paper);
+      font-family: var(--font-sans);
+    }
+    [data-motion-root] { width: min(100%, 1128px); }
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--color-muted);
+      font: 500 12px/1.4 var(--font-mono);
+      letter-spacing: .18em;
+      text-transform: uppercase;
+    }
+    h1 { margin: 0 0 24px; font: 400 32px/1.15 var(--font-serif); }
+    svg { display: block; width: 100%; min-width: 720px; }
+
+    /* Static source is complete. Only an initialized enhancement hides items. */
+    .motion-ready [data-motion-item] {
+      opacity: .12;
+      transform: translateY(8px);
+      transform-box: fill-box;
+      transform-origin: center;
+      transition: opacity var(--motion-step) var(--motion-ease),
+                  transform var(--motion-step) var(--motion-ease);
+    }
+    .motion-ready [data-motion-item].is-visible,
+    .motion-ready[data-frame="end"] [data-motion-item],
+    .motion-ready[data-frame="static"] [data-motion-item] {
+      opacity: 1;
+      transform: none;
+    }
+    .motion-ready[data-frame="step"] [data-motion-item].is-current .badge { fill: var(--color-accent); }
+
+    [data-motion-controls] {
+      display: none;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--color-rule);
+    }
+    .motion-ready [data-motion-controls] { display: flex; }
+    [data-motion-controls][hidden] { display: none !important; }
+    [data-motion-controls] button {
+      min-width: 44px;
+      min-height: 44px;
+      padding: 8px 12px;
+      border: 1px solid var(--color-muted);
+      border-radius: 4px;
+      color: var(--color-ink);
+      background: var(--color-paper);
+      font: 600 12px/1 var(--font-sans);
+      cursor: pointer;
+    }
+    [data-motion-controls] button:hover { border-color: var(--color-accent); }
+    [data-motion-controls] button:focus-visible {
+      outline: 3px solid var(--color-accent);
+      outline-offset: 2px;
+    }
+    [data-motion-controls] button:disabled { cursor: not-allowed; opacity: .45; }
+    [data-motion-status-visible] {
+      margin-left: auto;
+      color: var(--color-muted);
+      font: 500 12px/1.4 var(--font-mono);
+    }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0,0,0,0);
+      white-space: nowrap;
+      border: 0;
+    }
+    noscript p {
+      margin: 12px 0 0;
+      color: var(--color-muted);
+      font: 500 12px/1.4 var(--font-mono);
+    }
+
+    html[data-motion="static"] [data-motion-controls],
+    html[data-motion="static"] [data-motion-decorative] { display: none !important; }
+    html[data-motion="static"] [data-motion-item] {
+      opacity: 1 !important;
+      transform: none !important;
+      animation: none !important;
+      transition: none !important;
+    }
+    html[data-motion="step"] [data-motion-controls],
+    html[data-motion="step"] [data-motion-decorative] { display: none !important; }
+    html[data-motion="step"] [data-motion-item] {
+      animation: none !important;
+      transition: none !important;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: .001ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: .001ms !important;
+      }
+      [data-motion-item] { opacity: 1 !important; transform: none !important; }
+      [data-motion-decorative] { display: none !important; }
+      [data-motion-controls] { display: none !important; }
+    }
+    @media print {
+      [data-motion-controls], [data-motion-decorative] { display: none !important; }
+      [data-motion-item] {
+        opacity: 1 !important;
+        transform: none !important;
+        animation: none !important;
+        transition: none !important;
+      }
+    }
+
+    .lbl { fill: #7a8399; font: 400 8px var(--font-mono); letter-spacing: .06em; }
+    .zone-lbl { fill: rgba(45,49,66,0.55); font: 500 8px var(--font-mono); letter-spacing: .14em; }
+    .name { fill: #2d3142; font: 600 12px var(--font-sans); }
+    .sub { fill: #4f5d75; font: 400 8px var(--font-mono); letter-spacing: .04em; }
+    .badge { fill: #2d3142; }
+    .badge-n { fill: #f5f5f5; font: 600 12px var(--font-mono); }
+    .cap { fill: #2d3142; font: 400 12px var(--font-sans); }
+    .tag { fill: #7a8399; font: 400 7px var(--font-mono); letter-spacing: .08em; }
+    .eyebrow-svg { fill: #4f5d75; font: 500 8px var(--font-mono); letter-spacing: .14em; }
+  </style>
+</head>
+<body>
+  <main data-motion-root data-motion-mode="step" data-step-count="8" data-step-current="8" data-frame="static" data-static-frame="complete">
+    <p class="eyebrow">Infrastructure · Flow · Pre-prod on Floci</p>
+    <h1>How make preprod-up deploys pre-prod on Floci</h1>
+
+    <svg viewBox="0 32 1128 940" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="preprod-deploy-title preprod-deploy-desc">
+      <title id="preprod-deploy-title">How make preprod-up deploys pre-prod on Floci</title>
+      <desc id="preprod-deploy-desc">make preprod-up guards against a running dev environment and starts pre-prod's own Floci, applies Terraform once without ECS services, builds and pushes the images to ECR, migrates the RDS databases, applies again to create every ECS service, waits for the tasks, removes stale ALB targets, attaches Docker aliases, smoke-tests each ALB listener, then imports dashboards, writes the debug env file and starts stripe listen.</desc>
+      <defs>
+        <marker id="ppd-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+        </marker>
+      </defs>
+      <rect x="0" y="32" width="1128" height="940" fill="#f5f5f5"/>
+
+      <!-- Zones (painted first) -->
+      <rect x="24" y="136" width="208" height="504" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="0.8" stroke-dasharray="4,4"/>
+      <rect x="36" y="140" width="108" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="40" y="149" class="zone-lbl">DEVELOPER MACHINE</text>
+      <rect x="304" y="48" width="800" height="664" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="0.8" stroke-dasharray="4,4"/>
+      <rect x="316" y="52" width="152" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="320" y="61" class="zone-lbl">FLOCI — PRE-PROD AWS :4566</text>
+
+      <!-- Connectors (before nodes) -->
+      <!-- Makefile -> Floci: guard + start -->
+      <path d="M208,264 H472 Q480,264 480,256 V176" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ppd-arrow)"/>
+      <!-- Makefile -> ECR: build + push -->
+      <path d="M208,304 H728 Q736,304 736,296 V176" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ppd-arrow)"/>
+      <!-- Makefile -> ALB: targets, smoke -->
+      <path d="M208,344 H856 Q864,344 864,336 V136 Q864,128 872,128 H912" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ppd-arrow)"/>
+      <!-- Makefile -> ECS services: wait, aliases -->
+      <path d="M208,384 H912" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ppd-arrow)"/>
+      <!-- Makefile -> RDS: migrate -->
+      <path d="M208,424 H472 Q480,424 480,432 V520" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ppd-arrow)"/>
+      <!-- Makefile -> Terraform: apply -->
+      <path d="M128,448 V520" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ppd-arrow)"/>
+      <!-- Terraform -> ECS services: services -->
+      <path d="M128,616 V672 Q128,680 136,680 H984 Q992,680 992,672 V432" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ppd-arrow)"/>
+      <!-- Makefile -> Makefile: dashboards + env -->
+      <path d="M96,240 V208 Q96,200 104,200 H152 Q160,200 160,208 V240" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ppd-arrow)"/>
+
+      <!-- Arrow labels (masked, off their stroke) -->
+      <rect x="488" y="196" width="72" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="524" y="205" class="lbl" text-anchor="middle">GUARD+START</text>
+      <rect x="748" y="196" width="64" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="780" y="205" class="lbl" text-anchor="middle">BUILD+PUSH</text>
+      <rect x="876" y="196" width="80" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="916" y="205" class="lbl" text-anchor="middle">TARGETS,SMOKE</text>
+      <rect x="582" y="364" width="76" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="620" y="373" class="lbl" text-anchor="middle">WAIT,ALIASES</text>
+      <rect x="500" y="452" width="48" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="524" y="461" class="lbl" text-anchor="middle">MIGRATE</text>
+      <rect x="146" y="480" width="36" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="164" y="489" class="lbl" text-anchor="middle">APPLY</text>
+      <rect x="708" y="660" width="56" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="736" y="669" class="lbl" text-anchor="middle">SERVICES</text>
+      <rect x="86" y="176" width="84" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="128" y="185" class="lbl" text-anchor="middle">DASHBOARDS+ENV</text>
+
+      <!-- Nodes -->
+      <!-- Makefile (focal: owns the flow) -->
+      <rect x="48" y="240" width="160" height="208" rx="6" fill="#f5f5f5"/>
+      <rect x="48" y="240" width="160" height="208" rx="6" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1.2"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/Server.svg" x="108" y="308" width="40" height="40"/>
+      <text x="128" y="364" class="name" text-anchor="middle">Makefile</text>
+      <text x="128" y="380" class="sub" text-anchor="middle">make preprod-up</text>
+      <!-- Terraform -->
+      <rect x="48" y="520" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="48" y="520" width="160" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/Server.svg" x="108" y="532" width="40" height="40"/>
+      <text x="128" y="588" class="name" text-anchor="middle">Terraform</text>
+      <text x="128" y="604" class="sub" text-anchor="middle">preprod root</text>
+      <!-- Floci -->
+      <rect x="400" y="80" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="400" y="80" width="160" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/Server.svg" x="460" y="92" width="40" height="40"/>
+      <text x="480" y="148" class="name" text-anchor="middle">Floci</text>
+      <text x="480" y="164" class="sub" text-anchor="middle">pre-prod container</text>
+      <!-- ECR -->
+      <rect x="656" y="80" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="656" y="80" width="160" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonElasticContainerRegistry.svg" x="716" y="92" width="40" height="40"/>
+      <text x="736" y="148" class="name" text-anchor="middle">ECR</text>
+      <text x="736" y="164" class="sub" text-anchor="middle">7 images</text>
+      <!-- ALB -->
+      <rect x="912" y="80" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="912" y="80" width="160" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="920" y="88" width="24" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="932" y="97" class="tag" text-anchor="middle">VPC</text>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/ElasticLoadBalancingApplicationLoadBalancer.svg" x="972" y="92" width="40" height="40"/>
+      <text x="992" y="148" class="name" text-anchor="middle">ALB</text>
+      <text x="992" y="164" class="sub" text-anchor="middle">internal</text>
+      <!-- ECS services -->
+      <rect x="912" y="336" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="912" y="336" width="160" height="96" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="920" y="344" width="24" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="932" y="353" class="tag" text-anchor="middle">VPC</text>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/AmazonElasticContainerServiceService.svg" x="972" y="348" width="40" height="40"/>
+      <text x="992" y="404" class="name" text-anchor="middle">ECS services</text>
+      <text x="992" y="420" class="sub" text-anchor="middle">one per image</text>
+      <!-- RDS -->
+      <rect x="400" y="520" width="160" height="96" rx="6" fill="#f5f5f5"/>
+      <rect x="400" y="520" width="160" height="96" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <rect x="408" y="528" width="24" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="420" y="537" class="tag" text-anchor="middle">VPC</text>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonRDS.svg" x="460" y="532" width="40" height="40"/>
+      <text x="480" y="588" class="name" text-anchor="middle">RDS</text>
+      <text x="480" y="604" class="sub" text-anchor="middle">Postgres + MySQL</text>
+
+      <!-- Steps: badges on their connectors + the numbered caption list -->
+      <line x1="24" y1="744" x2="1104" y2="744" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="24" y="768" class="eyebrow-svg">STEPS</text>
+      <g data-motion-item data-step="1" aria-label="Step 1: guard the environment and start pre-prod's own Floci">
+        <circle class="badge" cx="480" cy="232" r="8"/><text class="badge-n" x="480" y="236" text-anchor="middle">1</text>
+        <circle class="badge" cx="32" cy="792" r="8"/><text class="badge-n" x="32" y="796" text-anchor="middle">1</text>
+        <text class="cap" x="48" y="796">Refuses to run beside dev, starts pre-prod's own Floci, refuses a live pre-prod</text>
+      </g>
+      <g data-motion-item data-step="2" aria-label="Step 2: first Terraform apply without ECS services">
+        <circle class="badge" cx="128" cy="472" r="8"/><text class="badge-n" x="128" y="476" text-anchor="middle">2</text>
+        <circle class="badge" cx="32" cy="824" r="8"/><text class="badge-n" x="32" y="828" text-anchor="middle">2</text>
+        <text class="cap" x="48" y="828">First apply (deploy_services=false): network, data stores, ECR and the cluster</text>
+      </g>
+      <g data-motion-item data-step="3" aria-label="Step 3: build and push the images to ECR">
+        <circle class="badge" cx="736" cy="232" r="8"/><text class="badge-n" x="736" y="236" text-anchor="middle">3</text>
+        <circle class="badge" cx="32" cy="856" r="8"/><text class="badge-n" x="32" y="860" text-anchor="middle">3</text>
+        <text class="cap" x="48" y="860">Tags are unique per content; a tag already in ECR is reused, never rebuilt</text>
+      </g>
+      <g data-motion-item data-step="4" aria-label="Step 4: migrate the users and tracking databases on RDS">
+        <circle class="badge" cx="480" cy="488" r="8"/><text class="badge-n" x="480" y="492" text-anchor="middle">4</text>
+        <circle class="badge" cx="32" cy="888" r="8"/><text class="badge-n" x="32" y="892" text-anchor="middle">4</text>
+        <text class="cap" x="48" y="892">Prisma for users and golang-migrate for tracking, against Floci's RDS</text>
+      </g>
+      <g data-motion-item data-step="5" aria-label="Step 5: second Terraform apply creates every ECS service">
+        <circle class="badge" cx="128" cy="500" r="8"/><text class="badge-n" x="128" y="504" text-anchor="middle">5</text>
+        <circle class="badge" cx="560" cy="680" r="8"/><text class="badge-n" x="560" y="684" text-anchor="middle">5</text>
+        <circle class="badge" cx="576" cy="792" r="8"/><text class="badge-n" x="576" y="796" text-anchor="middle">5</text>
+        <text class="cap" x="592" y="796">Second apply (deploy_services=true) creates every ECS service on those tags</text>
+      </g>
+      <g data-motion-item data-step="6" aria-label="Step 6: wait for the services and remove stale ALB targets">
+        <circle class="badge" cx="264" cy="384" r="8"/><text class="badge-n" x="264" y="388" text-anchor="middle">6</text>
+        <circle class="badge" cx="864" cy="248" r="8"/><text class="badge-n" x="864" y="252" text-anchor="middle">6</text>
+        <circle class="badge" cx="576" cy="824" r="8"/><text class="badge-n" x="576" y="828" text-anchor="middle">6</text>
+        <text class="cap" x="592" y="828">Waits for RUNNING tasks per service; removes stale targets Floci never deregisters</text>
+      </g>
+      <g data-motion-item data-step="7" aria-label="Step 7: attach Docker aliases and smoke-test every ALB listener">
+        <circle class="badge" cx="288" cy="384" r="8"/><text class="badge-n" x="288" y="388" text-anchor="middle">7</text>
+        <circle class="badge" cx="864" cy="280" r="8"/><text class="badge-n" x="864" y="284" text-anchor="middle">7</text>
+        <circle class="badge" cx="576" cy="856" r="8"/><text class="badge-n" x="576" y="860" text-anchor="middle">7</text>
+        <text class="cap" x="592" y="860">Stable Docker aliases for SMTP and gRPC, then health through every ALB listener</text>
+      </g>
+      <g data-motion-item data-step="8" aria-label="Step 8: dashboards, debug env file and stripe listen">
+        <circle class="badge" cx="128" cy="200" r="8"/><text class="badge-n" x="128" y="204" text-anchor="middle">8</text>
+        <circle class="badge" cx="576" cy="888" r="8"/><text class="badge-n" x="576" y="892" text-anchor="middle">8</text>
+        <text class="cap" x="592" y="892">Imports OpenObserve dashboards, writes .env.preprod.debug, starts stripe listen</text>
+      </g>
+
+      <!-- Legend strip -->
+      <line x1="24" y1="908" x2="1104" y2="908" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="24" y="936" class="eyebrow-svg">LEGEND</text>
+      <rect x="96" y="924" width="24" height="16" rx="4" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+      <text x="128" y="936" class="lbl">FOCAL · DRIVES THE FLOW</text>
+      <rect x="280" y="924" width="24" height="16" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <text x="312" y="936" class="lbl">STORE</text>
+      <line x1="360" y1="932" x2="392" y2="932" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ppd-arrow)"/>
+      <text x="404" y="936" class="lbl">SYNC CALL</text>
+      <circle class="badge" cx="476" cy="932" r="8"/><text class="badge-n" x="476" y="936" text-anchor="middle">n</text>
+      <text x="492" y="936" class="lbl">STEP · SEE CAPTION n</text>
+      <rect x="612" y="926" width="24" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="624" y="935" class="tag" text-anchor="middle">VPC</text>
+      <text x="644" y="936" class="lbl">VPC 10.1.0.0/16 · SUBNETS A + B · ECS CLUSTER</text>
+    </svg>
+
+    <div data-motion-controls role="group" aria-label="Diagram playback controls">
+      <button type="button" data-motion-action="prev">Previous</button>
+      <button type="button" data-motion-action="play" aria-pressed="false">Play</button>
+      <button type="button" data-motion-action="pause" aria-pressed="true">Pause</button>
+      <button type="button" data-motion-action="next">Next</button>
+      <button type="button" data-motion-action="replay">Replay</button>
+      <span class="keyboard-help">←/→ step · Space play/pause · R replay · Home/End jump</span>
+      <span data-motion-status-visible aria-hidden="true">Step <span data-motion-step-label>8</span> of 8</span>
+    </div>
+    <p class="sr-only" data-motion-status role="status" aria-live="polite" aria-atomic="true"></p>
+    <noscript><p>Animation controls require JavaScript. The complete final diagram is shown above.</p></noscript>
+  </main>
+
+  <script data-diagram-controls>
+    (() => {
+      const params = new URLSearchParams(location.search);
+      const staticOverride = params.get('motion') === 'static' || document.documentElement.dataset.motion === 'static';
+      const requestedStep = params.get('step');
+      const reduce = matchMedia('(prefers-reduced-motion: reduce)');
+      document.fonts.ready.then(() => { document.documentElement.dataset.fontsReady = 'true'; });
+
+      document.querySelectorAll('[data-motion-root]').forEach((root) => {
+        const count = Number(root.dataset.stepCount);
+        const hold = parseFloat(getComputedStyle(root).getPropertyValue('--motion-hold')) || 720;
+        const parsedStep = requestedStep !== null && /^\d+$/.test(requestedStep) ? Number(requestedStep) : null;
+        const exactStep = params.get('motion') === 'step' && Number.isSafeInteger(parsedStep) && parsedStep >= 0 && parsedStep <= count ? parsedStep : null;
+        const items = [...root.querySelectorAll('[data-motion-item]')];
+        const labels = Array.from({ length: count + 1 }, (_, index) => index === 0
+          ? 'Ready'
+          : items.filter((item) => !item.hasAttribute('data-motion-decorative') && Number(item.dataset.step) === index)
+              .map((item) => item.getAttribute('aria-label')).join('; '));
+        const controls = root.querySelector('[data-motion-controls]');
+        const status = root.querySelector('[data-motion-status]');
+        const visibleStep = root.querySelector('[data-motion-step-label]');
+        let step = count;
+        let timer = 0;
+        let playing = false;
+        let stepBeforeReduce = 0;
+        let resumeAfterReduce = root.dataset.motionMode === 'reveal';
+
+        const buttons = (action) => controls.querySelector(`[data-motion-action="${action}"]`);
+        const clearClock = () => { window.clearTimeout(timer); timer = 0; };
+        const announce = () => { status.textContent = `Step ${step} of ${count}: ${labels[step] || 'Complete'}`; };
+        const setControlsAvailable = (available) => {
+          controls.hidden = !available;
+          controls.setAttribute('aria-hidden', String(!available));
+          controls.dataset.playbackDisabled = String(!available);
+          controls.querySelectorAll('button').forEach((control) => { control.disabled = !available; });
+        };
+
+        function render(next, userInitiated = false) {
+          step = Math.max(0, Math.min(count, next));
+          root.dataset.stepCurrent = String(step);
+          root.dataset.frame = step === count ? 'end' : step === 0 ? 'start' : 'step';
+          items.forEach((item) => {
+            const itemStep = Number(item.dataset.step);
+            item.classList.toggle('is-visible', itemStep <= step);
+            item.classList.toggle('is-current', itemStep === step);
+          });
+          if (visibleStep) visibleStep.textContent = String(step);
+          const unavailable = controls.dataset.playbackDisabled === 'true';
+          buttons('prev').disabled = unavailable || step === 0;
+          buttons('next').disabled = unavailable || step === count;
+          if (userInitiated) announce();
+        }
+
+        function pause(userInitiated = false) {
+          clearClock();
+          playing = false;
+          root.classList.remove('is-playing');
+          buttons('play').setAttribute('aria-pressed', 'false');
+          buttons('pause').setAttribute('aria-pressed', 'true');
+          if (userInitiated) status.textContent = `Paused at step ${step} of ${count}`;
+        }
+
+        function finish() {
+          pause(false);
+          root.dataset.frame = 'end';
+          status.textContent = `Complete · step ${count} of ${count}`;
+        }
+
+        function tick() {
+          if (!playing) return;
+          if (step >= count) { finish(); return; }
+          render(step + 1, false);
+          if (step >= count) { finish(); return; }
+          timer = window.setTimeout(tick, hold);
+        }
+
+        function play(fromStart = false, userInitiated = false) {
+          clearClock();
+          if (fromStart || step >= count) render(0, userInitiated);
+          playing = true;
+          root.classList.add('is-playing');
+          buttons('play').setAttribute('aria-pressed', 'true');
+          buttons('pause').setAttribute('aria-pressed', 'false');
+          timer = window.setTimeout(tick, hold);
+        }
+
+        controls.addEventListener('click', (event) => {
+          const button = event.target.closest('[data-motion-action]');
+          if (!button) return;
+          const action = button.dataset.motionAction;
+          if (action === 'play') play(false, true);
+          if (action === 'pause') pause(true);
+          if (action === 'replay') play(true, true);
+          if (action === 'prev') { pause(false); render(step - 1, true); }
+          if (action === 'next') { pause(false); render(step + 1, true); }
+        });
+
+        root.addEventListener('keydown', (event) => {
+          if (event.target.matches('input, textarea, select, a[href]')) return;
+          const keys = { ArrowLeft: step - 1, ArrowRight: step + 1, Home: 0, End: count };
+          if (event.code === 'Space' && !event.target.closest('button')) {
+            event.preventDefault();
+            playing ? pause(true) : play(false, true);
+            return;
+          }
+          if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === 'r') {
+            event.preventDefault();
+            play(true, true);
+            return;
+          }
+          if (!(event.key in keys)) return;
+          event.preventDefault();
+          pause(false);
+          render(keys[event.key], true);
+        });
+
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'hidden' && playing) pause(false);
+        });
+        reduce.addEventListener('change', (event) => {
+          if (event.matches && root.dataset.motionState !== 'reduced') {
+            stepBeforeReduce = step;
+            resumeAfterReduce = playing;
+          }
+          pause(false);
+          if (event.matches) {
+            setControlsAvailable(false);
+            render(count, false);
+            root.dataset.frame = 'static';
+            root.dataset.motionState = 'reduced';
+            status.textContent = 'Reduced motion · complete static frame · playback controls unavailable';
+          } else if (staticOverride || root.dataset.motionMode === 'none') {
+            setControlsAvailable(false);
+            render(count, false);
+            root.dataset.frame = 'static';
+            root.dataset.motionState = 'static';
+            status.textContent = 'Static frame · complete diagram · playback controls unavailable';
+          } else {
+            delete root.dataset.motionState;
+            if (exactStep !== null) {
+              setControlsAvailable(false);
+              render(exactStep, false);
+              root.dataset.frame = 'step';
+              root.dataset.motionState = 'test';
+              status.textContent = `Test frame · step ${step} of ${count} · playback controls unavailable`;
+            } else {
+              setControlsAvailable(true);
+              render(stepBeforeReduce, false);
+              status.textContent = `Ready · step ${step} of ${count}`;
+              if (resumeAfterReduce && root.dataset.motionMode === 'reveal') {
+                play(false, false);
+              }
+            }
+            resumeAfterReduce = false;
+          }
+        });
+
+        if (staticOverride) {
+          document.documentElement.dataset.motion = 'static';
+          pause(false);
+          setControlsAvailable(false);
+          render(count, false);
+          root.dataset.frame = 'static';
+          root.dataset.motionState = 'static';
+          status.textContent = 'Static frame · complete diagram · playback controls unavailable';
+        } else if (reduce.matches || root.dataset.motionMode === 'none') {
+          pause(false);
+          setControlsAvailable(false);
+          render(count, false);
+          root.dataset.frame = 'static';
+          root.dataset.motionState = reduce.matches ? 'reduced' : 'static';
+          status.textContent = reduce.matches
+            ? 'Reduced motion · complete static frame · playback controls unavailable'
+            : 'Static frame · complete diagram · playback controls unavailable';
+        } else if (exactStep !== null) {
+          document.documentElement.dataset.motion = 'step';
+          pause(false);
+          setControlsAvailable(false);
+          render(exactStep, false);
+          root.dataset.frame = 'step';
+          root.dataset.motionState = 'test';
+          status.textContent = `Test frame · step ${step} of ${count} · playback controls unavailable`;
+        } else if (root.dataset.motionMode === 'reveal') {
+          setControlsAvailable(true);
+          render(0, false);
+          play(false, false);
+        } else {
+          pause(false);
+          setControlsAvailable(true);
+          render(0, false);
+          status.textContent = `Ready · step 0 of ${count}`;
+        }
+        root.classList.add('motion-ready');
+      });
+    })();
+  </script>
+</body>
+</html>

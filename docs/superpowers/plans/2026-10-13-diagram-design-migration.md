@@ -1096,8 +1096,8 @@ git commit -m "docs(agents): point diagram-impl at the diagram-design toolchain"
 - [x] **Step 3: Coverage parity.** For each pilot id, list the AWS icons in the old TS module (`grep -oE 'icon: *"[a-z-]+"'`) and the `<image href>` keys in the new HTML; every runtime AWS service of the old view is present, or the difference is listed for the user.
 - [x] **Step 4: Visual check.** Read each PNG; confirm entry on the left, orthogonal connectors, no label on its own stroke, numbered badges on the flow, width ≤2000. Open `orders-checkout-stripe.html` with `make diagrams-studio ID=orders-checkout-stripe` and step through it.
 - [x] **Step 5: Audit.** Run the `spec-implementation-audit` skill against the spec for Tasks 1–6.
-- [ ] **Step 6: Commit (via the menu)** — `feat(diagrams): pilot the diagram-design style on one diagram per kind`.
-- [ ] **Step 7: STOP.** Present the four PNGs, the parity table and audit findings to the user. Do not start Task 7 until the user approves the style and icons (changes requested → revise Task 5 guidance and the pilot first).
+- [x] **Step 6: Commit (via the menu)** — `feat(diagrams): pilot the diagram-design style on one diagram per kind`.
+- [x] **Step 7: STOP.** Present the four PNGs, the parity table and audit findings to the user. Do not start Task 7 until the user approves the style and icons (changes requested → revise Task 5 guidance and the pilot first).
 
 ---
 
@@ -1108,11 +1108,11 @@ git commit -m "docs(agents): point diagram-impl at the diagram-design toolchain"
 - Create: `diagrams/src/system-context/{system-context-l2,system-context-l2-events}.html`
 - Modify (re-rendered): matching PNGs under `docs/00-overview/diagrams/`
 
-- [ ] **Step 1: Dispatch `diagram-impl`** for the five ids, with the same brief as Task 6 Step 1 plus "match the approved pilot's layout conventions".
-- [ ] **Step 2: Gate** `make diagrams-gate ID=architecture-dev-floci,architecture-preprod,architecture-preprod-events,system-context-l2,system-context-l2-events` → all OK.
-- [ ] **Step 3: Coverage parity** as Task 6 Step 3 for each id; any gap goes to the user before commit.
-- [ ] **Step 4: Visual check** of each PNG as Task 6 Step 4.
-- [ ] **Step 5: Commit (via the menu)** — `feat(diagrams): migrate the architecture and system-context views to diagram-design`.
+- [x] **Step 1: Dispatch `diagram-impl`** for the five ids, with the same brief as Task 6 Step 1 plus "match the approved pilot's layout conventions".
+- [x] **Step 2: Gate** `make diagrams-gate ID=architecture-dev-floci,architecture-preprod,architecture-preprod-events,system-context-l2,system-context-l2-events` → all OK.
+- [x] **Step 3: Coverage parity** as Task 6 Step 3 for each id; any gap goes to the user before commit.
+- [x] **Step 4: Visual check** of each PNG as Task 6 Step 4.
+- [x] **Step 5: Commit (via the menu)** — `feat(diagrams): migrate the architecture and system-context views to diagram-design`.
 
 ---
 
@@ -1123,11 +1123,11 @@ git commit -m "docs(agents): point diagram-impl at the diagram-design toolchain"
 - Create: `diagrams/src/milestones/{milestone-services-infra-scaffold-deps,milestone-documentation-vault-deps}.html`
 - Modify (re-rendered): matching PNGs
 
-- [ ] **Step 1: Dispatch `diagram-impl` in three sequential batches** (one agent each, to keep briefs small): (a) the first 7 flows listed, (b) the next 7, (c) the last 4 flows + 2 milestones. Same brief as Task 7 Step 1. Flows: `step` mode, numbered badges, ≤8 motion steps (if the Remotion flow had 9–10 steps, merge adjacent steps and report the merge).
-- [ ] **Step 2: After each batch** run `make diagrams-gate ID=<batch ids>` and view each PNG.
-- [ ] **Step 3: Coverage parity** for every id.
-- [ ] **Step 4: Full gate** `make diagrams-gate` (no ID) → all 29 OK, no orphans.
-- [ ] **Step 5: Commit (via the menu)** — `feat(diagrams): migrate every flow and milestone graph to diagram-design`.
+- [x] **Step 1: Dispatch `diagram-impl` in three sequential batches** (one agent each, to keep briefs small): (a) the first 7 flows listed, (b) the next 7, (c) the last 4 flows + 2 milestones. Same brief as Task 7 Step 1. Flows: `step` mode, numbered badges, ≤8 motion steps (if the Remotion flow had 9–10 steps, merge adjacent steps and report the merge).
+- [x] **Step 2: After each batch** run `make diagrams-gate ID=<batch ids>` and view each PNG.
+- [x] **Step 3: Coverage parity** for every id.
+- [x] **Step 4: Full gate** `make diagrams-gate` (no ID) → all 29 OK, no orphans.
+- [x] **Step 5: Commit (via the menu)** — `feat(diagrams): migrate every flow and milestone graph to diagram-design`.
 
 ---
 
@@ -1183,6 +1183,10 @@ git commit -m "docs(agents): point diagram-impl at the diagram-design toolchain"
 - Task 3 gap closed at the Task 6 stop point: the spec requires catalog ↔ sources ↔ PNG parity; the gate checks PNG existence via `missing_renders` (tests `test_missing_png_fails`, `test_missing_png_is_not_reported_before_the_source_exists`).
 - `.claude/settings.json` enables `diagram-design@diagram-design` and declares the `cathrynlavery/diagram-design` marketplace; the installed plugin is v2.6.6 while upstream is v2.6.98 (not pinned by the setting).
 - `diagram-impl` keeps two transitional Remotion mentions until Task 10.
+- Tasks 7–8 run one `diagram-impl` per diagram in parallel waves (5, then 7/7/6) instead of sequential batch agents.
+- The gate also runs the plugin's `verify-geometry.py` (user decision at the pilot stop point) and, for a flow with a motion root, `verify-motion.py` (tests `test_real_verify_runs_verify_motion_on_a_motion_root`, `test_real_verify_skips_verify_motion_on_a_static_diagram`).
+- Approved pilot conventions and later rulings (ECS cluster may be a zone when edges target it; no routes in labels even when carrying content over 1:1) live in `diagrams/CLAUDE.md`.
+- Flows carry Remotion content over 1:1 except merged adjacent steps (≤8 motion steps). Content gaps found against the code (pre-existing in the Remotion versions) are listed for follow-up, not drawn: tracking-outbox-relay (notifications queue), websocket-lifecycle ($default Lambda, Sockets query), users-password-reset (CloudWatch metric), auth flows (API Gateway / nginx hop), users-account-deletion-cascade (Orders/Tracking cache invalidation), preprod-deploy (integration decisions, lambda bundles), terraform-two-phase-apply (app-user secrets).
 
 ## Related
 
