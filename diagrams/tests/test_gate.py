@@ -45,7 +45,7 @@ def test_load_icons_rejects_a_key_in_both_sections(tmp_path):
 def test_load_icons_reads_the_vendor_section():
     icons = load_icons()
     assert icons["stripe"].startswith(VENDOR_PREFIX + "stripe/stripe-ios@")
-    assert icons["openobserve"].startswith(VENDOR_PREFIX + "openobserve/openobserve@v")
+    assert icons["openobserve"].startswith(VENDOR_PREFIX + "selfhst/icons@")
 
 
 @pytest.mark.parametrize("rel", [

@@ -26,7 +26,7 @@ _TOLERATED = tuple("remote reference on <image>: " + p for p in (ICON_PREFIX, DE
 _SECTIONS = {
     "icons": (ICON_PREFIX, re.compile(r"(architecture-service|architecture-group|resource|category)/[A-Za-z0-9]+\.svg")),
     "devicon": (DEVICON_PREFIX, re.compile(r"[a-z0-9]+/[a-z0-9]+-[a-z0-9-]+\.svg")),
-    # CONTRACT: a vendor logo is pinned to a release tag or a full commit SHA in the vendor's own repo, never a branch.
+    # CONTRACT: a vendor logo is pinned to a release tag or a full commit SHA, never a branch.
     "vendor": (
         VENDOR_PREFIX,
         re.compile(

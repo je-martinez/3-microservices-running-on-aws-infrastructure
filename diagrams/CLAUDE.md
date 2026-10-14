@@ -5,7 +5,7 @@ Every architecture, flow and milestone-dependency diagram in the vault is a hand
 ## What lives here
 
 - `catalog.yaml` — one entry per diagram: `id`, `title`, `src` (`diagrams/src/<group>/<id>.html`), `output` (vault path, no extension; the PNG is `<output>.png`), `watches` (globs whose change may make it stale).
-- `icons.yaml` — the only icons a diagram may use, in three pinned sections: logical key → path inside `aws-icons@3.2.0` (`icons`), `devicon@2.16.0` (`devicon`), or a vendor's official GitHub repo pinned to a tag or SHA (`vendor`), all on jsDelivr.
+- `icons.yaml` — the only icons a diagram may use, in three pinned sections: logical key → path inside `aws-icons@3.2.0` (`icons`), `devicon@2.16.0` (`devicon`), or a GitHub repo pinned to a tag or SHA (`vendor`), all on jsDelivr.
 - `src/{architecture,system-context,flows,milestones}/<id>.html` — the sources.
 - `diagrams3mrai/` — Python toolchain: `catalog.py`, `drift.py`, `gate.py`, `render.py`. `tests/` — pytest.
 
@@ -25,10 +25,10 @@ Every architecture, flow and milestone-dependency diagram in the vault is a hand
 
 ## Icons
 
-- Icons come only from `icons.yaml`, which has three pinned sections: `icons` (`aws-icons@3.2.0`, AWS services), `devicon` (`devicon@2.16.0`, technology logos) and `vendor` (a vendor's own logo, SVG or PNG, from its official GitHub repo via `https://cdn.jsdelivr.net/gh/`, pinned to a release tag or full commit SHA, never a branch).
+- Icons come only from `icons.yaml`, which has three pinned sections: `icons` (`aws-icons@3.2.0`, AWS services), `devicon` (`devicon@2.16.0`, technology logos) and `vendor` (a brand logo, SVG or PNG, via `https://cdn.jsdelivr.net/gh/`, pinned to a release tag or full commit SHA, never a branch). The source is the vendor's own repo, or the selfh.st collection (`selfhst/icons`, the set dashboardicons.com serves) when the vendor's repo has no usable mark — OpenObserve's is from selfh.st.
 - Draw an icon as `<image href="<prefix><path>" width="40" height="40"/>` with its name below, where `<prefix>` is `https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/`, `https://cdn.jsdelivr.net/npm/devicon@2.16.0/icons/` or `https://cdn.jsdelivr.net/gh/`, and `<path>` is a value of the matching section. A non-square logo keeps the default `preserveAspectRatio` (centred, undistorted).
 - A Docker Compose container uses the `docker` whale (`devicon`).
-- Need a new icon or logo? Find it in its package (`https://data.jsdelivr.com/v1/packages/npm/aws-icons@3.2.0`, `.../devicon@2.16.0`) or the vendor's official repo at a release tag or commit SHA, add a key to the matching section, and check it answers HTTP 200. Never change a pinned version, and never pin a vendor logo to a branch.
+- Need a new icon or logo? Find it in its package (`https://data.jsdelivr.com/v1/packages/npm/aws-icons@3.2.0`, `.../devicon@2.16.0`) or the vendor's repo / `selfhst/icons` at a release tag or commit SHA (check the mark against the vendor's site), add a key to the matching section, and check it answers HTTP 200. Never change a pinned version, and never pin a vendor logo to a branch.
 - Other non-AWS things (browser, users) use the `client`, `users`, `server` or `internet` icons, or a plain skill node box.
 
 ## Budget and coverage
