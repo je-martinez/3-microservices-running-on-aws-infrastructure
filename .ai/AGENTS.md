@@ -318,6 +318,22 @@ before the PR closing its issue. See the prohibition on writing to `docs/` below
 
 Full rule: `.ai/rules/documentation-vault.md`.
 
+### Diagrams
+
+- Diagrams are hand-authored `diagram-design` HTML sources in `diagrams/src/`,
+  rendered to PNG beside their vault notes; no GIFs.
+  `make diagrams-setup` installs the toolchain once per clone; every
+  `diagrams-*` target needs it.
+- A change to a diagrammed flow or an AWS resource re-renders the affected
+  diagram in the same PR.
+- Run `make diagrams-gate` and `make diagrams-check` before proposing a PR;
+  every `STALE?` line is fixed or justified.
+- Attach the PNG under `## Diagrams` in the PR body when a flow is new or
+  affected.
+- Full convention: `docs/shared/conventions/diagrams.md`; decision
+  `docs/shared/decisions/ADR-0024-diagram-design-diagrams.md`. The work belongs
+  to the `diagram-impl` role below.
+
 ## Prohibitions
 
 Three resources in this repo have a **single designated writer**. In Claude Code
@@ -495,6 +511,36 @@ template. And **no `px` in component Tailwind classes — use `rem`** (divide by
 The design source is a Pencil `.pen` file reachable only over an MCP server this
 environment does not have, so translating a frame is Claude-Code-only work. The
 three rules above still bind any edit to an existing component.
+
+*In Claude Code this is a subagent whose tools are restricted to
+Read/Write/Edit/Bash/Glob/Grep/Skill. In this environment that restriction is
+not tool-enforceable — treat it as a norm.*
+
+### diagram-impl
+
+Diagram implementer for the 3MRAI diagram-design sources in `diagrams/`. Use
+to add, update or re-render an architecture, flow or milestone diagram. Writes
+**only `diagrams/**` and the rendered `docs/**/diagrams/*.png`** — never edits a
+`.md` note under `docs/`, never touches git or Linear. Reads `diagrams/CLAUDE.md`
+for its toolchain, authoring contract, icons and verify loop, reads the real
+code and Terraform before drawing, and leaves the work in the working tree for
+the main session to commit.
+
+Three rules carry extra weight here. **Never invent content** — read the
+Terraform, compose files, handlers or `openapi.yaml` the diagram depicts; when
+updating, the current HTML is the content inventory. **Never drop a runtime AWS
+service to fit a budget** — zone it, or report the conflict. And **look at the
+render**: `make diagrams-render ID=<id>` gates then renders; open the PNG and
+check connectors, clipped or overlapping labels, then run `make diagrams-check`
+and confirm nothing you touched is `STALE?`. No GIFs; icons only from
+`diagrams/icons.yaml`. If a note needs an embed or a link, list it in the
+handoff for whoever owns `docs/` (see **Prohibitions**) rather than writing it.
+
+Authoring depends on the `diagram-design` skill (the gate uses the newest
+installed version; verified with v2.6.6), which is an
+agent plugin, not a repo skill — it is not shipped in this environment's
+skills. If your agent does not have it installed, stop and report rather than
+authoring a diagram without its templates and checklist.
 
 *In Claude Code this is a subagent whose tools are restricted to
 Read/Write/Edit/Bash/Glob/Grep/Skill. In this environment that restriction is

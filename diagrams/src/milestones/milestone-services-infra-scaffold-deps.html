@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Services and Infra Scaffold milestone: task dependencies · Dependency</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #f5f5f5;   /* white-smoke */
+      --color-ink:     #2d3142;   /* jet-black */
+      --color-muted:   #4f5d75;   /* blue-slate */
+      --color-accent:  #eb6c36;   /* atomic-tangerine */
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+
+    .frame { max-width: 2000px; width: 100%; }
+
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+
+    svg { width: 100%; max-width: 1136px; display: block; margin: 0 auto; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Dependency · Services and Infra Scaffold milestone</p>
+    <h1>Services and Infra Scaffold milestone: task dependencies</h1>
+
+    <svg viewBox="0 0 568 740" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="milestone-services-infra-scaffold-deps-title milestone-services-infra-scaffold-deps-desc">
+      <title id="milestone-services-infra-scaffold-deps-title">Services and Infra Scaffold milestone: task dependencies</title>
+      <desc id="milestone-services-infra-scaffold-deps-desc">Dependency graph of the 8 Services and Infra Scaffold milestone tasks: the four service scaffolds JE-17 to JE-20 all block the JE-22 root docker-compose, the JE-21 infra scaffold blocks nothing, and JE-23 skill discovery blocks JE-24 skill install and preload.</desc>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker>
+        <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+      <!-- Zones (painted first) -->
+      <rect x="40" y="40" width="208" height="440" rx="6" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="0.8"/>
+      <text x="56" y="60" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">SCAFFOLDS · INFRASTRUCTURE</text>
+      <rect x="320" y="40" width="208" height="440" rx="6" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="0.8"/>
+      <text x="336" y="60" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">ORCHESTRATION</text>
+      <rect x="40" y="504" width="488" height="120" rx="6" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="0.8"/>
+      <text x="56" y="524" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">TOOLING</text>
+
+      <!-- Connectors drawn before boxes -->
+      <!-- JE-17 → JE-22 (outer channel, top attach) -->
+      <path d="M 224,108 H 280 Q 288,108 288,116 V 196 Q 288,204 296,204 H 344" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- JE-18 → JE-22 (inner channel) -->
+      <path d="M 224,188 H 264 Q 272,188 272,196 V 212 Q 272,220 280,220 H 344" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- JE-19 → JE-22 (inner channel) -->
+      <path d="M 224,268 H 264 Q 272,268 272,260 V 244 Q 272,236 280,236 H 344" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- JE-20 → JE-22 (outer channel, bottom attach) -->
+      <path d="M 224,348 H 280 Q 288,348 288,340 V 260 Q 288,252 296,252 H 344" fill="none" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <!-- JE-23 → JE-24 -->
+      <line x1="224" y1="572" x2="344" y2="572" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+
+      <!-- JE-17 -->
+      <rect x="64" y="80" width="160" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="64" y="80" width="160" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="188" y="88" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="202" y="97" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">0 IN</text>
+      <text x="144" y="116" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Users scaffold</text>
+      <text x="144" y="130" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">JE-17</text>
+      <!-- JE-18 -->
+      <rect x="64" y="160" width="160" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="64" y="160" width="160" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="188" y="168" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="202" y="177" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">0 IN</text>
+      <text x="144" y="196" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Orders scaffold</text>
+      <text x="144" y="210" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">JE-18</text>
+      <!-- JE-19 -->
+      <rect x="64" y="240" width="160" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="64" y="240" width="160" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="188" y="248" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="202" y="257" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">0 IN</text>
+      <text x="144" y="276" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Tracking scaffold</text>
+      <text x="144" y="290" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">JE-19</text>
+      <!-- JE-20 -->
+      <rect x="64" y="320" width="160" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="64" y="320" width="160" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="188" y="328" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="202" y="337" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">0 IN</text>
+      <text x="144" y="356" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">events-pipeline scaffold</text>
+      <text x="144" y="370" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">JE-20</text>
+      <!-- JE-21 -->
+      <rect x="64" y="400" width="160" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="64" y="400" width="160" height="56" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+      <rect x="188" y="408" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="202" y="417" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">0 IN</text>
+      <text x="144" y="436" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">infra scaffold</text>
+      <text x="144" y="450" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">JE-21</text>
+      <!-- JE-22 -->
+      <rect x="344" y="188" width="160" height="80" rx="6" fill="#f5f5f5"/>
+      <rect x="344" y="188" width="160" height="80" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+      <rect x="468" y="196" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="482" y="205" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">4 IN</text>
+      <text x="424" y="236" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">root docker-compose</text>
+      <text x="424" y="250" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">JE-22</text>
+      <!-- JE-23 -->
+      <rect x="64" y="544" width="160" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="64" y="544" width="160" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="188" y="552" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="202" y="561" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">0 IN</text>
+      <text x="144" y="580" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">skill discovery</text>
+      <text x="144" y="594" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">JE-23</text>
+      <!-- JE-24 -->
+      <rect x="344" y="544" width="160" height="56" rx="6" fill="#f5f5f5"/>
+      <rect x="344" y="544" width="160" height="56" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+      <rect x="468" y="552" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="482" y="561" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">1 IN</text>
+      <text x="424" y="580" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">install + preload skills</text>
+      <text x="424" y="594" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">JE-24</text>
+
+      <!-- Legend strip -->
+      <line x1="40" y1="648" x2="528" y2="648" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="40" y="664" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+
+      <rect x="40" y="680" width="16" height="12" rx="2" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="64" y="689" fill="#4f5d75" font-size="8.5" font-family="'Geist', sans-serif">Task</text>
+
+      <rect x="136" y="680" width="16" height="12" rx="2" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+      <text x="160" y="689" fill="#4f5d75" font-size="8.5" font-family="'Geist', sans-serif">Leaf task (unblocks nothing)</text>
+
+      <line x1="316" y1="686" x2="344" y2="686" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <text x="352" y="689" fill="#4f5d75" font-size="8.5" font-family="'Geist', sans-serif">Blocker → blocked task</text>
+
+      <rect x="40" y="704" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="54" y="713" fill="#2d3142" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">N IN</text>
+      <text x="76" y="713" fill="#4f5d75" font-size="8.5" font-family="'Geist', sans-serif">Number of blocking tasks</text>
+
+      <rect x="316" y="704" width="16" height="12" rx="2" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="0.8"/>
+      <text x="340" y="713" fill="#4f5d75" font-size="8.5" font-family="'Geist', sans-serif">Zone = milestone phases</text>
+    </svg>
+  </div>
+</body>
+</html>

@@ -122,9 +122,9 @@ function resolves(target) {
 const assetNames = new Set();
 const assetPaths = [];
 for (const a of assetFiles) {
-  const rel = relative(ROOT, a).split(sep).join("/"); // e.g. 00-overview/diagrams/architecture.drawio.svg
-  assetNames.add(basename(a)); // architecture.drawio.svg
-  assetNames.add(rel);         // 00-overview/diagrams/architecture.drawio.svg
+  const rel = relative(ROOT, a).split(sep).join("/"); // e.g. 00-overview/diagrams/architecture-dev-floci.gif
+  assetNames.add(basename(a)); // architecture-dev-floci.gif
+  assetNames.add(rel);         // 00-overview/diagrams/architecture-dev-floci.gif
   assetPaths.push(rel);
 }
 
@@ -164,7 +164,7 @@ for (const f of files) {
     const target = link[1].trim();
     const targetExt = extname(target).toLowerCase();
     if (targetExt && targetExt !== ".md") {
-      // Asset embed (e.g. ![[diagram.drawio.svg]]): resolve against real vault files.
+      // Asset embed (e.g. ![[architecture-dev-floci.gif]]): resolve against real vault files.
       if (!resolvesAsset(target)) errors.push(`${f}: broken embed [[${target}]]`);
     } else {
       // Note wikilink: resolve against .md files.

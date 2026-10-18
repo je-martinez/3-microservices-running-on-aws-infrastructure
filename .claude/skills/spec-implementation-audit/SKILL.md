@@ -69,6 +69,9 @@ Work from the spec and plan, never from memory or from the diff alone.
 4. **Grep the docs for values the code has since corrected.** Config strings,
    directives, env var names, ports, file locations. This is where `code → docs`
    gaps hide.
+   Also run `make diagrams-check`: every `STALE?` line is a `code → docs` gap.
+   Re-render it via `diagram-impl`, or record a one-line justification for the
+   PR's `## Diagrams` section.
 5. **Check every runbook the work touches.** A runbook is instructions someone
    will FOLLOW; a stale one sends them to a file that no longer does anything.
 6. **Record manual verification results.** A step whose output lives only in a

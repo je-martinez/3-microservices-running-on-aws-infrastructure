@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Street autocomplete through a same-origin proxy</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    :root {
+      --color-paper: #f5f5f5;
+      --color-ink: #2d3142;
+      --color-muted: #4f5d75;
+      --color-soft: #7a8399;
+      --color-accent: #eb6c36;
+      --color-rule: rgba(45,49,66,0.12);
+      --font-sans: 'Geist', system-ui, sans-serif;
+      --font-serif: 'Instrument Serif', serif;
+      --font-mono: 'Geist Mono', ui-monospace, monospace;
+      --motion-fast: 160ms;
+      --motion-step: 480ms;
+      --motion-hold: 960ms;
+      --motion-total: 7680ms;
+      --motion-ease: cubic-bezier(.2,.8,.2,1);
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 48px 32px;
+      color: var(--color-ink);
+      background: var(--color-paper);
+      font-family: var(--font-sans);
+    }
+    [data-motion-root] { width: min(100%, 1280px); }
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--color-muted);
+      font: 500 12px/1.4 var(--font-mono);
+      letter-spacing: .18em;
+      text-transform: uppercase;
+    }
+    h1 { margin: 0 0 24px; font: 400 32px/1.15 var(--font-serif); }
+    svg { display: block; width: 100%; min-width: 720px; }
+
+    /* Static source is complete. Only an initialized enhancement hides items. */
+    .motion-ready [data-motion-item] {
+      opacity: .12;
+      transform: translateY(8px);
+      transform-box: fill-box;
+      transform-origin: center;
+      transition: opacity var(--motion-step) var(--motion-ease),
+                  transform var(--motion-step) var(--motion-ease);
+    }
+    .motion-ready [data-motion-item].is-visible,
+    .motion-ready[data-frame="end"] [data-motion-item],
+    .motion-ready[data-frame="static"] [data-motion-item] {
+      opacity: 1;
+      transform: none;
+    }
+    .motion-ready[data-frame="step"] [data-motion-item].is-current .badge { fill: var(--color-accent); }
+
+    [data-motion-controls] {
+      display: none;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--color-rule);
+    }
+    .motion-ready [data-motion-controls] { display: flex; }
+    [data-motion-controls][hidden] { display: none !important; }
+    [data-motion-controls] button {
+      min-width: 44px;
+      min-height: 44px;
+      padding: 8px 12px;
+      border: 1px solid var(--color-muted);
+      border-radius: 4px;
+      color: var(--color-ink);
+      background: var(--color-paper);
+      font: 600 12px/1 var(--font-sans);
+      cursor: pointer;
+    }
+    [data-motion-controls] button:hover { border-color: var(--color-accent); }
+    [data-motion-controls] button:focus-visible {
+      outline: 3px solid var(--color-accent);
+      outline-offset: 2px;
+    }
+    [data-motion-controls] button:disabled { cursor: not-allowed; opacity: .45; }
+    [data-motion-status-visible] {
+      margin-left: auto;
+      color: var(--color-muted);
+      font: 500 12px/1.4 var(--font-mono);
+    }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0,0,0,0);
+      white-space: nowrap;
+      border: 0;
+    }
+    noscript p {
+      margin: 12px 0 0;
+      color: var(--color-muted);
+      font: 500 12px/1.4 var(--font-mono);
+    }
+
+    html[data-motion="static"] [data-motion-controls],
+    html[data-motion="static"] [data-motion-decorative] { display: none !important; }
+    html[data-motion="static"] [data-motion-item] {
+      opacity: 1 !important;
+      transform: none !important;
+      animation: none !important;
+      transition: none !important;
+    }
+    html[data-motion="step"] [data-motion-controls],
+    html[data-motion="step"] [data-motion-decorative] { display: none !important; }
+    html[data-motion="step"] [data-motion-item] {
+      animation: none !important;
+      transition: none !important;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: .001ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: .001ms !important;
+      }
+      [data-motion-item] { opacity: 1 !important; transform: none !important; }
+      [data-motion-decorative] { display: none !important; }
+      [data-motion-controls] { display: none !important; }
+    }
+    @media print {
+      [data-motion-controls], [data-motion-decorative] { display: none !important; }
+      [data-motion-item] {
+        opacity: 1 !important;
+        transform: none !important;
+        animation: none !important;
+        transition: none !important;
+      }
+    }
+
+    .lbl { fill: #7a8399; font: 400 8px var(--font-mono); letter-spacing: .06em; }
+    .zone-lbl { fill: rgba(45,49,66,0.55); font: 500 8px var(--font-mono); letter-spacing: .14em; }
+    .name { fill: #2d3142; font: 600 12px var(--font-sans); }
+    .sub { fill: #4f5d75; font: 400 8px var(--font-mono); letter-spacing: .04em; }
+    .badge { fill: #2d3142; }
+    .badge-n { fill: #f5f5f5; font: 600 12px var(--font-mono); }
+    .cap { fill: #2d3142; font: 400 12px var(--font-sans); }
+    .eyebrow-svg { fill: #4f5d75; font: 500 8px var(--font-mono); letter-spacing: .14em; }
+  </style>
+</head>
+  <main data-motion-root data-motion-mode="step" data-step-count="8" data-step-current="8" data-frame="static" data-static-frame="complete">
+    <p class="eyebrow">Orders · Flow · Local dev on Floci</p>
+    <h1>Street autocomplete through a same-origin proxy</h1>
+
+    <svg viewBox="0 104 1280 776" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="checkout-address-geocoding-proxy-title checkout-address-geocoding-proxy-desc">
+      <title id="checkout-address-geocoding-proxy-title">Street autocomplete through a same-origin proxy</title>
+      <desc id="checkout-address-geocoding-proxy-desc">The web nginx proxies street autocomplete to Geoapify with a server-side key the browser never sees, logs only those calls to OpenObserve to count the free tier, and proxies the address save through API Gateway's JWT authorizer to the Users service.</desc>
+      <defs>
+        <marker id="cagp-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+        </marker>
+        <marker id="cagp-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/>
+        </marker>
+        <marker id="cagp-arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+        </marker>
+      </defs>
+      <rect y="104" width="1280" height="752" fill="#f5f5f5"/>
+
+      <!-- Zones (painted first) -->
+      <rect x="296" y="272" width="208" height="316" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="0.8" stroke-dasharray="4,4"/>
+      <rect x="308" y="276" width="176" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="312" y="285" class="zone-lbl">COMPOSE · WEB + OBSERVABILITY</text>
+
+      <rect x="768" y="272" width="208" height="144" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="0.8" stroke-dasharray="4,4"/>
+      <rect x="780" y="276" width="72" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="784" y="285" class="zone-lbl">FLOCI :4566</text>
+
+      <rect x="1040" y="272" width="208" height="144" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="0.8" stroke-dasharray="4,4"/>
+      <rect x="1052" y="276" width="164" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="1056" y="285" class="zone-lbl">DOCKER COMPOSE · SERVICES</text>
+
+      <!-- Connectors (before nodes) -->
+      <!-- web -> nginx: same-origin -->
+      <path d="M160,344 H336" fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#cagp-arrow-link)"/>
+      <!-- nginx -> geoapify: + API key (focal) -->
+      <path d="M464,316 H648 Q656,316 656,308 V212" fill="none" stroke="#eb6c36" stroke-width="1.2" marker-end="url(#cagp-arrow-accent)"/>
+      <!-- nginx -> openobserve: access log via fluentd (async) -->
+      <path d="M400,388 V476" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#cagp-arrow)"/>
+      <!-- nginx -> gateway: API path -->
+      <path d="M464,344 H808" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#cagp-arrow)"/>
+      <!-- gateway -> users -->
+      <path d="M936,344 H1080" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#cagp-arrow)"/>
+
+      <!-- Arrow labels (masked, 8px off their stroke) -->
+      <rect x="200" y="324" width="64" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="232" y="333" class="lbl" text-anchor="middle">SAME-ORIGIN</text>
+      <rect x="532" y="296" width="56" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="560" y="305" class="lbl" text-anchor="middle">+ API KEY</text>
+      <rect x="412" y="404" width="80" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="452" y="413" class="lbl" text-anchor="middle">LOG VIA FLUENTD</text>
+      <rect x="676" y="324" width="52" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="702" y="333" class="lbl" text-anchor="middle">API PATH</text>
+
+      <!-- Nodes -->
+      <!-- Web app (input) -->
+      <rect x="32" y="300" width="128" height="88" rx="6" fill="#f5f5f5"/>
+      <rect x="32" y="300" width="128" height="88" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/Client.svg" x="76" y="308" width="40" height="40"/>
+      <text x="96" y="364" class="name" text-anchor="middle">Web app</text>
+      <text x="96" y="380" class="sub" text-anchor="middle">browser</text>
+
+      <!-- Web nginx (focal) -->
+      <rect x="336" y="300" width="128" height="88" rx="6" fill="#f5f5f5"/>
+      <rect x="336" y="300" width="128" height="88" rx="6" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1.2"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/Server.svg" x="380" y="312" width="40" height="40"/>
+      <text x="400" y="372" class="name" text-anchor="middle">Web nginx</text>
+
+      <!-- Geoapify (external, optional) -->
+      <rect x="592" y="124" width="128" height="88" rx="6" fill="#f5f5f5"/>
+      <rect x="592" y="124" width="128" height="88" rx="6" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+      <rect x="600" y="132" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="614" y="141" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">FLAG</text>
+      <image href="https://cdn.jsdelivr.net/gh/geoapify/route-planner-sdk@cb2da5f18aee1efa35eb85ab948ffe8e17fcf9a8/docs-site/docs/assets/geoapify-logo-new-125x125.png" x="636" y="132" width="40" height="40"/>
+      <text x="656" y="188" class="name" text-anchor="middle">Geoapify</text>
+      <text x="656" y="204" class="sub" text-anchor="middle">GEOAPIFY_ENABLED</text>
+
+      <!-- OpenObserve -->
+      <rect x="336" y="476" width="128" height="88" rx="6" fill="#f5f5f5"/>
+      <rect x="336" y="476" width="128" height="88" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/gh/selfhst/icons@7e8bfc59dd0f09dab84f53a6be206592a24799b1/svg/openobserve.svg" x="380" y="488" width="40" height="40"/>
+      <text x="400" y="548" class="name" text-anchor="middle">OpenObserve</text>
+
+      <!-- API Gateway -->
+      <rect x="808" y="300" width="128" height="88" rx="6" fill="#f5f5f5"/>
+      <rect x="808" y="300" width="128" height="88" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonAPIGateway.svg" x="852" y="308" width="40" height="40"/>
+      <text x="872" y="364" class="name" text-anchor="middle">API Gateway</text>
+      <text x="872" y="380" class="sub" text-anchor="middle">JWT authorizer</text>
+
+      <!-- Users service -->
+      <rect x="1080" y="300" width="128" height="88" rx="6" fill="#f5f5f5"/>
+      <rect x="1080" y="300" width="128" height="88" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/Server.svg" x="1124" y="312" width="40" height="40"/>
+      <text x="1144" y="372" class="name" text-anchor="middle">Users service</text>
+
+      <!-- Steps: badges on their connectors + the numbered caption list -->
+      <line x1="32" y1="616" x2="1248" y2="616" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="32" y="640" class="eyebrow-svg">STEPS</text>
+
+      <g data-motion-item data-step="1" aria-label="Step 1: the browser calls nginx on the same origin, which answers 503 itself when the key is unset">
+        <circle class="badge" cx="184" cy="344" r="8"/><text class="badge-n" x="184" y="348" text-anchor="middle">1</text>
+        <circle class="badge" cx="40" cy="664" r="8"/><text class="badge-n" x="40" y="668" text-anchor="middle">1</text>
+        <text class="cap" x="56" y="668">After a 300 ms debounce and 3+ characters, a same-origin call with no bearer token;</text>
+        <text class="cap" x="56" y="684">with the key unset, nginx answers 503 itself rather than burn free-tier quota</text>
+      </g>
+      <g data-motion-item data-step="2" aria-label="Step 2: nginx appends the key and calls Geoapify for OpenStreetMap streets">
+        <circle class="badge" cx="496" cy="316" r="8"/><text class="badge-n" x="496" y="320" text-anchor="middle">2</text>
+        <circle class="badge" cx="40" cy="712" r="8"/><text class="badge-n" x="40" y="716" text-anchor="middle">2</text>
+        <text class="cap" x="56" y="716">nginx appends the key and strips credential headers before leaving the host;</text>
+        <text class="cap" x="56" y="732">OpenStreetMap streets come back, and Santo Domingo results carry no house numbers</text>
+      </g>
+      <g data-motion-item data-step="3" aria-label="Step 3: nginx logs the geocode call to OpenObserve">
+        <circle class="badge" cx="400" cy="444" r="8"/><text class="badge-n" x="400" y="448" text-anchor="middle">3</text>
+        <circle class="badge" cx="40" cy="760" r="8"/><text class="badge-n" x="40" y="764" text-anchor="middle">3</text>
+        <text class="cap" x="56" y="764">The only logged location, so the free-tier call count is a web-geocode query</text>
+      </g>
+      <g data-motion-item data-step="4" aria-label="Step 4: the browser keeps only suggestions with a street">
+        <circle class="badge" cx="216" cy="344" r="8"/><text class="badge-n" x="216" y="348" text-anchor="middle">4</text>
+        <circle class="badge" cx="40" cy="792" r="8"/><text class="badge-n" x="40" y="796" text-anchor="middle">4</text>
+        <text class="cap" x="56" y="796">Entries without a street are dropped; any failure degrades to an empty list</text>
+      </g>
+      <g data-motion-item data-step="5" aria-label="Step 5: the buyer picks a street and saves the address">
+        <circle class="badge" cx="248" cy="344" r="8"/><text class="badge-n" x="248" y="348" text-anchor="middle">5</text>
+        <circle class="badge" cx="680" cy="664" r="8"/><text class="badge-n" x="680" y="668" text-anchor="middle">5</text>
+        <text class="cap" x="696" y="668">The buyer picks a street, types the house number and saves</text>
+      </g>
+      <g data-motion-item data-step="6" aria-label="Step 6: nginx proxies the save to API Gateway, where the JWT authorizer runs">
+        <circle class="badge" cx="600" cy="344" r="8"/><text class="badge-n" x="600" y="348" text-anchor="middle">6</text>
+        <circle class="badge" cx="680" cy="696" r="8"/><text class="badge-n" x="680" y="700" text-anchor="middle">6</text>
+        <text class="cap" x="696" y="700">The same nginx proxies the API path to the gateway, where the JWT authorizer runs</text>
+      </g>
+      <g data-motion-item data-step="7" aria-label="Step 7: Users stores the address on the buyer's profile">
+        <circle class="badge" cx="1008" cy="344" r="8"/><text class="badge-n" x="1008" y="348" text-anchor="middle">7</text>
+        <circle class="badge" cx="680" cy="728" r="8"/><text class="badge-n" x="680" y="732" text-anchor="middle">7</text>
+        <text class="cap" x="696" y="732">Users stores the address on the buyer's profile</text>
+      </g>
+      <g data-motion-item data-step="8" aria-label="Step 8: the returned profile replaces the session user">
+        <circle class="badge" cx="280" cy="344" r="8"/><text class="badge-n" x="280" y="348" text-anchor="middle">8</text>
+        <circle class="badge" cx="680" cy="760" r="8"/><text class="badge-n" x="680" y="764" text-anchor="middle">8</text>
+        <text class="cap" x="696" y="764">The returned profile replaces the session user and re-renders the address card</text>
+      </g>
+
+      <!-- Legend strip -->
+      <line x1="32" y1="816" x2="1248" y2="816" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="32" y="844" class="eyebrow-svg">LEGEND</text>
+      <line x1="104" y1="840" x2="136" y2="840" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#cagp-arrow)"/>
+      <text x="148" y="844" class="lbl">SYNC CALL</text>
+      <line x1="236" y1="840" x2="268" y2="840" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#cagp-arrow-link)"/>
+      <text x="280" y="844" class="lbl">HTTP FROM THE BROWSER</text>
+      <line x1="424" y1="840" x2="456" y2="840" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#cagp-arrow)"/>
+      <text x="468" y="844" class="lbl">ASYNC · LOG SHIPPING</text>
+      <line x1="604" y1="840" x2="636" y2="840" stroke="#eb6c36" stroke-width="1.2" marker-end="url(#cagp-arrow-accent)"/>
+      <text x="648" y="844" class="lbl">THE KEYED CALL</text>
+      <rect x="760" y="832" width="24" height="16" rx="4" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+      <text x="796" y="844" class="lbl">FOCAL SERVICE</text>
+      <rect x="900" y="832" width="24" height="16" rx="4" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+      <text x="936" y="844" class="lbl">OPTIONAL · KEY MAY BE UNSET</text>
+      <circle class="badge" cx="1112" cy="840" r="8"/><text class="badge-n" x="1112" y="844" text-anchor="middle">n</text>
+      <text x="1128" y="844" class="lbl">STEP · CAPTION n</text>
+      <rect x="104" y="856" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.30)" stroke-width="0.8"/>
+      <text x="118" y="865" fill="#7a8399" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">FLAG</text>
+      <text x="140" y="868" class="lbl">BEHIND A FEATURE FLAG · GEOAPIFY: GEOAPIFY_ENABLED (PRE-PROD) · KEY SET (DEV)</text>
+    </svg>
+
+    <div data-motion-controls role="group" aria-label="Diagram playback controls">
+      <button type="button" data-motion-action="prev">Previous</button>
+      <button type="button" data-motion-action="play" aria-pressed="false">Play</button>
+      <button type="button" data-motion-action="pause" aria-pressed="true">Pause</button>
+      <button type="button" data-motion-action="next">Next</button>
+      <button type="button" data-motion-action="replay">Replay</button>
+      <span class="keyboard-help">←/→ step · Space play/pause · R replay · Home/End jump</span>
+      <span data-motion-status-visible aria-hidden="true">Step <span data-motion-step-label>8</span> of 8</span>
+    </div>
+    <p class="sr-only" data-motion-status role="status" aria-live="polite" aria-atomic="true"></p>
+    <noscript><p>Animation controls require JavaScript. The complete final diagram is shown above.</p></noscript>
+  </main>
+
+  <script data-diagram-controls>
+    (() => {
+      const params = new URLSearchParams(location.search);
+      const staticOverride = params.get('motion') === 'static' || document.documentElement.dataset.motion === 'static';
+      const requestedStep = params.get('step');
+      const reduce = matchMedia('(prefers-reduced-motion: reduce)');
+      document.fonts.ready.then(() => { document.documentElement.dataset.fontsReady = 'true'; });
+
+      document.querySelectorAll('[data-motion-root]').forEach((root) => {
+        const count = Number(root.dataset.stepCount);
+        const hold = parseFloat(getComputedStyle(root).getPropertyValue('--motion-hold')) || 720;
+        const parsedStep = requestedStep !== null && /^\d+$/.test(requestedStep) ? Number(requestedStep) : null;
+        const exactStep = params.get('motion') === 'step' && Number.isSafeInteger(parsedStep) && parsedStep >= 0 && parsedStep <= count ? parsedStep : null;
+        const items = [...root.querySelectorAll('[data-motion-item]')];
+        const labels = Array.from({ length: count + 1 }, (_, index) => index === 0
+          ? 'Ready'
+          : items.filter((item) => !item.hasAttribute('data-motion-decorative') && Number(item.dataset.step) === index)
+              .map((item) => item.getAttribute('aria-label')).join('; '));
+        const controls = root.querySelector('[data-motion-controls]');
+        const status = root.querySelector('[data-motion-status]');
+        const visibleStep = root.querySelector('[data-motion-step-label]');
+        let step = count;
+        let timer = 0;
+        let playing = false;
+        let stepBeforeReduce = 0;
+        let resumeAfterReduce = root.dataset.motionMode === 'reveal';
+
+        const buttons = (action) => controls.querySelector(`[data-motion-action="${action}"]`);
+        const clearClock = () => { window.clearTimeout(timer); timer = 0; };
+        const announce = () => { status.textContent = `Step ${step} of ${count}: ${labels[step] || 'Complete'}`; };
+        const setControlsAvailable = (available) => {
+          controls.hidden = !available;
+          controls.setAttribute('aria-hidden', String(!available));
+          controls.dataset.playbackDisabled = String(!available);
+          controls.querySelectorAll('button').forEach((control) => { control.disabled = !available; });
+        };
+
+        function render(next, userInitiated = false) {
+          step = Math.max(0, Math.min(count, next));
+          root.dataset.stepCurrent = String(step);
+          root.dataset.frame = step === count ? 'end' : step === 0 ? 'start' : 'step';
+          items.forEach((item) => {
+            const itemStep = Number(item.dataset.step);
+            item.classList.toggle('is-visible', itemStep <= step);
+            item.classList.toggle('is-current', itemStep === step);
+          });
+          if (visibleStep) visibleStep.textContent = String(step);
+          const unavailable = controls.dataset.playbackDisabled === 'true';
+          buttons('prev').disabled = unavailable || step === 0;
+          buttons('next').disabled = unavailable || step === count;
+          if (userInitiated) announce();
+        }
+
+        function pause(userInitiated = false) {
+          clearClock();
+          playing = false;
+          root.classList.remove('is-playing');
+          buttons('play').setAttribute('aria-pressed', 'false');
+          buttons('pause').setAttribute('aria-pressed', 'true');
+          if (userInitiated) status.textContent = `Paused at step ${step} of ${count}`;
+        }
+
+        function finish() {
+          pause(false);
+          root.dataset.frame = 'end';
+          status.textContent = `Complete · step ${count} of ${count}`;
+        }
+
+        function tick() {
+          if (!playing) return;
+          if (step >= count) { finish(); return; }
+          render(step + 1, false);
+          if (step >= count) { finish(); return; }
+          timer = window.setTimeout(tick, hold);
+        }
+
+        function play(fromStart = false, userInitiated = false) {
+          clearClock();
+          if (fromStart || step >= count) render(0, userInitiated);
+          playing = true;
+          root.classList.add('is-playing');
+          buttons('play').setAttribute('aria-pressed', 'true');
+          buttons('pause').setAttribute('aria-pressed', 'false');
+          timer = window.setTimeout(tick, hold);
+        }
+
+        controls.addEventListener('click', (event) => {
+          const button = event.target.closest('[data-motion-action]');
+          if (!button) return;
+          const action = button.dataset.motionAction;
+          if (action === 'play') play(false, true);
+          if (action === 'pause') pause(true);
+          if (action === 'replay') play(true, true);
+          if (action === 'prev') { pause(false); render(step - 1, true); }
+          if (action === 'next') { pause(false); render(step + 1, true); }
+        });
+
+        root.addEventListener('keydown', (event) => {
+          if (event.target.matches('input, textarea, select, a[href]')) return;
+          const keys = { ArrowLeft: step - 1, ArrowRight: step + 1, Home: 0, End: count };
+          if (event.code === 'Space' && !event.target.closest('button')) {
+            event.preventDefault();
+            playing ? pause(true) : play(false, true);
+            return;
+          }
+          if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === 'r') {
+            event.preventDefault();
+            play(true, true);
+            return;
+          }
+          if (!(event.key in keys)) return;
+          event.preventDefault();
+          pause(false);
+          render(keys[event.key], true);
+        });
+
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'hidden' && playing) pause(false);
+        });
+        reduce.addEventListener('change', (event) => {
+          if (event.matches && root.dataset.motionState !== 'reduced') {
+            stepBeforeReduce = step;
+            resumeAfterReduce = playing;
+          }
+          pause(false);
+          if (event.matches) {
+            setControlsAvailable(false);
+            render(count, false);
+            root.dataset.frame = 'static';
+            root.dataset.motionState = 'reduced';
+            status.textContent = 'Reduced motion · complete static frame · playback controls unavailable';
+          } else if (staticOverride || root.dataset.motionMode === 'none') {
+            setControlsAvailable(false);
+            render(count, false);
+            root.dataset.frame = 'static';
+            root.dataset.motionState = 'static';
+            status.textContent = 'Static frame · complete diagram · playback controls unavailable';
+          } else {
+            delete root.dataset.motionState;
+            if (exactStep !== null) {
+              setControlsAvailable(false);
+              render(exactStep, false);
+              root.dataset.frame = 'step';
+              root.dataset.motionState = 'test';
+              status.textContent = `Test frame · step ${step} of ${count} · playback controls unavailable`;
+            } else {
+              setControlsAvailable(true);
+              render(stepBeforeReduce, false);
+              status.textContent = `Ready · step ${step} of ${count}`;
+              if (resumeAfterReduce && root.dataset.motionMode === 'reveal') {
+                play(false, false);
+              }
+            }
+            resumeAfterReduce = false;
+          }
+        });
+
+        if (staticOverride) {
+          document.documentElement.dataset.motion = 'static';
+          pause(false);
+          setControlsAvailable(false);
+          render(count, false);
+          root.dataset.frame = 'static';
+          root.dataset.motionState = 'static';
+          status.textContent = 'Static frame · complete diagram · playback controls unavailable';
+        } else if (reduce.matches || root.dataset.motionMode === 'none') {
+          pause(false);
+          setControlsAvailable(false);
+          render(count, false);
+          root.dataset.frame = 'static';
+          root.dataset.motionState = reduce.matches ? 'reduced' : 'static';
+          status.textContent = reduce.matches
+            ? 'Reduced motion · complete static frame · playback controls unavailable'
+            : 'Static frame · complete diagram · playback controls unavailable';
+        } else if (exactStep !== null) {
+          document.documentElement.dataset.motion = 'step';
+          pause(false);
+          setControlsAvailable(false);
+          render(exactStep, false);
+          root.dataset.frame = 'step';
+          root.dataset.motionState = 'test';
+          status.textContent = `Test frame · step ${step} of ${count} · playback controls unavailable`;
+        } else if (root.dataset.motionMode === 'reveal') {
+          setControlsAvailable(true);
+          render(0, false);
+          play(false, false);
+        } else {
+          pause(false);
+          setControlsAvailable(true);
+          render(0, false);
+          status.textContent = `Ready · step 0 of ${count}`;
+        }
+        root.classList.add('motion-ready');
+      });
+    })();
+  </script>
+</body>
+</html>

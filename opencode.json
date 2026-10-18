@@ -4,14 +4,6 @@
     ".opencode/rules/*.md"
   ],
   "mcp": {
-    "drawio": {
-      "type": "local",
-      "command": [
-        "pnpm",
-        "dlx",
-        "@drawio/mcp"
-      ]
-    },
     "pencil": {
       "type": "local",
       "command": [

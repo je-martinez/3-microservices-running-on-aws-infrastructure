@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-08-27
-updated: 2026-09-29
+updated: 2026-10-06
 tags:
   - type/convention
   - area/shared
@@ -51,7 +51,7 @@ This convention applies to comments in `.tf`, `.py`, `.ts`, `.js`, `.mjs`, `.cs`
 source files. It does not apply to `docs/` vault notes, generated files, or vendored code.
 Excluded by path: `spike/` as throwaway, `.claude/skills/` and its `.agents/skills/` mirror as
 vendored content, `.claude/worktrees/` because those are checkouts of this repo and every violation
-would otherwise be counted once per worktree, and `e2e/load-tests/target/` as Gatling run output.
+would otherwise be counted once per worktree, and `e2e/load-tests/target/` as Gatling run output. The lnai mirrors of vendored skills (`.ai/`, `.cursor/`, `.gemini/`, `.windsurf/`, `.github/` and `skills/` paths) are excluded too. Exclusions apply to explicit path arguments as well, which is how the pre-commit hook calls the linter.
 
 ## Rule
 

@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-10-05
+updated: 2026-10-13
 tags: [type/spec, area/shared, status/active]
 related:
   - "[[2026-10-02-dev-stack-floci-2-1]]"
@@ -159,6 +159,8 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-10-02-floci-preprod-environment]] — implementation plan for `make preprod-up`: a Floci-only pre-production environment running the services as ECS tasks from Floci's ECR, configured from SSM/Secrets Manager, behind API Gateway to ALB with no nginx; design spec [[2026-10-02-floci-preprod-environment-design]].
 - [[2026-10-05-preprod-integrations]] — implementation plan for the opt-in Stripe and Geoapify integrations in pre-prod; design spec [[2026-10-05-preprod-integrations-design]].
 - [[stripe-payments-milestone]] — logical execution plan and current status for the Stripe Payments milestone: dependency diagram, per-task PR status, the gap backlog carried from PR #85's review, and local environment state.
+- [[2026-10-07-aws-style-diagrams]] — (historical) restyle all 26 Remotion diagrams to the AWS reference-architecture visual language with one ELK-laid-out `AwsDiagram` primitive and official group/generic icons.
+- [[2026-10-13-diagram-design-migration]] — replace the Remotion/ELK `diagrams/` package with hand-authored `diagram-design` HTML sources and a slim Python toolchain (catalog, drift, gate, PNG render); migrate all 29 diagrams and retire Remotion.
 
 > [!note] No plan note for the AuditActor enum
 > [[2026-07-12-audit-actor-enum-design]] was implemented directly from the spec — there is no separate `writing-plans` plan for it.
@@ -241,3 +243,6 @@ Map of Content for implementation plans in the **3 Microservices Running on AWS 
 - [[2026-10-02-floci-preprod-environment]]
 - [[2026-10-03-floci-preprod-follow-ups]]
 - [[2026-10-05-preprod-integrations]]
+- [[2026-10-06-remotion-diagrams]]
+- [[2026-10-07-aws-style-diagrams]]
+- [[2026-10-13-diagram-design-migration]]

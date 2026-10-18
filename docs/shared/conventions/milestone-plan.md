@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-06-27
-updated: 2026-07-28
+updated: 2026-10-13
 tags:
   - type/convention
   - area/shared
@@ -12,7 +12,8 @@ tags:
 related:
   - "[[linear-references]]"
   - "[[2026-06-26-3mrai-docs-vault]]"
-  - "[[ADR-0015-drawio-diagrams]]"
+  - "[[ADR-0024-diagram-design-diagrams]]"
+  - "[[diagrams]]"
   - "[[2026-06-27-milestone-plan-convention-design]]"
 ---
 
@@ -52,15 +53,15 @@ A task with no blockers lists `—`. The table covers every task in the mileston
 
 ### c) Dependency diagram
 
-A `drawio.svg` file embedded with the standard Obsidian embed syntax:
+A rendered PNG embedded with the standard Obsidian embed syntax:
 
 ```
-![[<milestone-slug>-deps.drawio.svg]]
+![[<milestone-slug>-deps.png]]
 ```
 
 The diagram is placed immediately after the dependency table. It renders the same blocking relationships in directed acyclic graph (DAG) form, with edges pointing from blocker to blocked (e.g., JE-5 → JE-6). Node labels include the issue ID plus a short task name (e.g., "JE-5 / Skeleton").
 
-The file lives in `docs/plans/diagrams/` so it is co-located with the plans that reference it. It is generated via `scripts/drawio-to-svg.mjs` and stored as a `.drawio.svg` dual-format file (static SVG + embedded draw.io XML). Governed by [[ADR-0015-drawio-diagrams]].
+The file lives in `docs/plans/diagrams/` so it is co-located with the plans that reference it. It is a hand-authored diagram-design HTML source (`diagrams/src/milestones/`) with phase groups and task nodes, rendered PNG-only to `docs/plans/diagrams/<slug>-deps.png` by `make diagrams-render` (the catalog entry in `diagrams/catalog.yaml` maps source to output; the id differs from the output basename). The PNG is never hand-edited. Governed by [[diagrams]] and [[ADR-0024-diagram-design-diagrams]].
 
 ### d) Phase grouping
 
@@ -98,5 +99,6 @@ The separation between the convention (defined once here in `shared/`) and each 
 
 - [[linear-references]] — general Linear reference rules; this convention extends them.
 - [[2026-06-26-3mrai-docs-vault]] — the vault build plan; the first milestone that exposed the need for this convention.
-- [[ADR-0015-drawio-diagrams]] — governs the `.drawio.svg` diagram format used in plan notes.
+- [[diagrams]] — the diagram convention (catalog, rendering, keep-current rule).
+- [[ADR-0024-diagram-design-diagrams]] — governs the diagram format used in plan notes.
 - [[2026-06-27-milestone-plan-convention-design]] — the design spec that introduced this convention.

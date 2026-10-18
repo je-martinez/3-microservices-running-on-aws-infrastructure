@@ -1,10 +1,10 @@
 ---
-title: MCP servers for local dev (drawio, pencil)
+title: MCP servers for local dev (pencil)
 type: runbook
 area: infra
 status: active
 created: 2026-07-10
-updated: 2026-10-02
+updated: 2026-10-06
 integration-status: n/a
 verified-on: null
 verified-by: null
@@ -16,7 +16,7 @@ related:
   - package-manager
 ---
 
-# MCP servers for local dev (drawio, pencil)
+# MCP servers for local dev (pencil)
 
 ## When to run this
 
@@ -35,10 +35,6 @@ MCP servers for this repo are declared in `.mcp.json` at the repo root:
 ```json
 {
   "mcpServers": {
-    "drawio": {
-      "command": "pnpm",
-      "args": ["dlx", "@drawio/mcp"]
-    },
     "pencil": {
       "command": "sh",
       "args": [
@@ -50,9 +46,6 @@ MCP servers for this repo are declared in `.mcp.json` at the repo root:
 }
 ```
 
-- **`drawio`** — `pnpm dlx @drawio/mcp`, no secrets required. The repo's package manager is
-  pnpm, never `npx` — see [[package-manager]]. `pnpm dlx` never prompts before running a
-  fetched package, so there is no `-y` equivalent.
 - **`pencil`** — a stdio server behind `scripts/pencil_mcp.py`, which resolves the Pen
   desktop binary per platform. Its optional `PENCIL_MCP_BIN` override lives in an env
   file (gitignored), never exported in a developer's shell profile.

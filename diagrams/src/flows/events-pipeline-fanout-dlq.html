@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Events fan-out, retries and the dead-letter queue</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    :root {
+      --color-paper: #f5f5f5;
+      --color-ink: #2d3142;
+      --color-muted: #4f5d75;
+      --color-soft: #7a8399;
+      --color-accent: #eb6c36;
+      --color-rule: rgba(45,49,66,0.12);
+      --font-sans: 'Geist', system-ui, sans-serif;
+      --font-serif: 'Instrument Serif', serif;
+      --font-mono: 'Geist Mono', ui-monospace, monospace;
+      --motion-fast: 160ms;
+      --motion-step: 480ms;
+      --motion-hold: 960ms;
+      --motion-total: 7680ms;
+      --motion-ease: cubic-bezier(.2,.8,.2,1);
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 48px 32px;
+      color: var(--color-ink);
+      background: var(--color-paper);
+      font-family: var(--font-sans);
+    }
+    [data-motion-root] { width: min(100%, 1360px); }
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--color-muted);
+      font: 500 12px/1.4 var(--font-mono);
+      letter-spacing: .18em;
+      text-transform: uppercase;
+    }
+    h1 { margin: 0 0 24px; font: 400 32px/1.15 var(--font-serif); }
+    svg { display: block; width: 100%; min-width: 720px; }
+
+    /* Static source is complete. Only an initialized enhancement hides items. */
+    .motion-ready [data-motion-item] {
+      opacity: .12;
+      transform: translateY(8px);
+      transform-box: fill-box;
+      transform-origin: center;
+      transition: opacity var(--motion-step) var(--motion-ease),
+                  transform var(--motion-step) var(--motion-ease);
+    }
+    .motion-ready [data-motion-item].is-visible,
+    .motion-ready[data-frame="end"] [data-motion-item],
+    .motion-ready[data-frame="static"] [data-motion-item] {
+      opacity: 1;
+      transform: none;
+    }
+    .motion-ready[data-frame="step"] [data-motion-item].is-current .badge { fill: var(--color-accent); }
+
+    [data-motion-controls] {
+      display: none;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--color-rule);
+    }
+    .motion-ready [data-motion-controls] { display: flex; }
+    [data-motion-controls][hidden] { display: none !important; }
+    [data-motion-controls] button {
+      min-width: 44px;
+      min-height: 44px;
+      padding: 8px 12px;
+      border: 1px solid var(--color-muted);
+      border-radius: 4px;
+      color: var(--color-ink);
+      background: var(--color-paper);
+      font: 600 12px/1 var(--font-sans);
+      cursor: pointer;
+    }
+    [data-motion-controls] button:hover { border-color: var(--color-accent); }
+    [data-motion-controls] button:focus-visible {
+      outline: 3px solid var(--color-accent);
+      outline-offset: 2px;
+    }
+    [data-motion-controls] button:disabled { cursor: not-allowed; opacity: .45; }
+    [data-motion-status-visible] {
+      margin-left: auto;
+      color: var(--color-muted);
+      font: 500 12px/1.4 var(--font-mono);
+    }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0,0,0,0);
+      white-space: nowrap;
+      border: 0;
+    }
+    noscript p {
+      margin: 12px 0 0;
+      color: var(--color-muted);
+      font: 500 12px/1.4 var(--font-mono);
+    }
+
+    html[data-motion="static"] [data-motion-controls],
+    html[data-motion="static"] [data-motion-decorative] { display: none !important; }
+    html[data-motion="static"] [data-motion-item] {
+      opacity: 1 !important;
+      transform: none !important;
+      animation: none !important;
+      transition: none !important;
+    }
+    html[data-motion="step"] [data-motion-controls],
+    html[data-motion="step"] [data-motion-decorative] { display: none !important; }
+    html[data-motion="step"] [data-motion-item] {
+      animation: none !important;
+      transition: none !important;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: .001ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: .001ms !important;
+      }
+      [data-motion-item] { opacity: 1 !important; transform: none !important; }
+      [data-motion-decorative] { display: none !important; }
+      [data-motion-controls] { display: none !important; }
+    }
+    @media print {
+      [data-motion-controls], [data-motion-decorative] { display: none !important; }
+      [data-motion-item] {
+        opacity: 1 !important;
+        transform: none !important;
+        animation: none !important;
+        transition: none !important;
+      }
+    }
+
+    .lbl { fill: #7a8399; font: 400 8px var(--font-mono); letter-spacing: .06em; }
+    .zone-lbl { fill: rgba(45,49,66,0.55); font: 500 8px var(--font-mono); letter-spacing: .14em; }
+    .name { fill: #2d3142; font: 600 12px var(--font-sans); }
+    .sub { fill: #4f5d75; font: 400 8px var(--font-mono); letter-spacing: .04em; }
+    .badge { fill: #2d3142; }
+    .badge-n { fill: #f5f5f5; font: 600 12px var(--font-mono); }
+    .cap { fill: #2d3142; font: 400 12px var(--font-sans); }
+    .eyebrow-svg { fill: #4f5d75; font: 500 8px var(--font-mono); letter-spacing: .14em; }
+  </style>
+</head>
+<body>
+  <main data-motion-root data-motion-mode="step" data-step-count="8" data-step-current="8" data-frame="static" data-static-frame="complete">
+    <p class="eyebrow">Events pipeline · Flow · Local dev on Floci</p>
+    <h1>Events fan-out, retries and the dead-letter queue</h1>
+
+    <svg viewBox="0 80 1280 632" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="events-pipeline-fanout-dlq-title events-pipeline-fanout-dlq-desc">
+      <title id="events-pipeline-fanout-dlq-title">Events fan-out, retries and the dead-letter queue</title>
+      <desc id="events-pipeline-fanout-dlq-desc">Users, Orders and Tracking publish to one SNS topic that fans out to a filtered Users notifications queue and a raw events queue; the events pipeline Lambda persists each event in DocumentDB before dispatching it to its handler, and both queues redrive to one shared dead-letter queue, where the pipeline also quarantines messages it refuses.</desc>
+      <defs>
+        <marker id="epf-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+        </marker>
+        <marker id="epf-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/>
+        </marker>
+        <marker id="epf-arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+        </marker>
+      </defs>
+      <rect width="1280" height="712" fill="#f5f5f5"/>
+
+      <!-- Zones (painted first) -->
+      <rect x="16" y="252" width="160" height="144" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="0.8" stroke-dasharray="4,4"/>
+      <rect x="28" y="256" width="92" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="32" y="265" class="zone-lbl">DOCKER COMPOSE</text>
+
+      <rect x="208" y="92" width="784" height="352" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="0.8" stroke-dasharray="4,4"/>
+      <rect x="220" y="96" width="76" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="224" y="105" class="zone-lbl">FLOCI :4566</text>
+
+      <rect x="1056" y="252" width="192" height="144" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="0.8" stroke-dasharray="4,4"/>
+      <rect x="1068" y="256" width="116" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="1072" y="265" class="zone-lbl">FLOCI · VPC SUBNETS</text>
+
+      <!-- Connectors (before nodes) -->
+      <!-- services -> topic: publish (async) -->
+      <path d="M160,328 H256" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#epf-arrow)"/>
+      <!-- topic -> users queue: filtered (async) -->
+      <path d="M320,284 V176 Q320,168 328,168 H512" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#epf-arrow)"/>
+      <!-- topic -> events queue: raw delivery (async) -->
+      <path d="M384,328 H512" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#epf-arrow)"/>
+      <!-- events queue -> pipeline: batch (async) -->
+      <path d="M640,328 H800" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#epf-arrow)"/>
+      <!-- pipeline -> events DB: status -->
+      <path d="M928,328 H1088" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#epf-arrow)"/>
+      <!-- pipeline -> pipeline: dispatch -->
+      <path d="M832,372 V396 Q832,404 840,404 H888 Q896,404 896,396 V372" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#epf-arrow)"/>
+      <!-- events queue -> DLQ: redrive (async) -->
+      <path d="M608,284 V256 Q608,248 616,248 H824 Q832,248 832,240 V212" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#epf-arrow)"/>
+      <!-- users queue -> DLQ: redrive (async) -->
+      <path d="M640,168 H800" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#epf-arrow)"/>
+      <!-- pipeline -> DLQ: quarantine (async) -->
+      <path d="M896,284 V212" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#epf-arrow)"/>
+
+      <!-- Arrow labels (masked, 8px off their stroke) -->
+      <rect x="168" y="308" width="48" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="192" y="317" class="lbl" text-anchor="middle">PUBLISH</text>
+      <rect x="392" y="148" width="52" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="418" y="157" class="lbl" text-anchor="middle">FILTERED</text>
+      <rect x="392" y="308" width="72" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="428" y="317" class="lbl" text-anchor="middle">RAW DELIVERY</text>
+      <rect x="664" y="308" width="36" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="682" y="317" class="lbl" text-anchor="middle">BATCH</text>
+      <rect x="1000" y="308" width="40" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="1020" y="317" class="lbl" text-anchor="middle">STATUS</text>
+      <rect x="836" y="412" width="56" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="864" y="421" class="lbl" text-anchor="middle">DISPATCH</text>
+      <rect x="664" y="228" width="48" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="688" y="237" class="lbl" text-anchor="middle">REDRIVE</text>
+      <rect x="664" y="148" width="48" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="688" y="157" class="lbl" text-anchor="middle">REDRIVE</text>
+      <rect x="904" y="228" width="72" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="940" y="237" class="lbl" text-anchor="middle">QUARANTINE</text>
+
+      <!-- Nodes -->
+      <!-- Producers -->
+      <rect x="32" y="284" width="128" height="88" rx="6" fill="#f5f5f5"/>
+      <rect x="32" y="284" width="128" height="88" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/resource/Server.svg" x="76" y="292" width="40" height="40"/>
+      <text x="96" y="348" class="name" text-anchor="middle">Services</text>
+      <text x="96" y="364" class="sub" text-anchor="middle">Users, Orders, Tracking</text>
+
+      <!-- Events topic (SNS) -->
+      <rect x="256" y="284" width="128" height="88" rx="6" fill="#f5f5f5"/>
+      <rect x="256" y="284" width="128" height="88" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonSimpleNotificationService.svg" x="300" y="296" width="40" height="40"/>
+      <text x="320" y="356" class="name" text-anchor="middle">Events topic</text>
+
+      <!-- Users queue (SQS) -->
+      <rect x="512" y="124" width="128" height="88" rx="6" fill="#f5f5f5"/>
+      <rect x="512" y="124" width="128" height="88" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonSimpleQueueService.svg" x="556" y="132" width="40" height="40"/>
+      <text x="576" y="188" class="name" text-anchor="middle">Users queue</text>
+      <text x="576" y="204" class="sub" text-anchor="middle">notifications</text>
+
+      <!-- Events queue (SQS) -->
+      <rect x="512" y="284" width="128" height="88" rx="6" fill="#f5f5f5"/>
+      <rect x="512" y="284" width="128" height="88" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonSimpleQueueService.svg" x="556" y="296" width="40" height="40"/>
+      <text x="576" y="356" class="name" text-anchor="middle">Events queue</text>
+
+      <!-- Shared DLQ (SQS) -->
+      <rect x="800" y="124" width="128" height="88" rx="6" fill="#f5f5f5"/>
+      <rect x="800" y="124" width="128" height="88" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonSimpleQueueService.svg" x="844" y="136" width="40" height="40"/>
+      <text x="864" y="196" class="name" text-anchor="middle">Shared DLQ</text>
+
+      <!-- Events pipeline (Lambda, focal) -->
+      <rect x="800" y="284" width="128" height="88" rx="6" fill="#f5f5f5"/>
+      <rect x="800" y="284" width="128" height="88" rx="6" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1.2"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AWSLambda.svg" x="844" y="296" width="40" height="40"/>
+      <text x="864" y="356" class="name" text-anchor="middle">Events pipeline</text>
+
+      <!-- Events DB (DocumentDB) -->
+      <rect x="1088" y="284" width="128" height="88" rx="6" fill="#f5f5f5"/>
+      <rect x="1088" y="284" width="128" height="88" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/architecture-service/AmazonDocumentDB.svg" x="1132" y="292" width="40" height="40"/>
+      <text x="1152" y="348" class="name" text-anchor="middle">Events DB</text>
+      <text x="1152" y="364" class="sub" text-anchor="middle">DocumentDB</text>
+
+      <!-- Steps: badges on their connectors + the numbered caption list -->
+      <line x1="32" y1="472" x2="1248" y2="472" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="32" y="496" class="eyebrow-svg">STEPS</text>
+
+      <g data-motion-item data-step="1" aria-label="Step 1: the services publish one envelope to the events topic">
+        <circle class="badge" cx="236" cy="328" r="8"/><text class="badge-n" x="236" y="332" text-anchor="middle">1</text>
+        <circle class="badge" cx="40" cy="520" r="8"/><text class="badge-n" x="40" y="524" text-anchor="middle">1</text>
+        <text class="cap" x="56" y="524">Users, Orders and Tracking publish one envelope; its event type rides as a message attribute</text>
+      </g>
+      <g data-motion-item data-step="2" aria-label="Step 2: the filter policy passes notification events into the Users queue">
+        <circle class="badge" cx="472" cy="168" r="8"/><text class="badge-n" x="472" y="172" text-anchor="middle">2</text>
+        <circle class="badge" cx="40" cy="552" r="8"/><text class="badge-n" x="40" y="556" text-anchor="middle">2</text>
+        <text class="cap" x="56" y="556">Only the notification event types pass the filter policy into the Users queue</text>
+      </g>
+      <g data-motion-item data-step="3" aria-label="Step 3: every event reaches the events queue by raw delivery">
+        <circle class="badge" cx="488" cy="328" r="8"/><text class="badge-n" x="488" y="332" text-anchor="middle">3</text>
+        <circle class="badge" cx="40" cy="584" r="8"/><text class="badge-n" x="40" y="588" text-anchor="middle">3</text>
+        <text class="cap" x="56" y="588">Every event reaches the events queue, its body byte-for-byte via raw delivery</text>
+      </g>
+      <g data-motion-item data-step="4" aria-label="Step 4: the event source mapping delivers batches to the pipeline">
+        <circle class="badge" cx="760" cy="328" r="8"/><text class="badge-n" x="760" y="332" text-anchor="middle">4</text>
+        <circle class="badge" cx="40" cy="616" r="8"/><text class="badge-n" x="40" y="620" text-anchor="middle">4</text>
+        <text class="cap" x="56" y="620">The event source mapping delivers batches and accepts per-record failures</text>
+      </g>
+      <g data-motion-item data-step="5" aria-label="Step 5: the pipeline persists the event before dispatch">
+        <circle class="badge" cx="952" cy="328" r="8"/><text class="badge-n" x="952" y="332" text-anchor="middle">5</text>
+        <circle class="badge" cx="656" cy="520" r="8"/><text class="badge-n" x="656" y="524" text-anchor="middle">5</text>
+        <text class="cap" x="672" y="524">The event is persisted before dispatch; a duplicate event is skipped</text>
+      </g>
+      <g data-motion-item data-step="6" aria-label="Step 6: one handler runs and the event ends COMPLETED or FAILED">
+        <circle class="badge" cx="832" cy="388" r="8"/><text class="badge-n" x="832" y="392" text-anchor="middle">6</text>
+        <circle class="badge" cx="1068" cy="328" r="8"/><text class="badge-n" x="1068" y="332" text-anchor="middle">6</text>
+        <circle class="badge" cx="656" cy="552" r="8"/><text class="badge-n" x="656" y="556" text-anchor="middle">6</text>
+        <text class="cap" x="672" y="556">The type picks one handler (SES email, WebSocket push); the event ends COMPLETED,</text>
+        <text class="cap" x="672" y="572">or FAILED on a handler error, and a transient error is returned for an SQS retry</text>
+      </g>
+      <g data-motion-item data-step="7" aria-label="Step 7: after 3 receives SQS redrives both queues to the DLQ">
+        <circle class="badge" cx="736" cy="248" r="8"/><text class="badge-n" x="736" y="252" text-anchor="middle">7</text>
+        <circle class="badge" cx="736" cy="168" r="8"/><text class="badge-n" x="736" y="172" text-anchor="middle">7</text>
+        <circle class="badge" cx="656" cy="600" r="8"/><text class="badge-n" x="656" y="604" text-anchor="middle">7</text>
+        <text class="cap" x="672" y="604">After 3 receives SQS moves the message to the DLQ; the Users queue does too</text>
+      </g>
+      <g data-motion-item data-step="8" aria-label="Step 8: the pipeline quarantines a message it refuses to the DLQ">
+        <circle class="badge" cx="896" cy="264" r="8"/><text class="badge-n" x="896" y="268" text-anchor="middle">8</text>
+        <circle class="badge" cx="656" cy="632" r="8"/><text class="badge-n" x="656" y="636" text-anchor="middle">8</text>
+        <text class="cap" x="672" y="636">A bad envelope, or a permanent failure with no document, is copied raw then ACKed</text>
+      </g>
+
+      <!-- Legend strip -->
+      <line x1="32" y1="664" x2="1248" y2="664" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="32" y="692" class="eyebrow-svg">LEGEND</text>
+      <line x1="104" y1="688" x2="136" y2="688" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#epf-arrow)"/>
+      <text x="148" y="692" class="lbl">SYNC CALL</text>
+      <line x1="236" y1="688" x2="268" y2="688" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#epf-arrow)"/>
+      <text x="280" y="692" class="lbl">ASYNC · TOPIC, QUEUE</text>
+      <rect x="420" y="680" width="24" height="16" rx="4" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+      <text x="456" y="692" class="lbl">FOCAL SERVICE</text>
+      <circle class="badge" cx="572" cy="688" r="8"/><text class="badge-n" x="572" y="692" text-anchor="middle">n</text>
+      <text x="588" y="692" class="lbl">STEP · SEE CAPTION n</text>
+      <text x="740" y="692" class="lbl">VPC 10.0.0.0/16 · SUBNETS A+B</text>
+    </svg>
+
+    <div data-motion-controls role="group" aria-label="Diagram playback controls">
+      <button type="button" data-motion-action="prev">Previous</button>
+      <button type="button" data-motion-action="play" aria-pressed="false">Play</button>
+      <button type="button" data-motion-action="pause" aria-pressed="true">Pause</button>
+      <button type="button" data-motion-action="next">Next</button>
+      <button type="button" data-motion-action="replay">Replay</button>
+      <span class="keyboard-help">←/→ step · Space play/pause · R replay · Home/End jump</span>
+      <span data-motion-status-visible aria-hidden="true">Step <span data-motion-step-label>8</span> of 8</span>
+    </div>
+    <p class="sr-only" data-motion-status role="status" aria-live="polite" aria-atomic="true"></p>
+    <noscript><p>Animation controls require JavaScript. The complete final diagram is shown above.</p></noscript>
+  </main>
+
+  <script data-diagram-controls>
+    (() => {
+      const params = new URLSearchParams(location.search);
+      const staticOverride = params.get('motion') === 'static' || document.documentElement.dataset.motion === 'static';
+      const requestedStep = params.get('step');
+      const reduce = matchMedia('(prefers-reduced-motion: reduce)');
+      document.fonts.ready.then(() => { document.documentElement.dataset.fontsReady = 'true'; });
+
+      document.querySelectorAll('[data-motion-root]').forEach((root) => {
+        const count = Number(root.dataset.stepCount);
+        const hold = parseFloat(getComputedStyle(root).getPropertyValue('--motion-hold')) || 720;
+        const parsedStep = requestedStep !== null && /^\d+$/.test(requestedStep) ? Number(requestedStep) : null;
+        const exactStep = params.get('motion') === 'step' && Number.isSafeInteger(parsedStep) && parsedStep >= 0 && parsedStep <= count ? parsedStep : null;
+        const items = [...root.querySelectorAll('[data-motion-item]')];
+        const labels = Array.from({ length: count + 1 }, (_, index) => index === 0
+          ? 'Ready'
+          : items.filter((item) => !item.hasAttribute('data-motion-decorative') && Number(item.dataset.step) === index)
+              .map((item) => item.getAttribute('aria-label')).join('; '));
+        const controls = root.querySelector('[data-motion-controls]');
+        const status = root.querySelector('[data-motion-status]');
+        const visibleStep = root.querySelector('[data-motion-step-label]');
+        let step = count;
+        let timer = 0;
+        let playing = false;
+        let stepBeforeReduce = 0;
+        let resumeAfterReduce = root.dataset.motionMode === 'reveal';
+
+        const buttons = (action) => controls.querySelector(`[data-motion-action="${action}"]`);
+        const clearClock = () => { window.clearTimeout(timer); timer = 0; };
+        const announce = () => { status.textContent = `Step ${step} of ${count}: ${labels[step] || 'Complete'}`; };
+        const setControlsAvailable = (available) => {
+          controls.hidden = !available;
+          controls.setAttribute('aria-hidden', String(!available));
+          controls.dataset.playbackDisabled = String(!available);
+          controls.querySelectorAll('button').forEach((control) => { control.disabled = !available; });
+        };
+
+        function render(next, userInitiated = false) {
+          step = Math.max(0, Math.min(count, next));
+          root.dataset.stepCurrent = String(step);
+          root.dataset.frame = step === count ? 'end' : step === 0 ? 'start' : 'step';
+          items.forEach((item) => {
+            const itemStep = Number(item.dataset.step);
+            item.classList.toggle('is-visible', itemStep <= step);
+            item.classList.toggle('is-current', itemStep === step);
+          });
+          if (visibleStep) visibleStep.textContent = String(step);
+          const unavailable = controls.dataset.playbackDisabled === 'true';
+          buttons('prev').disabled = unavailable || step === 0;
+          buttons('next').disabled = unavailable || step === count;
+          if (userInitiated) announce();
+        }
+
+        function pause(userInitiated = false) {
+          clearClock();
+          playing = false;
+          root.classList.remove('is-playing');
+          buttons('play').setAttribute('aria-pressed', 'false');
+          buttons('pause').setAttribute('aria-pressed', 'true');
+          if (userInitiated) status.textContent = `Paused at step ${step} of ${count}`;
+        }
+
+        function finish() {
+          pause(false);
+          root.dataset.frame = 'end';
+          status.textContent = `Complete · step ${count} of ${count}`;
+        }
+
+        function tick() {
+          if (!playing) return;
+          if (step >= count) { finish(); return; }
+          render(step + 1, false);
+          if (step >= count) { finish(); return; }
+          timer = window.setTimeout(tick, hold);
+        }
+
+        function play(fromStart = false, userInitiated = false) {
+          clearClock();
+          if (fromStart || step >= count) render(0, userInitiated);
+          playing = true;
+          root.classList.add('is-playing');
+          buttons('play').setAttribute('aria-pressed', 'true');
+          buttons('pause').setAttribute('aria-pressed', 'false');
+          timer = window.setTimeout(tick, hold);
+        }
+
+        controls.addEventListener('click', (event) => {
+          const button = event.target.closest('[data-motion-action]');
+          if (!button) return;
+          const action = button.dataset.motionAction;
+          if (action === 'play') play(false, true);
+          if (action === 'pause') pause(true);
+          if (action === 'replay') play(true, true);
+          if (action === 'prev') { pause(false); render(step - 1, true); }
+          if (action === 'next') { pause(false); render(step + 1, true); }
+        });
+
+        root.addEventListener('keydown', (event) => {
+          if (event.target.matches('input, textarea, select, a[href]')) return;
+          const keys = { ArrowLeft: step - 1, ArrowRight: step + 1, Home: 0, End: count };
+          if (event.code === 'Space' && !event.target.closest('button')) {
+            event.preventDefault();
+            playing ? pause(true) : play(false, true);
+            return;
+          }
+          if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === 'r') {
+            event.preventDefault();
+            play(true, true);
+            return;
+          }
+          if (!(event.key in keys)) return;
+          event.preventDefault();
+          pause(false);
+          render(keys[event.key], true);
+        });
+
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'hidden' && playing) pause(false);
+        });
+        reduce.addEventListener('change', (event) => {
+          if (event.matches && root.dataset.motionState !== 'reduced') {
+            stepBeforeReduce = step;
+            resumeAfterReduce = playing;
+          }
+          pause(false);
+          if (event.matches) {
+            setControlsAvailable(false);
+            render(count, false);
+            root.dataset.frame = 'static';
+            root.dataset.motionState = 'reduced';
+            status.textContent = 'Reduced motion · complete static frame · playback controls unavailable';
+          } else if (staticOverride || root.dataset.motionMode === 'none') {
+            setControlsAvailable(false);
+            render(count, false);
+            root.dataset.frame = 'static';
+            root.dataset.motionState = 'static';
+            status.textContent = 'Static frame · complete diagram · playback controls unavailable';
+          } else {
+            delete root.dataset.motionState;
+            if (exactStep !== null) {
+              setControlsAvailable(false);
+              render(exactStep, false);
+              root.dataset.frame = 'step';
+              root.dataset.motionState = 'test';
+              status.textContent = `Test frame · step ${step} of ${count} · playback controls unavailable`;
+            } else {
+              setControlsAvailable(true);
+              render(stepBeforeReduce, false);
+              status.textContent = `Ready · step ${step} of ${count}`;
+              if (resumeAfterReduce && root.dataset.motionMode === 'reveal') {
+                play(false, false);
+              }
+            }
+            resumeAfterReduce = false;
+          }
+        });
+
+        if (staticOverride) {
+          document.documentElement.dataset.motion = 'static';
+          pause(false);
+          setControlsAvailable(false);
+          render(count, false);
+          root.dataset.frame = 'static';
+          root.dataset.motionState = 'static';
+          status.textContent = 'Static frame · complete diagram · playback controls unavailable';
+        } else if (reduce.matches || root.dataset.motionMode === 'none') {
+          pause(false);
+          setControlsAvailable(false);
+          render(count, false);
+          root.dataset.frame = 'static';
+          root.dataset.motionState = reduce.matches ? 'reduced' : 'static';
+          status.textContent = reduce.matches
+            ? 'Reduced motion · complete static frame · playback controls unavailable'
+            : 'Static frame · complete diagram · playback controls unavailable';
+        } else if (exactStep !== null) {
+          document.documentElement.dataset.motion = 'step';
+          pause(false);
+          setControlsAvailable(false);
+          render(exactStep, false);
+          root.dataset.frame = 'step';
+          root.dataset.motionState = 'test';
+          status.textContent = `Test frame · step ${step} of ${count} · playback controls unavailable`;
+        } else if (root.dataset.motionMode === 'reveal') {
+          setControlsAvailable(true);
+          render(0, false);
+          play(false, false);
+        } else {
+          pause(false);
+          setControlsAvailable(true);
+          render(0, false);
+          status.textContent = `Ready · step 0 of ${count}`;
+        }
+        root.classList.add('motion-ready');
+      });
+    })();
+  </script>
+</body>
+</html>
