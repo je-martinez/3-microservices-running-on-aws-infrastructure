@@ -1,6 +1,6 @@
 ---
 name: language-and-scope
-description: Write all documentation and code artifacts in English. Stay within what was asked — no unrequested features, files, or refactors.
+description: Everything written goes in English. Stay within what was asked — no unrequested features, files, or refactors.
 paths:
   - "**"
 ---
@@ -9,13 +9,9 @@ paths:
 
 ## Language
 
-- **Write documentation content in English** — note bodies, technical terms,
-  filenames, and frontmatter. The artifacts are read by tooling and by future
-  contributors in English, whatever language the conversation is held in.
-
-When delegating written work to another agent, **name the output language
-explicitly**. A prompt written in another language otherwise produces issues and
-documentation in that language.
+**Everything written goes in English**: code, comments, documentation (note
+bodies, filenames, frontmatter), commits, PRs and Linear issues. That includes
+what a delegated agent writes, so every brief asks for English output.
 
 ## Scope
 
