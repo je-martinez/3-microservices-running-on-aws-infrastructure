@@ -42,6 +42,12 @@ icons:
   group-public-subnet: architecture-group/Publicsubnet.svg
 devicon:
   docker: docker/docker-original.svg
+  angular: angular/angular-original.svg
+  nestjs: nestjs/nestjs-original.svg
+  dotnetcore: dotnetcore/dotnetcore-original.svg
+  go: go/go-original.svg
+  typescript: typescript/typescript-original.svg
+  opentelemetry: opentelemetry/opentelemetry-original.svg
 vendor:
   stripe: stripe/stripe-ios@26.14.0/StripePaymentSheet/StripePaymentSheet/Resources/StripePaymentSheet.xcassets/Link/InstantDebitIcons/bank_icon_stripe.imageset/BrandIcon--stripe.svg
   geoapify: geoapify/route-planner-sdk@cb2da5f18aee1efa35eb85ab948ffe8e17fcf9a8/docs-site/docs/assets/geoapify-logo-new-125x125.png

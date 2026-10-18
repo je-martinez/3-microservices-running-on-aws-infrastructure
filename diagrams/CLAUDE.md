@@ -58,6 +58,7 @@ The four pilots are the reference implementation; open the one of the same kind 
 - **No routes in labels, even when carrying content over 1:1:** `/v1 via web` becomes `API VIA WEB`. Labels ≤14 characters, uppercase.
 - **Stripe, Geoapify and OpenObserve use their `vendor` logo**; other external SaaS without one uses the `internet` icon. Optional integrations take the skill's dashed Optional treatment.
 - **An integration behind a feature flag** keeps the dashed Optional border, carries a `FLAG` tag (same chip as `VPC` / `COMPOSE` / `ECS`) and names the flag the code checks in its sublabel (e.g. `STRIPE_ENABLED`).
+- **A framework badge is subordinate.** In architecture and container views, a service node may carry its framework logo (`devicon`) as a 16 px badge on a white disc (r=11, hairline ring) centred at the main icon's right edge, 32 px down (`cx = icon_x + 40`, `cy = icon_y + 32`); the 40 px runtime/AWS icon stays the focal mark. Only the framework the code actually uses; no badge on stores, gateways or third-party products.
 - **Trim the viewBox** to the content so the PNG has no empty band at the top.
 
 ## Read the source before drawing
