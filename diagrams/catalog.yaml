@@ -63,6 +63,11 @@ entries:
   - infra/modules/alb/**
   - infra/modules/docdb/**
   - infra/modules/redis/**
+  - apps/web/src/app/core/payments/**
+  - services/users/src/shared/stripe/**
+  - services/orders/src/Orders.Infrastructure/Payments/**
+  - apps/web/src/app/core/api/geocode-api.ts
+  - infra/environments/preprod/scripts/preprod_integrations.py
 - id: system-context-l2
   title: System context — Level 2 (containers) — request path
   src: diagrams/src/system-context/system-context-l2.html

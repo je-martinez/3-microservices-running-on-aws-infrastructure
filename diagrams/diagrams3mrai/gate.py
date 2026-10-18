@@ -1,4 +1,4 @@
-"""Fail-closed checks for diagram-design sources: skill self_check, icon allowlist, width cap, catalog parity."""
+"""Fail-closed checks for diagram-design sources: skill self_check, verify-geometry, verify-motion, pinned icon allowlist (aws-icons, devicon, vendor), width cap, catalog parity."""
 
 import importlib.util
 import os

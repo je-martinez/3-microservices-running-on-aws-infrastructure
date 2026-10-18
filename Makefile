@@ -946,7 +946,7 @@ diagrams-check: ## List diagrams whose watched sources changed vs main (warns, n
 	@if $(DIAGRAMS_READY); then $(VENV)/bin/python -m diagrams3mrai.drift; \
 	else echo "diagrams-check: skipped ($(DIAGRAMS_SETUP_HINT))"; fi
 
-diagrams-gate: ## Fail on any diagram-design source that breaks the skill self_check, icon allowlist, 2000px cap or catalog parity (all, or ID=a,b)
+diagrams-gate: ## Fail on any diagram-design source that breaks the skill self_check, verify-geometry/motion, pinned icon allowlist, 2000px cap or catalog parity (all, or ID=a,b)
 	@$(DIAGRAMS_READY) || { echo "diagrams-gate: $(DIAGRAMS_SETUP_HINT)"; exit 1; }
 	$(VENV)/bin/python -m diagrams3mrai.gate $(subst $(comma), ,$(ID))
 
