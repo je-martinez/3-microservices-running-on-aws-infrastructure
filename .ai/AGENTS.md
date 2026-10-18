@@ -237,7 +237,7 @@ the derivation of the queue-depth threshold: `.ai/rules/testing.md`.
 
 ### Language
 
-**Converse with the user in Spanish.** **Write documentation content in English**
+**Write documentation content in English**
 (note bodies, technical terms, filenames, frontmatter).
 
 ### Code comments — describe the final state, never append debugging history

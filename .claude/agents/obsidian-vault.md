@@ -74,7 +74,7 @@ Source of truth: the repo `CLAUDE.md`, the design spec
 - **Cross-cutting rules are defined once in `shared/` and linked by `[[wikilink]]`** — never
   duplicated inside service specs. A service spec links `[[soft-delete]]`, it does not restate it.
 - Every note ends with a `## Related` section listing outgoing wikilinks.
-- Content language: **English** (filenames, frontmatter, bodies). Converse with the user in Spanish.
+- Content language: **English** (filenames, frontmatter, bodies).
 - ADR frontmatter adds `id`, `deciders`, `supersedes`, `superseded-by`. Integration runbooks add
   `integration-status`, `verified-on`, `verified-by`.
 - Use the dates already in the design/plan (2026-06-26) for existing notes; for genuinely new

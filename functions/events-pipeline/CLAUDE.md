@@ -155,7 +155,7 @@ The ~1 ev/s ceiling is Floci's delivery cadence, not this feature.
 > scope correction.
 
 ## 5. Agent rules
-- Converse with the user in **Spanish**; write code and comments in **English**.
+- Write code and comments in **English**.
 - `events-pipeline-impl` writes **only source code** — never runs git or Linear.
 - Leave finished work in the working tree for the **main session** to commit
   (`github-ops` is an optional helper for complex git batches — see [[git-workflow]]).

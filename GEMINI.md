@@ -508,16 +508,13 @@ Full lesson: `docs/lessons/2026-08-26-spec-said-so-review-checked-the-diff-not-t
 
 ## Language
 
-- **Converse with the user in Spanish.**
 - **Write documentation content in English** — note bodies, technical terms,
-  filenames, and frontmatter.
-
-The split is deliberate: the conversation is with a Spanish speaker, the
-artifacts are read by tooling and by future contributors in English.
+  filenames, and frontmatter. The artifacts are read by tooling and by future
+  contributors in English, whatever language the conversation is held in.
 
 When delegating written work to another agent, **name the output language
-explicitly**. A Spanish prompt otherwise produces Spanish issues and Spanish
-documentation.
+explicitly**. A prompt written in another language otherwise produces issues and
+documentation in that language.
 
 ## Scope
 

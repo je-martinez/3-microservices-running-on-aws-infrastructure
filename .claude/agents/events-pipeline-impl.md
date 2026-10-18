@@ -94,6 +94,6 @@ first, every time.
 
 ## Conventions
 
-- Converse with the user in Spanish (repo convention); code/comments in English.
+- Code/comments in English.
 - Your final message is consumed by the parent: summarize files changed, test
   output, and the proposed commit message.

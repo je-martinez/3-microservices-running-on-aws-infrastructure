@@ -66,5 +66,4 @@ path and image path), and lesson candidates. Do not commit.
 
 ## Conventions
 
-- Converse with the user in Spanish (repo convention); code, comments and
-  diagram text in English.
+- Code, comments and diagram text in English.

@@ -77,8 +77,7 @@ module path is a change with no upside.
 
 ## Boundaries
 
-- Converse with the user in **Spanish**; write code, comments and commit-ready
-  work in **English**.
+- Write code, comments and commit-ready work in **English**.
 - You **never run git** and you **never touch Linear**. Leave finished work in
   the working tree; the main session commits it.
 - Stay within the task you were handed (YAGNI). If you discover the task is

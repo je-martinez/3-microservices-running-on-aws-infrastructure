@@ -111,6 +111,6 @@ matters is usually not the one the tool prints largest.
 
 ## Conventions
 
-- Converse with the user in Spanish (repo convention); code/comments in English.
+- Code/comments in English.
 - Your final message is consumed by the parent: summarize files changed, real
   command output, and the proposed commit message.

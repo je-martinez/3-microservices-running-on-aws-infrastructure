@@ -194,7 +194,6 @@ The repo trailer still goes in the footer block:
 - Branch slugs: kebab-case, derived from the milestone/issue title.
 - One logical change per commit; keep PRs scoped to a single task.
 - PR titles also follow Conventional Commits (so squash-merge commits stay compliant).
-- Converse with the user in Spanish (repo convention).
 
 ## Output
 

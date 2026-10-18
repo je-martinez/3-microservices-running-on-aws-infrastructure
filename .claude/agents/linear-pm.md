@@ -131,7 +131,7 @@ can't.
 - Descriptions follow the "Writing issue descriptions" rules above: lead with what & why,
   then scope/done-when, and put the vault-note/plan link last as a reference — not as the
   whole description.
-- Converse with the user in Spanish (repo convention); Linear object content can be English.
+- Linear object content is written in English.
 
 ## Output
 

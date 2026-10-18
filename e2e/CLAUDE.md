@@ -211,7 +211,7 @@ These were all measured, not guessed:
   chose; never call `chromium.launch` directly. Convention:
   [../docs/shared/conventions/headed-browser-consent.md](../docs/shared/conventions/headed-browser-consent.md).
 
-- Converse with the user in **Spanish**; write code and comments in **English**.
+- Write code and comments in **English**.
 - `e2e-impl` writes **only test/simulation code** — never runs git, never
   touches Linear. Leave the work in the working tree for the main session.
 - Stay within the single task handed to you (YAGNI).

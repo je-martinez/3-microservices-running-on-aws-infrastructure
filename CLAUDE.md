@@ -88,7 +88,6 @@ Pre-prod (`make preprod-up`, compose project `3mrai-preprod`, `infra/environment
 - Full convention: `docs/shared/conventions/diagrams.md` → [[diagrams]]; decision [[ADR-0024-diagram-design-diagrams]]. Work goes through `diagram-impl`.
 
 ### Language
-- **Converse with the user in Spanish.**
 - **Vault / documentation content is written in English** (technical terms, filenames, frontmatter).
 
 ### Code comments — describe the final state, never append debugging history

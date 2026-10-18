@@ -954,8 +954,7 @@ branches log, because those are what the request line cannot explain.
 
 ## 13. Agent rules
 
-- Converse with the user in **Spanish**; write code, comments and commit-ready work
-  in **English**.
+- Write code, comments and commit-ready work in **English**.
 - `tracking-impl` writes **only source code** — it **never runs git** and
   **never touches Linear**.
 - Leave finished work in the **working tree** for the **main session** to commit
