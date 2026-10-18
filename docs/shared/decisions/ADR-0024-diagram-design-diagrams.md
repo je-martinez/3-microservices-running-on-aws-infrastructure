@@ -5,7 +5,7 @@ area: shared
 status: accepted
 id: ADR-0024
 created: 2026-10-13
-updated: 2026-10-14
+updated: 2026-10-18
 deciders: [Jose E. Martinez]
 supersedes: "ADR-0023-remotion-diagrams"
 superseded-by: null
@@ -35,7 +35,7 @@ related:
 2. **Icons.** Three pinned jsDelivr sections, allow-listed in `diagrams/icons.yaml` (logical key to CDN path): `icons` (official AWS Architecture Icons, `aws-icons@3.2.0`, MIT), `devicon` (technology logos, `devicon@2.16.0`, MIT) and `vendor` (a brand logo served from a GitHub repo through jsDelivr, `https://cdn.jsdelivr.net/gh/<org>/<repo>@<ref>/<path>`, SVG or PNG; the repo is the vendor's own, or the selfh.st icon collection `selfhst/icons` when the vendor's repo has no usable mark). The first two versions never change; a `vendor` ref is a release tag or a full 40-char commit SHA, never a branch. Keys are unique across sections. Why more than AWS: Docker publishes no official icon CDN (its brand kit is a ZIP), and Devicon is coloured like the AWS icons whereas Simple Icons are monochrome and an `<image>` cannot be recoloured (2026-10-14); first use is the Docker whale for Compose containers. Why `vendor`: Stripe, Geoapify and OpenObserve publish no icon CDN, so a pinned GitHub repo is the closest stable source (Stripe `stripe-ios@26.14.0`, Geoapify `route-planner-sdk` at a commit SHA because it has no releases and no SVG, OpenObserve `selfhst/icons@7e8bfc5…` `svg/openobserve.svg`, the multicolour ring with a pulse line, because the `mini_logo.svg` in the openobserve repo was not the right mark; user decision 2026-10-14). Those three nodes use their logo; other external SaaS keep the `internet` icon. This is an **accepted deviation** from the skill's "no external images" rule; the gate filters only these pinned URL shapes out of `self_check`'s remote-reference errors and any other remote URL still fails.
 3. **AWS group frames dropped.** Cloud/Region/VPC/AZ/subnet frames are replaced by at most 3 skill zones per diagram, drawn around the boundaries edges point at.
 4. **Flows.** Step-mode HTML (interactive, browser-only) plus a static PNG of the complete frame with numbered step badges inside the SVG. No GIF.
-5. **Branch.** The migration landed on `feature/remotion-diagrams`, replacing Remotion before PR #130 merged.
+5. **Branch.** The migration landed on `feature/remotion-diagrams`, replacing Remotion before PR #130 merges.
 6. **Tooling.** A slim Python `diagrams/` package (`diagrams3mrai`): `catalog.yaml`, `drift.py`, `gate.py`, `render.py` (Playwright). Python by default per [[scripting-language]].
 
 **Gate.** `make diagrams-gate` runs the plugin's `self_check`, `verify-geometry` and, for a flow with a motion root, `verify-motion`, plus the icon allowlist, the 2000 px width cap and catalog / source / PNG parity.

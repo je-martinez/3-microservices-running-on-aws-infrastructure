@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-10-13
-updated: 2026-10-13
+updated: 2026-10-18
 tags:
   - type/spec
   - area/shared
@@ -29,6 +29,17 @@ propagates-to:
 
 # Diagram-Design Migration — Design
 
+## Amendments (2026-10-14 – 2026-10-18)
+
+These decisions were made with the user after the plan closed. Where they conflict with the spec text below, **they supersede it**. The current source of truth is [[ADR-0024-diagram-design-diagrams]] and [[diagrams]].
+
+- **Arrow direction.** Arrows point from the caller. A pull receiver points at the polled service (`POLLS`, `PULLS IMAGES`, `READS CONFIG`). Exception: a queue → consumer edge points at the consumer.
+- **Three icon sections.** `diagrams/icons.yaml` has three pinned sections and the gate tolerates all three: `icons` (`aws-icons@3.2.0`), `devicon` (`devicon@2.16.0`, technology logos; the Docker whale on Compose containers) and `vendor` (brand logos via `cdn.jsdelivr.net/gh/` from the vendor's repo or `selfhst/icons`, pinned to a tag or full commit SHA, never a branch; Stripe, Geoapify, OpenObserve). This replaces "icons only from `aws-icons@3.2.0`" and the `internet` icon for Stripe, Geoapify and OpenObserve.
+- **Feature-flagged integrations.** An integration behind a feature flag keeps the dashed Optional border, carries a `FLAG` tag and names its flag (`STRIPE_ENABLED`, `GEOAPIFY_ENABLED`). Dev Geoapify has no flag and shows `API KEY SET`.
+- **Framework badges.** Service nodes in architecture and system-context L2 views carry a subordinate 16 px framework badge (devicon on a white disc).
+- **Pre-prod request-path view.** Additions: the ECS cluster drawn as a zone with the ECS icon; the WebSocket API paired with the HTTP API Gateway; SQS → events-pipeline → SES; CloudWatch / OTel collector / OpenObserve; the Stripe and Geoapify paths. WebSocket pushes are labelled `PUSH` (`FAN-OUT` is retired).
+- **Local Stripe webhooks bypass API Gateway** (see the Stripe sandbox runbook).
+
 ## Context
 
 On 2026-10-13 the user decided to replace Remotion with the `diagram-design` Claude Code plugin skill (verified with v2.6.6). Remotion today is the `diagrams/` package: Remotion 4.0.533, ELK layout, a zod schema and 29 catalog entries, shipped in PR #130 on `feature/remotion-diagrams` (not merged).
@@ -48,7 +59,7 @@ Current catalog node counts: flows 4-12, request-path architecture views 12-14, 
 ## Decisions (user-confirmed 2026-10-13)
 
 1. **Style.** The skill's own default style wins over the AWS reference-architecture look. A committed repo-root `.diagram-design` marker containing exactly `profile: default` keeps any session from hitting the skill's first-run brand gate.
-2. **Icons.** Official AWS Architecture Icons loaded from jsDelivr, package `aws-icons@3.2.0` (MIT; folders `icons/architecture-service/` 307, `icons/resource/` 477, `icons/architecture-group/` 15, `icons/category/` 25), via `<image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/<folder>/<Name>.svg">`. The version is always pinned to 3.2.0. `diagrams/icons.yaml` is the single allowlist mapping a logical key (`ecs`, `lambda`, `sqs`, ...) to its CDN path. This is an accepted deviation from the skill's "no external images" rule.
+2. **Icons.** *(superseded — see Amendments)* Official AWS Architecture Icons loaded from jsDelivr, package `aws-icons@3.2.0` (MIT; folders `icons/architecture-service/` 307, `icons/resource/` 477, `icons/architecture-group/` 15, `icons/category/` 25), via `<image href="https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/<folder>/<Name>.svg">`. The version is always pinned to 3.2.0. `diagrams/icons.yaml` is the single allowlist mapping a logical key (`ecs`, `lambda`, `sqs`, ...) to its CDN path. This is an accepted deviation from the skill's "no external images" rule.
 3. **Dropped from the AWS look.** The official coloured group frames (Cloud/Region/VPC/AZ/subnet) go away. Zones (max 3 per diagram) are the boundaries that edges point at, for example `Docker Compose · services`, `Floci — local AWS :4566`, `Realtime`, or an ECS cluster when edges target it. The VPC, subnets and (otherwise) the ECS cluster are not zones: the node carries a `VPC` tag and the legend names the CIDR, subnets and cluster. Kept: icon + label nodes, orthogonal connectors, dashed for async, entry on the left, at most 2000 px wide.
 4. **Flows.** HTML in `step` motion mode (interactive, browser-only) plus a static PNG of the complete frame with numbered step badges inside the SVG. No GIF. The 19 existing `.gif` files are deleted and their embeds switched to `.png`.
 5. **Branch.** The migration lands on `feature/remotion-diagrams` and replaces Remotion before PR #130 merges.
@@ -64,7 +75,7 @@ diagrams/
   CLAUDE.md                     rewritten for the new flow
   pyproject.toml                package "diagrams3mrai": playwright, pyyaml (+ pytest dev)
   catalog.yaml                  29 entries: id, title, src, output, watches[]
-  icons.yaml                    logical key -> path inside aws-icons@3.2.0
+  icons.yaml                    logical key -> path inside aws-icons@3.2.0  (superseded — see Amendments)
   src/<group>/<id>.html         diagram-design sources (architecture, system-context, flows, milestones)
   diagrams3mrai/
     render.py                   HTML -> PNG (Playwright, ?motion=static, await document.fonts.ready, scale 2)
@@ -77,7 +88,7 @@ diagrams/
 - **Gate.**
   - Runs the plugin's `self_check.py` from the newest installed version under `~/.claude/plugins/cache/diagram-design/diagram-design/` and prints it (`diagrams-gate: diagram-design <version>`); if absent, it fails with a clear install message.
   - Runs `verify-geometry.py` (fails on a label mask clipped by a later node) and, for a flow with a motion root, `verify-motion.py`.
-  - Filters only "remote reference" errors whose URL starts exactly with `https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/` and appears in `icons.yaml`. Any other error still fails.
+  - *(superseded — see Amendments)* Filters only "remote reference" errors whose URL starts exactly with `https://cdn.jsdelivr.net/npm/aws-icons@3.2.0/icons/` and appears in `icons.yaml`. Any other error still fails.
   - Checks every manifest URL answers HTTP 200 (skippable offline).
   - Checks that viewBox width is at most 2000.
   - When called without ids, checks catalog, `src/*.html` and output PNG correspond 1:1 (`orphans`, `missing_renders`).

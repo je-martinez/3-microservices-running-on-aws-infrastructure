@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-10-13
+updated: 2026-10-18
 tags:
   - type/spec
   - area/shared
@@ -367,7 +367,7 @@ Specs produced through the planning phase, normalized to vault conventions.
 - [[2026-10-05-preprod-integrations-design]] — Design for letting the user opt in to a fully functional Stripe flow and Geoapify autocomplete in pre-prod (or decline each): one owner script and a git-ignored `.env.preprod` with preserved CUSTOM inputs, secrets reaching ECS through an auto tfvars file, a config-hashed web image tag, host-side `stripe listen` forwarders per service, and an agent rule that never touches key values. Per [[2026-10-02-floci-preprod-environment-design]], [[2026-09-19-stripe-payments-design]], [[preprod]], [[env-files]].
 - [[2026-10-06-remotion-diagrams-design]] — (historical, superseded by [[ADR-0024-diagram-design-diagrams]]) Design for replacing draw.io with Remotion: data-driven animated GIF + PNG diagrams (architecture, flows, milestone dependency graphs) from a catalog with `watches` globs and a non-blocking `make diagrams-check`, a `diagram-impl` agent, a keep-current convention, and a `## Diagrams` PR section. Supersedes [[ADR-0015-drawio-diagrams]] via [[ADR-0023-remotion-diagrams]].
 - [[2026-10-07-aws-style-diagrams-design]] — (historical, superseded by [[ADR-0024-diagram-design-diagrams]]) Design for restyling every Remotion diagram to the AWS reference-architecture visual language: official AWS Architecture Icons, nested groups, ELK orthogonal layout via one `AwsDiagram` primitive, numbered step badges, step-less diagrams PNG-only. Revises [[ADR-0023-remotion-diagrams]] (same tool).
-- [[2026-10-13-diagram-design-migration-design]] — Draft handoff for replacing Remotion with the `diagram-design` skill: current state to migrate from, requirements that must survive, and open questions for the brainstorming session.
+- [[2026-10-13-diagram-design-migration-design]] — Final design for migrating diagrams to diagram-design (amended 2026-10-14..18).
 
 ---
 

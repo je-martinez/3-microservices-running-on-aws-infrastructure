@@ -4,7 +4,7 @@ type: plan
 area: shared
 status: accepted
 created: 2026-10-13
-updated: 2026-10-13
+updated: 2026-10-18
 tags:
   - type/plan
   - area/shared
@@ -26,6 +26,8 @@ propagates-to:
 ---
 
 # Diagram-Design Migration Implementation Plan
+
+> **Execution note (2026-10-18):** Decisions made on 2026-10-14..18, after this plan closed, are listed in the spec's [[2026-10-13-diagram-design-migration-design#Amendments (2026-10-14 – 2026-10-18)|Amendments]]. They supersede the plan lines that tolerate only AWS icons and that give Stripe, Geoapify and OpenObserve the `internet` icon (Global Constraints, Architecture and the icon tasks). Current source: [[ADR-0024-diagram-design-diagrams]] and [[diagrams]]. No checkbox below was changed.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

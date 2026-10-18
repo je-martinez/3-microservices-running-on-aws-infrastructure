@@ -4,7 +4,7 @@ type: convention
 area: shared
 status: active
 created: 2026-10-06
-updated: 2026-10-14
+updated: 2026-10-18
 tags:
   - type/convention
   - area/shared
@@ -56,9 +56,14 @@ The contract with every detail is `diagrams/CLAUDE.md`; the four pilots there ar
 - **Entry on the left** (browser, API Gateway, ALB, ECS, data, events), at most 2000 px wide, viewBox trimmed to the content.
 - **Solid is synchronous, dashed is async** (queues, topics, EventBridge, webhooks).
 - **An arrow points from the caller.** A pull receiver points at the polled service (e.g. the OTel collector polling CloudWatch, labelled `POLLS`; ECS pulling images, `PULLS IMAGES`; ECS reading task config, `READS CONFIG`). Exception: a queue → consumer edge points at the consumer, dashed, labelled by what it carries (`TRIGGERS`, `NOTIFY`) — the common AWS reading of a queue.
+- **Feature-flagged integrations** keep the dashed Optional border, carry a `FLAG` tag and name their flag (`STRIPE_ENABLED`, `GEOAPIFY_ENABLED`). Exception: dev Geoapify has no flag and shows `API KEY SET`.
+- **Framework badges.** Service nodes in architecture and system-context L2 views carry a subordinate 16 px framework badge (devicon on a white disc). The OTel collector carries the OpenTelemetry badge because it is our own deployment; stores, gateways and external SaaS get none.
+- **ECS cluster and pushes.** The ECS cluster may be drawn as a zone with the ECS icon in its header when edges target it. `PUSH` labels a WebSocket push.
 - **Labels** at most 14 characters, uppercase, never a route.
 - **Flows** carry numbered step badges and a caption list inside the SVG, so the static PNG holds the whole meaning; at most 8 motion steps in `step` mode.
 - **Detail level.** Service and resource names only, never endpoints, request fields or payloads. Content is read from real code and Terraform, never invented.
+
+Details in `diagrams/CLAUDE.md`.
 
 ## Coverage rule
 
