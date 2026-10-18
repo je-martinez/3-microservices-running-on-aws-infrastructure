@@ -68,7 +68,7 @@ Return exactly these three sections:
 
 ## Conventions
 
-- Converse with the user in Spanish (repo convention); plan content is English.
+- Plan content is English.
 - Be idempotent in intent: note when an issue/milestone likely already exists so
   `linear-pm` can update instead of duplicate.
 - Keep it tight — the plan is instructions for other agents, not prose.

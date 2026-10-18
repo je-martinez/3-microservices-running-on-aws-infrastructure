@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-10-13
+updated: 2026-10-18
 tags:
   - type/spec
   - area/shared
@@ -65,7 +65,7 @@ The container diagram zooms into the 3MRAI system and shows the independently de
 |---|---|---|
 | API Gateway | AWS API Gateway | TLS termination, JWT validation, rate limiting |
 | ALB | AWS ALB | Path-based routing to ECS tasks |
-| Users Service | Fastify (Node.js), ECS Fargate | User CRUD, Cognito sync, soft-delete; publishes `USER_CREATED` |
+| Users Service | NestJS 12 on Fastify (Node.js), ECS Fargate | User CRUD, Cognito sync, soft-delete; publishes `USER_CREATED` |
 | Orders Service | .NET Core 10 Minimal APIs, ECS Fargate | Order lifecycle, gRPC calls to Tracking; publishes `ORDER_CREATED` |
 | Tracking Service | Gin (Go 1.26.7), ECS Fargate | Shipment events, outbound gRPC client to Users; publishes `TRACKING_STATUS_CHANGED` on every delivery-status transition — see [[tracking-service-design]]. Migrated from Python/FastAPI 2026-08-27, see [[2026-08-27-tracking-go-migration-design]]. |
 | events-pipeline-handler | AWS Lambda (Node.js) | CQRS dispatcher; persists domain events to DocumentDB event store; renders and sends notification emails via SES (Mailpit locally) — see [[events-pipeline-design]] |

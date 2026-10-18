@@ -340,7 +340,7 @@ unit tests by spec decision (D9) — they arrive in phase 2 with the logic they
 test.
 
 ## 6. Agent rules
-- Converse with the user in **Spanish**; write code and comments in **English**.
+- Write code and comments in **English**.
 - `web-impl` writes **only source code** — never runs git or touches Linear.
 - Leave finished work in the working tree for the **main session** to commit
   (`github-ops` is an optional helper for complex git batches — see

@@ -12,7 +12,7 @@ rules:
   env-files-generated: universal
   logging-context-and-pii: universal
   testing-three-layers: universal
-  language-spanish-user-english-docs: universal
+  language-english-docs: universal
   scope-yagni: universal
   never-commit-without-confirmation: universal
   # Added 2026-10-05.

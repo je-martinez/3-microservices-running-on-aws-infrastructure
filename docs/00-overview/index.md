@@ -173,7 +173,7 @@ Root Map of Content for the **3 Microservices Running on AWS Infrastructure (3MR
 
 | Note | Description |
 |---|---|
-| [[users-service-design]] | Users service: Cognito auth, nano-id, soft-delete, CQRS, MongoDB |
+| [[users-service-design]] | Users service: Cognito auth, nano-id, soft-delete, CQRS, PostgreSQL (Prisma) |
 | [[orders-service-design]] | Orders service: order lifecycle, gRPC to tracking, CQRS |
 | [[tracking-service-design]] | Tracking service: location events, gRPC receiver, SQS consumer |
 | [[events-pipeline-design]] | Events pipeline: one shared SQS queue, Lambda CQRS dispatch, DocumentDB event store, react-email/SES notification emails |

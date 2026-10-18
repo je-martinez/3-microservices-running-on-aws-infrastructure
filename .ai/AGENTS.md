@@ -237,8 +237,9 @@ the derivation of the queue-depth threshold: `.ai/rules/testing.md`.
 
 ### Language
 
-**Converse with the user in Spanish.** **Write documentation content in English**
-(note bodies, technical terms, filenames, frontmatter).
+**Everything written goes in English**: code, comments, documentation, commits,
+PRs and Linear issues — including what a delegated agent writes, so every brief
+asks for English output.
 
 ### Code comments — describe the final state, never append debugging history
 

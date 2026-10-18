@@ -88,8 +88,7 @@ Pre-prod (`make preprod-up`, compose project `3mrai-preprod`, `infra/environment
 - Full convention: `docs/shared/conventions/diagrams.md` → [[diagrams]]; decision [[ADR-0024-diagram-design-diagrams]]. Work goes through `diagram-impl`.
 
 ### Language
-- **Converse with the user in Spanish.**
-- **Vault / documentation content is written in English** (technical terms, filenames, frontmatter).
+- **Everything written goes in English**: code, comments, documentation, commits, PRs and Linear issues — including what a delegated agent writes, so every brief asks for English output.
 
 ### Code comments — describe the final state, never append debugging history
 - **Rewrite on edit, never append.** When you fix or change a block you already commented, **rewrite that comment to describe the final state**. Do NOT append what failed, what you tried, or why the previous attempt was wrong. This is the loop that produces 100-line comment essays: the code gets fixed, the comment only grows.

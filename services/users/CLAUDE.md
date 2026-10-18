@@ -157,7 +157,7 @@ services/users/
   ([[2026-09-19-nest-grpc-interceptors-silently-dropped]]).
 
 ## 5. Agent rules
-- Converse with the user in **Spanish**; write code and comments in **English**.
+- Write code and comments in **English**.
 - `users-impl` writes **only source code** — never runs git or touches Linear.
 - Leave finished work in the working tree for the **main session** to commit
   (`github-ops` is an optional helper for complex git batches — see [[git-workflow]]).

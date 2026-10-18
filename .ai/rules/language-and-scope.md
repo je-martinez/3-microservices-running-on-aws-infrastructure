@@ -1,6 +1,6 @@
 ---
 name: language-and-scope
-description: Converse with the user in Spanish; write all documentation and code artifacts in English. Stay within what was asked — no unrequested features, files, or refactors.
+description: Everything written goes in English. Stay within what was asked — no unrequested features, files, or refactors.
 paths:
   - "**"
 ---
@@ -9,16 +9,9 @@ paths:
 
 ## Language
 
-- **Converse with the user in Spanish.**
-- **Write documentation content in English** — note bodies, technical terms,
-  filenames, and frontmatter.
-
-The split is deliberate: the conversation is with a Spanish speaker, the
-artifacts are read by tooling and by future contributors in English.
-
-When delegating written work to another agent, **name the output language
-explicitly**. A Spanish prompt otherwise produces Spanish issues and Spanish
-documentation.
+**Everything written goes in English**: code, comments, documentation (note
+bodies, filenames, frontmatter), commits, PRs and Linear issues. That includes
+what a delegated agent writes, so every brief asks for English output.
 
 ## Scope
 

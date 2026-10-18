@@ -260,7 +260,7 @@ All five infra scripts are Python (`bootstrap.py`, `scripts/discover_db_port.py`
   names, state-file shapes, and stdout purity where the Makefile captures it.
 
 ## 5. Agent rules
-- Converse with the user in **Spanish**; write config and comments in **English**.
+- Write config and comments in **English**.
 - `infra-impl` writes **only Terraform/config** — never runs git or touches Linear.
 - Leave finished work in the working tree for the **main session** to commit
   (`github-ops` is an optional helper for complex git batches — see [[git-workflow]]).
