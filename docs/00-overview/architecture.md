@@ -4,7 +4,7 @@ type: spec
 area: shared
 status: active
 created: 2026-06-26
-updated: 2026-10-13
+updated: 2026-10-18
 tags:
   - type/spec
   - area/shared
@@ -27,6 +27,7 @@ related:
   - "[[2026-08-27-tracking-go-migration-design]]"
   - "[[ADR-0021-tracking-go-gin-sqlc-stack]]"
   - "[[scripting-language]]"
+  - "[[2026-09-19-users-nestjs-migration-design]]"
 ---
 
 # System Architecture
@@ -80,7 +81,7 @@ Each microservice runs as an independent ECS Fargate task definition. Stacks dif
 
 | Service | Runtime | Framework |
 |---|---|---|
-| Users | Node.js | Fastify |
+| Users | Node.js | NestJS 12 (Fastify adapter) |
 | Orders | .NET Core 10 | Minimal APIs + Entity Framework Core |
 | Tracking | Go 1.26.7 | Gin |
 
@@ -208,3 +209,4 @@ Compose and Terraform. See [[ADR-0017-floci-local]] (which supersedes the earlie
 - [[tracking-service-design]] — Tracking's runtime is now Go/Gin; see the Compute Layer table above.
 - [[2026-08-27-tracking-go-migration-design]] — the Python-to-Go migration design.
 - [[ADR-0021-tracking-go-gin-sqlc-stack]] — the Go stack decision (Gin, sqlc, golang-migrate, goenv).
+- [[2026-09-19-users-nestjs-migration-design]] — Users runs NestJS 12 on the Fastify adapter; see the Compute Layer table above.
